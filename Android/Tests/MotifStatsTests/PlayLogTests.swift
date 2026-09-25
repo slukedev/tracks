@@ -43,7 +43,7 @@ struct PlayLogTests {
 
         var log = PlayLog()
         log.add([
-            Play(title: "Moth", artistName: "Wren & Ivy", albumTitle: "Lanterns", playedAt: noon, appName: "Spotify", appPackage: "com.spotify.music"),
+            Play(title: "Moth", artistName: "Wren & Ivy", albumTitle: "Lanterns", playedAt: noon, songID: "tr-9", serverID: "home"),
             Play(title: "Weightless", artistName: "Paper Moons", playedAt: noon.addingTimeInterval(300), kind: .lastFM),
         ])
         try log.save(to: url)

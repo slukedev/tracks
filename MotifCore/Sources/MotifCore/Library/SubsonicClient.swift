@@ -1,5 +1,11 @@
 import Foundation
+// Android has neither: it brings its own `Insecure.MD5`, and URLSession lives apart there.
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// A music server that speaks the Subsonic API, the standard self-hosted music servers share:
 /// Navidrome, Gonic, Airsonic, Ampache, LMS and others. OpenSubsonic, its open extension,

@@ -14,12 +14,19 @@ public struct Play: Codable, Sendable, Hashable, Identifiable {
     /// ``CaptureKind`` as its raw value. Android keeps songs it hears as on-demand plays and
     /// Last.fm scrobbles as `lastFM`.
     public var kindRawValue: String
-    /// The app that played it, by name ("YouTube Music"), when Motif heard it itself.
+    /// The song on the music server it was played from, so it can be played again from the
+    /// statistics.
+    public var songID: String?
+    public var serverID: String?
+    /// The app that played it, by name, and its package. Only ever Motif since Android keeps
+    /// only what it plays itself; kept for files from builds that listened to other apps.
     public var appName: String?
-    /// The app's package, which is what's stable across renames and languages.
     public var appPackage: String?
     /// Length in seconds, when the player said.
     public var duration: TimeInterval?
+    /// Part of the sample history, so it can be cleared without touching real plays. Optional
+    /// so files written before it existed still read.
+    public var isSample: Bool?
 
     public init(
         title: String,
@@ -28,9 +35,12 @@ public struct Play: Codable, Sendable, Hashable, Identifiable {
         artworkURL: String? = nil,
         playedAt: Date,
         kind: CaptureKind = .onDemand,
+        songID: String? = nil,
+        serverID: String? = nil,
         appName: String? = nil,
         appPackage: String? = nil,
-        duration: TimeInterval? = nil
+        duration: TimeInterval? = nil,
+        isSample: Bool? = nil
     ) {
         self.title = title
         self.artistName = artistName
@@ -38,9 +48,12 @@ public struct Play: Codable, Sendable, Hashable, Identifiable {
         self.artworkURL = artworkURL
         self.playedAt = playedAt
         self.kindRawValue = kind.rawValue
+        self.songID = songID
+        self.serverID = serverID
         self.appName = appName
         self.appPackage = appPackage
         self.duration = duration
+        self.isSample = isSample
     }
 
     public var kind: CaptureKind { CaptureKind(rawValue: kindRawValue) ?? .onDemand }
@@ -54,6 +67,7 @@ public struct Play: Codable, Sendable, Hashable, Identifiable {
     public var stat: CaptureStat {
         CaptureStat(
             songKey: songKey,
+            songID: songID ?? "",
             title: title,
             artistName: artistName,
             albumTitle: albumTitle,
@@ -65,36 +79,18 @@ public struct Play: Codable, Sendable, Hashable, Identifiable {
 }
 
 extension Play {
-    /// The sample history the iPhone and Mac show, as Android keeps it.
-    ///
-    /// Radio is an Apple Music idea, so sample radio plays count as ordinary plays here, and
-    /// they're spread across the players an Android phone would have.
+    /// The sample history the iPhone and Mac show, for screenshots and trying the screens
+    /// without a server. Only offered in debug builds.
     public static func samples(endingAt now: Date = .now, calendar: Calendar = .current) -> [Play] {
-        let apps = SampleApp.all
-        return DemoLibrary.plays(endingAt: now, calendar: calendar).enumerated().map { index, play in
-            // One player per listening stretch, as people tend to stay in one app.
-            let hour = calendar.component(.hour, from: play.capturedAt)
-            let app = apps[(hour / 6 + index / 400) % apps.count]
-            return Play(
+        DemoLibrary.plays(endingAt: now, calendar: calendar).map { play in
+            Play(
                 title: play.title,
                 artistName: play.artistName,
                 albumTitle: play.albumTitle,
                 playedAt: play.capturedAt,
                 kind: .onDemand,
-                appName: app.name,
-                appPackage: app.package
+                isSample: true
             )
         }
-    }
-
-    private struct SampleApp {
-        let name: String
-        let package: String
-
-        static let all = [
-            SampleApp(name: "YouTube Music", package: "com.google.android.apps.youtube.music"),
-            SampleApp(name: "Spotify", package: "com.spotify.music"),
-            SampleApp(name: "Apple Music", package: "com.apple.android.music"),
-        ]
     }
 }

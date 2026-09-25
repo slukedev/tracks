@@ -88,3 +88,9 @@ android {
         }
     }
 }
+
+dependencies {
+    // The player: ExoPlayer, in a media session service for background playback and controls.
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
+    implementation("androidx.media3:media3-session:1.8.0")
+}
