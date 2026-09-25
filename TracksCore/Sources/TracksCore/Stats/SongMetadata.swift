@@ -70,7 +70,10 @@ public struct SongMetadataCache: Sendable {
     }
 
     public static var defaultURL: URL? {
-        URL.applicationSupportDirectory.appending(path: "SongMetadata.json")
+        // Asked of FileManager rather than `URL.applicationSupportDirectory`, which Android's
+        // Foundation doesn't have. The same folder on Apple platforms.
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("SongMetadata.json")
     }
 
     /// Every lookup so far. ``SongMetadata/unknown`` means the song was asked about and the
