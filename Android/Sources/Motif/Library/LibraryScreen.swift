@@ -28,6 +28,7 @@ struct LibraryScreen: View {
                     NavigationLink(value: Route.serverArtist(artist.id)) {
                         ArtistRow(artist: artist)
                     }
+                    .materialListRow()
                 }
             }
             .listStyle(.plain)

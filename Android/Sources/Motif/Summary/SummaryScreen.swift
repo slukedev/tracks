@@ -10,14 +10,23 @@ struct SummaryScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.cards) {
-                Picker("Period", selection: $range) {
-                    ForEach(StatsRange.allCases, id: \.self) { range in
-                        Text(range.title).tag(range)
+                if !model.isEmpty {
+                    Picker("Period", selection: $range) {
+                        ForEach(StatsRange.allCases, id: \.self) { range in
+                            Text(range.title).tag(range)
+                        }
                     }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
 
-                if let summary {
+                if model.isEmpty {
+                    EmptyState(
+                        symbol: .stats,
+                        title: "Your stats start here",
+                        message: "Play something from your server. Motif keeps each song once it's played for half its length, and your stats build from there."
+                    )
+                    .padding(.top, 32)
+                } else if let summary {
                     content(summary)
                 } else {
                     ProgressView()
@@ -240,10 +249,12 @@ struct GlanceTile: View {
                 .materialType(.bodyMedium)
                 .materialForeground(.onSurfaceVariant)
                 .lineLimit(1)
-            Text(detail ?? " ")
-                .materialType(.bodySmall)
-                .materialForeground(.onSurfaceVariant)
-                .lineLimit(1)
+            if let detail {
+                Text(detail)
+                    .materialType(.bodySmall)
+                    .materialForeground(.onSurfaceVariant)
+                    .lineLimit(1)
+            }
         }
         .combinedAccessibility()
     }

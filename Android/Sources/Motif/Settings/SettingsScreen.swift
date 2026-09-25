@@ -129,5 +129,6 @@ struct SettingLabel: View {
         .frame(minHeight: 56)
         .fullTapArea()
         .combinedAccessibility()
+        .listRowSeparator(.hidden)
     }
 }

@@ -1,51 +1,78 @@
-# Motif
+# Motif for Android
 
-This is a [Skip](https://skip.dev) dual-platform app project.
+Your own music server, played and remembered. Motif on Android plays the music on a
+Subsonic-compatible server (Navidrome, Gonic, Airsonic and others) and keeps statistics of
+what you play in it: listening time, top songs, artists and albums, streaks and highlights.
+The statistics come only from what Motif plays.
 
+It's a native Material 3 app built with [Skip](https://skip.dev) Fuse: SwiftUI that is
+compiled for Android and drawn with Jetpack Compose. Every number comes from the same
+`StatsCalculator` as the iPhone and Mac apps.
 
-<!-- TODO: add iOS screenshots to fastlane metadata
-## iPhone Screenshots
+## Layout
 
-<img alt="iPhone Screenshot" src="Darwin/fastlane/screenshots/en-US/1_en-US.png" style="width: 18%" /> <img alt="iPhone Screenshot" src="Darwin/fastlane/screenshots/en-US/2_en-US.png" style="width: 18%" /> <img alt="iPhone Screenshot" src="Darwin/fastlane/screenshots/en-US/3_en-US.png" style="width: 18%" /> <img alt="iPhone Screenshot" src="Darwin/fastlane/screenshots/en-US/4_en-US.png" style="width: 18%" /> <img alt="iPhone Screenshot" src="Darwin/fastlane/screenshots/en-US/5_en-US.png" style="width: 18%" />
--->
+| Folder                    | What's in it                                                              |
+| ------------------------- | ------------------------------------------------------------------------- |
+| `Sources/MotifStats`      | The statistics engine and the play log. `Shared` links to MotifCore files |
+| `Sources/Motif`           | The app: SwiftUI screens, drawn as Material 3 on Android                  |
+| `Android/app/src/main`    | The manifest, launcher icons, and `PlaybackService.kt`, the player        |
+| `Tests/MotifStatsTests`   | Tests for the Android-only parts of MotifStats                            |
 
-<!-- TODO: add Android screenshots to fastlane metadata
-## Android Screenshots
+`Sources/MotifStats/Shared` is symbolic links to the MotifCore files that need nothing but
+Foundation, so there's one copy of the statistics. A MotifCore file added there must stay free
+of SwiftData, CloudKit, MusicKit and `URL.applicationSupportDirectory`.
 
-<img alt="Android Screenshot" src="Android/fastlane/metadata/android/en-US/images/phoneScreenshots/1_en-US.png" style="width: 18%" /> <img alt="Android Screenshot" src="Android/fastlane/metadata/android/en-US/images/phoneScreenshots/2_en-US.png" style="width: 18%" /> <img alt="Android Screenshot" src="Android/fastlane/metadata/android/en-US/images/phoneScreenshots/3_en-US.png" style="width: 18%" /> <img alt="Android Screenshot" src="Android/fastlane/metadata/android/en-US/images/phoneScreenshots/4_en-US.png" style="width: 18%" /> <img alt="Android Screenshot" src="Android/fastlane/metadata/android/en-US/images/phoneScreenshots/5_en-US.png" style="width: 18%" />
--->
+How it fits together:
+
+- **Playing.** `PlaybackService.kt` runs Media3's ExoPlayer in a media session service, so
+  music, the notification, the lock screen and headphone controls carry on with Motif closed.
+  `PlayerModel.swift` sends it a queue and reads its state through Skip's `AnyDynamicObject`.
+- **Counting.** The service writes each song that has played long enough to
+  `pending-listens.jsonl`. The app takes them every few seconds, keeps those MotifCore's
+  `ScrobblePolicy` counts (half the song or 4 minutes), and scrobbles them to the server.
+- **Keeping.** Plays are a JSON file (`PlayLog`) in the app's private storage. Covers are
+  stored as `subsonic-cover:` references, never as addresses, which carry the server's token.
+- **Design.** Material 3 throughout: dynamic colour from the wallpaper, the M3 type and shape
+  scales (`Design/Tokens.swift`), Material Symbols (`Design/Symbol.swift`) and colour roles
+  (`Design/Material.swift`), reached through small Kotlin `ContentModifier`s.
 
 ## Building
 
-This project is both a stand-alone Swift Package Manager module,
-as well as an Xcode project that builds and translates the project
-into a Kotlin Gradle project for Android using the skipstone plugin.
+Needs Skip (`brew install skiptools/skip/skip`), the Swift Android SDK
+(`skip android sdk install`), JDK 21 and the Android SDK.
 
-## Running
+```bash
+cd Android && JAVA_HOME=$(/usr/libexec/java_home -v 21) gradle installDebug
+```
 
-Xcode and Android Studio must be downloaded and installed in order to
-run the app in the iOS simulator / Android emulator.
-An Android emulator must already be running, which can be launched from
-Android Studio's Device Manager.
+Build through Gradle only. Running `skip android build` separately rewrites the plugin's
+generated Kotlin, and the next Gradle build fails with unresolved references; delete
+`.build/plugins/outputs` to recover.
 
-The project can be opened and run in Xcode from
-`Project.xcworkspace`, which also enabled parallel
-development of any Skip libary dependencies.
+The Swift tests run on the Mac:
 
-To run both the Swift and Kotlin apps simultaneously,
-launch the "Motif App" target from Xcode.
-A build phases runs the "Launch Android APK" script that
-will deploy the Skip app to a running Android emulator or connected device.
-Logging output for the iOS app can be viewed in the Xcode console, and in
-Android Studio's logcat tab for the transpiled Kotlin app, or
-using `adb logcat` from a terminal.
+```bash
+swift test --build-system native
+```
 
-## Testing
+Debug builds have a *Sample listening* switch in Settings, for screenshots and for trying the
+statistics without a history.
 
-The module can be tested using the standard `swift test` command
-or by running the test target for the macOS destination in Xcode,
-which will run the Swift tests as well as the transpiled
-Kotlin JUnit tests in the Robolectric Android simulation environment.
+## Skip pitfalls met so far
 
-Parity testing can be performed with `skip test`,
-which will output a table of the test results for both platforms.
+Each of these cost a crash or a stuck screen; the code notes them where they're avoided.
+
+- `@State` can't be `private`, and neither can nested views.
+- A bridged root view is made again on every recomposition: keep models out of its `@State`
+  (see `AppModels`), or it redraws without end.
+- `accessibilityAddTraits` with an empty set overflows the stack. Add traits only when they
+  apply (`selectedTrait`).
+- `AsyncImage(url:content:placeholder:)` never shows the image; use the phase form.
+- `safeAreaInset`, `listRowInsets`, `contentShape` and `accessibilityElement(children:)` aren't
+  available on Android. `Design/Platform.swift` has the stand-ins.
+- A row of fixed-width views wider than its container makes Compose measure the container
+  wider too, pushing content out of sight.
+- Kotlin statics called from Swift belong in a class's `companion object`, not an `object`.
+- Internal declarations in `#if SKIP` blocks are bridged unless marked `// SKIP @nobridge`.
+- Android blocks plain-http loads (covers, streams) unless `usesCleartextTraffic` is on. Swift's
+  own networking ignores it, so sign-in can work while nothing plays.

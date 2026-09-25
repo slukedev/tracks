@@ -46,7 +46,7 @@ struct BarChart: View {
             }
             .frame(height: height, alignment: .bottom)
             if let average, top > 0, average > 0 {
-                DashedLine()
+                AverageLine()
                     .offset(y: -height * average / top)
             }
         }
@@ -90,7 +90,7 @@ struct BarChart: View {
             Spacer(minLength: 0)
             scaleText(0)
         }
-        .frame(width: 36, height: height, alignment: .leading)
+        .frame(width: 40, height: height, alignment: .leading)
     }
 
     private func scaleText(_ value: Double) -> some View {
@@ -110,33 +110,33 @@ struct BarChart: View {
                     .fixedSize()
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Color.clear.frame(width: 44, height: 1)
+            Color.clear.frame(width: 48, height: 1)
         }
     }
 
-    /// Rounds the highest value up to a number worth putting on an axis: 1, 2 or 5 times a
-    /// power of ten.
+    /// Rounds the highest value up to a number worth putting on an axis, whose half is one too:
+    /// 1, 2, 4, 6 or 8 times a power of ten, so the midline reads 30m, 1h, 2h, 3h or 4h rather
+    /// than 1h 15m. Close enough above the highest bar that the bars fill the plot.
     static func niceCeiling(_ value: Double) -> Double {
         guard value > 0 else { return 1 }
         let magnitude = pow(10, floor(log10(value)))
-        for step in [1.0, 2.0, 5.0, 10.0] where value <= step * magnitude {
+        for step in [1.0, 2.0, 4.0, 6.0, 8.0, 10.0] where value <= step * magnitude {
             return step * magnitude
         }
         return 10 * magnitude
     }
 }
 
-/// The average, as a dashed line in the outline colour.
-struct DashedLine: View {
+/// The average, as a line in the outline colour across the plot.
+///
+/// A plain rule rather than dashes: a row of fixed-width dashes wider than the plot makes
+/// Compose measure the whole chart wider than its card, pushing the last bars out of sight.
+struct AverageLine: View {
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<60, id: \.self) { _ in
-                Color.clear
-                    .frame(width: 6, height: 1.5)
-                    .materialBackground(.outline)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .clipped()
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: 1.5)
+            .materialBackground(.outline)
+            .accessibilityHidden(true)
     }
 }
