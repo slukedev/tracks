@@ -7,16 +7,15 @@ let logger: Logger = Logger(subsystem: "dev.luke.motif", category: "Motif")
 
 /// The app's root, loaded by `MainActivity` on Android.
 /* SKIP @bridge */public struct MotifRootView : View {
-    @State var model = AppModel()
-    @State var servers: ServerStore
-    @State var player: PlayerModel
+    // Held by the process rather than as view state: Compose makes a new MotifRootView whenever
+    // it recomposes the activity's content, and new models each time would redraw endlessly.
+    let model = AppModels.model
+    let servers = AppModels.servers
+    let player = AppModels.player
     @AppStorage("appearance") var appearance = ""
     @Environment(\.scenePhase) var scenePhase
 
     /* SKIP @bridge */public init() {
-        let servers = ServerStore()
-        _servers = State(initialValue: servers)
-        _player = State(initialValue: PlayerModel(servers: servers))
     }
 
     public var body: some View {
@@ -48,6 +47,14 @@ let logger: Logger = Logger(subsystem: "dev.luke.motif", category: "Motif")
             try? await client.scrobble(songID: songID, at: play.playedAt, submission: true)
         }
     }
+}
+
+/// The app's models, one each for the life of the process. The player service outlives the
+/// window anyway, so there's nothing to gain from making them per scene.
+@MainActor enum AppModels {
+    static let model = AppModel()
+    static let servers = ServerStore()
+    static let player = PlayerModel(servers: servers)
 }
 
 /// Global application delegate functions.

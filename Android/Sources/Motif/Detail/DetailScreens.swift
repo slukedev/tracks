@@ -5,6 +5,8 @@ import MotifStats
 struct ArtistScreen: View {
     let artistID: String
     @Environment(AppModel.self) var model
+    @Environment(ServerStore.self) var servers
+    @Environment(PlayerModel.self) var player
     @State var profile: ArtistProfile?
     @State var isLoaded = false
 
@@ -23,6 +25,13 @@ struct ArtistScreen: View {
                     ("Songs", Format.count(profile.artist.songCount)),
                     ("First heard", Format.shortDate(profile.artist.firstHeard)),
                 ])
+                let queue = profile.songs.compactMap { QueueSong($0, serverID: servers.server?.id) }
+                if !queue.isEmpty {
+                    PlayButtons(
+                        play: { player.play(queue, from: "\(profile.artist.name): your top songs") },
+                        shuffle: { player.play(queue, from: "\(profile.artist.name): your top songs", shuffled: true) }
+                    )
+                }
                 PlaysOverTimeCard(timeline: profile.timeline, unit: profile.timelineUnit)
                 if !profile.songs.isEmpty {
                     SectionHeader(title: "Top songs")
@@ -58,6 +67,8 @@ struct ArtistScreen: View {
 struct SongScreen: View {
     let songID: String
     @Environment(AppModel.self) var model
+    @Environment(ServerStore.self) var servers
+    @Environment(PlayerModel.self) var player
     @State var profile: SongProfile?
     @State var isLoaded = false
 
@@ -69,6 +80,18 @@ struct SongScreen: View {
                     subtitle: [profile.song.artistName, profile.song.albumTitle].compactMap { $0 }.joined(separator: " · ")
                 ) {
                     Artwork(url: profile.song.artworkURL, size: 200, corner: Corner.extraLarge)
+                }
+                if let song = QueueSong(profile.song, serverID: servers.server?.id) {
+                    Button {
+                        player.play([song], from: song.title)
+                    } label: {
+                        HStack(spacing: 8) {
+                            SymbolImage(.play, size: 20, filled: true, role: .onPrimary)
+                            Text("Play")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
                 NavigationLink(value: Route.artist(profile.artistID)) {
                     ListRow(headline: profile.song.artistName, supporting: "Artist") {
@@ -109,6 +132,8 @@ struct SongScreen: View {
 struct AlbumScreen: View {
     let albumID: String
     @Environment(AppModel.self) var model
+    @Environment(ServerStore.self) var servers
+    @Environment(PlayerModel.self) var player
     @State var profile: AlbumProfile?
     @State var isLoaded = false
 
@@ -127,6 +152,13 @@ struct AlbumScreen: View {
                     ("Songs", Format.count(profile.album.songCount)),
                     ("First heard", Format.shortDate(profile.firstHeard)),
                 ])
+                let queue = profile.songs.compactMap { QueueSong($0, serverID: servers.server?.id) }
+                if !queue.isEmpty {
+                    PlayButtons(
+                        play: { player.play(queue, from: profile.album.title) },
+                        shuffle: { player.play(queue, from: profile.album.title, shuffled: true) }
+                    )
+                }
                 PlaysOverTimeCard(timeline: profile.timeline, unit: profile.timelineUnit)
                 SectionHeader(title: "Songs")
                 RankedSongs(songs: profile.songs)

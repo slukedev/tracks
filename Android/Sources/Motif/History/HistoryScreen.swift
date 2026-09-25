@@ -17,6 +17,7 @@ struct HistoryScreen: View {
                         NavigationLink(value: Route.song(play.songKey)) {
                             HistoryRow(play: play)
                         }
+                        .materialListRow()
                     }
                     .onDelete { offsets in
                         pendingDelete = offsets.first.map { day.plays[$0] }
@@ -87,7 +88,7 @@ struct HistoryRow: View {
     let play: Play
 
     var body: some View {
-        ListRow(headline: play.title, supporting: supporting) {
+        ListRow(headline: play.title, supporting: play.artistName, inset: 0) {
             Artwork(url: play.artworkURL, size: 56)
         } trailing: {
             Text(Format.time(play.playedAt))
@@ -96,9 +97,4 @@ struct HistoryRow: View {
         }
     }
 
-    private var supporting: String {
-        [play.artistName, play.kind == .lastFM ? "Last.fm" : play.appName]
-            .compactMap { $0 }
-            .joined(separator: " · ")
-    }
 }

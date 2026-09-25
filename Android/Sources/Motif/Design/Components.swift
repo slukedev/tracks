@@ -103,12 +103,24 @@ struct Monogram: View {
     var size: CGFloat = 56
 
     var body: some View {
+        let (container, content) = Self.tones(for: name)
         Text(Self.initials(of: name))
             .materialType(size >= 96 ? .displaySmall : size >= 64 ? .headlineSmall : .titleMedium)
-            .materialForeground(.onSecondaryContainer)
+            .materialForeground(content)
             .frame(width: size, height: size)
-            .materialBackground(.secondaryContainer, cornerRadius: size / 2)
+            .materialBackground(container, cornerRadius: size / 2)
             .accessibilityHidden(true)
+    }
+
+    /// One of the three tonal containers, the same for a name every time, so a row of artists
+    /// isn't one flat colour.
+    static func tones(for name: String) -> (MaterialRole, MaterialRole) {
+        let sum = name.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        switch sum % 3 {
+        case 0: return (.primaryContainer, .onPrimaryContainer)
+        case 1: return (.secondaryContainer, .onSecondaryContainer)
+        default: return (.tertiaryContainer, .onTertiaryContainer)
+        }
     }
 
     static func initials(of name: String) -> String {
@@ -128,6 +140,8 @@ struct ListRow<Leading: View, Trailing: View>: View {
     let headline: String
     var supporting: String?
     var overline: String?
+    /// 16 dp on its own; nothing inside a `List`, which pads its rows itself.
+    var inset: CGFloat = Space.screen
     @ViewBuilder var leading: () -> Leading
     @ViewBuilder var trailing: () -> Trailing
 
@@ -155,7 +169,7 @@ struct ListRow<Leading: View, Trailing: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             trailing()
         }
-        .padding(.horizontal, Space.screen)
+        .padding(.horizontal, inset)
         .padding(.vertical, 8)
         .frame(minHeight: 56)
         .fullTapArea()
@@ -164,8 +178,18 @@ struct ListRow<Leading: View, Trailing: View>: View {
 }
 
 extension ListRow where Trailing == EmptyView {
-    init(headline: String, supporting: String? = nil, overline: String? = nil, @ViewBuilder leading: @escaping () -> Leading) {
-        self.init(headline: headline, supporting: supporting, overline: overline, leading: leading, trailing: { EmptyView() })
+    init(headline: String, supporting: String? = nil, overline: String? = nil, inset: CGFloat = Space.screen, @ViewBuilder leading: @escaping () -> Leading) {
+        self.init(headline: headline, supporting: supporting, overline: overline, inset: inset, leading: leading, trailing: { EmptyView() })
+    }
+}
+
+extension View {
+    /// A row in a Material list: the whole row opens its page, with no chevron (an iOS idiom)
+    /// and no divider.
+    func materialListRow() -> some View {
+        self
+            .buttonStyle(.borderless)
+            .listRowSeparator(.hidden)
     }
 }
 

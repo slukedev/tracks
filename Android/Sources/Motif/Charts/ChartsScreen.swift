@@ -35,6 +35,7 @@ struct ChartsScreen: View {
                     NavigationLink(value: row.route) {
                         ChartRowView(row: row, top: rows.first?.count ?? 1)
                     }
+                    .materialListRow()
                 }
             }
             .listStyle(.plain)
@@ -160,7 +161,6 @@ struct ChartRowView: View {
                     .materialForeground(.onSurfaceVariant)
             }
         }
-        .padding(.horizontal, Space.screen)
         .padding(.vertical, 12)
         .combinedAccessibility()
     }
