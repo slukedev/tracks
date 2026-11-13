@@ -1,1 +1,0 @@
-../../../../MotifCore/Sources/MotifCore/Models/CaptureKind.swift

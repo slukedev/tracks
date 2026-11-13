@@ -1,9 +1,9 @@
-# Motif for Android
+# Tracks for Android
 
-Your own music server, played and remembered. Motif on Android plays the music on a
+Your own music server, played and remembered. Tracks on Android plays the music on a
 Subsonic-compatible server (Navidrome, Gonic, Airsonic and others) and keeps statistics of
 what you play in it: listening time, top songs, artists and albums, streaks and highlights.
-The statistics come only from what Motif plays.
+The statistics come only from what Tracks plays.
 
 It's a native Material 3 app built with [Skip](https://skip.dev) Fuse: SwiftUI that is
 compiled for Android and drawn with Jetpack Compose. Every number comes from the same
@@ -13,22 +13,22 @@ compiled for Android and drawn with Jetpack Compose. Every number comes from the
 
 | Folder                    | What's in it                                                              |
 | ------------------------- | ------------------------------------------------------------------------- |
-| `Sources/MotifStats`      | The statistics engine and the play log. `Shared` links to MotifCore files |
-| `Sources/Motif`           | The app: SwiftUI screens, drawn as Material 3 on Android                  |
+| `Sources/TracksStats`      | The statistics engine and the play log. `Shared` links to TracksCore files |
+| `Sources/Tracks`           | The app: SwiftUI screens, drawn as Material 3 on Android                  |
 | `Android/app/src/main`    | The manifest, launcher icons, and `PlaybackService.kt`, the player        |
-| `Tests/MotifStatsTests`   | Tests for the Android-only parts of MotifStats                            |
+| `Tests/TracksStatsTests`   | Tests for the Android-only parts of TracksStats                            |
 
-`Sources/MotifStats/Shared` is symbolic links to the MotifCore files that need nothing but
-Foundation, so there's one copy of the statistics. A MotifCore file added there must stay free
+`Sources/TracksStats/Shared` is symbolic links to the TracksCore files that need nothing but
+Foundation, so there's one copy of the statistics. A TracksCore file added there must stay free
 of SwiftData, CloudKit, MusicKit and `URL.applicationSupportDirectory`.
 
 How it fits together:
 
 - **Playing.** `PlaybackService.kt` runs Media3's ExoPlayer in a media session service, so
-  music, the notification, the lock screen and headphone controls carry on with Motif closed.
+  music, the notification, the lock screen and headphone controls carry on with Tracks closed.
   `PlayerModel.swift` sends it a queue and reads its state through Skip's `AnyDynamicObject`.
 - **Counting.** The service writes each song that has played long enough to
-  `pending-listens.jsonl`. The app takes them every few seconds, keeps those MotifCore's
+  `pending-listens.jsonl`. The app takes them every few seconds, keeps those TracksCore's
   `ScrobblePolicy` counts (half the song or 4 minutes), and scrobbles them to the server.
 - **Keeping.** Plays are a JSON file (`PlayLog`) in the app's private storage. Covers are
   stored as `subsonic-cover:` references, never as addresses, which carry the server's token.

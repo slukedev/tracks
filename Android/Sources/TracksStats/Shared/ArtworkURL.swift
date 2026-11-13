@@ -1,0 +1,1 @@
+../../../../TracksCore/Sources/TracksCore/Capture/ArtworkURL.swift

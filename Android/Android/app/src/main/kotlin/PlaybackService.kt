@@ -1,4 +1,4 @@
-package motif.module
+package tracks.module
 
 import android.app.PendingIntent
 import android.content.ComponentName
@@ -24,7 +24,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/// Motif's player: ExoPlayer in a media session service, so music keeps playing with the app
+/// Tracks's player: ExoPlayer in a media session service, so music keeps playing with the app
 /// closed, and the notification, lock screen, headphones and car can control it.
 ///
 /// It also keeps count. `PlayRecorder` writes each song that plays long enough to the queue the
@@ -57,7 +57,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
-    /// Swiping Motif away stops the music only if it wasn't playing.
+    /// Swiping Tracks away stops the music only if it wasn't playing.
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = session?.player
         if (player == null || !player.playWhenReady || player.mediaItemCount == 0) stopSelf()
@@ -148,7 +148,7 @@ class Listen(
     var playedMillis: Long = 0
     var written = false
 
-    /// Last.fm's rule, as MotifCore's `ScrobblePolicy` has it: longer than 30 seconds, played
+    /// Last.fm's rule, as TracksCore's `ScrobblePolicy` has it: longer than 30 seconds, played
     /// for half its length or 4 minutes. This only decides when to write; the app checks again.
     fun counts(): Boolean {
         val played = playedMillis / 1000.0

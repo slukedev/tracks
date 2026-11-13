@@ -1,1 +1,0 @@
-../../../../MotifCore/Sources/MotifCore/Capture/ArtworkURL.swift

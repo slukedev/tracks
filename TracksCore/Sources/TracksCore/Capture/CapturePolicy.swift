@@ -129,6 +129,7 @@ public struct ScrobblePolicy: Sendable, Equatable {
     public static let notPlayedEnoughReason = "Last.fm counts a song once half of it or four minutes has played."
 }
 
+#if !TRACKS_STATS_ONLY
 extension Capture {
     /// Whether the scrobble queue is passing this play over because it's too short or didn't
     /// play long enough for Last.fm, rather than because Last.fm refused it.
@@ -153,3 +154,4 @@ extension Capture {
         lastScrobbleError = nil
     }
 }
+#endif

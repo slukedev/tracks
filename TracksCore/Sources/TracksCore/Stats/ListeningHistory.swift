@@ -71,6 +71,7 @@ public struct ListeningHistory: Sendable {
         return ListeningHistory(appending: Self.credited(added, songMetadata: songMetadata) ?? added, to: self)
     }
 
+    #if !TRACKS_STATS_ONLY
     /// This history brought up to date by the reader's steps, or nil when one of them can't
     /// be taken without building it again from everything.
     public func applying(_ steps: [ListeningHistoryReader.Step]) -> ListeningHistory? {
@@ -82,6 +83,7 @@ public struct ListeningHistory: Sendable {
         }
         return history
     }
+    #endif
 
     /// This history with plays that changed in place: a cover or catalog id found, an album
     /// filled in, a station renamed. The same as building it again from every play.

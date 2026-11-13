@@ -46,6 +46,7 @@ public enum Mood: String, CaseIterable, Sendable, Identifiable {
     }
 }
 
+#if !TRACKS_STATS_ONLY
 public enum MoodMix {
     /// Under this many songs of your own, a mood leans on new finds.
     public static let fewSongs = 12
@@ -89,3 +90,4 @@ public enum MoodMix {
         }
     }
 }
+#endif

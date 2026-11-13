@@ -7,4 +7,4 @@
 -keep class * implements com.sun.jna.** { *; }
 -keep class * implements skip.bridge.** { *; }
 -keep class **._ModuleBundleAccessor_* { *; }
--keep class motif.module.** { *; }
+-keep class tracks.module.** { *; }

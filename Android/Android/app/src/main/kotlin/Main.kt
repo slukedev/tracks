@@ -1,4 +1,4 @@
-package motif.module
+package tracks.module
 
 import skip.lib.*
 import skip.model.*
@@ -27,10 +27,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.MaterialTheme
 import androidx.core.app.ActivityCompat
 
-internal val logger: SkipLogger = SkipLogger(subsystem = "motif.module", category = "Motif")
+internal val logger: SkipLogger = SkipLogger(subsystem = "tracks.module", category = "Tracks")
 
-private typealias AppRootView = MotifRootView
-private typealias AppDelegate = MotifAppDelegate
+private typealias AppRootView = TracksRootView
+private typealias AppDelegate = TracksAppDelegate
 
 /// AndroidAppMain is the `android.app.Application` entry point, and must match `application android:name` in the AndroidMainfest.xml file.
 open class AndroidAppMain: Application {
