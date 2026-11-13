@@ -13,18 +13,11 @@ compiled for Android and drawn with Jetpack Compose. Every number comes from the
 
 | Folder                    | What's in it                                                              |
 | ------------------------- | ------------------------------------------------------------------------- |
-<<<<<<< HEAD
-| `Sources/TracksStats`      | The statistics engine and the play log. `Shared` links to TracksCore files |
-| `Sources/Tracks`           | The app: SwiftUI screens, drawn as Material 3 on Android                  |
-| `Android/app/src/main`    | The manifest, launcher icons, and `PlaybackService.kt`, the player        |
-| `Tests/TracksStatsTests`   | Tests for the Android-only parts of TracksStats                            |
-=======
 | `Sources/TracksStats`      | The statistics engine and the play log. `Shared` links to TracksCore files |
 | `Sources/Tracks`           | The app: SwiftUI screens, drawn as Material 3 on Android                  |
 | `Sources/Tracks/Skip`      | Hand-written Compose: `MaterialExpressive.kt`, and the module's Gradle deps |
 | `Android/app/src/main`    | The manifest, launcher icons, `PlaybackService.kt` and `SecretStore.kt`   |
 | `Tests/TracksStatsTests`   | Tests for the Android-only parts of TracksStats                            |
->>>>>>> 167ff4b (feat(android): Material 3 Expressive components, encrypted secrets, and screen updates)
 
 `Sources/TracksStats/Shared` is symbolic links to the TracksCore files that need nothing but
 Foundation, so there's one copy of the statistics. A TracksCore file added there must stay free

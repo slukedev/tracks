@@ -12,12 +12,8 @@ final class ServerStore {
 
     private let defaults: UserDefaults
     private static let serverKey = "musicServer"
-<<<<<<< HEAD:Android/Sources/Tracks/App/ServerStore.swift
-    /// Kept in the app's private preferences, which only Tracks can read.
-=======
     /// Kept in `Secrets`, encrypted with a key in the Android Keystore. Earlier versions kept it
     /// in plain text in `defaults` under the same name.
->>>>>>> 167ff4b (feat(android): Material 3 Expressive components, encrypted secrets, and screen updates):Android/Sources/Tracks/App/ServerStore.swift
     private static let passwordKey = "musicServerPassword"
 
     init(defaults: UserDefaults = .standard) {
