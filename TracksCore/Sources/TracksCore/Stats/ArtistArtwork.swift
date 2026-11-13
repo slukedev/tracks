@@ -22,7 +22,10 @@ public struct ArtistArtworkCache: Sendable {
     }
 
     public static var defaultURL: URL? {
-        URL.applicationSupportDirectory.appending(path: "ArtistArtwork.json")
+        // Asked of FileManager rather than `URL.applicationSupportDirectory`, which Android's
+        // Foundation doesn't have. The same folder on Apple platforms.
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("ArtistArtwork.json")
     }
 
     /// Every lookup so far. An empty string means Apple Music had no picture, so the artist
