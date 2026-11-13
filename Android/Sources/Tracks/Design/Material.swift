@@ -10,8 +10,8 @@ enum MaterialRole: String {
     case surfaceContainerLowest, surfaceContainerLow, surfaceContainer
     case surfaceContainerHigh, surfaceContainerHighest
     case primary, onPrimary, primaryContainer, onPrimaryContainer
-    case secondary, secondaryContainer, onSecondaryContainer
-    case tertiary, tertiaryContainer, onTertiaryContainer
+    case secondary, onSecondary, secondaryContainer, onSecondaryContainer
+    case tertiary, onTertiary, tertiaryContainer, onTertiaryContainer
     case onSurface, onSurfaceVariant, outline, outlineVariant
     case error
 
@@ -22,7 +22,7 @@ enum MaterialRole: String {
         case .surfaceContainerLow, .surfaceContainer: Color.gray.opacity(0.08)
         case .surfaceContainerHigh, .surfaceContainerHighest: Color.gray.opacity(0.16)
         case .primary, .onPrimaryContainer: Color.accentColor
-        case .onPrimary: Color.white
+        case .onPrimary, .onSecondary, .onTertiary: Color.white
         case .primaryContainer: Color.accentColor.opacity(0.18)
         case .secondary, .onSecondaryContainer: Color.purple
         case .secondaryContainer: Color.purple.opacity(0.14)
@@ -100,9 +100,11 @@ struct MaterialColors {
     case "primaryContainer": return scheme.primaryContainer
     case "onPrimaryContainer": return scheme.onPrimaryContainer
     case "secondary": return scheme.secondary
+    case "onSecondary": return scheme.onSecondary
     case "secondaryContainer": return scheme.secondaryContainer
     case "onSecondaryContainer": return scheme.onSecondaryContainer
     case "tertiary": return scheme.tertiary
+    case "onTertiary": return scheme.onTertiary
     case "tertiaryContainer": return scheme.tertiaryContainer
     case "onTertiaryContainer": return scheme.onTertiaryContainer
     case "onSurface": return scheme.onSurface

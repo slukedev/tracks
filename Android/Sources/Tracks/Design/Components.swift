@@ -16,17 +16,25 @@ struct MaterialCard<Content: View>: View {
     }
 }
 
-/// A symbol in a 48 dp circle of a container colour, as Material lists and cards lead with.
+/// A symbol in a 48 dp container colour, as Material lists and cards lead with: a circle, or
+/// one of Material 3 Expressive's shapes.
 struct IconBadge: View {
     let symbol: Symbol
     var container: MaterialRole = .primaryContainer
     var content: MaterialRole = .onPrimaryContainer
     var size: CGFloat = 48
+    var shape: ExpressiveShape = .circle
 
     var body: some View {
-        SymbolImage(symbol, size: size / 2, role: content)
-            .frame(width: size, height: size)
-            .materialBackground(container, cornerRadius: size / 2)
+        if shape == .circle {
+            SymbolImage(symbol, size: size / 2, role: content)
+                .frame(width: size, height: size)
+                .materialBackground(container, cornerRadius: size / 2)
+        } else {
+            SymbolImage(symbol, size: size / 2, role: content)
+                .frame(width: size, height: size)
+                .expressiveBackground(container, shape)
+        }
     }
 }
 
@@ -97,7 +105,7 @@ struct Artwork: View {
     }
 }
 
-/// An artist's initials in a tonal circle, as Android's contacts show people without a photo.
+/// An artist's initials in a scalloped tonal shape, the shape Tracks gives every artist.
 struct Monogram: View {
     let name: String
     var size: CGFloat = 56
@@ -108,7 +116,7 @@ struct Monogram: View {
             .materialType(size >= 96 ? .displaySmall : size >= 64 ? .headlineSmall : .titleMedium)
             .materialForeground(content)
             .frame(width: size, height: size)
-            .materialBackground(container, cornerRadius: size / 2)
+            .expressiveBackground(container, .cookie9)
             .accessibilityHidden(true)
     }
 

@@ -13,7 +13,7 @@ enum Symbol: String, CaseIterable {
     case nightOwl, earlyBird, trophy, onRepeat, radio, genre, weekend, hourglass
     case play, apps, sessions, check, warning, refresh
     case home, pause, skipNext, skipPrevious, shuffle, repeatAll, repeatOne, queue, collapse
-    case server, signOut, person, stats
+    case server, signOut, person, stats, favourite, alphabetical
 
     /// The Material Symbols icon, outlined or filled, as named in
     /// `androidx.compose.material.icons`.
@@ -74,6 +74,8 @@ enum Symbol: String, CaseIterable {
         case .signOut: "Logout"
         case .person: "Person"
         case .stats: "Insights"
+        case .favourite: "Star"
+        case .alphabetical: "SortByAlpha"
         }
     }
 
@@ -134,6 +136,8 @@ enum Symbol: String, CaseIterable {
         case .signOut: "rectangle.portrait.and.arrow.right"
         case .person: "person"
         case .stats: "chart.bar.xaxis"
+        case .favourite: "star"
+        case .alphabetical: "textformat.abc"
         }
     }
 }
@@ -233,6 +237,10 @@ static func vector(_ name: String, filled: Bool) -> ImageVector {
         case "Pause": return Icons.Filled.Pause
         case "SkipNext": return Icons.Filled.SkipNext
         case "SkipPrevious": return Icons.Filled.SkipPrevious
+        case "Star": return Icons.Filled.Star
+        case "Shuffle": return Icons.Filled.Shuffle
+        case "Repeat": return Icons.Filled.Repeat
+        case "SortByAlpha": return Icons.Filled.SortByAlpha
         default: break
         }
     }
@@ -291,6 +299,8 @@ static func vector(_ name: String, filled: Bool) -> ImageVector {
     case "Dns": return Icons.Outlined.Dns
     case "Logout": return Icons.AutoMirrored.Outlined.Logout
     case "Person": return Icons.Outlined.Person
+    case "Star": return Icons.Outlined.StarOutline
+    case "SortByAlpha": return Icons.Outlined.SortByAlpha
     default: return Icons.Outlined.MusicNote
     }
 }

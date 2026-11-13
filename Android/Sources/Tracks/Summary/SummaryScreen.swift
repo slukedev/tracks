@@ -29,7 +29,7 @@ struct SummaryScreen: View {
                 } else if let summary {
                     content(summary)
                 } else {
-                    ProgressView()
+                    MorphingLoadingIndicator()
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 64)
                 }
@@ -142,7 +142,7 @@ struct ListeningCard: View {
         return HStack(alignment: .firstTextBaseline, spacing: 4) {
             if parts.hours > 0 {
                 Text("\(parts.hours.formatted())")
-                    .materialType(.displayMedium)
+                    .materialType(.displayMediumEmphasized)
                     .materialForeground(.onSurface)
                 Text("hr")
                     .materialType(.titleLarge)
@@ -150,7 +150,7 @@ struct ListeningCard: View {
                     .padding(.trailing, 8)
             }
             Text("\(parts.minutes)")
-                .materialType(.displayMedium)
+                .materialType(.displayMediumEmphasized)
                 .materialForeground(.onSurface)
             Text("min")
                 .materialType(.titleLarge)
@@ -160,12 +160,10 @@ struct ListeningCard: View {
         .accessibilityLabel("\(parts.hours) hours \(parts.minutes) minutes listening")
     }
 
-    /// Against the same stretch of the period before.
+    /// Against the same stretch of the period before, by the iPhone's rule: nothing when the
+    /// period before had under ten minutes.
     private var change: Double? {
-        guard summary.range != .allTime,
-              let previous = summary.previousListeningSeconds, previous > 0
-        else { return nil }
-        return summary.listeningSeconds / previous - 1
+        summary.range == .allTime ? nil : summary.listeningChange
     }
 
     private var bars: [Bar] {
@@ -212,16 +210,16 @@ struct GlanceGrid: View {
     var body: some View {
         VStack(spacing: Space.grid) {
             HStack(spacing: Space.grid) {
-                GlanceTile(symbol: .artist, container: .primaryContainer, content: .onPrimaryContainer,
+                GlanceTile(symbol: .artist, shape: .cookie9, container: .primaryContainer, content: .onPrimaryContainer,
                            value: Format.count(summary.uniqueArtistCount), label: "Artists")
-                GlanceTile(symbol: .song, container: .secondaryContainer, content: .onSecondaryContainer,
+                GlanceTile(symbol: .song, shape: .clover4, container: .secondaryContainer, content: .onSecondaryContainer,
                            value: Format.count(summary.uniqueSongCount), label: "Different songs")
             }
             HStack(spacing: Space.grid) {
-                GlanceTile(symbol: .newToYou, container: .tertiaryContainer, content: .onTertiaryContainer,
+                GlanceTile(symbol: .newToYou, shape: .softBurst, container: .tertiaryContainer, content: .onTertiaryContainer,
                            value: Format.count(summary.firstTimeHeardCount), label: "New to you",
                            detail: summary.newArtistCount == 1 ? "1 new artist" : "\(summary.newArtistCount) new artists")
-                GlanceTile(symbol: .streak, container: .primaryContainer, content: .onPrimaryContainer,
+                GlanceTile(symbol: .streak, shape: .sunny, container: .primaryContainer, content: .onPrimaryContainer,
                            value: summary.streak.current == 1 ? "1 day" : "\(summary.streak.current) days", label: "Streak",
                            detail: "Best: \(summary.streak.longest) days")
             }
@@ -231,6 +229,7 @@ struct GlanceGrid: View {
 
 struct GlanceTile: View {
     let symbol: Symbol
+    var shape: ExpressiveShape = .circle
     let container: MaterialRole
     let content: MaterialRole
     let value: String
@@ -239,9 +238,9 @@ struct GlanceTile: View {
 
     var body: some View {
         MaterialCard(role: .surfaceContainerLow) {
-            IconBadge(symbol: symbol, container: container, content: content, size: 40)
+            IconBadge(symbol: symbol, container: container, content: content, size: 44, shape: shape)
             Text(value)
-                .materialType(.headlineSmall)
+                .materialType(.headlineSmallEmphasized)
                 .materialForeground(.onSurface)
                 .lineLimit(1)
                 .padding(.top, 12)

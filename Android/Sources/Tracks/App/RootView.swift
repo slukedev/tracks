@@ -29,10 +29,12 @@ struct RootView: View {
     @Environment(ServerStore.self) var servers
     @State var tab: AppTab = .home
     @State var showsNowPlaying = false
+    /// Home's pages, so its carousel can open an album.
+    @State var homePath: [Route] = []
 
     var body: some View {
         if !model.isLoaded {
-            ProgressView()
+            MorphingLoadingIndicator()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if !servers.isConnected {
             WelcomeScreen()
@@ -46,8 +48,13 @@ struct RootView: View {
 
     private var tabs: some View {
         TabView(selection: $tab) {
+<<<<<<< HEAD:Android/Sources/Tracks/App/RootView.swift
             NavigationStack {
                 HomeScreen().tracksDestinations()
+=======
+            NavigationStack(path: $homePath) {
+                HomeScreen(open: { homePath.append($0) }).tracksDestinations()
+>>>>>>> 167ff4b (feat(android): Material 3 Expressive components, encrypted secrets, and screen updates):Android/Sources/Tracks/App/RootView.swift
             }
             .docksPlayer { showsNowPlaying = true }
             .tabItem { Label(AppTab.home.title, systemImage: AppTab.home.symbol.sfSymbol) }

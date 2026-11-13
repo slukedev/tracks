@@ -185,7 +185,7 @@ struct DetailScroll<Content: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.cards) {
                 if !isLoaded {
-                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, 96)
+                    MorphingLoadingIndicator().frame(maxWidth: .infinity).padding(.vertical, 96)
                 } else if !found {
                     EmptyState(symbol: .search, title: "Not in your history", message: "It may have been removed.")
                 } else {

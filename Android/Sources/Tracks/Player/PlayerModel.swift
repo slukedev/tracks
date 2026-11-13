@@ -87,7 +87,8 @@ final class PlayerModel {
         var ordered = songs
         var first = min(max(start, 0), songs.count - 1)
         if shuffled {
-            ordered.shuffle()
+            // The iPhone's shuffle: each artist spread out as far as the songs allow.
+            ordered = FreshShuffle.order(songs, artist: { StatsCalculator.folded($0.artist) }, seed: UInt64.random(in: 0...UInt64.max))
             first = 0
         }
         queue = ordered

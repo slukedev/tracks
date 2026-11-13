@@ -1,11 +1,16 @@
 # Skip configuration for Tracks module
 #
-# Kotlin dependencies and Gradle build options for this module can be configured here
-#build:
-#  contents:
-#    - block: 'dependencies'
-#      contents:
-#        - 'implementation("androidx.compose.runtime:runtime")'
+# Kotlin dependencies and Gradle build options for this module can be configured here.
+# Hand-written Compose (Material 3 Expressive shapes, the wavy seek bar, cover colours) is in
+# the Kotlin files beside this one.
+build:
+  contents:
+    - block: 'dependencies'
+      contents:
+        # RoundedPolygon and Morph, which Material 3 Expressive's shapes are built from.
+        - 'implementation("androidx.graphics:graphics-shapes:1.1.0")'
+        # Loads covers for the carousel and cover colours. SkipUI uses the same version.
+        - 'implementation("io.coil-kt.coil3:coil-compose:3.4.0")'
 
 # this is a natively-compiled Skip Fuse module
 skip:

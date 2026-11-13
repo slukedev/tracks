@@ -41,7 +41,7 @@ struct ChartsScreen: View {
             .listStyle(.plain)
             .overlay {
                 if isLoading {
-                    ProgressView()
+                    MorphingLoadingIndicator()
                 } else if rows.isEmpty {
                     EmptyState(symbol: .charts, title: "No plays in this period", message: "Pick a longer period from the menu above.")
                 }

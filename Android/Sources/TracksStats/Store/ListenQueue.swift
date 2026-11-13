@@ -5,7 +5,7 @@ import Foundation
 /// The player (`PlaybackService.kt`) runs in its own service, so it keeps playing, and keeps
 /// count, with the app closed. It appends one JSON line per song to a queue file once the song
 /// has played long enough, or when it stops after playing for a while. Whether that's a play is
-/// decided here, by the same ``ScrobblePolicy`` the iPhone and Mac use.
+/// decided here, by TracksCore's ``ScrobblePolicy``: half the song, or four minutes.
 public struct Listen: Codable, Sendable, Equatable {
     public var title: String
     public var artist: String

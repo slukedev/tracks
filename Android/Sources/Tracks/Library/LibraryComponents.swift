@@ -71,26 +71,33 @@ struct AlbumGrid: View {
 }
 
 /// A song in an album or a list of results: its number or cover, title, artist and length.
+/// The one playing shows bouncing bars in place of its number, or of its length.
 struct TrackRow: View {
     let song: QueueSong
     var number: Int?
     var isCurrent = false
     let play: () -> Void
+    @Environment(PlayerModel.self) var player
 
     var body: some View {
         Button(action: play) {
             HStack(spacing: Space.iconGap) {
                 if let number {
-                    Text("\(number)")
-                        .materialType(.bodyLarge)
-                        .materialForeground(isCurrent ? .primary : .onSurfaceVariant)
-                        .frame(width: 28)
+                    if isCurrent {
+                        PlayingBars(isPlaying: player.isPlaying)
+                            .frame(width: 28)
+                    } else {
+                        Text("\(number)")
+                            .materialType(.bodyLarge)
+                            .materialForeground(.onSurfaceVariant)
+                            .frame(width: 28)
+                    }
                 } else {
                     Artwork(url: song.coverRef, size: 48)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.title)
-                        .materialType(.bodyLarge)
+                        .materialType(isCurrent ? .titleMediumEmphasized : .bodyLarge)
                         .materialForeground(isCurrent ? .primary : .onSurface)
                         .lineLimit(1)
                     Text(song.artist)
@@ -99,7 +106,9 @@ struct TrackRow: View {
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if let duration = song.duration {
+                if isCurrent && number == nil {
+                    PlayingBars(isPlaying: player.isPlaying)
+                } else if let duration = song.duration {
                     Text(NowPlayingScreen.time(duration))
                         .materialType(.labelMedium)
                         .materialForeground(.onSurfaceVariant)
@@ -129,7 +138,7 @@ enum Loadable<Value> {
 
 struct LoadingView: View {
     var body: some View {
-        ProgressView()
+        MorphingLoadingIndicator()
             .frame(maxWidth: .infinity)
             .padding(.vertical, 96)
     }

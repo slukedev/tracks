@@ -19,7 +19,10 @@ struct ServerAlbumPage: View {
             switch content {
             case .loading: LoadingView()
             case .failed(let message): FailedView(message: message) { Task { await load() } }
-            case .loaded(let content): page(content)
+            case .loaded(let content):
+                CoverColored(url: servers.coverURL(coverRef(content.album), size: NowPlayingScreen.coverSize)) {
+                    page(content)
+                }
             }
         }
         .navigationTitle(content.value?.album.name ?? "")
@@ -27,14 +30,15 @@ struct ServerAlbumPage: View {
         .task(id: albumID) { await load() }
     }
 
+    /// The album's cover and name on a card in the cover's own colour, then its songs.
     private func page(_ content: AlbumContent) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(spacing: 16) {
-                Artwork(url: coverRef(content.album), size: 240, corner: Corner.extraLarge, placeholder: .album)
+                Artwork(url: coverRef(content.album), size: 232, corner: Corner.extraLarge, placeholder: .album)
                 VStack(spacing: 4) {
                     Text(content.album.name)
-                        .materialType(.headlineSmall)
-                        .materialForeground(.onSurface)
+                        .materialType(.headlineSmallEmphasized)
+                        .materialForeground(.onPrimaryContainer)
                         .multilineTextAlignment(.center)
                     if let artistID = content.album.artistId, let artist = content.album.artist {
                         NavigationLink(value: Route.serverArtist(artistID)) {
@@ -46,18 +50,22 @@ struct ServerAlbumPage: View {
                     }
                     Text(details(content))
                         .materialType(.bodyMedium)
-                        .materialForeground(.onSurfaceVariant)
+                        .materialForeground(.onPrimaryContainer)
+                        .opacity(0.8)
                 }
+                PlayButtons(
+                    play: { player.play(content.songs, from: content.album.name) },
+                    shuffle: { player.play(content.songs, from: content.album.name, shuffled: true) },
+                    onColour: true
+                )
+                .padding(.top, 4)
             }
+            .padding(20)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, Space.screen)
-            .padding(.top, 8)
-
-            PlayButtons(
-                play: { player.play(content.songs, from: content.album.name) },
-                shuffle: { player.play(content.songs, from: content.album.name, shuffled: true) }
-            )
-            .padding(Space.screen)
+            .materialBackground(.primaryContainer, cornerRadius: Corner.extraLarge + 4)
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
+            .padding(.bottom, 12)
 
             ForEach(Array(content.songs.enumerated()), id: \.element.id) { index, song in
                 TrackRow(song: song, number: index + 1, isCurrent: player.current?.id == song.id) {
@@ -154,9 +162,9 @@ struct ServerArtistPage: View {
 
             PlayButtons(
                 play: { Task { await playAll(content, shuffled: false) } },
-                shuffle: { Task { await playAll(content, shuffled: true) } }
+                shuffle: { Task { await playAll(content, shuffled: true) } },
+                isEnabled: !isStarting
             )
-            .disabled(isStarting)
             .padding(.horizontal, Space.screen)
 
             SectionHeader(title: "Albums")
@@ -196,30 +204,64 @@ struct ServerArtistPage: View {
     }
 }
 
-/// Play and Shuffle side by side: a filled button and a tonal one.
+/// One of the server's album lists, two to a row.
+struct ServerAlbumListPage: View {
+    let list: SubsonicClient.AlbumListType
+    @Environment(ServerStore.self) var servers
+    @State var content: Loadable<[SubsonicAlbum]> = .loading
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                switch content {
+                case .loading: LoadingView()
+                case .failed(let message): FailedView(message: message) { Task { await load() } }
+                case .loaded(let albums):
+                    if albums.isEmpty {
+                        EmptyState(symbol: BrowseList.of(list)?.symbol ?? .album, title: "Nothing here yet", message: emptyMessage)
+                    } else {
+                        AlbumGrid(albums: albums, width: proxy.size.width)
+                            .padding(.vertical, 8)
+                    }
+                }
+            }
+        }
+        .navigationTitle(BrowseList.of(list)?.title ?? "Albums")
+        .task(id: list) { await load() }
+        .refreshable { await load() }
+    }
+
+    private var emptyMessage: String {
+        switch list {
+        case .starred: "Star albums on your server and they'll be here."
+        case .frequent, .recent: "Play some albums and they'll be here."
+        default: "Your server didn't list any albums."
+        }
+    }
+
+    private func load() async {
+        guard let client = servers.client else { return }
+        do {
+            content = .loaded(try await client.albums(list, size: 60))
+        } catch {
+            content = .failed(error.localizedDescription)
+        }
+    }
+}
+
+/// Play and Shuffle side by side: a filled button and a quieter one, both squaring off as
+/// they're pressed.
 struct PlayButtons: View {
     let play: () -> Void
     let shuffle: () -> Void
+    var isEnabled = true
+    /// On a coloured card, where a tonal button would disappear: Shuffle is the page's surface.
+    var onColour = false
 
     var body: some View {
-        HStack(spacing: Space.grid) {
-            Button(action: play) {
-                HStack(spacing: 8) {
-                    SymbolImage(.play, size: 20, filled: true, role: .onPrimary)
-                    Text("Play")
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-
-            Button(action: shuffle) {
-                HStack(spacing: 8) {
-                    SymbolImage(.shuffle, size: 20, role: .onSecondaryContainer)
-                    Text("Shuffle")
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
+        HStack(spacing: 8) {
+            ExpressiveButton(title: "Play", symbol: .play, emphasis: .filled, isEnabled: isEnabled, action: play)
+            ExpressiveButton(title: "Shuffle", symbol: .shuffle, emphasis: onColour ? .surface : .tonal, isEnabled: isEnabled, action: shuffle)
         }
     }
 }

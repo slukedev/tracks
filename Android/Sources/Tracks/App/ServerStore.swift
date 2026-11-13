@@ -12,16 +12,32 @@ final class ServerStore {
 
     private let defaults: UserDefaults
     private static let serverKey = "musicServer"
+<<<<<<< HEAD:Android/Sources/Tracks/App/ServerStore.swift
     /// Kept in the app's private preferences, which only Tracks can read.
+=======
+    /// Kept in `Secrets`, encrypted with a key in the Android Keystore. Earlier versions kept it
+    /// in plain text in `defaults` under the same name.
+>>>>>>> 167ff4b (feat(android): Material 3 Expressive components, encrypted secrets, and screen updates):Android/Sources/Tracks/App/ServerStore.swift
     private static let passwordKey = "musicServerPassword"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        Self.moveLegacyPassword(in: defaults)
         if let data = defaults.data(forKey: Self.serverKey),
            let saved = try? JSONDecoder().decode(SubsonicServer.self, from: data),
-           let password = defaults.string(forKey: Self.passwordKey) {
+           let password = Secrets.read(Self.passwordKey) ?? defaults.string(forKey: Self.passwordKey) {
             server = saved
             client = SubsonicClient(server: saved, password: password)
+        }
+    }
+
+    /// Moves a password from plain text in `defaults` into `Secrets`, and removes the plain copy
+    /// once the encrypted one is kept. If it can't be kept, the plain copy stays for this launch
+    /// and the next one tries again.
+    private static func moveLegacyPassword(in defaults: UserDefaults) {
+        guard let legacy = defaults.string(forKey: passwordKey) else { return }
+        if Secrets.write(legacy, for: passwordKey) {
+            defaults.removeObject(forKey: passwordKey)
         }
     }
 
@@ -41,9 +57,8 @@ final class ServerStore {
         } catch {
             throw .unreachable(error.localizedDescription)
         }
-        if let data = try? JSONEncoder().encode(candidate) {
+        if let data = try? JSONEncoder().encode(candidate), Secrets.write(password, for: Self.passwordKey) {
             defaults.set(data, forKey: Self.serverKey)
-            defaults.set(password, forKey: Self.passwordKey)
         }
         server = candidate
         self.client = client
@@ -51,7 +66,7 @@ final class ServerStore {
 
     func disconnect() {
         defaults.removeObject(forKey: Self.serverKey)
-        defaults.removeObject(forKey: Self.passwordKey)
+        Secrets.remove(Self.passwordKey)
         server = nil
         client = nil
     }

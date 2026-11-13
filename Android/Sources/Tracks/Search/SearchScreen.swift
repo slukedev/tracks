@@ -42,7 +42,7 @@ struct SearchScreen: View {
     private var content: some View {
         switch results {
         case nil:
-            EmptyState(symbol: .search, title: "Search your server", message: "Find artists, albums and songs to play.")
+            BrowseGrid()
         case .loading:
             LoadingView()
         case .failed(let message):
@@ -86,6 +86,83 @@ struct SearchScreen: View {
             .materialForeground(.primary)
             .padding(.horizontal, Space.screen)
             .padding(.top, 16)
+    }
+}
+
+/// Ways into the library before anything's typed: the server's album lists as tiles, each in
+/// its own colour with an expressive shape, as Google's apps lay out their categories.
+struct BrowseGrid: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Browse")
+                .materialType(.titleMediumEmphasized)
+                .materialForeground(.onSurface)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+            let lists = BrowseList.all
+            ForEach(Array(stride(from: 0, to: lists.count, by: 2)), id: \.self) { start in
+                HStack(spacing: 8) {
+                    BrowseTile(list: lists[start])
+                    if start + 1 < lists.count {
+                        BrowseTile(list: lists[start + 1])
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, Space.screen)
+    }
+}
+
+/// An album list, and how its tile looks.
+struct BrowseList {
+    let type: SubsonicClient.AlbumListType
+    let title: String
+    let symbol: Symbol
+    let container: MaterialRole
+    let content: MaterialRole
+    let shape: ExpressiveShape
+    let fill: MaterialRole
+    let onFill: MaterialRole
+
+    static let all: [BrowseList] = [
+        BrowseList(type: .newest, title: "Recently added", symbol: .newToYou, container: .primaryContainer, content: .onPrimaryContainer, shape: .cookie9, fill: .primary, onFill: .onPrimary),
+        BrowseList(type: .frequent, title: "Most played", symbol: .onRepeat, container: .tertiaryContainer, content: .onTertiaryContainer, shape: .sunny, fill: .tertiary, onFill: .onTertiary),
+        BrowseList(type: .recent, title: "Played lately", symbol: .history, container: .secondaryContainer, content: .onSecondaryContainer, shape: .clover4, fill: .secondary, onFill: .onSecondary),
+        BrowseList(type: .starred, title: "Favourites", symbol: .favourite, container: .primaryContainer, content: .onPrimaryContainer, shape: .flower, fill: .primary, onFill: .onPrimary),
+        BrowseList(type: .random, title: "Surprise me", symbol: .shuffle, container: .tertiaryContainer, content: .onTertiaryContainer, shape: .softBurst, fill: .tertiary, onFill: .onTertiary),
+        BrowseList(type: .alphabeticalByName, title: "A to Z", symbol: .alphabetical, container: .secondaryContainer, content: .onSecondaryContainer, shape: .gem, fill: .secondary, onFill: .onSecondary),
+    ]
+
+    static func of(_ type: SubsonicClient.AlbumListType) -> BrowseList? {
+        all.first { $0.type == type }
+    }
+}
+
+struct BrowseTile: View {
+    let list: BrowseList
+
+    var body: some View {
+        NavigationLink(value: Route.albumList(list.type)) {
+            ZStack(alignment: .topLeading) {
+                SymbolImage(list.symbol, size: 30, filled: true, role: list.onFill)
+                    .frame(width: 76, height: 76)
+                    .expressiveBackground(list.fill, list.shape)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(12)
+                Text(list.title)
+                    .materialType(.titleMediumEmphasized)
+                    .materialForeground(list.content)
+                    .lineLimit(2)
+                    .padding(16)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 128)
+            .materialBackground(list.container, cornerRadius: Corner.extraLarge)
+            .fullTapArea()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(list.title))
     }
 }
 

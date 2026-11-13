@@ -13,10 +13,18 @@ compiled for Android and drawn with Jetpack Compose. Every number comes from the
 
 | Folder                    | What's in it                                                              |
 | ------------------------- | ------------------------------------------------------------------------- |
+<<<<<<< HEAD
 | `Sources/TracksStats`      | The statistics engine and the play log. `Shared` links to TracksCore files |
 | `Sources/Tracks`           | The app: SwiftUI screens, drawn as Material 3 on Android                  |
 | `Android/app/src/main`    | The manifest, launcher icons, and `PlaybackService.kt`, the player        |
 | `Tests/TracksStatsTests`   | Tests for the Android-only parts of TracksStats                            |
+=======
+| `Sources/TracksStats`      | The statistics engine and the play log. `Shared` links to TracksCore files |
+| `Sources/Tracks`           | The app: SwiftUI screens, drawn as Material 3 on Android                  |
+| `Sources/Tracks/Skip`      | Hand-written Compose: `MaterialExpressive.kt`, and the module's Gradle deps |
+| `Android/app/src/main`    | The manifest, launcher icons, `PlaybackService.kt` and `SecretStore.kt`   |
+| `Tests/TracksStatsTests`   | Tests for the Android-only parts of TracksStats                            |
+>>>>>>> 167ff4b (feat(android): Material 3 Expressive components, encrypted secrets, and screen updates)
 
 `Sources/TracksStats/Shared` is symbolic links to the TracksCore files that need nothing but
 Foundation, so there's one copy of the statistics. A TracksCore file added there must stay free
@@ -32,9 +40,19 @@ How it fits together:
   `ScrobblePolicy` counts (half the song or 4 minutes), and scrobbles them to the server.
 - **Keeping.** Plays are a JSON file (`PlayLog`) in the app's private storage. Covers are
   stored as `subsonic-cover:` references, never as addresses, which carry the server's token.
+  The server's password is AES-GCM encrypted with a key in the Android Keystore
+  (`SecretStore.kt`, reached through `Secrets.swift`), and kept out of backups, which couldn't
+  decrypt it anyway.
 - **Design.** Material 3 throughout: dynamic colour from the wallpaper, the M3 type and shape
   scales (`Design/Tokens.swift`), Material Symbols (`Design/Symbol.swift`) and colour roles
   (`Design/Material.swift`), reached through small Kotlin `ContentModifier`s.
+- **Expressive.** The player and browsing use Material 3 Expressive, as Android 16's own apps
+  do: Now Playing, the mini player and album pages take their colours from the cover; the
+  cover morphs from a rounded square (paused) to a turning scalloped disc (playing) and swipes
+  to skip; the seek bar is Android 16's wave; buttons square off when pressed; artists are
+  scalloped; Home has a hero carousel and Search a grid of shaped browse tiles. Compose
+  Material 3 1.4 keeps most of Expressive internal, so `Skip/MaterialExpressive.kt` builds these
+  from `graphics-shapes` and springs, and `Design/Expressive.swift` wraps them for SwiftUI.
 
 ## Building
 
@@ -74,5 +92,12 @@ Each of these cost a crash or a stuck screen; the code notes them where they're 
   wider too, pushing content out of sight.
 - Kotlin statics called from Swift belong in a class's `companion object`, not an `object`.
 - Internal declarations in `#if SKIP` blocks are bridged unless marked `// SKIP @nobridge`.
+- Hand-written Kotlin in `Sources/Tracks/Skip` is compiled with the transpiled files, in the same
+  folder. Give it a name no Swift file has: `Skip/Expressive.kt` and `Design/Expressive.swift`
+  both became `Expressive.kt`, one overwrote the other, and the app crashed at launch.
+- A `#if SKIP` struct with a closure property needs an explicit `init` marking it `@escaping`,
+  or the generated bridge doesn't compile.
+- Compose Material 3 1.4 keeps `MotionScheme`, `MaterialShapes`, the emphasized type styles and
+  Expressive's components internal. Kotlin can't implement `MotionScheme` either.
 - Android blocks plain-http loads (covers, streams) unless `usesCleartextTraffic` is on. Swift's
   own networking ignores it, so sign-in can work while nothing plays.

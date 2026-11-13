@@ -56,7 +56,8 @@ struct LibraryScreen: View {
         do {
             if tab == 0, force || artists.value == nil {
                 let all = try await client.artists()
-                artists = .loaded(all.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending })
+                // The iPhone's order: "The" and "A" set aside, numbers in number order.
+                artists = .loaded(LibrarySort.sorted(all, by: .natural(.title), keys: { LibrarySortKeys(title: $0.name) }))
             } else if tab == 1, force || albums.value == nil {
                 albums = .loaded(try await client.albums(.alphabeticalByName, size: 500))
             }
@@ -96,7 +97,7 @@ struct ArtistRow: View {
     }
 }
 
-/// An artist's picture in a circle, over their initials while it loads or if there isn't one.
+/// An artist's picture, scalloped, over their initials while it loads or if there isn't one.
 struct ArtistPicture: View {
     let name: String
     let coverRef: String?
@@ -113,7 +114,7 @@ struct ArtistPicture: View {
                     Color.clear
                 }
                 .frame(width: size, height: size)
-                .clipShape(Circle())
+                .expressiveClip(.cookie9)
             }
         }
         .frame(width: size, height: size)

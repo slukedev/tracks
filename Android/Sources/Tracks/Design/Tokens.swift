@@ -11,6 +11,11 @@ enum MaterialType: String {
     case titleLarge, titleMedium, titleSmall
     case bodyLarge, bodyMedium, bodySmall
     case labelLarge, labelMedium, labelSmall
+    /// Material 3 Expressive's emphasized styles: the same sizes, heavier, for the one thing on
+    /// a page that should stand out (a song's title, a big number).
+    case displayMediumEmphasized, displaySmallEmphasized
+    case headlineLargeEmphasized, headlineMediumEmphasized, headlineSmallEmphasized
+    case titleLargeEmphasized, titleMediumEmphasized
 
     /// Size and weight from the Material 3 spec, for previews off Android.
     var fallback: Font {
@@ -30,6 +35,13 @@ enum MaterialType: String {
         case .labelLarge: .system(size: 14, weight: .medium)
         case .labelMedium: .system(size: 12, weight: .medium)
         case .labelSmall: .system(size: 11, weight: .medium)
+        case .displayMediumEmphasized: .system(size: 45, weight: .semibold)
+        case .displaySmallEmphasized: .system(size: 36, weight: .semibold)
+        case .headlineLargeEmphasized: .system(size: 32, weight: .semibold)
+        case .headlineMediumEmphasized: .system(size: 28, weight: .semibold)
+        case .headlineSmallEmphasized: .system(size: 24, weight: .semibold)
+        case .titleLargeEmphasized: .system(size: 22, weight: .semibold)
+        case .titleMediumEmphasized: .system(size: 16, weight: .bold)
         }
     }
 }
@@ -77,6 +89,7 @@ enum Space {
 #if SKIP
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.font.FontWeight
 
 struct MaterialTypeModifier : ContentModifier {
     let style: String
@@ -106,6 +119,13 @@ struct MaterialTextStyles {
     case "labelLarge": return type.labelLarge
     case "labelMedium": return type.labelMedium
     case "labelSmall": return type.labelSmall
+    case "displayMediumEmphasized": return type.displayMedium.copy(fontWeight: FontWeight.SemiBold)
+    case "displaySmallEmphasized": return type.displaySmall.copy(fontWeight: FontWeight.SemiBold)
+    case "headlineLargeEmphasized": return type.headlineLarge.copy(fontWeight: FontWeight.SemiBold)
+    case "headlineMediumEmphasized": return type.headlineMedium.copy(fontWeight: FontWeight.SemiBold)
+    case "headlineSmallEmphasized": return type.headlineSmall.copy(fontWeight: FontWeight.SemiBold)
+    case "titleLargeEmphasized": return type.titleLarge.copy(fontWeight: FontWeight.SemiBold)
+    case "titleMediumEmphasized": return type.titleMedium.copy(fontWeight: FontWeight.Bold)
     default: return type.bodyMedium
     }
 }

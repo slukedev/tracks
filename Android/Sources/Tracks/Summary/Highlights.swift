@@ -96,7 +96,7 @@ struct HighlightCard: View {
     var body: some View {
         MaterialCard(role: .surfaceContainerLow) {
             HStack(alignment: .top, spacing: Space.iconGap) {
-                IconBadge(symbol: insight.androidSymbol, container: .tertiaryContainer, content: .onTertiaryContainer, size: 40)
+                IconBadge(symbol: insight.androidSymbol, container: .tertiaryContainer, content: .onTertiaryContainer, size: 40, shape: .cookie6)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(insight.categoryTitle)
                         .materialType(.labelLarge)

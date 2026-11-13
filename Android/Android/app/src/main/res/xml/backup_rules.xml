@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backups up to Android 11. Secrets stay out: their key never leaves this device. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="tracks-secrets.xml" />
+</full-backup-content>

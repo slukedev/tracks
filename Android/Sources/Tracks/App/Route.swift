@@ -1,4 +1,5 @@
 import SwiftUI
+import TracksStats
 
 /// A page pushed onto a tab's stack.
 ///
@@ -8,6 +9,8 @@ enum Route: Hashable, Identifiable {
     /// An album or artist on the music server, to play from.
     case serverAlbum(String)
     case serverArtist(String)
+    /// One of the server's album lists: newest, most played, starred and so on.
+    case albumList(SubsonicClient.AlbumListType)
     /// An artist, song or album in the statistics, by its identity in the history.
     case artist(String)
     case song(String)
@@ -20,6 +23,7 @@ enum Route: Hashable, Identifiable {
         switch self {
         case .serverAlbum(let id): "serverAlbum:\(id)"
         case .serverArtist(let id): "serverArtist:\(id)"
+        case .albumList(let list): "albumList:\(list.rawValue)"
         case .artist(let id): "artist:\(id)"
         case .song(let id): "song:\(id)"
         case .album(let id): "album:\(id)"
@@ -38,6 +42,7 @@ extension View {
             switch route {
             case .serverAlbum(let id): ServerAlbumPage(albumID: id)
             case .serverArtist(let id): ServerArtistPage(artistID: id)
+            case .albumList(let list): ServerAlbumListPage(list: list)
             case .artist(let id): ArtistScreen(artistID: id)
             case .song(let id): SongScreen(songID: id)
             case .album(let id): AlbumScreen(albumID: id)

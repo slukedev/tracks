@@ -3,6 +3,8 @@ import TracksStats
 
 /// Where listening starts: shuffle everything, pick up what you played, or find an album.
 struct HomeScreen: View {
+    /// Pushes a page onto Home's stack.
+    var open: (Route) -> Void = { _ in }
     @Environment(ServerStore.self) var servers
     @Environment(PlayerModel.self) var player
     @Environment(AppModel.self) var model
@@ -32,7 +34,11 @@ struct HomeScreen: View {
                     if !albums.isEmpty {
                         SectionHeader(title: "Recently added")
                             .padding(.horizontal, Space.screen)
-                        AlbumShelf(albums: albums)
+                        CoverCarousel(items: albums.map { album in
+                            CoverCarousel.Item(url: servers.coverURL(coverRef(album), size: 600), title: album.name, subtitle: album.artist ?? "")
+                        }) { index in
+                            if albums.indices.contains(index) { open(.serverAlbum(albums[index].id)) }
+                        }
                     }
                     if !picks.isEmpty {
                         SectionHeader(title: "Something different")
@@ -57,33 +63,21 @@ struct HomeScreen: View {
         .refreshable { await load() }
     }
 
-    /// Shuffle everything, and play what you play most.
+    /// Shuffle everything, and play what you play most: Material 3 Expressive's medium buttons,
+    /// which square off as they're pressed.
     private var actions: some View {
-        HStack(spacing: Space.grid) {
-            Button {
+        HStack(spacing: 8) {
+            ExpressiveButton(title: "Shuffle all", symbol: .shuffle, emphasis: .filled, isEnabled: !isShuffling) {
                 Task { await shuffleEverything() }
-            } label: {
-                HStack(spacing: 8) {
-                    SymbolImage(.shuffle, size: 18, role: .onPrimary)
-                    Text("Shuffle all")
-                }
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(isShuffling)
-
-            Button {
+            ExpressiveButton(title: "On repeat", symbol: .onRepeat, emphasis: .tonal, isEnabled: !favourites.isEmpty) {
                 playFavourites()
-            } label: {
-                HStack(spacing: 8) {
-                    SymbolImage(.onRepeat, size: 18, role: .onSecondaryContainer)
-                    Text("On repeat")
-                }
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .disabled(favourites.isEmpty)
         }
+    }
+
+    private func coverRef(_ album: SubsonicAlbum) -> String? {
+        servers.server.flatMap { ServerStore.coverRef(serverID: $0.id, coverID: album.coverArt ?? album.id) }
     }
 
     /// The songs played most in the last month, from the statistics.
@@ -138,7 +132,7 @@ struct RecentSongsShelf: View {
                         player.play(queue, startAt: index, from: "Recently played")
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
-                            Artwork(url: play.artworkURL, size: 120, corner: Corner.large)
+                            Artwork(url: play.artworkURL, size: 120, corner: Corner.extraLarge)
                             VStack(alignment: .leading, spacing: 0) {
                                 Text(play.title)
                                     .materialType(.titleSmall)

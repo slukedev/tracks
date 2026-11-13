@@ -21,131 +21,135 @@ struct IconButton: View {
     }
 }
 
-/// What's playing, docked above the navigation bar: cover, song, play or pause, next, and a
-/// thin line of progress. Tapping it opens Now Playing.
+/// What's playing, docked above the navigation bar: its cover turning like a record, the song,
+/// play or pause, next, and a thin wave of progress, all in the cover's colours. Tapping it opens
+/// Now Playing.
 struct MiniPlayer: View {
     @Environment(PlayerModel.self) var player
+    @Environment(ServerStore.self) var servers
     let open: () -> Void
 
     var body: some View {
         if let song = player.current {
-            VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    Button(action: open) {
-                        HStack(spacing: 12) {
-                            Artwork(url: song.coverRef, size: 44, corner: Corner.small)
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(song.title)
-                                    .materialType(.titleSmall)
-                                    .materialForeground(.onSurface)
-                                    .lineLimit(1)
-                                Text(song.artist)
-                                    .materialType(.bodySmall)
-                                    .materialForeground(.onSurfaceVariant)
-                                    .lineLimit(1)
+            CoverColored(url: servers.coverURL(song.coverRef, size: NowPlayingScreen.coverSize)) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 12) {
+                        Button(action: open) {
+                            HStack(spacing: 12) {
+                                SpinningCover(url: servers.coverURL(song.coverRef, size: 150), isPlaying: player.isPlaying, size: 48)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(song.title)
+                                        .materialType(.titleSmall)
+                                        .materialForeground(.onPrimaryContainer)
+                                        .lineLimit(1)
+                                    Text(song.artist)
+                                        .materialType(.bodySmall)
+                                        .materialForeground(.onPrimaryContainer)
+                                        .opacity(0.8)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fullTapArea()
                         }
-                        .fullTapArea()
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Now playing: \(song.title) by \(song.artist)")
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Now playing: \(song.title) by \(song.artist)")
 
-                    IconButton(symbol: player.isPlaying ? .pause : .play, label: player.isPlaying ? "Pause" : "Play", role: .onSurface, filled: true) {
-                        player.toggle()
+                        IconButton(symbol: player.isPlaying ? .pause : .play, label: player.isPlaying ? "Pause" : "Play", role: .onPrimaryContainer, filled: true) {
+                            player.toggle()
+                        }
+                        IconButton(symbol: .skipNext, label: "Next", role: .onPrimaryContainer, filled: true) {
+                            player.next()
+                        }
                     }
-                    IconButton(symbol: .skipNext, label: "Next", role: .onSurface, filled: true) {
-                        player.next()
-                    }
+                    .padding(.leading, 8)
+                    .padding(.trailing, 4)
+                    .padding(.top, 8)
+
+                    WavySeekBar(position: player.position, duration: player.duration, isPlaying: player.isPlaying, interactive: false)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 6)
                 }
-                .padding(.leading, 10)
-                .padding(.trailing, 4)
-                .padding(.vertical, 8)
-
-                ProgressLine(fraction: player.duration > 0 ? player.position / player.duration : 0)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
+                .materialBackground(.primaryContainer, cornerRadius: Corner.extraLarge)
             }
-            .materialBackground(.surfaceContainerHighest, cornerRadius: Corner.large)
             .padding(.horizontal, 8)
             .padding(.bottom, 8)
         }
     }
 }
 
-/// A 2 dp track and indicator in the primary colour.
-struct ProgressLine: View {
-    let fraction: Double
-
-    var body: some View {
-        ZStack(alignment: .leading) {
-            Color.clear.frame(height: 2).frame(maxWidth: .infinity).materialBackground(.outlineVariant, cornerRadius: 1)
-            HStack(spacing: 0) {
-                Color.clear.frame(height: 2).frame(maxWidth: .infinity).materialBackground(.primary, cornerRadius: 1)
-                    .scaleEffect(x: max(0, min(fraction, 1)), y: 1, anchor: .leading)
-            }
-        }
-        .frame(height: 2)
-        .accessibilityHidden(true)
-    }
-}
-
-/// The song playing, big: cover, a scrubber, the transport, and what's next.
+/// The song playing, big, in its cover's colours: the cover, a wavy seek bar, the transport, and
+/// what's next. Swiping the cover skips.
 struct NowPlayingScreen: View {
     @Environment(PlayerModel.self) var player
     @Environment(AppModel.self) var model
+    @Environment(ServerStore.self) var servers
     @Environment(\.dismiss) var dismiss
-    /// Where the scrubber is while a finger is on it.
+    /// Where the seek bar's handle is while a finger is on it.
     @State var scrubbing: Double?
 
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollView {
-                VStack(spacing: 0) {
-                    if let song = player.current {
-                        Artwork(url: song.coverRef, size: 320, corner: Corner.extraLarge)
-                            .padding(.top, 16)
+    /// The size covers are asked for here and for the colours they lend, so both share one
+    /// download.
+    static let coverSize = 600
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(song.title)
-                                .materialType(.headlineSmall)
-                                .materialForeground(.onSurface)
-                                .lineLimit(2)
-                            Text(song.artist)
-                                .materialType(.titleMedium)
-                                .materialForeground(.onSurfaceVariant)
-                                .lineLimit(1)
-                            let plays = model.playCount(of: song)
-                            if plays > 0 {
-                                Text(plays == 1 ? "You've played this once" : "You've played this \(plays) times")
-                                    .materialType(.labelLarge)
-                                    .materialForeground(.onTertiaryContainer)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .materialBackground(.tertiaryContainer, cornerRadius: Corner.small)
-                                    .padding(.top, 8)
+    var body: some View {
+        CoverColored(url: coverURL) {
+            VStack(spacing: 0) {
+                header
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if let song = player.current {
+                            MorphingCover(url: coverURL, isPlaying: player.isPlaying, size: 312, next: { player.next() }, previous: { player.previous() })
+                                .padding(.top, 20)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(song.title)
+                                    .materialType(.headlineMediumEmphasized)
+                                    .materialForeground(.onSurface)
+                                    .lineLimit(2)
+                                Text(song.artist)
+                                    .materialType(.titleMedium)
+                                    .materialForeground(.primary)
+                                    .lineLimit(1)
+                                let plays = model.playCount(of: song)
+                                if plays > 0 {
+                                    Text(plays == 1 ? "You've played this once" : "You've played this \(plays) times")
+                                        .materialType(.labelLarge)
+                                        .materialForeground(.onTertiaryContainer)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .materialBackground(.tertiaryContainer, cornerRadius: 16)
+                                        .padding(.top, 10)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 28)
+
+                            scrubber.padding(.top, 20)
+                            transport.padding(.top, 12)
+
+                            if !player.upNext.isEmpty {
+                                upNext.padding(.top, 32)
                             }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 32)
-
-                        scrubber.padding(.top, 20)
-                        transport.padding(.top, 8)
-
-                        if !player.upNext.isEmpty {
-                            upNext.padding(.top, 32)
-                        }
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 32)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 32)
+            }
+            .background {
+                Color.clear
+                    .materialBackground(.surfaceContainerLow)
+                    .ignoresSafeArea()
             }
         }
-        .materialBackground(.surfaceContainerLow)
         .onChange(of: player.hasQueue) { _, hasQueue in
             if !hasQueue { dismiss() }
         }
+    }
+
+    private var coverURL: URL? {
+        servers.coverURL(player.current?.coverRef, size: Self.coverSize)
     }
 
     private var header: some View {
@@ -169,25 +173,24 @@ struct NowPlayingScreen: View {
 
     private var scrubber: some View {
         let length = max(player.duration, 1)
-        return VStack(spacing: 0) {
-            Slider(
-                value: Binding(get: { scrubbing ?? min(player.position, length) }, set: { scrubbing = $0 }),
-                in: 0...length,
-                onEditingChanged: { editing in
-                    if !editing, let target = scrubbing {
-                        player.seek(to: target)
-                        scrubbing = nil
-                    }
-                }
+        let shown = scrubbing ?? min(player.position, length)
+        return VStack(spacing: 2) {
+            WavySeekBar(
+                position: player.position,
+                duration: length,
+                isPlaying: player.isPlaying,
+                valueLabel: "\(Self.time(shown)) of \(Self.time(length))",
+                seek: { player.seek(to: $0) },
+                scrub: { scrubbing = $0 }
             )
-            .accessibilityLabel("Position")
             HStack {
-                Text(Self.time(scrubbing ?? player.position))
+                Text(Self.time(shown))
                 Spacer()
-                Text("−" + Self.time(max(length - (scrubbing ?? player.position), 0)))
+                Text("−" + Self.time(max(length - shown, 0)))
             }
             .materialType(.labelMedium)
             .materialForeground(.onSurfaceVariant)
+            .padding(.horizontal, 12)
         }
     }
 
@@ -201,16 +204,7 @@ struct NowPlayingScreen: View {
                 player.previous()
             }
             Spacer(minLength: 0)
-            Button {
-                player.toggle()
-            } label: {
-                SymbolImage(player.isPlaying ? .pause : .play, size: 40, filled: true, role: .onPrimary)
-                    .frame(width: 88, height: 88)
-                    .materialBackground(.primary, cornerRadius: player.isPlaying ? 28 : 44)
-                    .animation(.easeInOut(duration: 0.2), value: player.isPlaying)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+            PlayPauseButton(isPlaying: player.isPlaying) { player.toggle() }
             Spacer(minLength: 0)
             IconButton(symbol: .skipNext, label: "Next", role: .onSurface, size: 36, filled: true) {
                 player.next()
@@ -229,7 +223,7 @@ struct NowPlayingScreen: View {
     private var upNext: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Up next")
-                .materialType(.titleMedium)
+                .materialType(.titleMediumEmphasized)
                 .materialForeground(.onSurface)
                 .padding(.bottom, 8)
             ForEach(Array(player.upNext.prefix(20).enumerated()), id: \.element.id) { offset, song in
