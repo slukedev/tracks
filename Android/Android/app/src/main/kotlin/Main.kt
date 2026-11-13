@@ -71,7 +71,7 @@ open class MainActivity: AppCompatActivity {
 
         // The media notification and lock-screen controls need this on Android 13 and later.
         if (android.os.Build.VERSION.SDK_INT >= 33) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+            ActivityCompat.requestPermissions(this, kotlin.arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
     }
 
