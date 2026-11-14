@@ -35,7 +35,7 @@ import org.robolectric.shadows.ShadowLooper
 @RunWith(ParameterizedRobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [36], qualifiers = "w412dp-h915dp-xxhdpi")
-abstract class ScreenshotTest(private val dark: Boolean) {
+abstract class ScreenshotTest(protected val dark: Boolean) {
     @get:Rule val compose = createComposeRule()
 
     val app: Application get() = ApplicationProvider.getApplicationContext()

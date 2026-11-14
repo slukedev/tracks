@@ -26,6 +26,9 @@ class Navigator(start: Tab = Tab.Play) {
     /** Whether the full-screen player is showing. */
     var nowPlayingOpen by mutableStateOf(false)
 
+    /** Whether the mini player is on screen, set by the mini player itself. */
+    var miniPlayerVisible by mutableStateOf(false)
+
     val backStack: SnapshotStateList<Route> get() = stacks.getValue(tab)
 
     fun select(target: Tab) {

@@ -90,7 +90,8 @@ import kotlinx.coroutines.launch
 import uniffi.tracks_engine.songIdentity
 import java.time.LocalDate
 
-private val BottomRoom = 112.dp
+private val BottomRoom: androidx.compose.ui.unit.Dp
+    @Composable get() = com.luke.tracks.ui.navigation.bottomClearance
 
 /** The filters above the history. */
 enum class HistoryFilter(val label: String, val kind: PlayKindValue?) {

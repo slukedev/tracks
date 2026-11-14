@@ -91,7 +91,8 @@ import com.luke.tracks.ui.navigation.SettingsRoute
 import com.luke.tracks.ui.navigation.sharedElement
 import com.luke.tracks.ui.summary.periodName
 
-private val BottomRoom = 112.dp
+private val BottomRoom: androidx.compose.ui.unit.Dp
+    @Composable get() = com.luke.tracks.ui.navigation.bottomClearance
 
 /**
  * Charts: your top songs, artists and albums for any week, month or year, stepping back

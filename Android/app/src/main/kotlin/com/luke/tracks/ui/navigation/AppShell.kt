@@ -3,6 +3,27 @@ package com.luke.tracks.ui.navigation
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldValue
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
+import androidx.compose.material3.adaptive.navigationsuite.rememberNavigationSuiteScaffoldState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -49,6 +70,13 @@ import com.luke.tracks.ui.settings.SettingsPageScreen
 import com.luke.tracks.ui.settings.SettingsScreen
 import com.luke.tracks.ui.summary.SummaryScreen
 
+/** How far a page scrolls down before the bar slides away, and up before it returns. */
+private const val HideAfterPx = 48f
+private const val ShowAfterPx = 24f
+
+/** The floating mini player's height with its margins, plus a little air. */
+private val MiniPlayerRoom = 104.dp
+
 private data class TabItem(val tab: Tab, val label: String, val selected: ImageVector, val unselected: ImageVector)
 
 private val tabs = listOf(
@@ -66,6 +94,45 @@ private val tabs = listOf(
  */
 @Composable
 fun AppShell(navigator: Navigator) {
+    // The shorter Material 3 Expressive bar on phones, the wide rail on bigger screens.
+    val adaptive = currentWindowAdaptiveInfo()
+    val layoutType = when (val standard = NavigationSuiteScaffoldDefaults.navigationSuiteType(adaptive)) {
+        NavigationSuiteType.NavigationBar -> NavigationSuiteType.ShortNavigationBarCompact
+        NavigationSuiteType.NavigationRail -> NavigationSuiteType.WideNavigationRailCollapsed
+        else -> standard
+    }
+    val isBar = layoutType == NavigationSuiteType.ShortNavigationBarCompact ||
+        layoutType == NavigationSuiteType.ShortNavigationBarMedium
+
+    // On phones the bar slides away while you scroll down a page and comes back as soon as you
+    // scroll up, as in Google's apps, so the page gets the screen. A rail never hides.
+    val barState = rememberNavigationSuiteScaffoldState()
+    val scope = rememberCoroutineScope()
+    val hideOnScroll = remember(isBar) {
+        object : NestedScrollConnection {
+            private var travel = 0f
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (!isBar || consumed.y == 0f) return Offset.Zero
+                travel = if ((travel < 0) == (consumed.y < 0)) travel + consumed.y else consumed.y
+                val hidden = barState.targetValue == NavigationSuiteScaffoldValue.Hidden
+                when {
+                    travel < -HideAfterPx && !hidden -> scope.launch { barState.hide() }
+                    travel > ShowAfterPx && hidden -> scope.launch { barState.show() }
+                }
+                return Offset.Zero
+            }
+        }
+    }
+    // A new tab, or going back, always shows the bar again.
+    LaunchedEffect(navigator.tab, navigator.backStack.size) { barState.show() }
+    LaunchedEffect(isBar) { if (!isBar) barState.show() }
+
+    val barHidden = barState.currentValue == NavigationSuiteScaffoldValue.Hidden
+    val playing by remember { derivedStateOf { navigator.miniPlayerVisible } }
+    val systemBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val gestureInset by animateDpAsState(if (barHidden && isBar) systemBottom else 0.dp, label = "gesture")
+    val clearance = (if (playing) MiniPlayerRoom else 24.dp) + gestureInset
+
     SharedTransitionLayout {
     CompositionLocalProvider(LocalNavigator provides navigator, LocalSharedTransitionScope provides this) {
         Box(Modifier.fillMaxSize()) {
@@ -81,8 +148,15 @@ fun AppShell(navigator: Navigator) {
                         )
                     }
                 },
+                layoutType = layoutType,
+                state = barState,
             ) {
-                Box(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .nestedScroll(hideOnScroll),
+                ) {
+                    CompositionLocalProvider(LocalBottomClearance provides clearance) {
                     NavDisplay(
                         backStack = navigator.backStack,
                         onBack = { navigator.back() },
@@ -103,9 +177,12 @@ fun AppShell(navigator: Navigator) {
                             entry<LibraryArtistRoute> { LibraryArtistScreen(it.artistId) }
                         },
                     )
+                    }
                     MiniPlayer(
                         onExpand = { navigator.nowPlayingOpen = true },
-                        modifier = Modifier.align(Alignment.BottomCenter),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = gestureInset),
                     )
                 }
             }

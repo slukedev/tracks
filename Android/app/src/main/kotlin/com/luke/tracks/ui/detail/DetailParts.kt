@@ -82,7 +82,8 @@ import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 
-internal val BottomRoom = 112.dp
+internal val BottomRoom: androidx.compose.ui.unit.Dp
+    @androidx.compose.runtime.Composable get() = com.luke.tracks.ui.navigation.bottomClearance
 
 /**
  * A detail page's frame: a quiet bar with Back and the item's menu, whose title fades in once

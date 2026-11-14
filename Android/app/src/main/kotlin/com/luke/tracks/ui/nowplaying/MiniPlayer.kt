@@ -72,6 +72,8 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
     val motion = MaterialTheme.motionScheme
     var queueOpen by remember { mutableStateOf(false) }
     val song = state.current
+    // Tells the shell how much room pages should leave under their lists.
+    androidx.compose.runtime.SideEffect { navigator.miniPlayerVisible = song != null }
 
     AnimatedVisibility(
         visible = song != null,

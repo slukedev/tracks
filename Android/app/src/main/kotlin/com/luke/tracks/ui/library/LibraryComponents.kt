@@ -56,7 +56,8 @@ import com.luke.tracks.ui.components.Artwork
 import com.luke.tracks.ui.navigation.sharedElement
 
 /** Room under lists for the floating mini player. */
-val MiniPlayerClearance = 96.dp
+val MiniPlayerClearance: androidx.compose.ui.unit.Dp
+    @Composable get() = com.luke.tracks.ui.navigation.bottomClearance
 
 /** Springs to a little smaller while pressed, the expressive way. */
 @Composable

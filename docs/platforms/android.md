@@ -204,6 +204,9 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Settings in Android 16's grouped style: capture, apps, Last.fm, servers, appearance, Tracks Radio, Hear less of, privacy, about, licenses,
   app language and sample data.
 - Onboarding: welcome, notification access, permissions, Last.fm, and try with sample data.
+- Material 3 Expressive's short navigation bar on phones (a wide rail on larger screens). It
+  slides away while you scroll down and returns when you scroll up; the mini player follows,
+  and pages leave only the room they need at the bottom.
 - Press and hold on every song, album, artist, mix and history row.
 - Haptics matched to each action: long press, ticks while scrubbing and switching, confirm
   and reject, toggles.

@@ -48,7 +48,8 @@ import androidx.compose.ui.unit.dp
 import com.luke.tracks.ui.navigation.currentNavigator
 
 /** Room under the floating mini player and the navigation bar. */
-val BottomRoom = 112.dp
+val BottomRoom: androidx.compose.ui.unit.Dp
+    @Composable get() = com.luke.tracks.ui.navigation.bottomClearance
 
 /** The tone of a row's icon circle, as Android 16's Settings colors each row. */
 enum class Tone { Primary, Secondary, Tertiary, Error, Neutral }

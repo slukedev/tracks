@@ -182,7 +182,7 @@ private fun Recents(recents: RecentSearches, onPick: (String) -> Unit) {
         )
         return
     }
-    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 112.dp)) {
+    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = com.luke.tracks.ui.navigation.bottomClearance)) {
         item(key = "header") {
             SectionHeader("Recent searches", action = "Clear", onAction = { recents.clear() })
         }
@@ -212,7 +212,7 @@ private fun Recents(recents: RecentSearches, onPick: (String) -> Unit) {
 private fun Results(r: SearchResults, onOpen: () -> Unit) {
     val navigator = LocalNavigator.current
     var allSongs by remember(r) { mutableStateOf(false) }
-    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 112.dp)) {
+    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = com.luke.tracks.ui.navigation.bottomClearance)) {
         if (r.artists.isNotEmpty()) {
             item(key = "artistsHeader", contentType = "header") { SectionHeader("Artists") }
             item(key = "artists", contentType = "shelf") {

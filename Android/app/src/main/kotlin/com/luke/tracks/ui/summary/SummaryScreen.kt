@@ -112,7 +112,8 @@ import com.luke.tracks.ui.navigation.SettingsRoute
 import com.luke.tracks.ui.navigation.Tab
 
 /** Bottom room for the mini player floating over the navigation bar. */
-private val BottomRoom = 112.dp
+private val BottomRoom: androidx.compose.ui.unit.Dp
+    @Composable get() = com.luke.tracks.ui.navigation.bottomClearance
 
 /**
  * Summary: how much you listened, compared with last time, and what it was. A big rounded

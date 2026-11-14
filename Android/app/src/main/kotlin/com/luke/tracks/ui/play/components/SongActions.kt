@@ -110,4 +110,5 @@ private fun Action(icon: ImageVector, label: String, supporting: String? = null,
 }
 
 /** Room for the floating mini player under the last row. */
-val MiniPlayerClearance = 96.dp
+val MiniPlayerClearance: androidx.compose.ui.unit.Dp
+    @Composable get() = com.luke.tracks.ui.navigation.bottomClearance
