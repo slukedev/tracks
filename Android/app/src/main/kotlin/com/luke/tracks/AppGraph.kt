@@ -7,6 +7,7 @@ import com.luke.tracks.data.SettingsRepository
 import com.luke.tracks.engine.Engine
 import com.luke.tracks.library.MusicLibrary
 import com.luke.tracks.playback.PlayerController
+import com.luke.tracks.playback.RadioSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
@@ -30,4 +31,7 @@ class AppGraph(val context: Context, val sampleData: Boolean) {
 
     /** Set by the playback implementation at startup. */
     lateinit var player: PlayerController
+
+    /** Set by the Play tab's Tracks Radio at startup. */
+    lateinit var radio: RadioSource
 }

@@ -71,3 +71,21 @@ interface PlayerController {
     /** Starts Tracks Radio: endless, picked a song at a time from the history and library. */
     fun startRadio()
 }
+
+/** How a song the radio chose went, for it to learn from. */
+enum class RadioListen { Skipped, MovedOn, Finished }
+
+/**
+ * Tracks Radio's songs: picked a few at a time from the history and the library by the
+ * engine's `RadioStation`. The player asks for more as the queue runs low and reports how
+ * each radio song went.
+ */
+interface RadioSource {
+    /** The first songs of a fresh station; empty when there's nothing playable. */
+    suspend fun start(): List<PlayableSong>
+
+    /** The next [count] songs. */
+    suspend fun more(count: Int = 5): List<PlayableSong>
+
+    fun note(song: PlayableSong, listen: RadioListen)
+}

@@ -138,7 +138,7 @@ dependencies {
 }
 
 tasks.withType<Test>().configureEach {
-    maxHeapSize = "2g"
+    maxHeapSize = "1536m"
     systemProperty("robolectric.graphicsMode", "NATIVE")
     systemProperty("roborazzi.test.record", "true")
     // The engine built for this computer by Engine/build-android.sh.
