@@ -17,11 +17,10 @@ enum class HighlightCategory(val title: String) {
     Favourites("Favorites"),
     Discovery("Discovery"),
     Rhythm("Rhythm"),
-    Radio("Radio"),
 }
 
 /** Which picture goes with a highlight. */
-enum class HighlightSymbol { Trophy, Flame, Repeat, Star, Mic, Sparkles, Moon, Sunrise, Clock, Sun, Calendar, Radio, Replay }
+enum class HighlightSymbol { Trophy, Flame, Repeat, Star, Mic, Sparkles, Moon, Sunrise, Clock, Sun, Calendar, Replay }
 
 /** One short written highlight. */
 data class Highlight(
@@ -184,14 +183,6 @@ object Highlights {
                     "${Format.weekdayName(top)} is your biggest day, with ${Format.songs(weekdays[top])}.",
                 )
             }
-        }
-
-        val radio = input.activity.radio.toLong()
-        if (total >= 10 && radio * 2 > total) {
-            out += Highlight(
-                "radio", HighlightCategory.Radio, HighlightSymbol.Radio,
-                "Radio played ${percent(radio.toDouble() / total)}% of your songs.",
-            )
         }
 
         input.songs.rows.firstOrNull()?.song?.let { top ->

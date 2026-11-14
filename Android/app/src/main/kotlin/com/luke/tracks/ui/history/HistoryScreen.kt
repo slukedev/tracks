@@ -25,9 +25,7 @@ import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -83,7 +81,7 @@ import com.luke.tracks.ui.insights.rememberGraph
 import com.luke.tracks.ui.insights.segmentedShape
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.SearchRoute
-import com.luke.tracks.ui.navigation.SettingsRoute
+import com.luke.tracks.ui.navigation.SettingsPageRoute
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -96,8 +94,7 @@ private val BottomRoom: androidx.compose.ui.unit.Dp
 /** The filters above the history. */
 enum class HistoryFilter(val label: String, val kind: PlayKindValue?) {
     All("All", null),
-    Radio("Radio", PlayKindValue.Radio),
-    OnDemand("On demand", PlayKindValue.OnDemand),
+    Tracks("Tracks", PlayKindValue.OnDemand),
     LastFm("Last.fm", PlayKindValue.LastFm),
 }
 
@@ -170,10 +167,9 @@ fun HistoryScreen() {
                     EmptyState(
                         icon = Icons.Rounded.History,
                         title = "No plays yet",
-                        message = "Songs you play in Tracks show up here. To include other music apps, " +
-                            "allow notification access in Settings.",
-                        action = "Open settings",
-                        onAction = { navigator.open(SettingsRoute) },
+                        message = "Songs you play in Tracks show up here. You can also import your Last.fm history.",
+                        action = "Import from Last.fm",
+                        onAction = { navigator.open(SettingsPageRoute("lastfm")) },
                     )
                 }
                 return@Scaffold
@@ -326,15 +322,14 @@ private fun PlayRow(play: PlayEntity, first: Boolean, last: Boolean, onDelete: (
     }
 }
 
-/** Where a play came from, as a small tag: the station, the app, Imported or Last.fm. */
+/** A small tag on plays that came from elsewhere: Imported or Last.fm. Plays from Tracks have none. */
 @Composable
 fun KindBadge(play: PlayEntity) {
     val scheme = MaterialTheme.colorScheme
     val (label, icon: ImageVector, colors) = when (play.kind) {
-        PlayKindValue.Radio -> Triple(play.stationName?.takeIf { it.isNotBlank() } ?: "Radio", Icons.Rounded.Radio, scheme.tertiaryContainer to scheme.onTertiaryContainer)
-        PlayKindValue.OnDemand -> Triple(play.appName ?: "On demand", Icons.Rounded.Smartphone, scheme.secondaryContainer to scheme.onSecondaryContainer)
         PlayKindValue.Imported -> Triple("Imported", Icons.Rounded.FileDownload, scheme.surfaceContainerHighest to scheme.onSurfaceVariant)
         PlayKindValue.LastFm -> Triple("Last.fm", Icons.Rounded.Cloud, scheme.errorContainer to scheme.onErrorContainer)
+        PlayKindValue.Radio, PlayKindValue.OnDemand -> return
     }
     Row(
         Modifier.background(colors.first, RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 2.dp),

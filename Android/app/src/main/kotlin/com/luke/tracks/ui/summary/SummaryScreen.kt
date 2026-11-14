@@ -36,7 +36,6 @@ import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.NightsStay
-import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Schedule
@@ -108,6 +107,7 @@ import com.luke.tracks.ui.insights.rememberCountUp
 import com.luke.tracks.ui.insights.segmentedShape
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.SearchRoute
+import com.luke.tracks.ui.navigation.SettingsPageRoute
 import com.luke.tracks.ui.navigation.SettingsRoute
 import com.luke.tracks.ui.navigation.Tab
 
@@ -152,10 +152,9 @@ fun SummaryScreen() {
                     EmptyState(
                         icon = Icons.Rounded.Headphones,
                         title = "No listening yet",
-                        message = "Your stats appear once you've played some music. To include other music apps, " +
-                            "allow notification access in Settings.",
-                        action = "Open settings",
-                        onAction = { navigator.open(SettingsRoute) },
+                        message = "Your stats appear once you've played some music in Tracks or imported your Last.fm history.",
+                        action = "Import from Last.fm",
+                        onAction = { navigator.open(SettingsPageRoute("lastfm")) },
                     )
                 }
                 else -> LazyColumn(
@@ -449,14 +448,12 @@ private fun HighlightRow(highlight: Highlight, index: Int, count: Int, modifier:
         HighlightCategory.Favourites -> scheme.primaryContainer to scheme.onPrimaryContainer
         HighlightCategory.Discovery -> scheme.tertiaryContainer to scheme.onTertiaryContainer
         HighlightCategory.Rhythm -> scheme.secondaryContainer to scheme.onSecondaryContainer
-        HighlightCategory.Radio -> scheme.surfaceContainerHighest to scheme.onSurface
     }
     val tint = when (highlight.category) {
         HighlightCategory.Achievement -> scheme.error
         HighlightCategory.Favourites -> scheme.primary
         HighlightCategory.Discovery -> scheme.tertiary
         HighlightCategory.Rhythm -> scheme.secondary
-        HighlightCategory.Radio -> scheme.onSurfaceVariant
     }
     val shapes = listOf(MaterialShapes.Cookie7Sided, MaterialShapes.Sunny, MaterialShapes.Clover4Leaf, MaterialShapes.Cookie9Sided, MaterialShapes.Pentagon, MaterialShapes.Flower)
     Surface(
@@ -494,7 +491,6 @@ private fun symbolIcon(symbol: HighlightSymbol): ImageVector = when (symbol) {
     HighlightSymbol.Clock -> Icons.Rounded.Schedule
     HighlightSymbol.Sun -> Icons.Rounded.WbSunny
     HighlightSymbol.Calendar -> Icons.Rounded.CalendarMonth
-    HighlightSymbol.Radio -> Icons.Rounded.Radio
     HighlightSymbol.Replay -> Icons.Rounded.Replay
 }
 
@@ -542,14 +538,13 @@ private fun Sources(data: SummaryData, modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     val a = data.activity
     val shares = listOf(
-        Share("On demand", a.onDemand.toLong(), scheme.primary),
-        Share("Radio", a.radio.toLong(), scheme.tertiary),
+        Share("Tracks", a.onDemand.toLong(), scheme.primary),
         Share("Imported", a.imported.toLong(), scheme.secondary),
         Share("Last.fm", a.lastFm.toLong(), scheme.outline),
     )
     if (shares.count { it.value > 0 } < 2) return
     InsightCard(modifier) {
-        CardLabel("How you listened", Icons.Rounded.Radio)
+        CardLabel("How you listened", Icons.Rounded.Headphones)
         Spacer(Modifier.height(20.dp))
         ShareBar(shares)
     }

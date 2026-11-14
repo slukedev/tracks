@@ -16,7 +16,8 @@ It's written in SwiftUI, with SwiftData and CloudKit for storage. There's no Tra
 and no analytics. Your history stays on your devices and in your private iCloud database.
 
 There's also an Android app, built on the same Rust engine with Material 3 Expressive. It
-keeps what you play in any music app. See [Android/README.md](Android/README.md), and
+keeps the songs you play in it, from the phone and your own servers, and can import your
+Last.fm history. See [Android/README.md](Android/README.md), and
 [docs/platforms](docs/platforms/README.md) for what each platform has.
 
 Tracks replaces Motif. On a device that has Motif, it brings your Motif history over by

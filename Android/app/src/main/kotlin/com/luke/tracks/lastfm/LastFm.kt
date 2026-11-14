@@ -8,8 +8,6 @@ import android.util.Log
 import androidx.browser.customtabs.CustomTabsIntent
 import com.luke.tracks.AppGraph
 import com.luke.tracks.BuildConfig
-import com.luke.tracks.capture.CaptureListenerService
-import com.luke.tracks.capture.PlayTracker
 import com.luke.tracks.data.PlayEntity
 import com.luke.tracks.data.PlayKindValue
 import com.luke.tracks.data.PlaySourceValue
@@ -223,7 +221,7 @@ class LastFm internal constructor(private val context: Context, private val grap
             try {
                 val known = withContext(Dispatchers.IO) {
                     graph.history.database.plays().all()
-                        .groupBy({ PlayTracker.songKey(it.title, it.artistName) }, { it.playedAt / 1000 })
+                        .groupBy({ importKey(it.title, it.artistName) }, { it.playedAt / 1000 })
                 }
                 var before: Long? = null
                 var added = 0
@@ -232,11 +230,11 @@ class LastFm internal constructor(private val context: Context, private val grap
                     val result = lastfmParseRecentTracks(send(client.recentTracks(session, null, before, PAGE)))
                     if (result.scrobbles.isEmpty()) break
                     val plays = result.scrobbles.filter { track ->
-                        known[PlayTracker.songKey(track.title, track.artistName)].orEmpty()
+                        known[importKey(track.title, track.artistName)].orEmpty()
                             .none { kotlin.math.abs(it - track.playedAt) < SAME_PLAY_SECONDS }
                     }.map { track ->
                         PlayEntity(
-                            id = "lastfm-${track.playedAt}-${CaptureListenerService.hash(PlayTracker.songKey(track.title, track.artistName))}",
+                            id = "lastfm-${track.playedAt}-${importHash(importKey(track.title, track.artistName))}",
                             title = track.title,
                             artistName = track.artistName,
                             albumTitle = track.albumTitle,
@@ -337,3 +335,13 @@ private val instances = WeakHashMap<AppGraph, LastFm>()
 /** Last.fm for this process's history. */
 val AppGraph.lastFm: LastFm
     get() = synchronized(instances) { instances.getOrPut(this) { LastFm(context, this) } }
+
+/** Title and artist, trimmed and lowercased, to match an imported scrobble to a kept play. */
+private fun importKey(title: String, artist: String): String =
+    (title.trim() + "\u0000" + artist.trim()).lowercase(java.util.Locale.ROOT).replace(spaces, " ")
+
+private val spaces = Regex("\\s+")
+
+/** A short stable id for an imported scrobble. */
+private fun importHash(text: String): String =
+    java.security.MessageDigest.getInstance("SHA-1").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }.take(24)

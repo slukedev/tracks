@@ -42,10 +42,6 @@ data class AppSettings(
     val paletteStyle: PaletteChoice = PaletteChoice.Vibrant,
     /** True black backgrounds in the dark theme. */
     val pureBlack: Boolean = false,
-    /** Keep songs played in other apps (needs notification access). */
-    val captureOtherApps: Boolean = true,
-    /** Apps whose plays are not kept, by package. */
-    val excludedApps: Set<String> = emptySet(),
     /** Songs asked to hear less of; they leave every mix and the radio. */
     val hiddenSongs: Set<String> = emptySet(),
     val scrobbleEnabled: Boolean = true,
@@ -66,8 +62,6 @@ class SettingsRepository(private val context: Context) {
         val seed = androidx.datastore.preferences.core.intPreferencesKey("seedColor")
         val style = stringPreferencesKey("paletteStyle")
         val pureBlack = booleanPreferencesKey("pureBlack")
-        val capture = booleanPreferencesKey("captureOtherApps")
-        val excluded = stringSetPreferencesKey("excludedApps")
         val hidden = stringSetPreferencesKey("hiddenSongs")
         val scrobble = booleanPreferencesKey("scrobbleEnabled")
         val lastFmUser = stringPreferencesKey("lastFmUser")
@@ -86,8 +80,6 @@ class SettingsRepository(private val context: Context) {
         seedColor = this[Keys.seed] ?: TRACKS_RED,
         paletteStyle = this[Keys.style]?.let { runCatching { PaletteChoice.valueOf(it) }.getOrNull() } ?: PaletteChoice.Vibrant,
         pureBlack = this[Keys.pureBlack] ?: false,
-        captureOtherApps = this[Keys.capture] ?: true,
-        excludedApps = this[Keys.excluded] ?: emptySet(),
         hiddenSongs = this[Keys.hidden] ?: emptySet(),
         scrobbleEnabled = this[Keys.scrobble] ?: true,
         lastFmUser = this[Keys.lastFmUser],
@@ -106,8 +98,6 @@ class SettingsRepository(private val context: Context) {
             p[Keys.seed] = new.seedColor
             p[Keys.style] = new.paletteStyle.name
             p[Keys.pureBlack] = new.pureBlack
-            p[Keys.capture] = new.captureOtherApps
-            p[Keys.excluded] = new.excludedApps
             p[Keys.hidden] = new.hiddenSongs
             p[Keys.scrobble] = new.scrobbleEnabled
             if (new.lastFmUser == null) p.remove(Keys.lastFmUser) else p[Keys.lastFmUser] = new.lastFmUser

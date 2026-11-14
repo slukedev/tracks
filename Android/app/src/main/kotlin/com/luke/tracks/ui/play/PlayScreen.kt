@@ -362,7 +362,7 @@ private fun EmptyPlay(modifier: Modifier = Modifier) {
         Text("No mixes yet", style = MaterialTheme.typography.titleLargeEmphasized, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Mixes appear here once you've played some music, in Tracks or another app.",
+            "Mixes appear here once you've played some music in Tracks or imported your Last.fm history.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

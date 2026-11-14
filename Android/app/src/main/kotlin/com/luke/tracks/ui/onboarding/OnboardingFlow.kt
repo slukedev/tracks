@@ -35,10 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material.icons.rounded.Radio
-import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -71,18 +68,16 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.graphics.shapes.RoundedPolygon
-import com.luke.tracks.capture.CaptureAccess
 import com.luke.tracks.graph
 import com.luke.tracks.lastfm.LastFm
 import com.luke.tracks.lastfm.lastFm
 
 /** The steps of the first run. */
-enum class OnboardingStep { Welcome, Capture, Permissions, LastFm, Ready }
+enum class OnboardingStep { Welcome, Permissions, LastFm, Ready }
 
 /** Each step's shape: the one shape on screen morphs from each to the next. */
 private fun OnboardingStep.shape(done: Boolean): RoundedPolygon = when (this) {
     OnboardingStep.Welcome -> MaterialShapes.Cookie9Sided
-    OnboardingStep.Capture -> if (done) MaterialShapes.Sunny else MaterialShapes.Cookie12Sided
     OnboardingStep.Permissions -> MaterialShapes.Clover4Leaf
     OnboardingStep.LastFm -> if (done) MaterialShapes.Sunny else MaterialShapes.SoftBurst
     OnboardingStep.Ready -> MaterialShapes.Flower
@@ -90,15 +85,14 @@ private fun OnboardingStep.shape(done: Boolean): RoundedPolygon = when (this) {
 
 private fun OnboardingStep.accent(which: Int): RoundedPolygon = when (this) {
     OnboardingStep.Welcome -> if (which == 0) MaterialShapes.Sunny else MaterialShapes.Circle
-    OnboardingStep.Capture -> if (which == 0) MaterialShapes.Clover4Leaf else MaterialShapes.Pill
     OnboardingStep.Permissions -> if (which == 0) MaterialShapes.Diamond else MaterialShapes.Cookie4Sided
     OnboardingStep.LastFm -> if (which == 0) MaterialShapes.Burst else MaterialShapes.Gem
     OnboardingStep.Ready -> if (which == 0) MaterialShapes.Heart else MaterialShapes.Sunny
 }
 
 /**
- * The first run: what Tracks does, the access it needs (with plainly what it does and doesn't
- * read), optional Last.fm, and a way in with sample data. Every step can be skipped.
+ * The first run: what Tracks does, the permissions it asks for, optional Last.fm, and a way in
+ * with sample data. Every step can be skipped.
  */
 @Composable
 fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: OnboardingStep = OnboardingStep.Welcome) {
@@ -115,16 +109,9 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
     fun next() = go(stepIndex + 1)
     BackHandler(enabled = stepIndex > 0) { go(stepIndex - 1) }
 
-    // What's been allowed, checked again each time Tracks comes back to the front.
-    var access by remember { mutableStateOf(CaptureAccess.isGranted(context)) }
+    // What's been allowed.
     var notifications by remember { mutableStateOf(granted(context, Manifest.permission.POST_NOTIFICATIONS)) }
     var music by remember { mutableStateOf(granted(context, Manifest.permission.READ_MEDIA_AUDIO)) }
-    LifecycleResumeEffect(Unit) {
-        val now = CaptureAccess.isGranted(context)
-        if (now && !access) haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-        access = now
-        onPauseOrDispose {}
-    }
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         notifications = ok
         haptics.performHapticFeedback(if (ok) HapticFeedbackType.Confirm else HapticFeedbackType.Reject)
@@ -145,15 +132,10 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
         lastFmBefore = lastFm
     }
 
-    val done = when (step) {
-        OnboardingStep.Capture -> access
-        OnboardingStep.LastFm -> lastFm is LastFm.Connection.Connected
-        else -> false
-    }
+    val done = step == OnboardingStep.LastFm && lastFm is LastFm.Connection.Connected
     val scheme = MaterialTheme.colorScheme
     val shapeColor = when (step) {
         OnboardingStep.Welcome, OnboardingStep.Ready -> scheme.primaryContainer
-        OnboardingStep.Capture -> if (done) scheme.primaryContainer else scheme.tertiaryContainer
         OnboardingStep.Permissions -> scheme.secondaryContainer
         OnboardingStep.LastFm -> if (done) scheme.primaryContainer else scheme.tertiaryContainer
     }
@@ -210,11 +192,9 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
                 key(s) {
                     StepContent(
                         step = s,
-                        access = access,
                         notifications = notifications,
                         music = music,
                         lastFm = lastFm,
-                        onAllowAccess = { context.startActivity(CaptureAccess.settingsIntent(context)) },
                         onAskNotifications = { askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) },
                         onAskMusic = { askMusic.launch(Manifest.permission.READ_MEDIA_AUDIO) },
                         onConnectLastFm = { graph.lastFm.connect(context) },
@@ -255,7 +235,6 @@ private fun Mark(step: OnboardingStep, done: Boolean) {
         done -> Icon(Icons.Rounded.Check, contentDescription = null, tint = scheme.onPrimaryContainer, modifier = Modifier.size(88.dp))
         else -> Icon(
             when (step) {
-                OnboardingStep.Capture -> Icons.Rounded.MusicNote
                 OnboardingStep.Permissions -> Icons.Rounded.Notifications
                 else -> Icons.Rounded.GraphicEq
             },
@@ -272,11 +251,9 @@ private fun Mark(step: OnboardingStep, done: Boolean) {
 @Composable
 private fun StepContent(
     step: OnboardingStep,
-    access: Boolean,
     notifications: Boolean,
     music: Boolean,
     lastFm: LastFm.Connection,
-    onAllowAccess: () -> Unit,
     onAskNotifications: () -> Unit,
     onAskMusic: () -> Unit,
     onConnectLastFm: () -> Unit,
@@ -287,18 +264,12 @@ private fun StepContent(
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         when (step) {
             OnboardingStep.Welcome -> {
-                Words(0, "Welcome to Tracks", "Tracks keeps a history of the songs you play in any music app, including radio, and uses it for charts, mixes and Tracks Radio.")
-                Actions(2, primary = "Get started", onPrimary = onNext)
-            }
-            OnboardingStep.Capture -> {
                 Words(
                     0,
-                    if (access) "Notification access is on" else "Keep songs from other apps",
-                    "With notification access, Tracks keeps the songs you play in Spotify, YouTube Music and radio apps.",
+                    "Welcome to Tracks",
+                    "Play music from this phone or your servers, and Tracks keeps a history of it for charts, mixes and Tracks Radio. You can also import your Last.fm history.",
                 )
-                Promise(1, Icons.Rounded.Shield, "Tracks only reads what's playing, not your notifications. Your history stays on this phone.")
-                if (access) Actions(2, primary = "Continue", onPrimary = onNext)
-                else Actions(2, primary = "Allow notification access", onPrimary = onAllowAccess, secondary = "Not now", onSecondary = onNext)
+                Actions(2, primary = "Get started", onPrimary = onNext)
             }
             OnboardingStep.Permissions -> {
                 Words(0, "Permissions", "Both are optional. You can change them later in Android's settings.")
@@ -313,7 +284,7 @@ private fun StepContent(
                     Actions(2, primary = "Continue", onPrimary = onNext)
                 }
                 is LastFm.Connection.Connected -> {
-                    Words(0, "Scrobbling as ${lastFm.username}", "Songs Tracks keeps are scrobbled to your profile. You can import your Last.fm history in Settings.")
+                    Words(0, "Scrobbling as ${lastFm.username}", "Songs you play in Tracks are scrobbled to your profile. You can import your Last.fm history in Settings.")
                     Actions(2, primary = "Continue", onPrimary = onNext)
                 }
                 LastFm.Connection.Waiting -> {
@@ -330,13 +301,17 @@ private fun StepContent(
                         0,
                         "Scrobble to Last.fm",
                         if (lastFm is LastFm.Connection.Failed) lastFm.message
-                        else "Optional. Songs Tracks keeps, including radio, are scrobbled to your profile. You sign in on Last.fm's site, so Tracks never sees your password.",
+                        else "Optional. Songs you play in Tracks are scrobbled to your profile. You sign in on Last.fm's site, so Tracks never sees your password.",
                     )
                     Actions(2, primary = "Connect Last.fm", onPrimary = onConnectLastFm, secondary = "Skip", onSecondary = onNext)
                 }
             }
             OnboardingStep.Ready -> {
-                Words(0, "Ready", "Play something in any music app. A song shows up in Tracks once it has played for half its length or four minutes.")
+                Words(
+                    0,
+                    "Ready",
+                    "Play something from your music. A song is added to your history once it has played for half its length or four minutes. You can import your Last.fm history in Settings.",
+                )
                 Actions(2, primary = "Done", onPrimary = { onDone(false) }, secondary = "Try it with sample data", onSecondary = { onDone(true) })
             }
         }
@@ -360,21 +335,6 @@ private fun Words(index: Int, title: String, body: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.widthIn(max = 480.dp),
         )
-    }
-}
-
-@Composable
-private fun Promise(index: Int, icon: ImageVector, text: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.staggered(index).padding(top = 20.dp).fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(14.dp))
-            Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-        }
     }
 }
 

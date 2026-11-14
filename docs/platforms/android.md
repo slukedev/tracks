@@ -7,7 +7,7 @@ Glance), on the shared Rust engine through UniFFI bindings
 Everything below **Complete features** is built and merged on `feat/android-m3-expressive`.
 It has been checked with unit tests and Robolectric screenshots against the real engine, but
 not yet on a device: there is no emulator in the build environment. Items that need a device
-to prove (media sessions from other apps, Android Auto, Last.fm sign-in, widgets, the tile)
+to prove (Android Auto, Last.fm sign-in, widgets, the tile)
 are marked *(untested on a device)*.
 
 Two things to know about the platform:
@@ -15,10 +15,17 @@ Two things to know about the platform:
 - Tracks can't play Apple Music on Android, so "Play" here means your own music (files on the
   phone and Subsonic servers). Anything Apple Music does on iPhone has to come from history,
   the engine, your servers or Last.fm.
-- In exchange, Android can keep what you play in **any** music app, through a notification
-  listener. On iPhone and Mac, Tracks only sees Apple Music.
+- The history comes only from Tracks itself: songs played in Tracks' own player, and your
+  Last.fm history if you import it. See Decisions.
 
 See [README.md](README.md) for the legend and how to keep this current.
+
+## Decisions
+
+- 2026-11-14: Keeping songs from other apps is removed. Tracks only tracks songs played
+  through Tracks. The notification listener, its onboarding step, the Listening history and
+  excluded apps pages, and the Radio filter are gone. Plays it kept earlier stay in the
+  history.
 
 ## Complete features
 
@@ -50,7 +57,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 ### Settings model
 
 - Stored with DataStore: theme (system, light, dark), colors (wallpaper, Tracks, Now
-  Playing), keep plays from other apps, excluded apps, hidden songs, scrobbling on or off,
+  Playing), hidden songs, scrobbling on or off,
   Last.fm user, Tracks Radio adventure, sample data, onboarded, Subsonic servers.
 
 ### System integration
@@ -85,19 +92,10 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ## Complete features (built in the app)
 
-### History capture
+### Keeping plays
 
-- Keeps plays from any music app through a notification listener: Spotify, YouTube Music,
-  radio apps and the rest. Time counts only while playing, and a song is kept once it passes
-  Last.fm's rule. *(untested on a device)*
-- Skips Tracks itself, excluded apps, video and browser apps, podcasts and audiobooks, ads,
-  very long items and incomplete metadata. Two apps reporting the same song keep it once.
-- Radio detected by app or by a live stream with a station line; "Artist - Title" streams
-  are split and the station kept.
-- Covers saved from the media session.
-- Keeps every song played in Tracks' own player once the required time has played (seeks
-  don't count), with the final listened time saved.
-- Excluded apps page, listing the music apps seen.
+- Keeps every song played in Tracks' own player once it passes Last.fm's rule (half its
+  length or four minutes; seeks don't count), with the final listened time saved.
 
 ### Insights (Summary)
 
@@ -108,10 +106,11 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Artists, different songs, new to you and streak tiles.
 - Highlights ported from iOS where the engine has the data (milestones, on repeat, top
   artist share, new artists, mostly new, night owl or early bird, busiest hours, weekend
-  listener, biggest day, most played song), plus new favorite, longest streak and radio share.
+  listener, biggest day, most played song), plus new favorite and longest streak.
 - Top songs with movement, top artists and albums, a 24-hour clock, a weekday chart, a
   week-by-hour heat map and how you listened.
-- Empty state that explains notification access and your own music.
+- Empty states on Summary, Charts, History and Play that point to playing in Tracks or
+  importing from Last.fm.
 
 ### Charts
 
@@ -122,9 +121,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ### History list and detail pages
 
-- The whole history, paged, with sticky day headings and filters for All, Radio, On demand
-  and Last.fm.
-- Each row shows the station, the app, Imported or Last.fm.
+- The whole history, paged, with sticky day headings and filters for All, Tracks and Last.fm.
+- Imported and Last.fm plays are tagged on their rows.
 - Swipe or press and hold to delete, with Undo.
 - Artist, album and song pages: rank and share, plays, listening, first and last heard, plays
   per month, top songs, albums, plays with, credits and a time-of-day clock.
@@ -140,7 +138,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 - A carousel of this hour's mix, Tracks Radio and the day's other mixes, with a play button
   that changes shape between play and pause.
 - Mixes from the shared engine: time of day, On Repeat, New Finds, All-Time Favorites, Deep
-  Cuts, Radio Finds, Rediscover, A Year Ago.
+  Cuts, Rediscover, A Year Ago. Radio Finds needs radio plays, so it never appears on
+  Android.
 - Your artists lately, suggested songs from your history, Keep exploring.
 - Mix pages with Play and Shuffle; songs you can't play here are dimmed and offer "Open in"
   another app.
@@ -190,7 +189,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Connect through a Custom Tab, with the session key sealed by an Android Keystore key.
 - Scrobbles in batches of 50 with WorkManager, settled by Last.fm's answer, with backoff.
 - Now playing updates.
-- Import from Last.fm, skipping plays already kept.
+- Import from Last.fm, skipping plays already kept. The row says what it does before you tap
+  it and shows progress; there is no confirmation dialog.
 - A notification when the session is revoked.
 - Keys come from a gitignored `secrets.properties`; without them the app says Last.fm isn't
   set up in this build.
@@ -201,9 +201,9 @@ See [README.md](README.md) for the legend and how to keep this current.
   a custom color instead: the wallpaper's own colors or twelve presets, in Tonal, Vibrant,
   Exact or Muted style, plus pure black for dark mode. Colors follow Android's contrast
   setting and cross-fade when changed.
-- Settings in Android 16's grouped style: capture, apps, Last.fm, servers, appearance, Tracks Radio, Hear less of, privacy, about, licenses,
+- Settings in Android 16's grouped style: Last.fm, servers, appearance, Tracks Radio, Hear less of, privacy, about, licenses,
   app language and sample data.
-- Onboarding: welcome, notification access, permissions, Last.fm, and try with sample data.
+- Onboarding: welcome, permissions, Last.fm, and try with sample data.
 - Material 3 Expressive's short navigation bar on phones (a wide rail on larger screens). It
   slides away while you scroll down and returns when you scroll up; the mini player follows,
   and pages leave only the room they need at the bottom.
@@ -221,13 +221,9 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 
 ### History capture
 
-- Tell radio from on demand for plays from other apps (by app, by the notification's
-  metadata, or a per-app setting), so the Radio filter and Radio Finds mean something.
 - Keep threshold and Same Song Again Within settings, and on demand or radio only.
 - Pause History.
 - Repair Artwork for covers that stop loading.
-- Recover plays missed while the listener wasn't running. There is no Recently Played; the
-  nearest equivalents are a Last.fm Sync Now and a Subsonic server's own play history.
 - Catch up in the background (scrobbles, covers) with WorkManager, the equivalent of
   Background App Refresh.
 
@@ -244,7 +240,7 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 
 ### Detail pages and search
 
-- How You Heard It (radio, on demand, which app or station).
+- How You Heard It (in Tracks, Tracks Radio, imported or Last.fm).
 - About the artist and song, Get Info with MusicBrainz credits and samples, Last.fm similar
   songs.
 - Remembered searches ("last night", "on the radio · 1990s").
@@ -323,10 +319,6 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 
 ## Platform-only
 
-- **Keeping plays from any music app**: Android lets a notification listener read every
-  media session. Apple platforms don't, so iPhone and Mac can't follow.
-- **Excluded apps**: the counterpart of excluded stations, only meaningful with capture from
-  other apps.
 - **Open in another app**: on Android, a history song you don't own has to play somewhere
   else. On Apple platforms Apple Music plays it.
 - **Theme and color choice**: Material You and an in-app light or dark choice are Android

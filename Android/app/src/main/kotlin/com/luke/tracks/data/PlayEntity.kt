@@ -26,7 +26,7 @@ data class PlayEntity(
     val listenedMs: Long?,
     val kind: PlayKindValue,
     val source: PlaySourceValue,
-    /** The app it played in, for plays kept from other apps. */
+    /** The app it played in: Tracks, or null for imports. Older plays may name another app. */
     val appPackage: String?,
     val appName: String?,
     val stationName: String?,
@@ -42,6 +42,6 @@ enum class PlayKindValue { Radio, OnDemand, Imported, LastFm }
 
 /**
  * Where a play came from. The engine knows two sources: streaming (Apple Music on iPhone,
- * any music app on Android) and your own music.
+ * Last.fm imports on Android) and your own music.
  */
 enum class PlaySourceValue { Streaming, YourMusic }

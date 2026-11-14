@@ -4,20 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Palette
@@ -26,29 +16,18 @@ import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialShapes
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.BuildConfig
-import com.luke.tracks.capture.CaptureAccess
 import com.luke.tracks.data.AppSettings
 import com.luke.tracks.data.ColorChoice
 import com.luke.tracks.data.SampleData
@@ -71,22 +50,12 @@ fun SettingsScreen() {
     val navigator = currentNavigator()
     val settings by graph.settings.settings.collectAsStateWithLifecycle(AppSettings())
     val lastFm by graph.lastFm.connection.collectAsStateWithLifecycle()
-    val access = rememberCaptureAccess()
     var confirmSample by remember { mutableStateOf<Boolean?>(null) }
     val scope = rememberCoroutineScope()
     fun open(page: String) = navigator.open(SettingsPageRoute(page))
 
     SettingsScaffold(title = "Settings", showBack = navigator.backStack.size > 1) {
-        if (settings.captureOtherApps && !access && !graph.sampleData) {
-            item(key = "access") { AccessBanner(Modifier.animateItem()) { context.startActivity(CaptureAccess.settingsIntent(context)) } }
-        }
         group("Listening") {
-            link(
-                "Listening history",
-                summary = historySummary(settings, access, graph.sampleData),
-                icon = Icons.Rounded.History,
-                tone = Tone.Primary,
-            ) { open("capture") }
             link("Last.fm", summary = lastFmSummary(lastFm, settings), icon = Icons.Rounded.GraphicEq, tone = Tone.Error) { open("lastfm") }
             link("Your Music servers", summary = "Navidrome and other Subsonic servers", icon = Icons.Rounded.Dns, tone = Tone.Secondary) {
                 open("servers")
@@ -150,59 +119,6 @@ fun SettingsScreen() {
             dismissButton = { TextButton(onClick = { confirmSample = null }) { Text("Cancel") } },
         )
     }
-}
-
-/** Whether notification access is on, checked again each time Tracks comes back. */
-@Composable
-fun rememberCaptureAccess(): Boolean {
-    val context = LocalContext.current
-    var granted by remember { mutableStateOf(CaptureAccess.isGranted(context)) }
-    LifecycleResumeEffect(Unit) {
-        granted = CaptureAccess.isGranted(context)
-        onPauseOrDispose {}
-    }
-    return granted
-}
-
-@Composable
-private fun AccessBanner(modifier: Modifier = Modifier, onAllow: () -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = RoundedCornerShape(28.dp),
-        modifier = modifier.fillMaxWidth().padding(bottom = 20.dp),
-    ) {
-        Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(48.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Surface(color = MaterialTheme.colorScheme.primary, shape = MaterialShapes.Cookie9Sided.toShape(), modifier = Modifier.size(48.dp)) {}
-                    Icon(Icons.Rounded.History, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
-                }
-                Spacer(Modifier.size(16.dp))
-                Text("Keep songs from other apps", style = MaterialTheme.typography.titleMediumEmphasized)
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "With notification access, Tracks keeps what you play in Spotify, YouTube Music and radio apps. It only reads what's playing, and your history stays on this phone.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Button(onClick = onAllow) { Text("Allow access") }
-            }
-        }
-    }
-}
-
-fun historySummary(settings: AppSettings, access: Boolean, sample: Boolean): String = when {
-    sample -> "Paused while sample data is on"
-    !settings.captureOtherApps -> "Only songs played in Tracks"
-    !access -> "Needs notification access"
-    settings.excludedApps.isEmpty() -> "Keeping songs from all music apps"
-    else -> "Keeping songs from your music apps"
 }
 
 fun lastFmSummary(state: LastFm.Connection, settings: AppSettings): String = when (state) {

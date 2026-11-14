@@ -73,20 +73,6 @@
             </intent-filter>
         </service>
 
-        <!-- Keeps every song any app plays, the way Tracks keeps Apple Music on iPhone. -->
-        <service
-            android:name=".capture.CaptureListenerService"
-            android:exported="true"
-            android:label="@string/capture_service_label"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.service.notification.default_filter_types"
-                android:value="ongoing|alerting|silent" />
-        </service>
-
         <service
             android:name=".system.RadioTileService"
             android:exported="true"

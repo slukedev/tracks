@@ -116,15 +116,6 @@ class PlayScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     }
 
     @Test
-    fun mixRadioFinds() {
-        withSampleHistory()
-        withLibrary()
-        snap("mix-radiofinds", settleMs = 3000) {
-            CompositionLocalProvider(LocalNavigator provides Navigator()) { MixScreen("radioFinds") }
-        }
-    }
-
-    @Test
     fun nowPlaying() {
         withSampleHistory()
         val library = withLibrary()

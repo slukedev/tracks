@@ -1,9 +1,9 @@
 # Tracks for Android
 
 Tracks on Android: Kotlin, Jetpack Compose and Material 3 Expressive, on the same Rust engine
-as the iPhone and Mac apps. It keeps every song you play in any music app, turns it into
-Summary, Charts, History and mixes, plays your own music and Subsonic servers with Media3,
-and scrobbles to Last.fm.
+as the iPhone and Mac apps. It plays your own music and Subsonic servers with Media3, keeps
+every song you play in it, and turns that history into Summary, Charts, History and mixes.
+It can import your Last.fm history and scrobbles to Last.fm.
 
 What it does, and what it still lacks against the other platforms, is listed in
 [docs/platforms/android.md](../docs/platforms/android.md).
@@ -44,7 +44,7 @@ and shared secret. Without them the app says Last.fm isn't set up in this build.
 ./gradlew :app:testDebugUnitTest
 ```
 
-Unit tests cover capture, scrobbling, the Subsonic client, playback rules and more.
+Unit tests cover scrobbling, the Subsonic client, playback rules and more.
 Screenshot tests render every screen in light and dark with Robolectric, against the real
 engine and invented sample history, into `app/build/screenshots/`. See
 `app/src/test/kotlin/com/luke/tracks/Screenshots.kt`.
@@ -55,7 +55,6 @@ engine and invented sample history, into `app/build/screenshots/`. See
 | --- | --- |
 | `engine` | The Rust engine, called off the main thread. |
 | `data` | Room (the history's source of truth), settings, periods, sample data. |
-| `capture` | Keeping plays from other apps through a notification listener. |
 | `library` | Device files and Subsonic servers, merged. |
 | `playback` | Media3 service, Android Auto browse tree, player controller, Tracks Radio. |
 | `lastfm` | Connecting, scrobbling and importing, through the engine's Last.fm client. |

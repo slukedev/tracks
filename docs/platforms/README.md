@@ -66,13 +66,13 @@ As of November 2026, on `feat/android-m3-expressive`.
 | --- | --- | --- | --- | --- |
 | Keep songs played inside Tracks | Yes | Yes | Yes | Platform |
 | Keep songs played in the system music app (Apple Music) | Yes | Yes | n/a | Platform |
-| Keep songs played in any music app | n/a | n/a | Yes | Platform |
-| Tell radio from on demand | Yes | Yes | No | Platform (`RadioHeuristic`, Swift) |
+| Keep songs played in any music app | n/a | n/a | Removed | Platform |
+| Tell radio from on demand | Yes | Yes | n/a | Platform (`RadioHeuristic`, Swift) |
 | Recover songs played while closed (Recently Played) | Yes | Yes | n/a | Platform |
 | Catch up in the background | Yes | n/a (stays running) | No | Platform |
 | Keep threshold, repeat window, keep on demand or radio only | Yes | Yes | No | Candidate (`CapturePolicy`) |
 | Pause History | Yes | Yes | No | Platform |
-| Exclude stations or apps | Yes (stations) | Yes (stations) | Yes (apps) | Platform |
+| Exclude stations or apps | Yes (stations) | Yes (stations) | Removed | Platform |
 | Heard on Radio playlist and Play Back | Yes | Yes | n/a | Platform |
 | Repair Artwork | Yes | Yes | No | Platform |
 | Motif import | Yes | Yes | n/a | Platform |
@@ -101,7 +101,7 @@ As of November 2026, on `feat/android-m3-expressive`.
 | --- | --- | --- | --- | --- |
 | History grouped by day, paged | Yes | n/a (table) | Yes | Platform |
 | Sortable history table with inspector | n/a | Yes | n/a | Platform |
-| Filters: radio, on demand, recovered, from Last.fm | Yes | Yes | Yes | Platform |
+| Filters: radio, on demand, recovered, from Last.fm | Yes | Yes | Partial (Tracks, Last.fm) | Platform |
 | Delete plays (swipe or menu; several at once on the Mac) | Partial (one at a time) | Yes | Yes | Platform |
 | Artist, album and song pages: plays over time, rank, first and last heard | Yes | Yes | Yes | Engine (song, artist, album, rank) |
 | How you heard it (radio, on demand, recovered, stations) | Yes | Yes | No | Platform |

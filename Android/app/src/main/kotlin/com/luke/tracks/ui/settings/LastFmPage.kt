@@ -58,7 +58,6 @@ fun LastFmPage() {
         if (connection is LastFm.Connection.Connected) lastFm.owedCount() else flowOf(0)
     }.collectAsStateWithLifecycle(0)
     var confirmDisconnect by remember { mutableStateOf(false) }
-    var offerImport by remember { mutableStateOf(false) }
 
     // Coming back from the approval page: ask Last.fm straight away.
     LifecycleResumeEffect(connection) {
@@ -69,7 +68,6 @@ fun LastFmPage() {
     LaunchedEffect(connection) {
         if (previous is LastFm.Connection.Waiting && connection is LastFm.Connection.Connected) {
             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-            if (lastFm.import.value is LastFm.Import.Idle) offerImport = true
         }
         if (connection is LastFm.Connection.Failed && previous !is LastFm.Connection.Failed) {
             haptics.performHapticFeedback(HapticFeedbackType.Reject)
@@ -84,12 +82,12 @@ fun LastFmPage() {
                 LastFm.Connection.NotConfigured -> "Last.fm isn't set up in this build" to
                     "This build of Tracks has no Last.fm key, so it can't connect."
                 LastFm.Connection.Idle -> "Scrobble to Last.fm" to
-                    "Songs Tracks keeps, including radio, are scrobbled to your profile."
+                    "Songs you play in Tracks are scrobbled to your profile."
                 LastFm.Connection.Waiting -> "Waiting for Last.fm" to
                     "Allow Tracks on the Last.fm page, then come back here."
                 is LastFm.Connection.Failed -> "Couldn't connect" to state.message
                 is LastFm.Connection.Connected -> (if (settings.scrobbleEnabled) "Scrobbling as ${state.username}" else "Connected as ${state.username}") to
-                    (if (settings.scrobbleEnabled) "Songs Tracks keeps, including radio, are scrobbled." else "Nothing is sent until you turn scrobbling back on.")
+                    (if (settings.scrobbleEnabled) "Songs you play in Tracks are scrobbled." else "Nothing is sent until you turn scrobbling back on.")
             }
             StatusHero(
                 icon = Icons.Rounded.GraphicEq,
@@ -122,8 +120,8 @@ fun LastFmPage() {
         if (state !is LastFm.Connection.Connected) {
             group("With Last.fm", key = "what") {
                 custom {
-                    Rule(Icons.Rounded.CloudUpload, "Songs Tracks keeps, including radio, are scrobbled to your profile.")
-                    Rule(Icons.Rounded.CloudDownload, "Import the songs you scrobbled before using Tracks.")
+                    Rule(Icons.Rounded.CloudUpload, "Songs you play in Tracks are scrobbled to your profile.")
+                    Rule(Icons.Rounded.CloudDownload, "Import the songs you've scrobbled from any app.")
                     Rule(Icons.Rounded.WifiOff, "Scrobbles made offline are sent when you're back online.", last = true)
                 }
             }
@@ -162,7 +160,7 @@ fun LastFmPage() {
             link(
                 "Import from Last.fm",
                 summary = when (current) {
-                    LastFm.Import.Idle -> "Import songs you scrobbled before using Tracks"
+                    LastFm.Import.Idle -> "Adds the songs you've scrobbled, from any app, to your history and skips ones already here. It can take a few minutes."
                     is LastFm.Import.Running -> if (current.added == 0) "Reading your history" else "Added ${count(current.added)} so far"
                     is LastFm.Import.Done -> if (current.added == 0) "Already up to date" else "Added ${count(current.added)}"
                     is LastFm.Import.Failed -> current.message
@@ -201,15 +199,6 @@ fun LastFmPage() {
                 }) { Text("Disconnect") }
             },
             dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Cancel") } },
-        )
-    }
-    if (offerImport) {
-        AlertDialog(
-            onDismissRequest = { offerImport = false },
-            title = { Text("Import your Last.fm history?") },
-            text = { Text("Tracks adds the songs you scrobbled before using it. Songs it already has are skipped.") },
-            confirmButton = { TextButton(onClick = { offerImport = false; lastFm.startImport() }) { Text("Import") } },
-            dismissButton = { TextButton(onClick = { offerImport = false }) { Text("Not now") } },
         )
     }
 }

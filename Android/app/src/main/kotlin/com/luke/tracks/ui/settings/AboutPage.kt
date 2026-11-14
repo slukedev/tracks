@@ -21,7 +21,6 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Memory
-import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.TextFields
@@ -107,9 +106,8 @@ fun PrivacyPage() {
         }
         group("What Tracks keeps", key = "keeps") {
             custom {
-                Point(Icons.Rounded.PhoneAndroid, "On this phone", "Each song you play, when, and in which app, stored on this phone.")
-                Point(Icons.Rounded.NotificationsNone, "Notification access", "Lets Tracks read what's playing in music apps' media controls. Tracks never reads, keeps or sends your notifications.")
-                Point(Icons.Rounded.GraphicEq, "Last.fm, if you connect it", "Each song you keep is sent to your Last.fm profile. Turn scrobbling off or disconnect at any time.")
+                Point(Icons.Rounded.PhoneAndroid, "On this phone", "Each song you play in Tracks and when you played it, stored on this phone.")
+                Point(Icons.Rounded.GraphicEq, "Last.fm, if you connect it", "Each song you play in Tracks is sent to your Last.fm profile. Turn scrobbling off or disconnect at any time.")
                 Point(Icons.Rounded.CloudOff, "Covers", "Covers load from the services that provide them. Your history isn't sent with them.", last = true)
             }
         }

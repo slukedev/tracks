@@ -87,7 +87,7 @@ import com.luke.tracks.ui.insights.rememberGraph
 import com.luke.tracks.ui.components.Artwork
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.SearchRoute
-import com.luke.tracks.ui.navigation.SettingsRoute
+import com.luke.tracks.ui.navigation.SettingsPageRoute
 import com.luke.tracks.ui.navigation.sharedElement
 import com.luke.tracks.ui.summary.periodName
 
@@ -169,9 +169,9 @@ fun ChartsScreen() {
                         EmptyState(
                             icon = Icons.Rounded.BarChart,
                             title = "No charts yet",
-                            message = "Your top songs, artists and albums show up here once Tracks has kept a few plays.",
-                            action = "Open settings",
-                            onAction = { navigator.open(SettingsRoute) },
+                            message = "Your top songs, artists and albums show up here once you've played a few songs in Tracks or imported your Last.fm history.",
+                            action = "Import from Last.fm",
+                            onAction = { navigator.open(SettingsPageRoute("lastfm")) },
                         )
                     }
                     return@LazyColumn

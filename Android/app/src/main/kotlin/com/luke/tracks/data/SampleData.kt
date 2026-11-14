@@ -24,16 +24,17 @@ object SampleData {
                 playedAt = play.playedAtMs,
                 durationMs = (play.lengthSeconds * 1000).toLong(),
                 listenedMs = (play.lengthSeconds * 1000).toLong(),
+                // Android keeps only what Tracks plays and what Last.fm imports, so the generator's
+                // radio plays become plays in Tracks.
                 kind = when (play.kind) {
-                    PlayKind.RADIO -> PlayKindValue.Radio
-                    PlayKind.ON_DEMAND -> PlayKindValue.OnDemand
+                    PlayKind.RADIO, PlayKind.ON_DEMAND -> PlayKindValue.OnDemand
                     PlayKind.IMPORTED -> PlayKindValue.Imported
                     PlayKind.LAST_FM -> PlayKindValue.LastFm
                 },
-                source = PlaySourceValue.Streaming,
-                appPackage = if (play.stationName != null) "sample.radio" else "sample.music",
-                appName = if (play.stationName != null) "Radio" else "Music",
-                stationName = play.stationName,
+                source = if (play.kind == PlayKind.LAST_FM) PlaySourceValue.Streaming else PlaySourceValue.YourMusic,
+                appPackage = null,
+                appName = null,
+                stationName = null,
                 mediaId = "",
                 scrobbledAt = if (play.isScrobbled) play.playedAtMs + 60_000 else null,
             )

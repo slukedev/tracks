@@ -20,7 +20,7 @@ enum class Tab { Play, Summary, Charts, History, Library }
 @Serializable data class MixRoute(val mixId: String) : Route
 @Serializable data object SearchRoute : Route
 @Serializable data object SettingsRoute : Route
-/** A page inside Settings, by name ("lastfm", "capture", "servers", "appearance", "about"). */
+/** A page inside Settings, by name ("lastfm", "servers", "appearance", "about"). */
 @Serializable data class SettingsPageRoute(val page: String) : Route
 /** A library album or artist (from Your Music, by its library id). */
 @Serializable data class LibraryAlbumRoute(val albumId: String) : Route

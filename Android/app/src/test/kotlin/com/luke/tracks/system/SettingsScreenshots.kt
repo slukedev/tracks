@@ -37,10 +37,6 @@ class SettingsScreenshots(dark: Boolean) : ScreenshotTest(dark) {
 
     @Test fun settings() = page("settings") { SettingsScreen() }
 
-    @Test fun capture() = page("settings-capture") { SettingsPageScreen("capture") }
-
-    @Test fun apps() = page("settings-apps") { SettingsPageScreen("apps") }
-
     @Test fun lastfm() = page("settings-lastfm") { SettingsPageScreen("lastfm") }
 
     @Test fun appearance() {
@@ -98,7 +94,6 @@ class SettingsScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     @Test fun licenses() = page("settings-licenses") { SettingsPageScreen("licenses") }
 
     @Test @Config(qualifiers = "w412dp-h2600dp-xxhdpi") fun settingsFull() = page("full-settings") { SettingsScreen() }
-    @Test @Config(qualifiers = "w412dp-h2200dp-xxhdpi") fun captureFull() = page("full-settings-capture") { SettingsPageScreen("capture") }
     @Test @Config(qualifiers = "w412dp-h2200dp-xxhdpi") fun lastfmFull() = page("full-settings-lastfm") { SettingsPageScreen("lastfm") }
     @Test @Config(qualifiers = "w412dp-h2200dp-xxhdpi") fun radioFull() = page("full-settings-radio") { SettingsPageScreen("radio") }
     @Test @Config(qualifiers = "w412dp-h2200dp-xxhdpi") fun aboutFull() = page("full-settings-about") { SettingsPageScreen("about") }
