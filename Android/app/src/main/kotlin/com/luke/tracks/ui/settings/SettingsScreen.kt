@@ -6,7 +6,9 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Dns
+import com.luke.tracks.discover.discovery
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
@@ -59,6 +61,9 @@ fun SettingsScreen() {
             link("Last.fm", summary = lastFmSummary(lastFm, settings), icon = Icons.Rounded.GraphicEq, tone = Tone.Error) { open("lastfm") }
             link("Your Music servers", summary = "Navidrome and other Subsonic servers", icon = Icons.Rounded.Dns, tone = Tone.Secondary) {
                 open("servers")
+            }
+            link("Get music", summary = getMusicSummary(graph), icon = Icons.Rounded.CloudDownload, tone = Tone.Tertiary) {
+                open("getmusic")
             }
         }
         group("Play") {
@@ -118,6 +123,19 @@ fun SettingsScreen() {
             },
             dismissButton = { TextButton(onClick = { confirmSample = null }) { Text("Cancel") } },
         )
+    }
+}
+
+/** Whether anything can get music you don't have: a server with Octo, or Lidarr. */
+@Composable
+private fun getMusicSummary(graph: com.luke.tracks.AppGraph): String {
+    val discovery = remember(graph) { graph.discovery }
+    val sources by discovery.sources.collectAsStateWithLifecycle()
+    return when {
+        sources.octo.isNotEmpty() && sources.lidarr -> "${sources.octo.first()} and Lidarr"
+        sources.octo.isNotEmpty() -> "With ${sources.octo.first()}"
+        sources.lidarr -> "With Lidarr"
+        else -> "Octo and Lidarr"
     }
 }
 

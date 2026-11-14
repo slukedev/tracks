@@ -80,6 +80,8 @@ data class SubsonicSong(
     /** OpenSubsonic: the album's artist, where the server knows it. */
     val displayAlbumArtist: String? = null,
     val created: String? = null,
+    /** Octo: a song it found for you elsewhere rather than one in the library. */
+    val isExternal: Boolean? = null,
 )
 
 data class SubsonicSearchResult(
@@ -95,6 +97,10 @@ internal class SubsonicEnvelope(@SerialName("subsonic-response") val body: Subso
 @Serializable
 internal class SubsonicBody(
     val status: String,
+    /** OpenSubsonic: what the server is ("navidrome", "octo"). */
+    val type: String? = null,
+    val serverVersion: String? = null,
+    val openSubsonic: Boolean? = null,
     val error: ErrorBody? = null,
     val artists: ArtistsIndex? = null,
     val album: AlbumWithSongs? = null,

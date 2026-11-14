@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 uniffi::setup_scaffolding!();
 
+mod catalog;
 mod demo;
 mod lastfm;
 mod mixes;

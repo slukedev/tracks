@@ -109,7 +109,7 @@ As of November 2026, on `feat/android-m3-expressive`.
 | Get Info with MusicBrainz credits, samples and Last.fm similar songs | Yes | Yes (window) | No | Candidate (MusicBrainz client) |
 | Search your history | Yes | Yes | Yes | Engine, Apple in Swift |
 | Remembered phrases ("last night", "on the radio", a decade) | Yes | Yes | No | Candidate (`HistoryRecall`) |
-| Search the catalog, your library and your servers | Yes | Yes | Yes (library, servers) | Platform |
+| Search the catalog, your library and your servers | Yes | Yes | Yes (iTunes catalog, library, servers) | Engine on Android (`tracks-catalog`), Apple in Swift (MusicKit) |
 | Identify the song playing nearby (Shazam) | Yes | Yes | No | Platform |
 
 ### Play
@@ -164,12 +164,12 @@ As of November 2026, on `feat/android-m3-expressive`.
 | --- | --- | --- | --- | --- |
 | Play your own files (FLAC, ALAC, MP3, AAC, WAV, AIFF) | Yes | Yes | Yes (MediaStore) | Platform |
 | Subsonic servers (Navidrome and others) | Yes | Yes | Yes | Candidate (`SubsonicClient`) |
-| Octo: find and fetch songs you don't own | Yes | Yes | No | Candidate |
+| Octo: find and fetch songs you don't own | Yes | Yes | Yes | Engine on Android (matching), Candidate for Apple |
 | Downloads for offline, Downloads page, Free Up Space | Yes | Yes | No | Platform |
 | Playlists and smart playlists | Yes | Yes | No | Candidate (`SmartRules`) |
 | Merge playlists with Apple Music | Yes | Yes | n/a | Platform |
-| Suggestions checked against what you have | Yes | Yes | No | Candidate (`ServerSongMatcher`) |
-| Lidarr | Yes | Yes | No | Candidate (`LidarrClient`) |
+| Suggestions checked against what you have | Yes | Yes | Yes | Engine on Android (`tracks-catalog` matching and ranking), Apple in Swift (`ServerSongMatcher`) |
+| Lidarr | Yes | Yes | Yes | Engine on Android (`tracks-catalog`), Apple in Swift (`LidarrClient`) |
 | Tell the server about plays | Yes | Yes | No | Candidate |
 
 ### Scrobbling and Last.fm
@@ -284,7 +284,7 @@ otherwise have to write again:
   matching (`SubsonicClient`, `RequestBudget`, `ServerMix`, `ServerSongMatcher`), sans-IO like
   Last.fm.
 - **Smart playlists**: the rules and ordering (`SmartRules`, `LibraryOrdering`).
-- **Lidarr client** (`LidarrClient`).
+- **Lidarr client**: in the engine now (`tracks-catalog`, used by Android); the Apple apps still run `LidarrClient`.
 - **MusicBrainz client**: credits and samples (`MusicBrainzClient`, `SongCredits`).
 - **Scrobble service**: the Swift `ScrobbleService` on top of the Rust request builder and
   queue, so both platforms send the same scrobbles the same way.

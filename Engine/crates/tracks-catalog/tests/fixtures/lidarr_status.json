@@ -1,0 +1,1 @@
+{"appName":"Lidarr","instanceName":"Lidarr","version":"2.9.6.4552","buildTime":"2025-01-21T21:30:14Z","isDebug":false,"isProduction":true,"isAdmin":false,"startupPath":"/app/lidarr/bin","appData":"/config","osName":"alpine","isDocker":true,"isLinux":true,"branch":"master","authentication":"forms","urlBase":"","runtimeVersion":"6.0.36","runtimeName":".NET"}

@@ -15,6 +15,7 @@ tracks-store = { path = "crates/tracks-store" }
 tracks-lastfm = { path = "crates/tracks-lastfm" }
 tracks-mixes = { path = "crates/tracks-mixes" }
 tracks-demo = { path = "crates/tracks-demo" }
+tracks-catalog = { path = "crates/tracks-catalog" }
 
 rusqlite = { version = "0.41", features = ["bundled", "functions"] }
 rusqlite_migration = "2.7"

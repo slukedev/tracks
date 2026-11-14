@@ -129,6 +129,7 @@ fun LibraryArtistPage(artist: LibraryArtist, songs: List<PlayableSong>, currentM
                         )
                     }
                 }
+                item(key = "more") { com.luke.tracks.ui.discover.MoreFromArtist(artist.name, edge = 20.dp) }
             }
         }
     }
