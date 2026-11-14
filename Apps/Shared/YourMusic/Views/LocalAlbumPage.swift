@@ -76,7 +76,7 @@ struct ServerAlbumPage: View {
         }
         do {
             let (found, songs) = try await client.album(id: albumID)
-            let tracks = songs.map { music.index.track(id: LocalTrack.id(for: .server(serverID: serverID, songID: $0.id))) ?? $0.track(on: serverID) }
+            let tracks = songs.map { music.track($0, on: serverID) }
             album = LocalAlbum(
                 id: tracks.first?.albumKey ?? albumID,
                 title: found.name,

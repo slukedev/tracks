@@ -335,7 +335,7 @@ final class ServerDiscovery {
     ///   too, so what you have comes up with what's new.
     private func add(_ found: [SubsonicSong], from artist: String, includingYours: Bool, to feed: inout ForYou, serverID: String) {
         var seen = Set((feed.songs + feed.suggested + feed.further + feed.waitingPicks + feed.waitingOthers).map(\.identity))
-        let candidates = found.map { track(from: $0, serverID: serverID) }
+        let candidates = found.map { music.track($0, on: serverID) }
             .filter { !heard($0.identity) && seen.insert($0.identity).inserted }
         let yours = !includingYours ? [] : music.index.tracks
             .filter { StatsCalculator.folded($0.artist) == StatsCalculator.folded(artist) && !heard($0.identity) && seen.insert($0.identity).inserted }
@@ -467,7 +467,7 @@ final class ServerDiscovery {
                   let match = ServerSongMatcher.bestMatch(title: seed.title, artist: seed.artist, in: answer)
             else { continue }
             let like = (try? await music.servers.lookups.run { try await client.similarSongs(to: match.id, count: 15) }) ?? []
-            found += like.map { track(from: $0, serverID: server.id) }
+            found += like.map { music.track($0, on: server.id) }
         }
         var seen = Set<String>()
         let fresh = FreshShuffle.order(
@@ -523,7 +523,7 @@ final class ServerDiscovery {
                 }
                 guard let id else { continue }
                 let like = (try? await music.servers.lookups.run { try await client.similarSongs(to: id, count: 20) }) ?? []
-                found += like.map { self.track(from: $0, serverID: server.id) }
+                found += like.map { music.track($0, on: server.id) }
             }
             return found
         }
@@ -534,11 +534,6 @@ final class ServerDiscovery {
         defer { timeout.cancel() }
         var seen = Set<String>()
         return await search.value.filter { seen.insert($0.identity).inserted }
-    }
-
-    /// A server song as it is in the library, where it's been synced, with its download.
-    private func track(from song: SubsonicSong, serverID: String) -> LocalTrack {
-        music.index.track(id: LocalTrack.id(for: .server(serverID: serverID, songID: song.id))) ?? song.track(on: serverID)
     }
 
     // MARK: - Exploring
@@ -572,7 +567,7 @@ final class ServerDiscovery {
             return
         }
         let fresh = songs
-            .map { track(from: $0, serverID: server.id) }
+            .map { music.track($0, on: server.id) }
             .filter { !heard($0.identity) && seen.insert($0.identity).inserted }
         if let first = fresh.first { exploring.append(first) }
         exploringWaiting += fresh.dropFirst()

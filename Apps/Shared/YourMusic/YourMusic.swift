@@ -131,6 +131,11 @@ final class YourMusic {
         return foundOnServers[song.songIdentity].map(isPlayable) ?? false
     }
 
+    /// A server song as it is in the library, where it's been synced, with its download.
+    func track(_ song: SubsonicSong, on serverID: String) -> LocalTrack {
+        index.track(id: LocalTrack.id(for: .server(serverID: serverID, songID: song.id))) ?? song.track(on: serverID)
+    }
+
     /// Whether a song is in your music, rather than found on a server that doesn't have it
     /// yet: a server like Octo plays those, but can't hand over their files until it's kept
     /// them.
@@ -344,7 +349,7 @@ final class YourMusic {
                 if byArtist == nil, bySong == nil { couldNotAsk = true }
             }
             if let match {
-                let track = index.track(id: LocalTrack.id(for: .server(serverID: server.id, songID: match.id))) ?? match.track(on: server.id)
+                let track = self.track(match, on: server.id)
                 foundOnServers[identity] = track
                 record(.playable(track), for: identity, generation: generation)
                 return

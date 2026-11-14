@@ -546,13 +546,14 @@ struct ArtistGetCard: View {
     var body: some View {
         if music.getMore.canGet, let gets, !gets.isEmpty {
             let songs = Array(gets.songs.prefix(5))
+            let albums = Array(gets.albums.prefix(6))
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "Get More") { DownloadsLink() }
                 Card {
                     VStack(spacing: 0) {
-                        ForEach(gets.albums.prefix(6)) { held in
+                        ForEach(albums) { held in
                             GetAlbumRow(held: held)
-                            if held.id != gets.albums.prefix(6).last?.id || !songs.isEmpty {
+                            if held.id != albums.last?.id || !songs.isEmpty {
                                 Divider().padding(.leading, 56)
                             }
                         }

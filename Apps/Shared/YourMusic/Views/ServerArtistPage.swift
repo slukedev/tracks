@@ -128,9 +128,7 @@ struct ServerArtistPage: View {
             let name = StatsCalculator.folded(artist.name)
             found = result.albums.filter { $0.artistId == artist.artistID || StatsCalculator.folded($0.artist ?? "") == name }
         }
-        let tracks = (await top ?? []).map { song in
-            music.index.track(id: LocalTrack.id(for: .server(serverID: artist.serverID, songID: song.id))) ?? song.track(on: artist.serverID)
-        }
+        let tracks = (await top ?? []).map { music.track($0, on: artist.serverID) }
         music.remember(found: tracks)
         songs = tracks
         // Newest first, as an artist's page in Music has them.

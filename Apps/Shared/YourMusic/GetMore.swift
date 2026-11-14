@@ -141,6 +141,7 @@ final class GetMore {
     private static let lookupsLast: TimeInterval = 6 * 60 * 60
     /// How long an arrival shows as done before it's simply yours.
     private static let doneShows: Duration = .seconds(4)
+    private static var serverUnreachable: String { String(localized: "Couldn't reach your server. Try again once it's online.") }
 
     init(music: YourMusic, isDemo: Bool) {
         self.music = music
@@ -250,11 +251,7 @@ final class GetMore {
     /// - Parameter track: the copy a server found, if there is one, to follow its server's fetch.
     func state(ofSong identity: String, track: LocalTrack? = nil) -> GetState {
         let request = requests[Self.songKey(identity)]
-        switch request?.status {
-        case .failed(let reason): return .failed(reason)
-        case .asking: return .queued
-        case .waiting, nil: break
-        }
+        if let standing = Self.standing(of: request) { return standing }
         if request?.doneAt != nil { return .done }
         if let mine = music.index.tracks(withIdentity: identity).first {
             if let progress = music.downloads.progress[mine.id] { return .progress(Self.whole(progress)) }
@@ -267,11 +264,7 @@ final class GetMore {
     /// Where getting an album stands.
     func state(of album: Album) -> GetState {
         let request = requests[album.id]
-        switch request?.status {
-        case .failed(let reason): return .failed(reason)
-        case .asking: return .queued
-        case .waiting, nil: break
-        }
+        if let standing = Self.standing(of: request) { return standing }
         if let request, request.doneAt != nil { return .done }
         if let item = lidarrQueueItem(for: album) { return .progress(Self.whole(item.progress)) }
         guard let request else {
@@ -285,6 +278,15 @@ final class GetMore {
             let arrived = request.songs.count { !music.index.tracks(withIdentity: $0).isEmpty }
             guard total > 0, arrived > 0 else { return .queued }
             return arrived >= total ? .done : .progress(Self.whole(Double(arrived) / Double(total)))
+        }
+    }
+
+    /// Where a request alone puts it: nil once it's waiting, when what's arrived decides.
+    private static func standing(of request: Request?) -> GetState? {
+        switch request?.status {
+        case .failed(let reason): .failed(reason)
+        case .asking: .queued
+        case .waiting, nil: nil
         }
     }
 
@@ -360,7 +362,7 @@ final class GetMore {
             requests[key]?.status = .waiting
             return nil
         } catch {
-            let reason = String(localized: "Couldn't reach your server. Try again once it's online.")
+            let reason = Self.serverUnreachable
             requests[key]?.status = .failed(reason)
             return reason
         }
@@ -438,11 +440,11 @@ final class GetMore {
                 songs = missing
             } else if let serverID = album.serverID, let albumID = album.albumID, let client = music.servers.client(for: serverID) {
                 guard let found = try? await client.album(id: albumID).songs else {
-                    let reason = String(localized: "Couldn't reach your server. Try again once it's online.")
+                    let reason = Self.serverUnreachable
                     requests[key]?.status = .failed(reason)
                     return reason
                 }
-                songs = found.map { music.index.track(id: LocalTrack.id(for: .server(serverID: serverID, songID: $0.id))) ?? $0.track(on: serverID) }
+                songs = found.map { music.track($0, on: serverID) }
                     .filter { !music.isInYourMusic($0) }
             } else {
                 songs = []
@@ -455,7 +457,7 @@ final class GetMore {
                 do { try await music.servers.keep(song) } catch { failures += 1 }
             }
             guard failures < songs.count else {
-                let reason = String(localized: "Couldn't reach your server. Try again once it's online.")
+                let reason = Self.serverUnreachable
                 requests[key]?.status = .failed(reason)
                 return reason
             }
@@ -557,7 +559,8 @@ final class GetMore {
     private func rank(taste: [GetMoreRanking.Taste], albums: [Album], similar: [GetMoreRanking.Likeness]) async {
         var songs: [String: LocalTrack] = [:]
         for track in music.serverFinds where finds(on: track.serverID) {
-            songs[Self.songKey(track.identity)] = songs[Self.songKey(track.identity)] ?? track
+            let key = Self.songKey(track.identity)
+            if songs[key] == nil { songs[key] = track }
         }
         #if DEBUG
         if isDemo { for track in music.demoMissing { songs[Self.songKey(track.identity)] = track } }
@@ -707,7 +710,7 @@ final class GetMore {
             .sorted { ($0.album.year ?? 0, $1.album.title) > ($1.album.year ?? 0, $0.album.title) }
         if let server = findingServerOnline, let client = music.servers.client(for: server.id),
            let top = try? await music.servers.lookups.run({ try await client.topSongs(artist: name, count: 20) }) {
-            let tracks = top.map { music.index.track(id: LocalTrack.id(for: .server(serverID: server.id, songID: $0.id))) ?? $0.track(on: server.id) }
+            let tracks = top.map { music.track($0, on: server.id) }
             gets.songs = Array(tracks.filter { !music.isInYourMusic($0) && music.index.tracks(withIdentity: $0.identity).isEmpty }.prefix(10))
             music.remember(found: gets.songs)
         }
@@ -813,7 +816,7 @@ final class GetMore {
         for match in matches {
             guard let songs = try? await client.album(id: match.id).songs else { continue }
             if songs.count > fullest?.songs.count ?? 0 {
-                let tracks = songs.map { music.index.track(id: LocalTrack.id(for: .server(serverID: serverID, songID: $0.id))) ?? $0.track(on: serverID) }
+                let tracks = songs.map { music.track($0, on: serverID) }
                 fullest = (match.id, tracks)
             }
         }
@@ -850,9 +853,7 @@ final class GetMore {
             list.append(Incoming(id: key, title: album.title, artist: item.artist?.artistName, isAlbum: true, state: .progress(Self.whole(item.progress))))
         }
         for (key, request) in requests.sorted(by: { $0.key < $1.key }) where request.doneAt == nil && listed.insert(key).inserted {
-            var state = GetState.queued
-            if case .failed(let reason) = request.status { state = .failed(reason) }
-            list.append(Incoming(id: key, title: request.title, artist: request.artist, isAlbum: request.isAlbum, state: state))
+            list.append(Incoming(id: key, title: request.title, artist: request.artist, isAlbum: request.isAlbum, state: Self.standing(of: request) ?? .queued))
         }
         return list
     }
