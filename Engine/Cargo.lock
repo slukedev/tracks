@@ -1225,6 +1225,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracks-library"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "rustc-hash",
+ "tracks-model",
+]
+
+[[package]]
 name = "tracks-mixes"
 version = "0.1.0"
 dependencies = [

@@ -13,6 +13,7 @@ publish = false
 tracks-model = { path = "crates/tracks-model" }
 tracks-store = { path = "crates/tracks-store" }
 tracks-lastfm = { path = "crates/tracks-lastfm" }
+tracks-library = { path = "crates/tracks-library" }
 tracks-mixes = { path = "crates/tracks-mixes" }
 tracks-demo = { path = "crates/tracks-demo" }
 
