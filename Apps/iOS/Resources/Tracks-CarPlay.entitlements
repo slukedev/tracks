@@ -5,7 +5,6 @@
     <key>com.apple.security.application-groups</key>
     <array>
         <string>$(TRACKS_APP_GROUP)</string>
-        <string>$(TRACKS_MOTIF_APP_GROUP)</string>
     </array>
 
     <!-- iCloud sync, which is also the backup. Automatic signing creates the container on

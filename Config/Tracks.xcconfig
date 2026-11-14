@@ -27,12 +27,6 @@ TRACKS_APP_GROUP[sdk=iphoneos*]         = group.$(TRACKS_BUNDLE_ID)
 TRACKS_APP_GROUP[sdk=iphonesimulator*]  = group.$(TRACKS_BUNDLE_ID)
 TRACKS_APP_GROUP[sdk=macosx*]           = $(DEVELOPMENT_TEAM).group.$(TRACKS_BUNDLE_ID)
 
-// Motif's App Group, from the app Tracks replaces. Tracks joins it to find Motif's history on
-// the same device and bring it over (see MotifImport). Read only; never renamed.
-TRACKS_MOTIF_APP_GROUP[sdk=iphoneos*]        = group.com.luke.motif
-TRACKS_MOTIF_APP_GROUP[sdk=iphonesimulator*] = group.com.luke.motif
-TRACKS_MOTIF_APP_GROUP[sdk=macosx*]          = $(DEVELOPMENT_TEAM).group.com.luke.motif
-
 // The CloudKit container for sync, the same on both platforms. Automatic signing creates
 // it on the first build, which needs `-allowProvisioningUpdates` (build.sh passes it).
 TRACKS_ICLOUD_CONTAINER = iCloud.$(TRACKS_BUNDLE_ID)

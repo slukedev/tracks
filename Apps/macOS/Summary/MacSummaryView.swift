@@ -5,7 +5,6 @@ import TracksCore
 struct MacSummaryView: View {
     @Environment(AppModel.self) private var model
     @SeenRevision private var revision
-    @Environment(UnexpectedQuitMonitor.self) private var quitMonitor
     @AppStorage("statsRange") private var range: StatsRange = .month
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var summary: StatsSummary?
@@ -19,10 +18,6 @@ struct MacSummaryView: View {
                 VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                     if model.hasBanner {
                         StoreWarningBanner()
-                    }
-
-                    if quitMonitor.notice != nil {
-                        UnexpectedQuitNotice()
                     }
 
                     if model.library.isLoaded, model.library.history.isEmpty {
@@ -66,13 +61,6 @@ struct MacSummaryView: View {
                 ToolbarItem(placement: .primaryAction) {
                     SourceScopeMenu(scope: sources.selection)
                 }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button("Check for Missed Songs", systemImage: "arrow.clockwise") {
-                    Task { await model.capture?.catchUp() }
-                }
-                .disabled(model.isShowingSampleData)
-                .help("Fill in anything you played while Tracks wasn't running")
             }
         }
         .task(id: "\(range.rawValue)|\(periodOffset)|\(sources.scope.rawValue)|\(revision)") {

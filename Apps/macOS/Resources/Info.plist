@@ -40,7 +40,7 @@
     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 
     <key>NSAppleMusicUsageDescription</key>
-    <string>Tracks plays Apple Music in Listen Now, and reads what Music is playing, so it can keep your listening history, scrobble it to Last.fm, and save songs you hear on the radio to your library.</string>
+    <string>Tracks plays Apple Music, keeps what you play in your listening history, and saves the songs you hear on its radio to your library.</string>
 
     <!-- Required for Apple events to Music.app. Without it sends fail with
          errAEEventNotPermitted (-1743) and no prompt is shown. -->
@@ -54,12 +54,10 @@
     <string>Identify Song listens for a few seconds to name the song playing near you. Only a fingerprint of the sound goes to Shazam, and nothing is recorded or kept.</string>
 
     <key>NSAppleEventsUsageDescription</key>
-    <string>Tracks asks Music what is playing, and controls playback from the menu bar.</string>
+    <string>Tracks pauses Music when it starts playing, and plays songs in Music when you choose to.</string>
 
     <key>TracksAppGroupIdentifier</key>
     <string>$(TRACKS_APP_GROUP)</string>
-    <key>TracksMotifAppGroupIdentifier</key>
-    <string>$(TRACKS_MOTIF_APP_GROUP)</string>
 
     <!-- Resolved from Config/Tracks.xcconfig. TracksCore treats an empty or unresolved
          value as no container. -->
