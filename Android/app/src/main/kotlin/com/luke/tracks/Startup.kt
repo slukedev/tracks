@@ -14,5 +14,7 @@ object Startup {
         graph.library = EmptyLibrary()
         graph.player = IdlePlayer()
         graph.radio = NoRadio()
+        // Last.fm scrobbling, widgets, shortcuts and notification channels.
+        com.luke.tracks.system.SystemIntegration.start(app, graph)
     }
 }
