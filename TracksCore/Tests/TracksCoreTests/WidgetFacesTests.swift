@@ -36,8 +36,8 @@ struct WidgetFacesTests {
     }
 
     /// What the app compares.
-    func faces(showsUpNext: Bool = true) throws -> WidgetFaces {
-        try store.widgetFaces(showsUpNext: showsUpNext, now: now, calendar: calendar)
+    func faces() throws -> WidgetFaces {
+        try store.widgetFaces(now: now, calendar: calendar)
     }
 
     @Test("the background read sees what the main context saved")
@@ -46,7 +46,7 @@ struct WidgetFacesTests {
         capture("Second", minutesAgo: 1)
         try store.context.save()
 
-        let background = try await store.widgetFacesInBackground(showsUpNext: true, now: now, calendar: calendar)
+        let background = try await store.widgetFacesInBackground(now: now, calendar: calendar)
         #expect(background == (try faces()))
     }
 
@@ -78,34 +78,7 @@ struct WidgetFacesTests {
         #expect(try faces().kindsChanged(since: before).isEmpty)
     }
 
-    /// The reported bug: after Play in the Today widget, played songs stayed in Up Next.
-    @Test("a song played back leaves Up Next, and only Today reloads")
-    func playedBackChangesToday() throws {
-        let first = capture("First", minutesAgo: 20)
-        capture("Second", minutesAgo: 10)
-        try store.context.save()
-        let before = try faces()
-
-        first.playedBackAt = now
-        try store.context.save()
-
-        #expect(try faces().kindsChanged(since: before) == [WidgetKind.today])
-    }
-
-    /// Today without Up Next doesn't show played-back state.
-    @Test("with Up Next hidden, a song played back changes nothing")
-    func playedBackWithUpNextHidden() throws {
-        let first = capture("First", minutesAgo: 20)
-        try store.context.save()
-        let before = try faces(showsUpNext: false)
-
-        first.playedBackAt = now
-        try store.context.save()
-
-        #expect(try faces(showsUpNext: false).kindsChanged(since: before).isEmpty)
-    }
-
-    /// Mac captures get their cover from a catalog search after the row is saved.
+    /// A radio song's cover arrives from the catalog after the row is saved.
     @Test("a cover arriving changes the widgets showing that song")
     func artworkChangesSongWidgets() throws {
         let song = capture("Song", minutesAgo: 5)
@@ -132,9 +105,9 @@ struct WidgetFacesTests {
         #expect(try faces().kindsChanged(since: before) == [WidgetKind.lastPlayed, WidgetKind.today, WidgetKind.listening, WidgetKind.topSongs])
     }
 
-    /// Recently Played can bring back a song from days ago. It isn't the latest or from
+    /// Sync can bring in a song another device played days ago. It isn't the latest or from
     /// today, but it adds to the week.
-    @Test("a song recovered from earlier in the week changes only Listening")
+    @Test("a song from earlier in the week changes only Listening")
     func olderSongChangesListening() throws {
         capture("Today", minutesAgo: 10)
         try store.context.save()
@@ -153,8 +126,6 @@ struct WidgetFacesTests {
         for index in 0..<WidgetReading.mostTodayRows {
             capture("Song \(index)", minutesAgo: Double(index))
         }
-        // Played back, so it isn't in Up Next either.
-        oldest.playedBackAt = now
         try store.context.save()
         let before = try faces()
 
@@ -164,19 +135,6 @@ struct WidgetFacesTests {
         #expect(try faces().kindsChanged(since: before).isEmpty)
     }
 
-    /// Up Next shows a count, which can change while the visible songs don't.
-    @Test("the Up Next count changing alone changes Today")
-    func countAloneChangesToday() throws {
-        let songs = (0..<5).map { capture("Song \($0)", minutesAgo: Double(50 - $0)) }
-        try store.context.save()
-        let before = try faces()
-
-        songs[4].playedBackAt = now
-        try store.context.save()
-
-        #expect(try faces().kindsChanged(since: before) == [WidgetKind.today])
-    }
-
     /// A fetch limit of zero means no limit, and Last Played asks for zero Today rows.
     @Test("asking for no rows of today reads none")
     func zeroLimitReadsNothing() throws {
@@ -184,11 +142,10 @@ struct WidgetFacesTests {
         capture("Second", minutesAgo: 10)
         try store.context.save()
 
-        let reading = try store.widgetReading(todayLimit: 0, upNextLimit: nil, now: now, calendar: calendar)
+        let reading = try store.widgetReading(todayLimit: 0, now: now, calendar: calendar)
 
         #expect(reading.today.isEmpty)
         #expect(reading.lastPlayed?.title == "Second")
-        #expect(reading.upNext == nil)
     }
 
     /// `WidgetRefresher` observes `didSave` with the main context as the object.

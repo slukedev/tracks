@@ -5,23 +5,16 @@ import MusicKit
 import TracksCore
 import TracksMusic
 
-/// Drives the phase 0 probe: samples the platform's now-playing surface once a second and
-/// exercises the playlist write path on demand.
+/// The headless probe's commands: the environment, the playlist write path, the store, the
+/// catalog and Last.fm, each logged for the command line. See `HeadlessProbe`.
 @MainActor
 @Observable
 final class ProbeModel {
     let log = ProbeLog()
 
-    var isSampling = false {
-        didSet { isSampling ? startSampling() : stopSampling() }
-    }
-
     private(set) var environment: [EnvironmentRow] = []
     private(set) var probePlaylistID: String?
     private(set) var isWriting = false
-
-    private var samplingTask: Task<Void, Never>?
-    private let sampler = PlatformProbeSampler()
 
     /// Opened once to check the App Group container is reachable. A failure is shown on
     /// screen.
@@ -57,7 +50,6 @@ final class ProbeModel {
         set("App Group", AppGroup.identifier ?? "‹not configured›")
         set("Group container", AppGroup.containerURL?.path ?? "‹unavailable›")
         set("SwiftData store", storeStatus)
-        for row in sampler.environmentRows() { set(row.key, row.value) }
 
         let status = MusicAuthorization.currentStatus
         if status == .notDetermined {
@@ -84,25 +76,6 @@ final class ProbeModel {
         )
     }
 
-    // MARK: - Sampling
-
-    private func startSampling() {
-        guard samplingTask == nil else { return }
-        sampler.start(log: log)
-        samplingTask = Task { [log, sampler] in
-            while !Task.isCancelled {
-                sampler.sample(into: log)
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
-    }
-
-    private func stopSampling() {
-        samplingTask?.cancel()
-        samplingTask = nil
-        sampler.stop()
-    }
-
     // MARK: - Playlist write path
 
     func testCreatePlaylist() async {
@@ -119,7 +92,7 @@ final class ProbeModel {
         do {
             let id = try await writer.createPlaylist(
                 name: name,
-                description: "Throwaway playlist from the Tracks phase 0 probe. Safe to delete."
+                description: "Throwaway playlist from the Tracks probe. Safe to delete."
             )
             probePlaylistID = id
             log.append(.playlistWrite, "Created playlist", fields: [
@@ -185,149 +158,6 @@ final class ProbeModel {
         }
     }
 
-    /// Clears the played-back marks so a day can be played again. Also repairs rows an
-    /// earlier build marked at queue time instead of on playback.
-    func resetPlayback() {
-        do {
-            let store = try TracksStore.shared()
-            let captures = try store.context.fetch(TracksStore.radioCaptures())
-            let marked = captures.filter { $0.playedBackAt != nil }
-            for capture in marked { capture.playedBackAt = nil }
-            try store.context.save()
-            log.append(.environment, "Cleared played-back marks", fields: [
-                ("count", String(marked.count)),
-            ])
-        } catch {
-            log.append(.error, "Could not reset playback", fields: Self.errorFields(error))
-        }
-    }
-
-    /// Plays back today's captures through the platform's playback service.
-    func playBackToday() async {
-        do {
-            let store = try TracksStore.shared()
-            let controller = PlaybackController(store: store, service: PlatformPlaybackService.make())
-            let all = try store.context.fetch(TracksStore.radioCaptures())
-            let selection = PlaybackSelection.todaysUnplayed(from: all)
-            guard !selection.isEmpty else {
-                log.append(.environment, "Nothing to play back today")
-                return
-            }
-            log.append(.environment, "Queueing \(selection.count)", fields: selection.map {
-                (key: $0.songID, value: "\($0.title) by \($0.artistName)")
-            })
-            await controller.playBackToday()
-            if let error = controller.lastError {
-                log.append(.error, "Playback failed", fields: [("error", error)])
-            } else {
-                log.append(.environment, "Playing", fields: [("queued", String(controller.queuedCount))])
-            }
-        } catch {
-            log.append(.error, "Could not play back", fields: Self.errorFields(error))
-        }
-    }
-
-    /// Plays one catalog song and samples the player while it does, touching no store.
-    ///
-    /// Checking whether a capture reached recently played proves nothing, since radio
-    /// listening puts it there anyway. Pick a song that isn't in recently played beforehand;
-    /// if it shows up afterwards, this play put it there.
-    func playOne(songID: String, seconds: Int) async {
-        let service = MusicKitPlaybackService()
-        do {
-            try await service.play(songIDs: [songID])
-        } catch {
-            log.append(.error, "Playback failed", fields: Self.errorFields(error))
-            return
-        }
-
-        // Not throwing doesn't mean audio is playing, so check.
-        let player = ApplicationMusicPlayer.shared
-        var samples: [(key: String, value: String)] = []
-        for second in stride(from: 0, to: max(seconds, 1), by: 15) {
-            let entry = player.queue.currentEntry
-            samples.append((
-                key: "t+\(second)s",
-                value: "\(player.state.playbackStatus): \(entry?.title ?? "‹no entry›")"
-            ))
-            try? await Task.sleep(for: .seconds(15))
-        }
-        samples.append((
-            key: "t+\(seconds)s",
-            value: "\(player.state.playbackStatus), playbackTime \(Int(player.playbackTime))s"
-        ))
-        log.append(.environment, "Played one song (\(songID))", fields: samples)
-    }
-
-    /// Plays the library copy of a song instead of the catalog one, to completion.
-    ///
-    /// Tests whether queuing the library item moves Music.app's `played count`, which
-    /// in-process playback doesn't. Seeks to the last few seconds, since the counter moves
-    /// when a play completes.
-    func playLibraryCopy(title: String) async {
-        do {
-            var request = MusicLibraryRequest<Song>()
-            request.filter(matching: \.title, equalTo: title)
-            guard let song = try await request.response().items.first else {
-                log.append(.error, "Not in the library", fields: [("title", title)])
-                return
-            }
-
-            let player = ApplicationMusicPlayer.shared
-            player.queue = ApplicationMusicPlayer.Queue(for: [song])
-            player.queue.affectsListeningHistory = true
-            try await player.play()
-
-            // Seeking before playback has started does nothing.
-            try? await Task.sleep(for: .seconds(3))
-            let duration = song.duration ?? 0
-            if duration > 10 { player.playbackTime = duration - 6 }
-            try? await Task.sleep(for: .seconds(12))
-
-            log.append(.environment, "Played library copy", fields: [
-                ("title", song.title),
-                ("library id", song.id.rawValue),
-                ("duration", String(format: "%.0fs", duration)),
-                ("status", "\(player.state.playbackStatus)"),
-                ("playbackTime", String(format: "%.0fs", player.playbackTime)),
-            ])
-        } catch {
-            log.append(.error, "Library playback failed", fields: Self.errorFields(error))
-        }
-    }
-
-    /// Reports each guard on automatic play-back, to show why it would or wouldn't start
-    /// right now.
-    func dumpAutoPlaybackDecision(setting: Bool? = nil) {
-        let settings = CaptureSettings()
-        if let setting { settings.autoPlayBack = setting }
-        var fields: [(key: String, value: String)] = [
-            ("setting enabled", String(settings.autoPlayBack)),
-        ]
-
-        #if os(macOS)
-        let idle = UserPresence.secondsSinceInput
-        fields.append(("seconds since input", idle.map { String(format: "%.0f", $0) } ?? "‹unknown›"))
-        fields.append(("counts as present", String(UserPresence.isPresent())))
-        #endif
-
-        do {
-            let store = try TracksStore.shared()
-            let all = try store.context.fetch(TracksStore.radioCaptures())
-            let unplayed = PlaybackSelection.todaysUnplayed(from: all)
-            fields.append(("captures today unplayed", String(unplayed.count)))
-            fields.append(("oldest unplayed", unplayed.first.map { "\($0.title) by \($0.artistName)" } ?? "‹none›"))
-            fields.append((
-                "rows with no catalog id",
-                String(all.filter { $0.songID.isEmpty }.count)
-            ))
-        } catch {
-            fields.append(("store", "failed: \(error.localizedDescription)"))
-        }
-
-        log.append(.environment, "Automatic play-back", fields: fields)
-    }
-
     /// Drains the Last.fm queue on demand and logs the result, so signing, session and
     /// batching can be tested without waiting for a capture.
     func sendScrobbles() async {
@@ -338,9 +168,7 @@ final class ProbeModel {
                 log.append(.error, "No Last.fm account is connected")
                 return
             }
-            let owedBefore = try store.context.fetch(TracksStore.pendingScrobbles(
-                includingImported: CaptureSettings().scrobblesImported
-            )).count
+            let owedBefore = try store.context.fetch(TracksStore.pendingScrobbles(includingImported: true)).count
             let sent = await scrobbler.drain()
             log.append(.environment, "Scrobbled", fields: [
                 ("owed before", String(owedBefore)),
@@ -359,13 +187,10 @@ final class ProbeModel {
             ("api key", LastFMCredentials.apiKey.map { String($0.prefix(6)) + "…" } ?? "‹none›"),
             ("account", LastFMSessionStore.current?.username ?? "‹not connected›"),
             ("scrobbling enabled", String(CaptureSettings().scrobblesToLastFM)),
-            ("includes imported", String(CaptureSettings().scrobblesImported)),
         ]
         do {
             let store = try TracksStore.shared()
-            let owed = try store.context.fetch(TracksStore.pendingScrobbles(
-                includingImported: CaptureSettings().scrobblesImported
-            ))
+            let owed = try store.context.fetch(TracksStore.pendingScrobbles(includingImported: true))
             fields.append(("owed a scrobble", String(owed.count)))
             fields.append(("oldest owed", owed.first.map { "\($0.title) by \($0.artistName)" } ?? "‹none›"))
             let failed = try store.context.fetch(TracksStore.allCaptures())
@@ -380,8 +205,8 @@ final class ProbeModel {
         log.append(.environment, "Last.fm", fields: fields)
     }
 
-    /// Removes a song and stops it being imported again. Logs the matches first, since the
-    /// argument is a substring.
+    /// Removes a song and stops the Last.fm import bringing it back. Logs the matches first,
+    /// since the argument is a substring.
     func forgetSong(matching text: String) {
         do {
             let store = try TracksStore.shared()
@@ -405,7 +230,6 @@ final class ProbeModel {
             }
             log.append(.environment, "Removed", fields: [
                 ("rows", String(removed)),
-                ("will not be re-imported", "yes"),
             ])
         } catch {
             log.append(.error, "Could not remove", fields: Self.errorFields(error))
@@ -438,22 +262,6 @@ final class ProbeModel {
             })
         } catch {
             log.append(.error, "Could not read stations", fields: Self.errorFields(error))
-        }
-    }
-
-    /// Reads Apple Music's recently-played list. On its own this doesn't show that a
-    /// play-back worked; see ``playOne(songID:seconds:)``.
-    func showRecentlyPlayed() async {
-        do {
-            var request = MusicRecentlyPlayedRequest<Song>()
-            // Ten entries is less than one listening session.
-            request.limit = 30
-            let songs = try await request.response().items
-            log.append(.environment, "Apple Music recently played (\(songs.count))", fields: songs.map {
-                (key: $0.id.rawValue, value: "\($0.title) by \($0.artistName)")
-            })
-        } catch {
-            log.append(.error, "Could not read recently played", fields: Self.errorFields(error))
         }
     }
 
@@ -601,42 +409,6 @@ final class ProbeModel {
         do {
             try await writer.addSongs(ids: [songID], toPlaylist: playlistID)
             log.append(.playlistWrite, "Added song (expect HTTP 204, no body)", fields: [
-                ("songID", songID),
-                ("playlistID", playlistID),
-            ])
-        } catch {
-            log.append(.error, "Add song failed", fields: Self.errorFields(error))
-        }
-    }
-
-    func testAddCurrentSong() async {
-        guard let playlistID = probePlaylistID else { return }
-        isWriting = true
-        defer { isWriting = false }
-
-        let resolution = await sampler.resolveCurrentSong()
-        log.append(
-            .playlistWrite,
-            "Resolved current song via \(resolution.method)",
-            fields: resolution.diagnostics + [("songID", resolution.songID ?? "‹none›")]
-        )
-        guard let songID = resolution.songID else {
-            log.append(.error, "Cannot add: no catalog song ID", fields: [
-                ("method", resolution.method),
-            ])
-            return
-        }
-
-        let writer = MusicKitPlaylistWriter { [log] transport in
-            Task { @MainActor in
-                log.append(.playlistWrite, "Transport used", fields: [("transport", transport.rawValue)])
-            }
-        }
-
-        do {
-            try await writer.addSongs(ids: [songID], toPlaylist: playlistID)
-            // Success is HTTP 204 with an empty body, so there's nothing to decode.
-            log.append(.playlistWrite, "Added song (204 No Content)", fields: [
                 ("songID", songID),
                 ("playlistID", playlistID),
             ])

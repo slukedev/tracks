@@ -1,14 +1,11 @@
 import Foundation
 import MusicKit
-import Observation
 import TracksCore
 
-/// Plays captures through MusicKit's player.
+/// Plays songs from the history in the Music app, for Play Songs In set to Apple Music.
 ///
-/// On iOS that's `SystemMusicPlayer`, which hands the queue to the Music app so the play
-/// count moves. The in-process `ApplicationMusicPlayer` reaches listening history but never
-/// moves the play count (measured on macOS, where it's the only MusicKit player, which is why
-/// macOS uses ``MusicAppPlaybackService``).
+/// On iOS that's `SystemMusicPlayer`, which hands the queue to the Music app. The Mac uses
+/// ``MusicAppPlaybackService``.
 public struct MusicKitPlaybackService: PlaybackService {
     /// On macOS only tests and the probe use this type, but it still has to compile.
     #if os(iOS)
@@ -46,8 +43,7 @@ public struct MusicKitPlaybackService: PlaybackService {
     /// Looks the songs up, in the order asked for, leaving out any that can't be found.
     ///
     /// Rows imported from Recently Played have library IDs ("i.aJGY3G9fEGApOQP"), and one of
-    /// those in a catalog request fails the whole request, so a day with one import in it
-    /// played nothing. Catalog and library IDs go to their own requests, as in
+    /// those in a catalog request fails the whole request. Catalog and library IDs go to their own requests, as in
     /// ``CatalogLookup``, and each request failing only loses its own songs. An ID that is
     /// neither is left out, since neither request would take it.
     ///
@@ -85,26 +81,6 @@ public struct MusicKitPlaybackService: PlaybackService {
         let ordered = songIDs.compactMap { found[$0] }
         if ordered.isEmpty, let failure { throw failure }
         return ordered
-    }
-
-    /// Follows the player's own queue, so a song counts only when it actually starts.
-    public func nowPlayingIDs() -> AsyncStream<String> {
-        AsyncStream { continuation in
-            let task = Task { @MainActor in
-                let player = Player.shared
-                var lastReported: String?
-                for await entryID in Observations({ player.queue.currentEntry?.id }) {
-                    guard entryID != nil else { continue }
-                    guard case .song(let song) = player.queue.currentEntry?.item else { continue }
-                    let id = song.id.rawValue
-                    guard id != lastReported else { continue }
-                    lastReported = id
-                    continuation.yield(id)
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
     }
 
     public func pause() async {

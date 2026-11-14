@@ -66,9 +66,7 @@ public enum TracksPlayerContext {
     /// Whether one of Tracks’ own players is making sound: the Apple Music one or the one
     /// for your own music.
     ///
-    /// On the Mac nothing stops Music.app playing at the same time, so capture listens to
-    /// Music.app only while this is false, and the app can use it to decide when to pause
-    /// Music.app.
+    /// What capture reads first when it checks what's on.
     public static var isPlaying: Bool {
         ApplicationMusicPlayerSource.isPlaying || PushedNowPlayingSource.yourMusic.isPlaying
     }
@@ -76,10 +74,9 @@ public enum TracksPlayerContext {
 
 /// Observes Tracks’ own Apple Music player, the one the Play tab uses.
 ///
-/// Unlike the system player on iOS, this one keeps the app running while it plays (the iPhone
-/// app declares background audio), so every song it plays is seen as it starts, with or
-/// without the app on screen. And since Tracks queued the music itself, each observation states
-/// whether it came from a station rather than leaving it to ``RadioHeuristic``.
+/// It keeps the app running while it plays (the iPhone app declares background audio), so
+/// every song it plays is seen as it starts, with or without the app on screen. And since
+/// Tracks queued the music itself, each observation says whether it came from a station.
 @MainActor
 public final class ApplicationMusicPlayerSource: NowPlayingSource {
     private nonisolated let continuation = Mutex<AsyncStream<NowPlayingObservation>.Continuation?>(nil)

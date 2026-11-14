@@ -268,7 +268,7 @@ extension CarPlaySceneDelegate {
                         await player.start(.history(songs, startingAt: index), from: .songs(title))
                     }
                     // By the song, since its row carries its place in the chart.
-                    let identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+                    let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
                     row.isPlaying = { player.current?.songIdentity == identity }
                     return row
                 }

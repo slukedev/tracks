@@ -260,9 +260,9 @@ enum SongInfoSources {
                 return RelatedSong(subject: SongInfoSubject(song), trackNumber: song.trackNumber, duration: song.duration, isExplicit: song.contentRating == .explicit)
             }
         } ?? []
-        let identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+        let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
         let topSongs: [RelatedSong] = top.map { songs in
-            songs.filter { HistoryImport.key(title: $0.title, artistName: $0.artistName) != identity }
+            songs.filter { SongIdentity.key(title: $0.title, artistName: $0.artistName) != identity }
                 .prefix(SongRelated.topSongCount)
                 .map { RelatedSong(subject: SongInfoSubject($0), duration: $0.duration, isExplicit: $0.contentRating == .explicit) }
         } ?? []
@@ -364,7 +364,7 @@ enum SongInfoSources {
             async let similar = client.similarTracks(title: subject.title, artistName: subject.artistName)
             var found = try await info
             found?.similar = ((try? await similar) ?? []).filter {
-                HistoryImport.key(title: $0.title, artistName: $0.artistName) != subject.identity
+                SongIdentity.key(title: $0.title, artistName: $0.artistName) != subject.identity
             }
             let kept = found?.isEmpty == false ? found : nil
             await SongInfoCache.shared.store(kept, for: key)

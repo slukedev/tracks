@@ -26,7 +26,7 @@ struct ListeningRoomTests {
             let day = calendar.startOfDay(for: now.addingTimeInterval(-play.daysAgo * 86_400))
             let date = day.addingTimeInterval(Double(play.hour) * 3_600)
             stats.append(CaptureStat(songKey: play.title, songID: play.title, title: play.title, artistName: "Artist", capturedAt: date))
-            metadata[HistoryImport.key(title: play.title, artistName: "Artist")] = SongMetadata(genre: play.genre, releaseYear: play.year)
+            metadata[SongIdentity.key(title: play.title, artistName: "Artist")] = SongMetadata(genre: play.genre, releaseYear: play.year)
         }
         return ListeningHistory(stats).with(artistArtwork: [:], songMetadata: metadata)
     }
@@ -137,7 +137,7 @@ extension ListeningRoomTests {
         for play in plays {
             stats.append(CaptureStat(songKey: play.title, songID: play.title, title: play.title, artistName: "Artist", capturedAt: play.date))
             if let genre = play.genre {
-                metadata[HistoryImport.key(title: play.title, artistName: "Artist")] = SongMetadata(genre: genre, releaseYear: nil)
+                metadata[SongIdentity.key(title: play.title, artistName: "Artist")] = SongMetadata(genre: genre, releaseYear: nil)
             }
         }
         let history = ListeningHistory(stats).with(artistArtwork: [:], songMetadata: metadata)

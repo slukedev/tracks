@@ -86,10 +86,10 @@ struct LargeLibraryBenchmarks {
             let elapsed = try await clock.measure { _ = try await store.clearUnloadableArtworkFoundInBackground() }
             print("⏱ [main actor free] clear unloadable artwork found in the background: \(elapsed)")
         }
-        _ = try measure("widget faces on the main actor") { try store.widgetFaces(showsUpNext: true, now: now) }
+        _ = try measure("widget faces on the main actor") { try store.widgetFaces(now: now) }
         do {
             let clock = ContinuousClock()
-            let elapsed = try await clock.measure { _ = try await store.widgetFacesInBackground(showsUpNext: true, now: now) }
+            let elapsed = try await clock.measure { _ = try await store.widgetFacesInBackground(now: now) }
             print("⏱ [main actor free] widget faces in the background: \(elapsed)")
         }
         _ = try measure("count captures") { try store.context.fetchCount(FetchDescriptor<Capture>()) }

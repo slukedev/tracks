@@ -7,7 +7,7 @@ import AppIntents
 // one runs in the app (`allowedExecutionTargets`), which has the player and the capture
 // stack. Their work is in ControlIntents+App.swift; the extension's half, in
 // ControlIntents+Widget.swift, is never run. They're hidden from Shortcuts, which already
-// lists the app's own versions (Play in Tracks, Save Current Radio Song).
+// lists the app's own Play in Tracks.
 
 /// Which of the Play choices a Play in Tracks control starts.
 struct PlayInTracksControlConfiguration: ControlConfigurationIntent {
@@ -36,18 +36,6 @@ struct StartPlayChoiceIntent: AudioPlaybackIntent {
     func perform() async throws -> some IntentResult {
         try await Self.start(choice)
         return .result()
-    }
-}
-
-/// Saves the radio song playing now, as Save Current Radio Song does, from a control.
-struct SaveRadioSongControlIntent: AppIntent {
-    static let title: LocalizedStringResource = "Save Radio Song"
-    static let isDiscoverable = false
-    static let supportedModes: IntentModes = .background
-    static var allowedExecutionTargets: IntentExecutionTargets { .main }
-
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        .result(dialog: IntentDialog(stringLiteral: try await Self.save()))
     }
 }
 

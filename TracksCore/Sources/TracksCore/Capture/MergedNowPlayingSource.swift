@@ -2,10 +2,9 @@ import Foundation
 
 /// Several players watched as one.
 ///
-/// An iPhone has two: the system player, which is the Music app, and Tracks’ own player on the
-/// Play tab. The capture loop takes one stream, so this starts every source and forwards
-/// whatever any of them sees, in the order it arrives. Only one of them is ever audible at a
-/// time, since starting one interrupts the other.
+/// Tracks has two: its Apple Music player and its player for your own music. The capture loop
+/// takes one stream, so this starts every source and forwards whatever any of them sees, in
+/// the order it arrives. Only one of them plays at a time.
 public final class MergedNowPlayingSource: NowPlayingSource {
     private let sources: [any NowPlayingSource]
 

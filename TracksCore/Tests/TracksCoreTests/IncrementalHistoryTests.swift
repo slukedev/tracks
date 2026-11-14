@@ -14,7 +14,7 @@ struct IncrementalHistoryTests {
     private let start = Date(timeIntervalSince1970: 1_800_000_000)
     /// Apple Music's artists for a collaboration, so crediting is part of every step.
     private let metadata = [
-        HistoryImport.key(title: "Duet", artistName: "Ana & Ben"): SongMetadata(genre: "Pop", releaseYear: 2020, artists: ["Ana", "Ben"]),
+        SongIdentity.key(title: "Duet", artistName: "Ana & Ben"): SongMetadata(genre: "Pop", releaseYear: 2020, artists: ["Ana", "Ben"]),
     ]
 
     init() throws {

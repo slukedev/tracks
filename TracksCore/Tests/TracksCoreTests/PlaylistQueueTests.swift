@@ -485,7 +485,6 @@ final class CountingArtworkResolver: CatalogResolving, @unchecked Sendable {
         }
     }
 
-    func mostRecentStationName() async throws -> String? { nil }
 }
 
 /// A catalog that can't be reached, counting how often it was asked.
@@ -499,5 +498,4 @@ final class FailingResolver: CatalogResolving, @unchecked Sendable {
         throw URLError(.notConnectedToInternet)
     }
     func artworkURLs(forSongIDs ids: [String]) async throws -> [String: String] { [:] }
-    func mostRecentStationName() async throws -> String? { nil }
 }

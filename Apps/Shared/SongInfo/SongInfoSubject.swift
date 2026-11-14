@@ -19,7 +19,7 @@ struct SongInfoSubject: Hashable, Identifiable {
     var id: String { identity }
 
     init(title: String, artistName: String, albumTitle: String? = nil, cover: CoverArt? = nil, catalogID: String? = nil) {
-        identity = HistoryImport.key(title: title, artistName: artistName)
+        identity = SongIdentity.key(title: title, artistName: artistName)
         self.title = title
         self.artistName = artistName
         self.albumTitle = albumTitle.flatMap { $0.isEmpty ? nil : $0 }

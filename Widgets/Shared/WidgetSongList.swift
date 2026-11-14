@@ -8,8 +8,6 @@ import SwiftUI
 struct WidgetSongList: View {
     let songs: [WidgetCapture]
     let style: WidgetSongRow.Style
-    /// When set, a line under the rows counts the songs not shown.
-    var totalCount: Int?
 
     var body: some View {
         ViewThatFits(in: .vertical) {
@@ -23,14 +21,6 @@ struct WidgetSongList: View {
         VStack(alignment: .leading, spacing: style.spacing) {
             ForEach(songs.prefix(shown)) { capture in
                 WidgetSongRow(capture: capture, style: style)
-            }
-            if let totalCount, totalCount > shown {
-                Text("^[\(totalCount - shown) more song](inflect: true)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, style.textInset)
-                    // The section header already gives VoiceOver the whole count.
-                    .accessibilityHidden(true)
             }
         }
     }

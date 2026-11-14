@@ -59,15 +59,12 @@ public struct SyncedSetting: Sendable, Hashable {
 extension SyncedSetting {
     /// Every setting that mirrors, and how.
     ///
-    /// Deliberately left out, because they mean something different on each device:
+    /// Deliberately left out: ``CloudSync/isEnabled`` and ``DeviceIdentity``, which are per
+    /// device by definition. Syncing the first would mean turning sync off on one device
+    /// turned it off everywhere.
     ///
-    /// - ``CaptureSettings/recentlyPlayedAnchor``: Apple's recently-played list as *this*
-    ///   device last saw it. The Mac and the iPhone see different lists, so sharing it would
-    ///   make one device skip real plays and the other import old ones again.
-    /// - ``CaptureSettings/forceCapture``: a diagnostic override, meant for the machine
-    ///   it's switched on.
-    /// - ``CloudSync/isEnabled`` and ``DeviceIdentity``: per device by definition. Syncing
-    ///   the first would mean turning sync off on one device turned it off everywhere.
+    /// Keys taken out of this list stay out of it rather than being reused: older builds on
+    /// the user's other devices still write them (see ``CaptureSettings``).
     public static let all: [SyncedSetting] = [
         // Playlist
         SyncedSetting(key: CaptureSettings.playlistNameKey),
@@ -80,8 +77,6 @@ extension SyncedSetting {
         SyncedSetting(key: CaptureSettings.dedupeWindowKey),
         SyncedSetting(key: CaptureSettings.minimumListenShareKey),
         SyncedSetting(key: CaptureSettings.capturesOnDemandKey),
-        SyncedSetting(key: CaptureSettings.importsRecentlyPlayedKey),
-        SyncedSetting(key: CaptureSettings.autoPlayBackKey),
         // The user curates this list and can take a station back out, so a removal has to
         // travel as well as an addition.
         SyncedSetting(key: CaptureSettings.excludedStationsKey),
@@ -95,16 +90,11 @@ extension SyncedSetting {
         // other device the next time this one forgot anything.
         SyncedSetting(key: CaptureSettings.forgottenSongsKey, merge: .union),
         SyncedSetting(key: CaptureSettings.forgottenSongDatesKey, merge: .union),
-        // A skip on the Mac is in the iPhone's recently-played list too. Each device only
-        // adds, and trims the old ones by their own dates, so a union settles the same way.
-        SyncedSetting(key: CaptureSettings.passedOverSongsKey, merge: .union),
 
         // Last.fm
         SyncedSetting(key: CaptureSettings.scrobblesToLastFMKey),
-        SyncedSetting(key: CaptureSettings.scrobblesImportedKey),
 
         // Presentation
-        SyncedSetting(key: CaptureSettings.showsUpNextInWidgetKey),
         SyncedSetting(key: CaptureSettings.menuBarLabelStyleKey),
         SyncedSetting(key: CaptureSettings.menuBarLabelFormatKey),
         SyncedSetting(key: CaptureSettings.animatesMenuBarKey),

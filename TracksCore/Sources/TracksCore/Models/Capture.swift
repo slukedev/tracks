@@ -7,8 +7,8 @@ import SwiftData
 @Model
 public final class Capture {
     // One for each query that runs often enough to matter, matched to its predicate: the
-    // history list and widgets (by date), the dedupe check on every poll (song and kind),
-    // play-back (kind and date), and the playlist and scrobble queues, which are scoped to
+    // history list and widgets (by date), the dedupe check on every song (song and kind),
+    // radio by date (kind and date), and the playlist and scrobble queues, which are scoped to
     // this device before anything else.
     #Index<Capture>(
         [\.capturedAt],
@@ -25,9 +25,9 @@ public final class Capture {
 
     /// Identity for dedupe before a catalog ID exists.
     ///
-    /// macOS only gets the ID after a catalog search, and radio is polled every 10 seconds,
-    /// so deduping on `songID` would let the same track through while the search runs. On
-    /// iOS this is the catalog ID.
+    /// Older Mac rows only got the ID after a catalog search, and a song of your own may
+    /// never have one, so deduping on `songID` would let the same track through. For Apple
+    /// Music this is the catalog ID.
     public var songKey: String = ""
 
     /// Counts failed catalog searches so an unidentifiable track stops being retried.

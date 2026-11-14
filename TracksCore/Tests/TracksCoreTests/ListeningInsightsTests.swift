@@ -334,7 +334,7 @@ struct ProfileTests {
     }
 
     @Test func `a song page lists every play, newest first`() throws {
-        let id = HistoryImport.key(title: "Saltwater", artistName: "Mara Solis")
+        let id = SongIdentity.key(title: "Saltwater", artistName: "Mara Solis")
         let profile = try #require(StatsCalculator.songProfile(id: id, history: history, calendar: calendar, now: date(2026, 9, 5)))
         #expect(profile.plays == [date(2026, 9, 2), date(2026, 9, 1)])
         #expect(profile.artistID == "mara solis")

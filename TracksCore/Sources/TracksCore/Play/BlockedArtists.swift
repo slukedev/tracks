@@ -35,7 +35,7 @@ public struct BlockedArtists: Sendable, Equatable {
         return !keys.isDisjoint(with: LocalTrack.creditedArtists(of: artist))
     }
 
-    /// Whether the song with this identity, as ``HistoryImport/key(title:artistName:)`` makes
+    /// Whether the song with this identity, as ``SongIdentity/key(title:artistName:)`` makes
     /// it, is by someone blocked.
     public func blocks(songIdentity identity: String) -> Bool {
         guard !keys.isEmpty, let artist = Self.artist(ofIdentity: identity) else { return false }

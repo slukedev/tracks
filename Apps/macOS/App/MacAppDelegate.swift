@@ -14,10 +14,6 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// The process's one model, which Siri and Shortcuts reach as ``AppModel/shared``.
     let model = AppModel.shared
     let behaviour = MacAppBehaviour()
-    /// Watches Music for the menu bar.
-    let monitor = NowPlayingMonitor()
-    /// Notices a run that ended without a quit, and gets the app reopened after one.
-    let quitMonitor = UnexpectedQuitMonitor()
 
     /// Held while capture is running. See ``trackCaptureActivity()``.
     private var captureActivity: (any NSObjectProtocol)?
@@ -27,8 +23,6 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     static var openWindow: OpenWindowAction?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // First, so a problem later in launch still leaves a record of this run.
-        quitMonitor.start(isDemoLaunch: model.isDemoLaunch)
         behaviour.applyActivationPolicy()
         trackCaptureActivity()
         Task { await model.startCapture() }
@@ -101,10 +95,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 defer { tracksWasPlaying = isPlaying }
                 guard isPlaying, !tracksWasPlaying, !model.isDemoLaunch else { continue }
-                Task { [monitor] in
-                    _ = await ScriptingQueue.run { MediaTransportControl.pause() }
-                    await monitor.refresh()
-                }
+                Task { _ = await ScriptingQueue.run { MediaTransportControl.pause() } }
             }
         }
     }
@@ -140,10 +131,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func dockNext() { model.player.skipToNext() }
     @objc private func dockPrevious() { model.player.skipToPrevious() }
 
-    /// Every quit on purpose passes through here, which is how the next launch tells a quit
-    /// from a crash or from macOS ending the app.
     func applicationWillTerminate(_ notification: Notification) {
-        quitMonitor.applicationWillTerminate()
         model.player.saveSession()
     }
 
@@ -153,16 +141,12 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// An app with no window open counts as non-interactive, and macOS reclaims those first:
     /// on a nearly full disk, `deleted` asks RunningBoard to terminate the app so it can
     /// purge the container's caches (exit reason 0xBADDD15C, CacheDeleteAppContainerCaches).
-    /// Nothing crashes and no report is written, so it reads as the app quitting at random
-    /// hours or days after launch, with everything played from then on unrecorded. An
-    /// activity raises the app's termination resistance, and rules out the sudden and
-    /// automatic termination AppKit would otherwise allow.
+    /// Nothing crashes and no report is written, so it reads as the app quitting at random,
+    /// the music stopping with it. An activity raises the app's termination resistance, and
+    /// rules out the sudden and automatic termination AppKit would otherwise allow.
     ///
     /// Not `.userInitiated`, which also holds off idle sleep: capture has no reason to keep
-    /// the Mac awake, and stops when it sleeps anyway. Dropped while capture is paused, when
-    /// being terminated costs the user nothing. Sudden and automatic termination stay off
-    /// regardless (see ``UnexpectedQuitMonitor``), so a paused app that macOS ends reads as an
-    /// unexpected quit rather than vanishing.
+    /// the Mac awake, and stops when it sleeps anyway. Dropped while capture is paused.
     private func trackCaptureActivity() {
         guard let capture = model.capture else { return }
         Task { [weak self] in

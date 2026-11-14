@@ -138,11 +138,8 @@ targets:
     sources:
       - path: Widgets/Shared
       - path: Widgets/macOS
-      # Only the intent the widget's Play button uses and the file that picks its player.
-      # The whole Intents folder would pull the capture stack into the extension.
-      - path: Apps/Shared/Intents/PlayBackTodayIntent.swift
-      - path: Apps/Shared/Playback/PlatformPlaybackService.swift
       # The controls' intents, which run in the app; their work is in ControlIntents+App.swift.
+      # Only these: the whole Intents folder would pull the capture stack into the extension.
       - path: Apps/Shared/Intents/ControlIntents.swift
       - path: Apps/Shared/Intents/PlayChoice.swift
       # The widgets build the links the apps open; the apps' half is DeepLink+Routing.swift.
@@ -170,8 +167,6 @@ targets:
       # Same widget code as the Mac; Widgets/Shared has nothing platform-specific.
       - path: Widgets/Shared
       - path: Widgets/iOS
-      - path: Apps/Shared/Intents/PlayBackTodayIntent.swift
-      - path: Apps/Shared/Playback/PlatformPlaybackService.swift
       - path: Apps/Shared/Intents/ControlIntents.swift
       - path: Apps/Shared/Intents/PlayChoice.swift
       # The widgets build the links the apps open; the apps' half is DeepLink+Routing.swift.
@@ -197,26 +192,6 @@ targets:
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SUPPORTS_MACCATALYST: NO
 
-  # Reopens the Mac app when it stops without being quit. Embedded in the app, which starts
-  # it at launch; see Watchdog/WatchdogMain.swift.
-  TracksWatchdog:
-    type: application
-    platform: macOS
-    sources:
-      - path: Watchdog
-    dependencies:
-      - package: TracksCore
-        product: TracksCore
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: $(TRACKS_BUNDLE_ID).Watchdog
-        PRODUCT_NAME: TracksWatchdog
-        INFOPLIST_FILE: Watchdog/Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Watchdog/Resources/Watchdog.entitlements
-        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
-        GENERATE_INFOPLIST_FILE: NO
-        SKIP_INSTALL: YES
-
   Tracks (macOS):
     type: application
     platform: macOS
@@ -225,13 +200,6 @@ targets:
       - path: Apps/Shared
     dependencies:
       - target: TracksWidgets (macOS)
-      # Where helper apps live in a Mac app. Not registered as a login item: the app opens it.
-      - target: TracksWatchdog
-        embed: true
-        codeSign: true
-        copy:
-          destination: wrapper
-          subpath: Contents/Library/LoginItems
       - package: TracksCore
         product: TracksCore
       - package: TracksCore

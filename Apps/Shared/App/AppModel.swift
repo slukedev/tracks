@@ -17,6 +17,7 @@ final class AppModel {
     /// The real store. `nil` only if it couldn't be opened at all.
     let store: TracksStore?
     let capture: CaptureService?
+    /// Hands songs to the Music app, for Play Songs In set to Apple Music.
     let playback: PlaybackController?
     /// Why the store couldn't be opened, for diagnostics. Too technical for the screen.
     let startupError: String?
@@ -36,10 +37,6 @@ final class AppModel {
     /// Importing the Last.fm history. Here rather than in Settings so an import keeps going
     /// when Settings closes. Nil in a demo launch, which mustn't write the account's history.
     let lastFMHistory: LastFMHistorySync?
-
-    /// Bringing history over from Motif, the app Tracks replaces. Here rather than in Settings
-    /// so it keeps going when Settings closes.
-    private(set) var motifImport: MotifImportState = .idle
 
     /// True when launched with `-TracksDemoData YES`. The real store is never opened, so a
     /// screenshot session can't touch anyone's history, iCloud or Last.fm.
@@ -168,10 +165,7 @@ final class AppModel {
             // mustn't open the real store.
             if !isDemoLaunch { _ = WidgetRefresher.shared }
             let capture = isDemoLaunch ? CaptureService(store: store) : try CaptureService.shared()
-            let playback = PlaybackController(store: store, service: PlatformPlaybackService.make())
-            // The capture service decides when a station has stopped; the controller does
-            // the playing. This is the one place that knows about both.
-            capture.autoPlayback = { [weak playback] in await playback?.playBackToday() }
+            let playback = PlaybackController(service: PlatformPlaybackService.make())
             self.store = store
             self.capture = capture
             self.playback = playback
@@ -201,14 +195,6 @@ final class AppModel {
             await MoodPlayback.start(mood, model: self, startingWith: first)
         }
         followLibraryAndMixes()
-        // Motif's history comes across by itself the first time, a few seconds in, so it
-        // doesn't compete with the first read of the history.
-        if !isDemoLaunch, MotifImport.shouldRunAutomatically {
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(3))
-                await self?.importFromMotif()
-            }
-        }
         nearby.onCommand = { [weak player] command in
             switch command {
             case .playPause: player?.togglePlayPause()
@@ -350,7 +336,7 @@ final class AppModel {
     @ObservationIgnored private var lastNearbyArtwork: (song: String, url: String)?
 
     func nearbyArtwork(_ url: String?, for title: String, by artist: String) -> String? {
-        let song = HistoryImport.key(title: title, artistName: artist)
+        let song = SongIdentity.key(title: title, artistName: artist)
         if let url {
             lastNearbyArtwork = (song, url)
             return url
@@ -420,7 +406,7 @@ final class AppModel {
         case .local(let tracks, _): tracks.first?.mixSong()
         case .songs(let songs, _): songs.first.map {
             MixSong(
-                songIdentity: HistoryImport.key(title: $0.title, artistName: $0.artistName),
+                songIdentity: SongIdentity.key(title: $0.title, artistName: $0.artistName),
                 songID: $0.id.rawValue,
                 title: $0.title,
                 artistName: $0.artistName,
@@ -662,7 +648,7 @@ final class AppModel {
     /// are switched off.
     var isShowingSampleData: Bool { isDemoLaunch }
 
-    /// Starts capture and catches up on anything missed while the app was closed. Runs once
+    /// Starts capture and sends anything still owed from the last run. Runs once
     /// per process; later calls return straight away. Does nothing in a demo launch.
     func startCapture() async {
         guard !hasStarted else { return }
@@ -680,8 +666,8 @@ final class AppModel {
         settingsSync?.start()
         reconciler?.start()
         // Doesn't ask for Apple Music access: a prompt at launch arrives with no reason given.
-        // Capture works without it. Catalog search, artwork, the playlist and Recently Played
-        // fail with `permissionDenied` until it's granted, so the catch-up runs again then.
+        // Catalog search, artwork and the playlist fail with `permissionDenied` until it's
+        // granted, so the catch-up runs again then.
         await capture.catchUp()
     }
 
@@ -700,8 +686,8 @@ final class AppModel {
         catchUpIfNewlyAuthorized(since: previous)
     }
 
-    /// The launch catch-up couldn't reach Recently Played or the catalog without access, so
-    /// it's worth another go the moment access arrives.
+    /// The launch catch-up couldn't reach the catalog or the playlist without access, so it's
+    /// worth another go the moment access arrives.
     private func catchUpIfNewlyAuthorized(since previous: MusicAuthorization.Status) {
         guard previous != .authorized, musicAuthorization == .authorized,
               hasStarted, !isDemoLaunch, let capture
@@ -711,23 +697,6 @@ final class AppModel {
 
     /// Catches up with iCloud when the app comes back to the front.
     ///
-    /// Brings Motif's history over. Runs by itself once, and again whenever asked from Settings.
-    func importFromMotif() async {
-        guard !isDemoLaunch, let store, motifImport != .running else { return }
-        motifImport = .running
-        do {
-            let outcome = try await MotifImport.run(into: store)
-            motifImport = .finished(outcome)
-            if outcome.plays > 0 {
-                player.confirm(String(AttributedString(localized: "Brought Over ^[\(outcome.plays) Play](inflect: true) from Motif").characters))
-            }
-        } catch MotifImport.Failure.noMotifHistory {
-            motifImport = .failed(String(localized: "There’s no Motif history on this device."))
-        } catch {
-            motifImport = .failed(String(localized: "Couldn’t read Motif’s history. Try again."))
-        }
-    }
-
     /// Both sides go quiet while the app is away (iOS suspends it, and a Mac window can sit
     /// closed for days), so this is where the user is most likely to be looking at stale
     /// settings or at rows another device has already merged.
@@ -764,14 +733,6 @@ nonisolated final class MainActorSignal: Sendable {
             action()
         }
     }
-}
-
-/// Where bringing over Motif's history has got to. See ``MotifImport``.
-enum MotifImportState: Equatable {
-    case idle
-    case running
-    case finished(MotifImport.Outcome)
-    case failed(String)
 }
 
 /// The iPhone's tabs.

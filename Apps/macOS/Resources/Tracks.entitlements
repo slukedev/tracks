@@ -8,7 +8,6 @@
     <key>com.apple.security.application-groups</key>
     <array>
         <string>$(TRACKS_APP_GROUP)</string>
-        <string>$(TRACKS_MOTIF_APP_GROUP)</string>
     </array>
 
     <!-- The hardened runtime / TCC check for sending Apple events. The sandbox check

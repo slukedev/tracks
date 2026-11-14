@@ -13,25 +13,16 @@ See [README.md](README.md) for the legend and how to keep this current.
 ### History capture
 
 - Keeps every song played inside Tracks, from Apple Music or your own music, even in the
-  background.
-- Keeps songs played in the Music app while Tracks is running, read from the system player.
-- Tells radio from on demand from the queue entry's identifier, and keeps radio songs Apple
+  background. Songs played in other apps, the Music app included, aren't kept.
+- Knows radio from on demand because Tracks' player queued it, and keeps radio songs Apple
   Music doesn't count as plays.
-- Recovers songs played while Tracks was closed from Apple Music's Recently Played.
-- Catches up with Background App Refresh: recovers songs, adds covers, sends scrobbles; Settings
-  shows the last background check.
-- Counts After (how much of a song must play) and Same Song Again Within, in Settings › History.
-- Keep Songs Played on Demand, or radio only.
-- Treat Everything as Radio, for when Tracks misses a station.
+- Counts After (how much of a song must play) and Same Song Within, in Settings › History.
+- Keep On-Demand Songs, or radio only.
 - Pause History: nothing is kept, counted, scrobbled or reported to your server until you resume.
 - Exclude stations you don't want recorded.
 - Heard on Radio: radio songs added to a playlist in your Apple Music library.
-- Play Back: replays today's radio songs through Apple Music so Apple counts them, only while
-  you're there to hear it.
-- Save Current Radio Song, from the app, Siri, Shortcuts or a control.
+- Imports your Last.fm history, from any app you scrobbled from, in Settings › Last.fm.
 - Repair Artwork finds covers that stopped loading and fetches them again.
-- Brings Motif's history over on first launch, with blocked artists, forgotten songs and the
-  radio playlist; Settings › History can do it again.
 - Sample data with `-TracksDemoData YES` in Debug builds, never saved, synced or scrobbled.
 
 ### Insights (Summary)
@@ -175,11 +166,10 @@ See [README.md](README.md) for the legend and how to keep this current.
 ### Scrobbling and Last.fm
 
 - Connect a Last.fm account in a web sheet; the session key is kept in the Keychain.
-- Scrobbles every song Tracks keeps, radio and recovered songs included (recovered only when
-  you allow it).
+- Scrobbles every song Tracks keeps, radio included.
 - Sends Now Playing updates.
-- Imports your Last.fm history after connecting; Sync Now adds what you've scrobbled since,
-  from any app. Picks up where it stopped.
+- Imports your Last.fm history from Settings, without asking first; Sync Now adds what you've
+  scrobbled since, from any app. Progress shows in the row, and it picks up where it stopped.
 - Scrobble queue with retries; scrobbling can be paused.
 
 ### Sync and backup
@@ -214,14 +204,14 @@ See [README.md](README.md) for the legend and how to keep this current.
 ### Widgets, controls, Siri and system integration
 
 - Widgets: Listening (small, medium, and Lock Screen rectangular, circular and inline), Top
-  Songs (small, medium), Last Played (small), Today (medium, large) with the Play Back queue.
+  Songs (small, medium), Last Played (small), Today (medium, large).
 - Controls for Control Center, the Lock Screen and the Action button: Play in Tracks
-  (configurable mix or mood), Save Radio Song, Identify Song, Play Back Today.
+  (configurable mix or mood) and Identify Song.
 - Siri: "Play music in Tracks" starts Tracks Radio; "Play my mix", "Play something new", mixes
   and moods by name; any artist, song, album, playlist or station.
 - Siri can learn to use Tracks for a plain "Play music" (SiriKit media intent).
-- App Shortcuts: Save Radio Song, Tracks Radio, My Mix, Top Artist, Search, Play a Mix, Play
-  Music, Switch Source, Play on Device, Bring Music Here.
+- App Shortcuts: Tracks Radio, My Mix, Top Artist, Search, Play a Mix, Play Music, Switch
+  Source, Play on Device, Bring Music Here.
 - Get Top Artist for a period, answered by Siri.
 - Open Artist, Open Song and Open Album intents on indexed entities.
 - Spotlight indexes the artists, songs and albums you've played.
@@ -234,8 +224,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 - A list of pages, each opening with a line on how it's doing: Play, History, Radio, Apple
   Music, Last.fm, iCloud, Your Devices, Louder at Speed.
 - Open To: Summary or Play.
-- Apple Music access and audio quality.
-- Background refresh notice when it's off.
+- Apple Music access, which playing Apple Music needs, and audio quality.
 
 ### Accessibility
 
@@ -263,7 +252,6 @@ From the Mac:
 - A sortable history with more than one order, as the Mac's table has (the list is newest
   first only).
 - Select and delete several plays at once.
-- Play Back Automatically (Mac only today).
 
 From Android (planned there):
 
@@ -286,25 +274,20 @@ Engine parity (no visible change, same results on every platform):
 - **CarPlay**: an Apple car platform. Android's equivalent is Android Auto, tracked there.
 - **SharePlay and the App Clip**: GroupActivities and App Clips are Apple's. An Android
   guest could join by code through the same relay one day, but that is new work, not parity.
-- **Heard on Radio, Play Back, radio detection, Recently Played recovery, Offline Mode,
-  Merge with Apple Music, Explicit Songs**: they exist because of how Apple Music works.
+- **Heard on Radio, Offline Mode, Merge with Apple Music, Explicit Songs**: they exist because
+  of how Apple Music works.
 - **Louder at Speed, driving detection, Shake to Play**: phone sensors in a car or a hand.
   Android could have them; they aren't needed on the Mac.
 - **Lock Screen widget families, Action button, Focus filter**: iOS system surfaces.
 - **Siri media intent ("Siri can learn to use Tracks")**: SiriKit is iOS only.
-- **Background App Refresh**: the Mac stays running in the menu bar instead.
-- **Motif import**: Motif was an Apple-only app.
 
 ## Where the README and the code disagree
 
 - The README lists three widgets (Listening, Last Played, Today). The code also ships **Top
   Songs** (`Widgets/Shared/TopSongsWidget.swift`).
-- The README lists one Control Center control. The code ships four: **Play in Tracks**,
-  **Save Radio Song**, **Identify Song** and **Play Back Today**
-  (`Widgets/Shared/TracksControls.swift`).
-- The README lists two actions for Siri and Shortcuts. The code has ten App Shortcuts
-  (`TracksShortcuts` in `Apps/Shared/Intents/SaveCurrentRadioSongIntent.swift`) plus Open
-  Artist, Song and Album, Spotlight indexing and a Focus filter.
+- The README sums up the Siri and Shortcuts actions. The code has nine App Shortcuts
+  (`Apps/Shared/Intents/TracksShortcuts.swift`) plus Open Artist, Song and Album, Spotlight
+  indexing and a Focus filter.
 - **Identify Song** (Shazam), **Stage**, **Handpicked**, **Party** and **Get Info** with
   MusicBrainz credits aren't in the README; Stage, Handpicked and Party aren't in the
   changelog either.

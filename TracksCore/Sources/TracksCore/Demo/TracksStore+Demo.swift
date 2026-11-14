@@ -38,7 +38,7 @@ extension TracksStore {
 
             let capture = Capture(
                 songID: "",
-                songKey: HistoryImport.key(title: play.title, artistName: play.artistName),
+                songKey: SongIdentity.key(title: play.title, artistName: play.artistName),
                 title: play.title,
                 artistName: play.artistName,
                 albumTitle: play.albumTitle,

@@ -2,11 +2,7 @@ import Foundation
 import MusicKit
 import TracksCore
 
-/// Turns a MusicKit player's queue entry into an observation, for either player.
-///
-/// The system player (iOS only) and Tracks’ own `ApplicationMusicPlayer` (iOS and macOS) share
-/// `MusicPlayer.Queue`, so what they report reads the same way. Kept apart from both sources
-/// because the Mac has only the second.
+/// Turns a queue entry of Tracks’ own `ApplicationMusicPlayer` into an observation.
 enum MusicPlayerReading {
     /// How long to wait after a queue change before reading `currentEntry`, which hasn't
     /// updated yet when the change fires. Found by trial.
@@ -27,27 +23,17 @@ enum MusicPlayerReading {
     ) -> NowPlayingObservation? {
         guard let entry else { return nil }
 
-        let identifier = QueueEntryIdentifier(entry.id)
         var raw: [String: String] = [
             "entry.id": entry.id,
             "entry.title": entry.title,
             "entry.subtitle": ProbeFormat.value(entry.subtitle),
-            // Not a radio signal: it's `false` for radio and albums alike.
             "entry.isTransient": String(entry.isTransient),
         ]
-        if let identifier {
-            raw["queueID"] = identifier.queueID
-            raw["isStream"] = String(identifier.isStream)
-        }
 
-        guard case .song(let song) = entry.item else {
-            // Unresolved, so nothing to capture yet. On iOS the system player's source reads
-            // a station name from this stage: see `announcedStation(from:)` there.
-            return nil
-        }
+        // Unresolved, so nothing to capture yet.
+        guard case .song(let song) = entry.item else { return nil }
 
-        // For diagnosis only: it reads `{"kind":"song"}` for radio and on-demand alike.
-        // The entry id is what tells them apart.
+        // For diagnosis only.
         if let parameters = entry.item?.playParameters {
             raw["playParameters"] = ProbeFormat.json(parameters)
         }

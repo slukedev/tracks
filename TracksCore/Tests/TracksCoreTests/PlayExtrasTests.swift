@@ -154,7 +154,7 @@ struct LiveMixTests {
 
     func song(_ title: String, artist: String) -> MixSong {
         MixSong(
-            songIdentity: HistoryImport.key(title: title, artistName: artist),
+            songIdentity: SongIdentity.key(title: title, artistName: artist),
             songID: title,
             title: title,
             artistName: artist,
@@ -199,7 +199,7 @@ struct LiveMixTests {
     @Test("the song a listen starts with isn't picked again")
     func startingSong() {
         var mix = LiveMix.tracksRadio(from: history(), now: now, seed: 4)
-        let first = HistoryImport.key(title: "Song 0", artistName: "Artist 0")
+        let first = SongIdentity.key(title: "Song 0", artistName: "Artist 0")
         mix.note(picked: first)
         #expect(!draw(&mix, 39).contains { $0.id == first })
     }
@@ -297,7 +297,7 @@ struct LiveMixTests {
         for index in 0..<40 {
             let title = "T\(index)"
             plays.append(CaptureStat(songKey: title, songID: title, title: title, artistName: "A\(index)", capturedAt: now.addingTimeInterval(-Double(index + 10) * 86_400)))
-            metadata[HistoryImport.key(title: title, artistName: "A\(index)")] = SongMetadata(genre: index < 10 ? "Hip-Hop/Rap" : "Country", releaseYear: nil)
+            metadata[SongIdentity.key(title: title, artistName: "A\(index)")] = SongMetadata(genre: index < 10 ? "Hip-Hop/Rap" : "Country", releaseYear: nil)
         }
         let history = ListeningHistory(plays).with(artistArtwork: [:], songMetadata: metadata)
         let tuning = RadioTuning(genres: ["Hip-Hop"])
@@ -431,7 +431,7 @@ struct MoodTests {
 
     func history(genres: [String: String], plays: [CaptureStat]) -> ListeningHistory {
         let metadata = Dictionary(uniqueKeysWithValues: genres.map {
-            (HistoryImport.key(title: $0.key, artistName: "A"), SongMetadata(genre: $0.value, releaseYear: nil))
+            (SongIdentity.key(title: $0.key, artistName: "A"), SongMetadata(genre: $0.value, releaseYear: nil))
         })
         return ListeningHistory(plays).with(artistArtwork: [:], songMetadata: metadata)
     }

@@ -93,19 +93,15 @@ struct PlaySettingsPane: View {
                 }
             }
             if QuickSwitch.isAvailable(music) {
-                SettingsSwitch(
-                    "Quick Switch",
-                    detail: quickSwitch
-                        ? Text("Apple Music and Your Music are both in Listen Now’s title.")
-                        : Text("Put both sources a click away."),
-                    isOn: $quickSwitch
-                )
+                SettingsSwitch("Quick Switch", isOn: $quickSwitch)
             }
         } header: {
             Text("Source")
         } footer: {
-            Text(PlaySettingsWords.sourceFooter(model.musicSource, quickSwitch: .init(music: music, isOn: quickSwitch)))
-                .contentTransition(.opacity)
+            if let footer = PlaySettingsWords.sourceFooter(quickSwitch: .init(music: music, isOn: quickSwitch)) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
     }
 
@@ -123,19 +119,11 @@ struct PlaySettingsPane: View {
             if music.fileBytes > 0 {
                 LabeledContent("Space Used", value: LocalFormat.bytes(music.fileBytes))
             }
-            SettingsDetailRow(
-                title: Text("Music Folder"),
-                detail: Text("Where your own files live. Put songs in, and Tracks finds them.")
-            ) {
+            LabeledContent("Music Folder") {
                 Button("Show in Finder", action: showMusicFolder)
                     .help(LibraryFolders.music.path(percentEncoded: false))
             }
-            SettingsDetailRow(
-                title: Text("Look for New Songs"),
-                detail: music.isScanning
-                    ? Text("Looking in the Music folder…")
-                    : Text("Tracks looks each time it opens. Look again after adding songs in Finder.")
-            ) {
+            LabeledContent("Look for New Songs") {
                 if music.isScanning {
                     ProgressView()
                         .controlSize(.small)
@@ -146,8 +134,6 @@ struct PlaySettingsPane: View {
             }
         } header: {
             Text("On This Mac")
-        } footer: {
-            Text("Songs you put in the Music folder, or import from Listen Now’s Add Music menu, play with their tags and covers. FLAC, ALAC, MP3, AAC, WAV and AIFF all play.")
         }
 
         ServersSection()
@@ -159,8 +145,10 @@ struct PlaySettingsPane: View {
         } header: {
             Text("Suggestions")
         } footer: {
-            Text(PlaySettingsWords.suggestionFooter(suggestionMode))
-                .contentTransition(.opacity)
+            if let footer = PlaySettingsWords.suggestionFooter(suggestionMode) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
 
         PlaySettingsPlaylistMerge()
@@ -168,33 +156,26 @@ struct PlaySettingsPane: View {
         PlaySettingsLidarrRow()
 
         Section {
-            SettingsDetailRow(
-                title: Text("Downloaded"),
-                detail: music.downloads.totalBytes > 0
-                    ? Text("\(LocalFormat.bytes(music.downloads.totalBytes)) of songs from your servers, on this Mac.")
-                    : Text("Nothing downloaded from your servers yet.")
-            ) {
-                Button("Show Downloads", action: showDownloads)
+            LabeledContent("Downloaded") {
+                HStack(spacing: SettingsSpacing.row) {
+                    // A size of nothing reads as a fault, not a fact.
+                    if music.downloads.totalBytes > 0 {
+                        Text(LocalFormat.bytes(music.downloads.totalBytes))
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("Show Downloads", action: showDownloads)
+                }
             }
-            SettingsSwitch(
-                "Automatic Downloads",
-                detail: automaticDownloads
-                    ? Text("Songs you play or add from your servers download as they do.")
-                    : Text("Songs download only when you ask."),
-                isOn: $automaticDownloads
-            )
-            SettingsDetailRow(title: Text("Streaming"), detail: Text(AudioQualityWords.streamingDetail(streamingQuality.maxBitRate))) {
-                StreamQualityPicker(title: "Streaming", selection: $streamingQuality)
-                    .labelsHidden()
-                    .fixedSize()
-            }
-            SettingsDetailRow(title: Text("Download Quality"), detail: Text(AudioQualityWords.downloadDetail(downloadQuality.maxBitRate))) {
-                StreamQualityPicker(title: "Download Quality", selection: $downloadQuality)
-                    .labelsHidden()
-                    .fixedSize()
-            }
+            SettingsSwitch("Automatic Downloads", isOn: $automaticDownloads)
+            StreamQualityPicker(title: "Streaming", selection: $streamingQuality)
+            StreamQualityPicker(title: "Download Quality", selection: $downloadQuality)
         } header: {
             Text("Downloads and Streaming")
+        } footer: {
+            if let footer = PlaySettingsWords.downloadQualityFooter(downloadQuality) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
     }
 
@@ -215,13 +196,7 @@ struct PlaySettingsPane: View {
 
     private var radioSection: some View {
         Section {
-            SettingsSwitch(
-                "Show Tracks Radio",
-                detail: isRadioOn
-                    ? Text("Your own station, from everything you love and new finds like it.")
-                    : Text("Hidden from Listen Now and Radio."),
-                isOn: $isRadioOn
-            )
+            SettingsSwitch("Show Tracks Radio", isOn: $isRadioOn)
             if isRadioOn {
                 SettingsDetailRow(title: Text("Tuning"), detail: Text(RadioTuning(stored: storedTuning).summary)) {
                     Button("Tune…") { showsTuner = true }
@@ -240,19 +215,11 @@ struct PlaySettingsPane: View {
                     }
                 }
                 if isYourMusic {
-                    SettingsSwitch(
-                        "Downloaded Songs First",
-                        detail: radioDownloadsFirst
-                            ? Text("Starts with songs on this Mac, and gets new finds ready behind them.")
-                            : Text("New finds stream from your servers as they come up."),
-                        isOn: $radioDownloadsFirst
-                    )
+                    SettingsSwitch("Downloaded Songs First", isOn: $radioDownloadsFirst)
                     if radioDownloadsFirst {
                         SettingsSwitch(
                             "Delete After Playing",
-                            detail: radioDeletesAfterPlaying
-                                ? Text("A new find’s download goes once it’s played, unless you keep it.")
-                                : Text("New finds stay downloaded after they play."),
+                            detail: PlaySettingsWords.deleteAfterPlayingFooter(radioDeletesAfterPlaying).map { Text($0) },
                             isOn: $radioDeletesAfterPlaying
                         )
                     }
@@ -260,24 +227,7 @@ struct PlaySettingsPane: View {
             }
         } header: {
             Text("Tracks Radio")
-        } footer: {
-            Text(radioFooter)
-                .contentTransition(.opacity)
         }
-    }
-
-    private var radioFooter: String {
-        PlaySettingsWords.radioFooter(
-            isOn: isRadioOn,
-            place: PlaySettingsWords.RadioPlace(
-                source: model.musicSource,
-                showsForYou: layout.isVisible(.forYou),
-                showsSuggestedSongs: layout.isVisible(.suggestedSongs),
-                suggests: suggestionMode != .off
-            ),
-            downloadsFirst: radioDownloadsFirst,
-            deletesAfterPlaying: radioDeletesAfterPlaying
-        )
     }
 
     // MARK: - Around Tracks
@@ -297,20 +247,18 @@ struct PlaySettingsPane: View {
         } header: {
             Text("Around Tracks")
         } footer: {
-            Text(aroundFooter)
-                .contentTransition(.opacity)
+            if let footer = PlaySettingsWords.destinationFooter(songDestination) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
-    }
-
-    private var aroundFooter: String {
-        [PlaySettingsWords.openingFooter(openingTab), PlaySettingsWords.destinationFooter(songDestination)].joined(separator: " ")
     }
 
     // MARK: - Content
 
     private var contentSection: some View {
         Section {
-            SettingsSwitch("Explicit Songs", detail: Text(PlaySettingsWords.explicitFooter(allowsExplicit)), isOn: $allowsExplicit)
+            SettingsSwitch("Explicit Songs", isOn: $allowsExplicit)
         } header: {
             Text("Content")
         }
@@ -320,8 +268,14 @@ struct PlaySettingsPane: View {
 
     private var layoutSection: some View {
         Section {
-            SettingsDetailRow(title: Text("Sections"), detail: Text(PlaySettingsWords.layoutDetail(layout))) {
-                Button("Edit Listen Now…") { editsLayout = true }
+            if let detail = PlaySettingsWords.layoutDetail(layout) {
+                SettingsDetailRow(title: Text("Sections"), detail: Text(detail)) {
+                    Button("Edit Listen Now…") { editsLayout = true }
+                }
+            } else {
+                LabeledContent("Sections") {
+                    Button("Edit Listen Now…") { editsLayout = true }
+                }
             }
         } header: {
             Text("Layout")

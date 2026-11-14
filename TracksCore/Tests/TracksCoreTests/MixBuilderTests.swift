@@ -159,8 +159,8 @@ struct MixBuilderTests {
             }
         }
         var signals = ListeningSignals()
-        signals.setSuggestLess(HistoryImport.key(title: "Song 0", artistName: "Artist 0"), true)
-        let skipped = HistoryImport.key(title: "Song 1", artistName: "Artist 1")
+        signals.setSuggestLess(SongIdentity.key(title: "Song 0", artistName: "Artist 0"), true)
+        let skipped = SongIdentity.key(title: "Song 1", artistName: "Artist 1")
         signals.recordSkip(of: skipped, at: now.addingTimeInterval(-86_400))
         signals.recordSkip(of: skipped, at: now.addingTimeInterval(-3_600))
 

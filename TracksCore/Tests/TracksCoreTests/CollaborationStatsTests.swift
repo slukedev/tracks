@@ -79,7 +79,7 @@ struct CollaborationStatsTests {
         let byName = ListeningHistory(duo)
         #expect(byName.captures[0].creditIdentities == ["fern", "fable"])
 
-        let identity = HistoryImport.key(title: "Paper Boats", artistName: "Fern & Fable")
+        let identity = SongIdentity.key(title: "Paper Boats", artistName: "Fern & Fable")
         let metadata = [identity: SongMetadata(genre: "Folk", releaseYear: 2020, artists: ["Fern & Fable"])]
         for history in [byName.with(artistArtwork: [:], songMetadata: metadata), ListeningHistory(duo, songMetadata: metadata)] {
             #expect(history.captures.allSatisfy { $0.creditIdentities == ["fern & fable"] })
@@ -95,8 +95,8 @@ struct CollaborationStatsTests {
             play("Tides", by: "Umbra", at: 0),
             play("Undertow", by: "Umbra & Mara Solis", at: 1),
         ])
-        let tides = HistoryImport.key(title: "Tides", artistName: "Umbra")
-        let undertow = HistoryImport.key(title: "Undertow", artistName: "Umbra & Mara Solis")
+        let tides = SongIdentity.key(title: "Tides", artistName: "Umbra")
+        let undertow = SongIdentity.key(title: "Undertow", artistName: "Umbra & Mara Solis")
         let before = SongMetadata(genre: "Pop", releaseYear: 2001)
         let pending = SongMetadataLookup.pending(in: history, known: [tides: before, undertow: before], limit: 10, searchLimit: 10)
         #expect(pending.map(\.songIdentity) == [undertow])

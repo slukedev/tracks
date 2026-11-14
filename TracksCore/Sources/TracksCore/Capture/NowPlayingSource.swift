@@ -1,32 +1,27 @@
 import Foundation
 
-/// The track currently playing, normalised across platforms.
-///
-/// iOS fills this from `SystemMusicPlayer`'s queue and macOS from Music's `playerInfo`
-/// notification. They fill different fields (macOS has no catalog song ID), so identity
-/// fields are optional.
+/// The track Tracks is playing, from either of its players: Apple Music through MusicKit, or
+/// your own files and servers. The second has no catalog song ID, so identity fields are
+/// optional.
 public struct NowPlayingObservation: Sendable, Equatable {
     public var title: String
     public var artistName: String
     public var albumTitle: String?
     public var artworkURL: String?
 
-    /// Apple Music catalog ID, when the platform gives one. Always nil on macOS, which
-    /// has to search instead. See ``CatalogQuery``.
+    /// Apple Music catalog ID, when the player has one. See ``CatalogQuery`` for the rest.
     public var catalogSongID: String?
 
-    /// Track length. On macOS it comes from `Total Time` (milliseconds) and helps match
-    /// catalog search results.
+    /// Track length. Also helps match catalog search results.
     public var duration: TimeInterval?
 
     public var playbackState: PlaybackState
     /// Advances on demand, stays at zero on a station. Nil when unknown.
     public var playerPosition: TimeInterval?
-    /// Station name, when the platform gives one.
+    /// Station name, when the player gives one.
     public var stationName: String?
-    /// Whether this came from a station, when the player knows rather than having to guess.
-    /// Tracks’ own player on iPhone sets it, since it queued the music itself. Nil everywhere
-    /// else, which leaves the decision to ``RadioHeuristic``.
+    /// Whether this came from a station. Tracks queued the music itself, so its players say.
+    /// Nil counts as on demand.
     public var isStation: Bool?
     public var observedAt: Date
 
@@ -61,44 +56,17 @@ public struct NowPlayingObservation: Sendable, Equatable {
         self.rawFields = rawFields
     }
 
-    /// Whether this looks like radio, and how sure we are. See ``RadioHeuristic``.
-    public func radioVerdict(userForcedCapture: Bool = false) -> RadioHeuristic.Verdict {
-        RadioHeuristic.evaluate(
-            .init(
-                duration: duration,
-                hasComposer: !(rawFields[PlayerInfoKey.composer] ?? "").isEmpty,
-                playerPosition: playerPosition,
-                entryIdentifier: rawFields["entry.id"].flatMap(QueueEntryIdentifier.init),
-                statedStation: isStation,
-                userForcedCapture: userForcedCapture
-            )
-        )
-    }
+    /// Whether this played on a station.
+    public var isRadio: Bool { isStation == true }
 
     /// Whether this observation carries enough to identify a track at all.
     public var isIdentifiable: Bool {
         catalogSongID != nil || (!title.isEmpty && !artistName.isEmpty)
     }
 
-    /// Music briefly reports the station as the current track when you tune in, e.g.
-    /// `Name = "Apple Music 1"` with no artist or album.
-    ///
-    /// It's the only source of the station name on macOS (`current stream title` is always
-    /// empty), and it must never be captured as a song.
-    public var isStationAnnouncement: Bool {
-        !title.isEmpty && artistName.isEmpty
-    }
-
-    /// The station name, when this observation is announcing one.
-    public var announcedStationName: String? {
-        isStationAnnouncement ? title : nil
-    }
-
     /// Whether this is worth acting on at all.
-    ///
-    /// Rejects state-only notifications (just a `Player State`) and station announcements.
     public var isCapturable: Bool {
-        playbackState == .playing && isIdentifiable && !isStationAnnouncement
+        playbackState == .playing && isIdentifiable
     }
 
     /// The catalog search for this track. Nil if we already have an ID or can't search.

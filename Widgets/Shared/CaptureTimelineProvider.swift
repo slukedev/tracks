@@ -49,13 +49,10 @@ struct CaptureTimelineProvider: TimelineProvider {
         }
     }
 
-    /// Read on every request so the Up Next setting applies on the next reload.
     private func capacity(for family: WidgetFamily) -> WidgetCapacity {
         switch content {
-        case .lastPlayed:
-            .lastPlayed
-        case .today:
-            .today(family: family, showsUpNext: CaptureSettings().showsUpNextInWidget)
+        case .lastPlayed: .lastPlayed
+        case .today: .today(family: family)
         }
     }
 
@@ -65,7 +62,6 @@ struct CaptureTimelineProvider: TimelineProvider {
                 date: now,
                 lastPlayed: nil,
                 today: [],
-                upNext: nil,
                 isStoreReadable: false
             )
         }
@@ -83,9 +79,6 @@ struct CaptureTimelineProvider: TimelineProvider {
                 return content == .lastPlayed ? capture.withCoverColor() : capture
             },
             today: reading.today.map(widgetCapture),
-            upNext: reading.upNext.map { queue in
-                UpNextQueue(songs: queue.songs.map(widgetCapture), totalCount: queue.totalCount)
-            },
             isStoreReadable: true
         )
     }
@@ -97,7 +90,7 @@ struct CaptureTimelineProvider: TimelineProvider {
         guard let store = try? TracksStore(readOnly: true) else { return nil }
         // In-memory means the real database wasn't reached.
         guard case .appGroup = store.backing else { return nil }
-        return try? store.widgetReading(todayLimit: capacity.today, upNextLimit: capacity.upNext, now: now)
+        return try? store.widgetReading(todayLimit: capacity.today, now: now)
     }
 
     /// Every cover the entry needs, fetched in parallel and once per URL. Seven covers at up

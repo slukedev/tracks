@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// A timestamped diagnostic entry from the phase 0 probe.
+/// A timestamped diagnostic entry from the probe.
 public struct ProbeEntry: Identifiable, Sendable, Equatable {
     public let id = UUID()
     public let timestamp: Date
@@ -43,10 +43,6 @@ public struct ProbeEntry: Identifiable, Sendable, Equatable {
 }
 
 public enum ProbeCategory: String, Sendable, CaseIterable {
-    case systemPlayer = "SystemMusicPlayer"
-    case mediaPlayer = "MPMusicPlayerController"
-    case playerInfo = "Music playerInfo"
-    case scripting = "Music AppleScript"
     case playlistWrite = "Playlist write"
     case environment = "Environment"
     case error = "Error"

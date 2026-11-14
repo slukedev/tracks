@@ -23,40 +23,26 @@ enum HeadlessProbe {
         Commands:
           env               Print environment: authorization, subscription, store backing.
           catalog <term>    Search the Apple Music catalog and print candidate song ids.
-          write [songID]    Create a throwaway playlist and add a song. With no id, resolves
-                            whatever is playing now; pass an id to exercise the add endpoint
-                            on its own when nothing is playing. Writes to your Apple Music
-                            library; delete the playlist afterwards.
+          write <songID>    Create a throwaway playlist and add a song to it. Writes to your
+                            Apple Music library; delete the playlist afterwards.
           scrobble          Send everything owed to Last.fm now.
           lastfm            Report whether Last.fm is configured and connected, and how
                             many songs are owed a scrobble.
-          forget <text>     Remove every song whose title contains <text>, and stop it
-                            being imported back out of Apple's history.
+          forget <text>     Remove every song whose title contains <text>, and stop the
+                            Last.fm import bringing it back.
           stations          List the stations Apple Music remembers, with provider and
                             live flags, to see which are Apple's own.
-          autoplay [on|off] Report every guard automatic play-back checks, and what it
-                            would do right now. Pass on or off to set the switch.
-          playone <id> [s]  Play one catalog song for N seconds (default 240), touching no
-                            store and marking nothing. Isolates whether ApplicationMusicPlayer
-                            actually registers a play: pick a song that is NOT already in
-                            `recent`, then run `recent` afterwards.
-          sample [seconds]  Observe Music.app for N seconds (default 30) and dump every
-                            playerInfo notification and scripting read.
           cleanup           List the "Tracks Probe …" playlists so you can delete them
                             in Music. The Apple Music API cannot delete playlists.
           playlists         List every library playlist with its id.
           captures          Dump stored captures: catalog id, artwork, playlist state.
           artists           Look up Apple Music's picture for each artist in the history.
           genres            Look up the genre and release year of the most played songs.
-          playable          For recent songs, whether Music can find them to play. Read-only.
           script <source>   Run AppleScript inside the sandbox, to test Music's access groups.
           readonly          Try to open the store read-only, as a widget would.
           stats             Compute the statistics screen's numbers for every range, and
                             report how many rows actually carry a station name.
-          play              Play back today's captures. Starts audio.
-          reset-playback    Clear played-back marks so a day can be replayed.
           retry-unresolved  Retry captures the catalog could not identify.
-          recent            Read Apple Music's own recently-played list.
           cloudschema       Upload every record type and field to the iCloud container's
                             Development schema, ready to deploy to Production.
 
@@ -121,6 +107,10 @@ enum HeadlessProbe {
             return 0
 
         case "write":
+            guard let songID = arguments.first, !songID.isEmpty else {
+                FileHandle.standardError.write(Data("write needs a song id\n".utf8))
+                return 2
+            }
             await model.loadEnvironment()
             await model.testCreatePlaylist()
             guard model.probePlaylistID != nil else {
@@ -128,33 +118,12 @@ enum HeadlessProbe {
                 FileHandle.standardError.write(Data("\nCreate failed; not attempting the add.\n".utf8))
                 return 1
             }
-            // An explicit id tests just the add endpoint. Without one it also tests
-            // identifying the current song, which needs Music.app to be playing.
-            if let songID = arguments.first, !songID.isEmpty {
-                await model.testAddSong(id: songID)
-            } else {
-                await model.testAddCurrentSong()
-            }
+            await model.testAddSong(id: songID)
             print(render(model.log))
             return 0
 
         case "retry-unresolved":
             await model.retryUnresolved()
-            print(render(model.log))
-            return 0
-
-        case "reset-playback":
-            model.resetPlayback()
-            print(render(model.log))
-            return 0
-
-        case "play":
-            await model.playBackToday()
-            print(render(model.log))
-            return 0
-
-        case "recent":
-            await model.showRecentlyPlayed()
             print(render(model.log))
             return 0
 
@@ -182,34 +151,6 @@ enum HeadlessProbe {
             print(render(model.log))
             return 0
 
-        case "playrecent":
-            // The popover's click path for the Nth most recent song, then what Music says.
-            // Starts audio, and pauses it again after reporting.
-            do {
-                let index = arguments.first.flatMap(Int.init) ?? 0
-                let store = try TracksStore(readOnly: true)
-                let recent = try store.context.fetch(TracksStore.allCaptures(limit: index + 1))
-                guard index < recent.count else { print("no capture \(index)"); return 1 }
-                let capture = recent[index]
-                let item = PlaybackItem(songID: capture.songID, title: capture.title, artistName: capture.artistName)
-                print("playing: \(item.title) · \(item.artistName) [\(item.songID)]")
-                let service = PlatformPlaybackService.make()
-                do {
-                    try await service.play([item])
-                    print("play returned without error")
-                } catch {
-                    print("play threw: \(error)")
-                }
-                try? await Task.sleep(for: .seconds(3))
-                let now = await ScriptingQueue.run { MusicLibraryPlayback.currentTrack() }
-                print("Music is playing: \(now.map { "\($0.name) · \($0.artist)" } ?? "nothing")")
-                if now != nil { await service.pause() }
-                return 0
-            } catch {
-                print("error: \(error)")
-                return 1
-            }
-
         case "script":
             // Runs AppleScript inside the sandbox, where Music's access groups apply. A script
             // run from Terminal isn't sandboxed, so it can't reproduce a -10004.
@@ -218,44 +159,6 @@ enum HeadlessProbe {
             let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
             print(error.map { "error: \($0)" } ?? "result: \(result?.stringValue ?? String(describing: result))")
             return error == nil ? 0 : 1
-
-        case "playable":
-            // Read-only: what Play would find for each recent song, without playing anything.
-            do {
-                let store = try TracksStore(readOnly: true)
-                let playlist = CaptureSettings().playlistName
-                for capture in try store.context.fetch(TracksStore.allCaptures(limit: 12)) {
-                    var fields: [(String, String)] = [("songID", capture.songID.isEmpty ? "‹none›" : capture.songID)]
-                    if MusicItemIdentity.isCatalogID(capture.songID) {
-                        let request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: MusicItemID(capture.songID))
-                        if let song = try? await request.response().items.first {
-                            fields.append(("catalog", "\(song.title) · \(song.artistName)"))
-                            let catalogTrack = MusicLibraryPlayback.Track(name: song.title, artist: song.artistName)
-                            let byCatalog = await ScriptingQueue.run {
-                                MusicLibraryPlayback.locate(catalogTrack, inPlaylist: playlist)
-                            }
-                            fields.append(("Music, catalog name", String(describing: byCatalog)))
-                        } else {
-                            fields.append(("catalog", "‹request failed›"))
-                        }
-                    }
-                    let captured = MusicLibraryPlayback.Track(name: capture.title, artist: capture.artistName)
-                    let byCapture = await ScriptingQueue.run {
-                        MusicLibraryPlayback.locate(captured, inPlaylist: playlist)
-                    }
-                    fields.append(("Music, captured name", String(describing: byCapture)))
-                    model.log.append(.environment, "\(capture.title) · \(capture.artistName) [\(capture.kind.rawValue)]", fields: fields)
-                }
-                // The popover's batch check, which should agree with the answers above.
-                let recent = try store.context.fetch(TracksStore.allCaptures(limit: 12))
-                let tracks = recent.map { MusicLibraryPlayback.Track(name: $0.title, artist: $0.artistName) }
-                let batch = await ScriptingQueue.run { MusicLibraryPlayback.locateAll(tracks, inPlaylist: playlist) }
-                model.log.append(.environment, "Batch", fields: [("locateAll", String(describing: batch))])
-            } catch {
-                model.log.append(.error, "Could not read captures", fields: [("error", String(describing: error))])
-            }
-            print(render(model.log))
-            return 0
 
         case "artists":
             // Read-only, so it can run while the app is open. Ignores what's already cached.
@@ -320,18 +223,6 @@ enum HeadlessProbe {
             print(render(model.log))
             return 0
 
-        case "playone":
-            guard let songID = arguments.first else {
-                FileHandle.standardError.write(Data("playone needs a song id\n".utf8))
-                return 2
-            }
-            await model.playOne(
-                songID: songID,
-                seconds: arguments.dropFirst().first.flatMap(Int.init) ?? 240
-            )
-            print(render(model.log))
-            return 0
-
         case "scrobble":
             await model.sendScrobbles()
             print(render(model.log))
@@ -358,30 +249,6 @@ enum HeadlessProbe {
 
         case "stations":
             await model.dumpStations()
-            print(render(model.log))
-            return 0
-
-        case "autoplay":
-            let setting = arguments.first.flatMap { ["on": true, "off": false][$0] }
-            model.dumpAutoPlaybackDecision(setting: setting)
-            print(render(model.log))
-            return 0
-
-        case "playlib":
-            guard let title = arguments.first else {
-                FileHandle.standardError.write(Data("playlib needs a song title\n".utf8))
-                return 2
-            }
-            await model.playLibraryCopy(title: title)
-            print(render(model.log))
-            return 0
-
-        case "sample":
-            let seconds = arguments.first.flatMap(Int.init) ?? 30
-            await model.loadEnvironment()
-            model.isSampling = true
-            try? await Task.sleep(for: .seconds(seconds))
-            model.isSampling = false
             print(render(model.log))
             return 0
 

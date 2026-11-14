@@ -262,19 +262,6 @@ private struct ControlsMenuItems: View {
         }
         .keyboardShortcut("n", modifiers: [.command, .option])
 
-        Button("Play Back Today", systemImage: "play.circle") {
-            Task { await model.playback?.playBackToday() }
-        }
-        .keyboardShortcut("p", modifiers: [.command, .shift])
-        .disabled(model.isShowingSampleData)
-
-        // The song on Music's radio, kept in your history.
-        Button("Save Current Radio Song", systemImage: "plus.circle") {
-            Task { await model.capture?.captureCurrentSong() }
-        }
-        .keyboardShortcut("s", modifiers: [.command, .option])
-        .disabled(model.isShowingSampleData || model.capture?.isPaused == true)
-
         Divider()
 
         Button(window?.isShowingUpNext == true ? "Hide Up Next" : "Show Up Next", systemImage: "list.bullet") {

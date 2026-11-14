@@ -2,8 +2,8 @@ import SwiftUI
 import TracksCore
 
 struct TracksApp: App {
-    /// Holds the model, the Dock behaviour and the player monitor, and starts them at launch
-    /// whether or not a window opens.
+    /// Holds the model and the Dock behaviour, and starts them at launch whether or not a
+    /// window opens.
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     /// Whether the menu bar extra is shown. `@AppStorage` because `MenuBarExtra` doesn't
@@ -14,8 +14,6 @@ struct TracksApp: App {
 
     private var model: AppModel { appDelegate.model }
     private var behaviour: MacAppBehaviour { appDelegate.behaviour }
-    private var monitor: NowPlayingMonitor { appDelegate.monitor }
-    private var quitMonitor: UnexpectedQuitMonitor { appDelegate.quitMonitor }
 
     /// Mirrored into `@AppStorage` so the status item redraws when the setting changes.
     /// SwiftUI can't observe `CaptureSettings`.
@@ -46,7 +44,6 @@ struct TracksApp: App {
                 .opensSongInfo(model)
                 .tracksOnScreen()
                 .environment(behaviour)
-                .environment(quitMonitor)
                 .frame(minWidth: 820, minHeight: 560)
                 // "Open Tracks" makes the app `.regular` to bring the window forward. Once the
                 // last main window has gone, hide the Dock icon again if that's the setting.
@@ -75,9 +72,8 @@ struct TracksApp: App {
         // The menu bar window can't be screenshotted, so this shows the same view in a normal
         // window. Opened with -TracksMenuBarPreview YES.
         Window("Menu Bar Preview", id: "menubar-preview") {
-            MenuBarContent(model: model, monitor: monitor)
+            MenuBarContent(model: model)
                 .environment(behaviour)
-                .environment(quitMonitor)
         }
         .windowResizability(.contentSize)
         #endif
@@ -92,17 +88,15 @@ struct TracksApp: App {
                 .tracksOnScreen()
                 .modelContainer(for: model.store)
                 .environment(behaviour)
-                .environment(quitMonitor)
         }
 
         // `isInserted:` is the only way to toggle this at runtime. SceneBuilder has no
         // buildEither, and its buildOptional only takes availability checks.
         MenuBarExtra(isInserted: $showMenuBarExtra) {
-            MenuBarContent(model: model, monitor: monitor)
+            MenuBarContent(model: model)
                 .opensSongInfo(model)
                 .tracksOnScreen()
                 .environment(behaviour)
-                .environment(quitMonitor)
         } label: {
             MenuBarLabel(
                 nowPlaying: model.capture?.nowPlaying,
@@ -110,7 +104,7 @@ struct TracksApp: App {
                 // The open radio session's, so {station} is empty once the station ends.
                 station: model.capture?.openSession?.station?.name,
                 isCapturing: model.capture?.isRunning == true,
-                isPlaying: model.capture?.isSomethingPlaying,
+                isPlaying: model.player.isPlaying,
                 style: menuBarLabelStyle,
                 format: menuBarLabelFormat,
                 animates: animatesMenuBar
@@ -159,15 +153,6 @@ struct TracksCommands: Commands {
                 .labelStyle(.titleAndIcon)
                 .disabled(refreshPage == nil)
             Divider()
-        }
-
-        CommandGroup(after: .newItem) {
-            // No shortcut: ⌘R is View > Refresh.
-            Button("Check for Missed Songs", systemImage: "arrow.clockwise") {
-                Task { await model.capture?.catchUp() }
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(model.isShowingSampleData)
         }
     }
 }

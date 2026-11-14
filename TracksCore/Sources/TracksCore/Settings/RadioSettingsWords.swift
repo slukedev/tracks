@@ -1,6 +1,6 @@
 import Foundation
 
-/// The words for Settings ▸ Radio: where radio songs go.
+/// The words for Settings ▸ Radio: where songs from stations played in Tracks go.
 public enum RadioSettingsWords {
     /// What the radio playlist settings add up to.
     public struct Playlist: Sendable, Equatable {
@@ -18,10 +18,8 @@ public enum RadioSettingsWords {
 
     /// The status line.
     public static func status(_ playlist: Playlist) -> String {
-        guard playlist.addsSongs else {
-            return String(localized: "Radio songs are kept in your history. Tracks can also add them to a playlist in Apple Music.")
-        }
-        return String(localized: "Adding radio songs to \(quoted(playlist.name))")
+        guard playlist.addsSongs else { return String(localized: "Not adding to a playlist") }
+        return String(localized: "Adding to \(quoted(playlist.name))")
     }
 
     /// The root row's value: the playlist, or nothing when songs stay in history only.

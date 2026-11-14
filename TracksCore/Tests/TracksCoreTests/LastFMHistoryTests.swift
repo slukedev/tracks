@@ -16,7 +16,7 @@ private func scrobble(_ title: String, _ minutes: Double, artist: String = "An A
 
 private func known(_ title: String, _ minutes: Double, _ kind: CaptureKind) -> LastFMHistory.KnownPlay {
     LastFMHistory.KnownPlay(
-        key: HistoryImport.key(title: title, artistName: "An Artist"),
+        key: SongIdentity.key(title: title, artistName: "An Artist"),
         playedAt: at(minutes),
         kind: kind
     )
@@ -180,7 +180,7 @@ struct LastFMHistoryDuplicateTests {
 
     @Test("a song you removed stays out")
     func respectsForgottenSongs() {
-        let forgotten: Set = [HistoryImport.key(title: "A", artistName: "An Artist")]
+        let forgotten: Set = [SongIdentity.key(title: "A", artistName: "An Artist")]
         #expect(newPlays([scrobble("A", 0), scrobble("B", 5)], forgotten: forgotten) == ["B@5"])
     }
 }
@@ -410,7 +410,7 @@ struct LastFMHistoryWordsTests {
     }
 
     @Test(arguments: [
-        (State.notImported, "Import Your Scrobbles", "Import"),
+        (State.notImported, "Import Scrobbles", "Import"),
         (.importing(read: 0, total: nil, added: 0), "Stop Importing", "Stop"),
         (.stopped(added: 3), "Continue Importing", "Continue"),
         (.upToDate(lastSynced: .now, added: 3), "Sync Now", "Sync Now"),
@@ -421,17 +421,14 @@ struct LastFMHistoryWordsTests {
         #expect(LastFMHistoryWords.button(state) == button)
     }
 
-    @Test("progress is counted in scrobbles read and plays added")
-    func countsProgress() {
-        #expect(LastFMHistoryWords.detail(.importing(read: 0, total: 52_000, added: 0)) == "Importing… read 0 of 52,000 scrobbles · 0 new")
-        #expect(LastFMHistoryWords.detail(.importing(read: 3_400, total: 52_000, added: 3_100)) == "Importing… read 3,400 of 52,000 scrobbles · 3,100 new")
-        #expect(LastFMHistoryWords.detail(.importing(read: 0, total: nil, added: 0)) == "Importing…")
-    }
-
-    @Test("a stopped run says how much is in")
-    func saysWhatsIn() {
-        #expect(LastFMHistoryWords.detail(.stopped(added: 1)) == "Stopped part way · 1 play added so far. Continue picks up where it left off.")
-        #expect(LastFMHistoryWords.detail(.stopped(added: 12_345)).hasPrefix("Stopped part way · 12,345 plays added so far."))
+    /// Nothing asks before an import starts, so the line beside the button has to say what
+    /// it does. Once one has run, the line says where it stands; the progress is in the row.
+    @Test("before the first import the line says what it does, then where it stands")
+    func detailFollowsTheRun() {
+        #expect(LastFMHistoryWords.detail(.notImported)
+            == "Adds the songs you scrobbled on Last.fm, from any app, to your history. Songs already in Tracks are skipped.")
+        #expect(LastFMHistoryWords.detail(.importing(read: 3_400, total: 52_000, added: 3_100)) == "Importing…")
+        #expect(LastFMHistoryWords.detail(.stopped(added: 12_345)) == "Stopped. Continue picks up where it left off.")
     }
 
     @Test("a failure says so, then why")

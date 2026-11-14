@@ -8,7 +8,7 @@ struct RadioListenTests {
 
     static func song(_ title: String, artist: String) -> MixSong {
         MixSong(
-            songIdentity: HistoryImport.key(title: title, artistName: artist),
+            songIdentity: SongIdentity.key(title: title, artistName: artist),
             songID: title,
             title: title,
             artistName: artist,
@@ -168,7 +168,7 @@ struct RadioListenTests {
         }
         let history = ListeningHistory(plays)
         var signals = ListeningSignals()
-        let skipped = HistoryImport.key(title: "Song 0", artistName: "Artist 0")
+        let skipped = SongIdentity.key(title: "Song 0", artistName: "Artist 0")
         signals.recordSkip(of: skipped, at: now.addingTimeInterval(-86_400))
         func early(_ signals: ListeningSignals) -> Int {
             (1...200 as ClosedRange<UInt64>).reduce(0) { count, seed in
@@ -256,8 +256,8 @@ struct RadioListenTests {
         var plays: [CaptureStat] = (0..<40).map { play("Song \($0)", by: "Artist \($0)", hoursAgo: Double(24 + $0)) }
         for round in 0..<30 { plays.append(play("Song 0", by: "Artist 0", hoursAgo: Double(100 + round))) }
         let mix = LiveMix.tracksRadio(from: ListeningHistory(plays), now: now, seed: 1)
-        #expect(mix.reason(for: HistoryImport.key(title: "Song 0", artistName: "Artist 0")) == .mostPlayed)
-        #expect(mix.reason(for: HistoryImport.key(title: "Song 1", artistName: "Artist 1")) == nil)
+        #expect(mix.reason(for: SongIdentity.key(title: "Song 0", artistName: "Artist 0")) == .mostPlayed)
+        #expect(mix.reason(for: SongIdentity.key(title: "Song 1", artistName: "Artist 1")) == nil)
 
         let small = (0..<5).flatMap { index in (0..<3).map { play("Tiny \(index)", by: "A\(index)", hoursAgo: Double(24 + index * 5 + $0)) } }
         let tiny = LiveMix.tracksRadio(from: ListeningHistory(small), now: now, seed: 1)
@@ -266,7 +266,7 @@ struct RadioListenTests {
 
     @Test("a song in a genre leaned into says the genre as it was picked")
     func leaningReason() {
-        let key = HistoryImport.key(title: "Beat", artistName: "MC")
+        let key = SongIdentity.key(title: "Beat", artistName: "MC")
         let history = ListeningHistory([play("Beat", by: "MC", hoursAgo: 48)])
             .with(artistArtwork: [:], songMetadata: [key: SongMetadata(genre: "Hip-Hop/Rap", releaseYear: nil)])
         let mix = LiveMix.tracksRadio(from: history, tuning: RadioTuning(genres: ["Hip-Hop"]), now: now, seed: 1)
@@ -277,7 +277,7 @@ struct RadioListenTests {
     func oldFavoriteReason() {
         let heard = now.addingTimeInterval(-200 * 86_400)
         let history = ListeningHistory([CaptureStat(songKey: "Old", songID: "Old", title: "Old", artistName: "Past", capturedAt: heard)])
-        let key = HistoryImport.key(title: "Old", artistName: "Past")
+        let key = SongIdentity.key(title: "Old", artistName: "Past")
         let bringsBack = LiveMix.tracksRadio(from: history, tuning: RadioTuning(bringsBackOldFavorites: true), now: now, seed: 1)
         #expect(bringsBack.reason(for: key) == .oldFavorite(lastHeard: heard))
         let standard = LiveMix.tracksRadio(from: history, now: now, seed: 1)
@@ -298,11 +298,11 @@ struct RadioListenTests {
         }
         let moment = RadioMoment(hour: hour, isWeekend: isWeekend)
         let mix = LiveMix.tracksRadio(from: ListeningHistory(plays), moment: moment, now: now, calendar: calendar, seed: 1)
-        #expect(mix.reason(for: HistoryImport.key(title: "Night Song", artistName: "Owl")) == .aroundNow)
-        #expect(mix.reason(for: HistoryImport.key(title: "Day 0", artistName: "Lark 0")) == nil)
+        #expect(mix.reason(for: SongIdentity.key(title: "Night Song", artistName: "Owl")) == .aroundNow)
+        #expect(mix.reason(for: SongIdentity.key(title: "Day 0", artistName: "Lark 0")) == nil)
 
         let anytime = LiveMix.tracksRadio(from: ListeningHistory(plays), now: now, calendar: calendar, seed: 1)
-        #expect(anytime.reason(for: HistoryImport.key(title: "Night Song", artistName: "Owl")) == nil)
+        #expect(anytime.reason(for: SongIdentity.key(title: "Night Song", artistName: "Owl")) == nil)
     }
 
     @Test("a song played on a drive says so while the radio plays for the road")
@@ -314,10 +314,10 @@ struct RadioListenTests {
         ])
         let drives = DriveLog(drives: [DateInterval(start: heard.addingTimeInterval(-600), duration: 1_800)])
         let driving = LiveMix.tracksRadio(from: history, moment: RadioMoment(isDriving: true), drives: drives, now: now, seed: 1)
-        #expect(driving.reason(for: HistoryImport.key(title: "Highway", artistName: "Wheels")) == .onTheRoad)
-        #expect(driving.reason(for: HistoryImport.key(title: "Couch", artistName: "Home")) == nil)
+        #expect(driving.reason(for: SongIdentity.key(title: "Highway", artistName: "Wheels")) == .onTheRoad)
+        #expect(driving.reason(for: SongIdentity.key(title: "Couch", artistName: "Home")) == nil)
         let parked = LiveMix.tracksRadio(from: history, drives: drives, now: now, seed: 1)
-        #expect(parked.reason(for: HistoryImport.key(title: "Highway", artistName: "Wheels")) == nil)
+        #expect(parked.reason(for: SongIdentity.key(title: "Highway", artistName: "Wheels")) == nil)
     }
 
     @Test("after a run of skips, a pick in the genre let play says it's more of it, and keeps saying so after a retune")

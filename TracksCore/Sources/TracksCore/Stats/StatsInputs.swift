@@ -31,7 +31,7 @@ public struct CaptureStat: Sendable, Equatable {
             self.artistName = artistName
             self.albumTitle = albumTitle
             self.artworkURL = artworkURL
-            self.songIdentity = HistoryImport.key(title: title, artistName: artistName)
+            self.songIdentity = SongIdentity.key(title: title, artistName: artistName)
             self.mayCreditSeveral = ArtistCredits.mayCreditSeveral(artist: artistName, title: title)
             self.credits = ArtistCredits.byName(artist: artistName, title: title)
             self.artistIdentity = credits.first?.identity ?? ""
@@ -215,7 +215,7 @@ public struct SongTally: Sendable, Equatable, Identifiable {
         credits: [ArtistCredit]? = nil
     ) {
         self.credits = credits ?? ArtistCredits.byName(artist: artistName, title: title)
-        self.id = id ?? HistoryImport.key(title: title, artistName: artistName)
+        self.id = id ?? SongIdentity.key(title: title, artistName: artistName)
         self.songKey = songKey
         self.songID = songID
         self.title = title

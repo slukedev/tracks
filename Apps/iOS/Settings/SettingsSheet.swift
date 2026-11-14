@@ -114,7 +114,7 @@ private struct DevicesRow: View {
     }
 }
 
-/// History's row, which says whether everything or only radio is kept.
+/// History's row, which says whether everything or only radio is kept, or that it's paused.
 private struct HistoryRow: View {
     @AppStorage(CaptureSettings.capturesOnDemandKey, store: CaptureSettings.sharedDefaults)
     private var keepsOnDemand = true
@@ -126,7 +126,7 @@ private struct HistoryRow: View {
                 title: "History",
                 systemImage: "clock.fill",
                 tint: .teal,
-                value: capture?.isPaused == true ? String(localized: "Paused") : HistorySettingsWords.short(keepsOnDemand: keepsOnDemand)
+                value: HistorySettingsWords.short(keepsOnDemand: keepsOnDemand, isPaused: capture?.isPaused == true)
             )
         }
     }

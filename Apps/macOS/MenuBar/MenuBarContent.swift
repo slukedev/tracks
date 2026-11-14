@@ -11,20 +11,25 @@ import TracksMusic
 /// the list collapsed to nothing (see docs/PlatformNotes.md).
 struct MenuBarContent: View {
     let model: AppModel
-    let monitor: NowPlayingMonitor
+    @AppStorage(PlayPreferences.songDestinationKey) private var songDestination = SongDestination.tracks
 
     static let width: CGFloat = 340
 
     var body: some View {
         if let store = model.store, let capture = model.capture, let playback = model.playback {
-            MenuBarBody(monitor: monitor)
+            let player = model.player
+            MenuBarBody()
                 .frame(width: Self.width)
                 .modelContainer(store.container)
                 .environment(model)
                 .environment(capture)
                 .environment(playback)
-                .environment(model.player)
+                .environment(player)
                 .environment(model.playFeed)
+                // Where the main window plays songs, so a click here plays them the same way.
+                .environment(\.playSongs, songDestination == .tracks ? PlaySongsAction { items, title in
+                    player.play(.history(items.map(HistorySong.init)), from: .songs(title))
+                } : nil)
         } else {
             ContentUnavailableView {
                 Label("Tracks Can't Open Your History", systemImage: "exclamationmark.triangle")
@@ -38,10 +43,8 @@ struct MenuBarContent: View {
 }
 
 private struct MenuBarBody: View {
-    let monitor: NowPlayingMonitor
     @Environment(PlayerModel.self) private var player
     @Environment(CaptureService.self) private var capture
-    @Environment(UnexpectedQuitMonitor.self) private var quitMonitor
     /// Only what the list shows. Today's figures have their own query in ``TodaySummary``,
     /// so opening the menu never loads the whole history.
     @Query private var recent: [Capture]
@@ -52,8 +55,7 @@ private struct MenuBarBody: View {
 
     static let recentLimit = 12
 
-    init(monitor: NowPlayingMonitor) {
-        self.monitor = monitor
+    init() {
         var descriptor = FetchDescriptor<Capture>(sortBy: [SortDescriptor(\.capturedAt, order: .reverse)])
         descriptor.fetchLimit = Self.recentLimit
         _recent = Query(descriptor)
@@ -61,23 +63,17 @@ private struct MenuBarBody: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tracks’ own player, while it has something on; Music otherwise.
+            // Tracks’ player, while it has something on; the last song played otherwise.
             Group {
                 if player.hasQueue {
                     TracksPlayerHeader()
                 } else {
-                    NowPlayingHeader(monitor: monitor, latest: recent.first)
+                    LastPlayedHeader(latest: recent.first)
                 }
             }
             .padding(14)
 
             NearbyMenuSection()
-
-            if quitMonitor.notice != nil {
-                UnexpectedQuitNotice()
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 12)
-            }
 
             if !capture.isRunning {
                 HistoryPausedNote()
@@ -101,12 +97,10 @@ private struct MenuBarBody: View {
 
             MenuBarFooter()
         }
-        // Polling Music costs an Apple event, so only while the window is open. The panel's
-        // views outlive its closing, so `.task` alone would keep polling after it.
+        // The panel's views outlive its closing, so opening it is the moment to look again.
         .task(id: isOnScreen) {
             guard isOnScreen else { return }
             moveToToday()
-            await monitor.follow()
         }
         // Posted on whichever thread noticed the change, so read on the main actor.
         .task {
@@ -143,7 +137,7 @@ private struct HistoryPausedNote: View {
 
 // MARK: - Now playing
 
-/// What Tracks itself is playing, with its controls, in the shape of Music's card below.
+/// What Tracks is playing, with its controls.
 private struct TracksPlayerHeader: View {
     @Environment(PlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -234,83 +228,37 @@ private struct TracksPlayerHeader: View {
     }
 }
 
-private struct NowPlayingHeader: View {
-    let monitor: NowPlayingMonitor
+/// The last song played, while Tracks’ player has nothing on.
+private struct LastPlayedHeader: View {
     let latest: Capture?
     @Environment(CaptureService.self) private var capture
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(CaptureSettings.showsMenuBarProgressKey, store: CaptureSettings.sharedDefaults)
-    private var showsProgress = true
 
     var body: some View {
-        VStack(spacing: 12) {
-            MenuBarSongButton(songIdentity: songIdentity) {
-                artwork
-                    .opacity(isStale ? 0.55 : 1)
-                VStack(alignment: .leading, spacing: 2) {
+        MenuBarSongButton(songIdentity: latest.map { SongIdentity.key(title: $0.title, artistName: $0.artistName) }) {
+            artwork
+            VStack(alignment: .leading, spacing: 2) {
+                if latest != nil || !capture.isRunning {
                     sourceLine
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                    Text(subtitle)
+                }
+                Text(latest?.title ?? String(localized: "Nothing Played Yet"))
+                    .font(.headline)
+                    .lineLimit(1)
+                if let latest {
+                    Text([latest.artistName, latest.albumTitle].compactMap(\.self).joined(separator: " · "))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                .opacity(isStale ? 0.7 : 1)
             }
-            // The next song crossfades in rather than snapping.
-            .animation(LiveUpdate.animation(reduceMotion: reduceMotion), value: title)
-
-            // Only for the song Music has on, playing or paused, when it says how long that
-            // is: a station has no length, and the last song kept isn't on.
-            if showsProgress, capture.nowPlaying != nil, monitor.music.state == .playing || monitor.music.state == .paused,
-               !monitor.music.isRadio, let duration = monitor.music.duration, monitor.music.position != nil {
-                MenuBarProgress(
-                    duration: duration,
-                    isPlaying: monitor.music.isPlaying,
-                    time: { monitor.position() ?? 0 },
-                    onSeek: { monitor.seek(to: $0) }
-                )
-                .id(title)
-            }
-
-            TransportControls(monitor: monitor)
         }
-    }
-
-    // What to show, in order of preference: what Music is playing (captured or not yet),
-    // then the last song Tracks kept.
-
-    /// Nothing is audible, as far as we know. Before the first read we don't claim either way.
-    private var isStale: Bool {
-        monitor.hasRead && !monitor.music.isPlaying
-    }
-
-    /// The song shown, for its page in the main window. Nil before anything has played.
-    private var songIdentity: String? {
-        if let song = capture.nowPlaying { return HistoryImport.key(title: song.title, artistName: song.artistName) }
-        return latest.map { HistoryImport.key(title: $0.title, artistName: $0.artistName) }
-    }
-
-    private var title: String {
-        if let song = capture.nowPlaying { return song.title }
-        return latest?.title ?? String(localized: "Nothing Played Yet")
-    }
-
-    private var subtitle: String {
-        if let song = capture.nowPlaying {
-            return [song.artistName, song.albumTitle].compactMap { $0 }.joined(separator: " · ")
-        }
-        guard let latest else { return String(localized: "Play something in Music") }
-        return [latest.artistName, latest.albumTitle].compactMap { $0 }.joined(separator: " · ")
+        // The next song crossfades in rather than snapping.
+        .animation(LiveUpdate.animation(reduceMotion: reduceMotion), value: latest?.title)
     }
 
     @ViewBuilder
     private var artwork: some View {
-        if let song = capture.nowPlaying {
-            ArtworkView(url: song.artworkURL, seed: song.albumTitle ?? song.title, size: 58)
-        } else if let latest {
+        if let latest {
             ArtworkView(url: latest.artworkURL, seed: latest.albumTitle ?? latest.title, size: 58)
         } else {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -321,40 +269,20 @@ private struct NowPlayingHeader: View {
         }
     }
 
-    /// "Radio · Chill Station", "Now Playing", or why nothing is.
-    @ViewBuilder
     private var sourceLine: some View {
         Group {
             if !capture.isRunning {
                 // Not a pause glyph: that reads as the music being paused.
                 Label("History Paused", systemImage: "record.circle")
                     .foregroundStyle(.orange)
-            } else if isStale {
+            } else {
                 Label("Last Played", systemImage: "clock")
                     .foregroundStyle(.secondary)
-            } else if monitor.music.isRadio {
-                Label(radioLine, systemImage: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(.pink)
-            } else {
-                Label {
-                    Text("Now Playing")
-                } icon: {
-                    PlayingWaveform(isActive: monitor.music.isPlaying)
-                }
-                .foregroundStyle(.tint)
             }
         }
         .font(.caption.weight(.semibold))
         .labelStyle(.titleAndIcon)
         .lineLimit(1)
-    }
-
-    private var radioLine: String {
-        let station = capture.currentStation ?? String(localized: "Radio")
-        if let session = capture.openSession, let count = session.captures?.count, count > 0 {
-            return String(AttributedString(localized: "\(station) · ^[\(count) song](inflect: true)").characters)
-        }
-        return station
     }
 }
 
@@ -560,14 +488,15 @@ private struct RecentList: View {
     let day: Date
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(PlaybackController.self) private var playback
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.isOnScreen) private var isOnScreen
-    /// Which rows Music can play, found when the window opens. Music can only be told to
-    /// play songs in the library; the rest are opened in Music instead. Missing while
-    /// unknown, which is treated as playable: a click finds out and falls back.
-    @State private var isInLibrary: [PersistentIdentifier: Bool] = [:]
+    private var playback = CapturePlayback()
+
+    init(captures: [Capture], day: Date) {
+        self.captures = captures
+        self.day = day
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -588,7 +517,7 @@ private struct RecentList: View {
             .padding(.top, 12)
 
             if captures.isEmpty {
-                Text("Songs you play in Music show up here.")
+                Text("Songs you play in Tracks show up here.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -609,68 +538,25 @@ private struct RecentList: View {
             }
         }
         .frame(height: 300)
-        // Only while the window is open: its views outlive closing, and a song arriving
-        // behind a closed menu doesn't need Music asked about it.
-        .task(id: LibraryCheck(rows: captures.map(\.persistentModelID), isOnScreen: isOnScreen)) {
-            guard isOnScreen else { return }
-            await checkLibrary()
-        }
-    }
-
-    private struct LibraryCheck: Hashable {
-        let rows: [PersistentIdentifier]
-        let isOnScreen: Bool
-    }
-
-    /// One round of Apple events for every row that could be played or opened.
-    private func checkLibrary() async {
-        // Only the rows on show, so a menu left open for days doesn't keep every song since.
-        let shown = Set(captures.map(\.persistentModelID))
-        isInLibrary = isInLibrary.filter { shown.contains($0.key) }
-        let rows = captures.filter { !$0.songID.isEmpty && isInLibrary[$0.persistentModelID] == nil }
-        guard !rows.isEmpty else { return }
-        let tracks = rows.map { MusicLibraryPlayback.Track(name: $0.title, artist: $0.artistName) }
-        let playlist = CaptureSettings().playlistName
-        guard case .success(let locations) = await ScriptingQueue.run({
-            MusicLibraryPlayback.locateAll(tracks, inPlaylist: playlist)
-        }) else { return }
-        for (row, location) in zip(rows, locations) {
-            isInLibrary[row.persistentModelID] = location != .missing
-        }
-    }
-
-    /// Whether this row's song can only be opened, not played.
-    private func opensInMusic(_ item: Capture) -> Bool {
-        isInLibrary[item.persistentModelID] == false
-    }
-
-    /// Plays the song, or opens it in Music when it isn't in the library. The playback
-    /// service makes the same call, so a row that wasn't checked yet still does the right one.
-    private func activate(_ item: Capture) {
-        if opensInMusic(item) {
-            MusicLibraryPlayback.openInMusic(songID: item.songID)
-        } else {
-            Task { await playback.play(item) }
-        }
     }
 
     /// Clicking plays the song. One the catalog never identified can't be played, so it
     /// isn't a button; its menu still leads to the stats.
     @ViewBuilder
     private func row(_ item: Capture) -> some View {
-        if item.songID.isEmpty {
+        if !playback.canPlay([item]) {
             RecentRow(capture: item, day: day)
         } else {
             Button {
-                activate(item)
+                playback.play([item])
             } label: {
                 RecentRow(capture: item, day: day)
             }
             // The system's own press feedback. Rows are content, so no glass: that's for
             // the controls floating above it.
             .buttonStyle(.plain)
-            .help(opensInMusic(item) ? "Open in Music" : "Play")
-            .accessibilityHint(opensInMusic(item) ? "Opens the song in Music" : "Plays the song")
+            .help("Play")
+            .accessibilityHint("Plays the song")
         }
     }
 
@@ -686,16 +572,14 @@ private struct RecentList: View {
             suggestLess: song.songIdentity,
             block: item.artistName
         )
+        if playback.canPlay([item]) {
+            actions.play = { playback.play([item]) }
+        }
         if !item.songID.isEmpty {
-            if opensInMusic(item) {
-                actions.reveal.append(SongMenuButton(title: "Show in Music", systemImage: "arrow.up.forward.app") { activate(item) })
-            } else {
-                actions.play = { activate(item) }
-                // No API can take a song back out of a playlist, so point at the app that can.
-                actions.reveal.append(SongMenuButton(title: "Show in Music", systemImage: "arrow.up.forward.app") {
-                    MusicLibraryPlayback.openInMusic(songID: item.songID)
-                })
-            }
+            // No API can take a song back out of a playlist, so point at the app that can.
+            actions.reveal.append(SongMenuButton(title: "Show in Music", systemImage: "arrow.up.forward.app") {
+                if let url = URL(string: "https://music.apple.com/song/\(item.songID)") { openURL(url) }
+            })
         }
         if let album = item.albumTitle.map(StatsCalculator.folded), !album.isEmpty {
             actions.goToAlbum = { show(.album("\(album)\u{1F}\(artist)")) }

@@ -12,12 +12,6 @@ extension StartPlayChoiceIntent {
     }
 }
 
-extension SaveRadioSongControlIntent {
-    @MainActor static func save() async throws -> String {
-        try await SaveCurrentRadioSongIntent.saveNow()
-    }
-}
-
 extension IdentifySongIntent {
     @MainActor static func open() async throws {
         let model = AppModel.shared

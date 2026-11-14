@@ -5,13 +5,11 @@ import TracksCore
 /// Opening at login, the Dock, Apple Music access, and About.
 struct GeneralSettingsPane: View {
     @Environment(MacAppBehaviour.self) private var behaviour
-    @Environment(UnexpectedQuitMonitor.self) private var quitMonitor
     @AppStorage("showMenuBarExtra") private var showsMenuBarExtra = true
     @State private var launchesAtLogin = false
 
     var body: some View {
         @Bindable var behaviour = behaviour
-        @Bindable var quitMonitor = quitMonitor
 
         Form {
             SettingsHero(
@@ -22,13 +20,10 @@ struct GeneralSettingsPane: View {
             )
 
             Section {
-                SettingsDetailRow(title: Text("Open at Login"), detail: loginDetail) {
-                    if behaviour.launchAtLoginNeedsApproval {
-                        Button("Open Login Items…") { SMAppService.openSystemSettingsLoginItems() }
-                    }
-                    Toggle("Open at Login", isOn: $launchesAtLogin)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
+                if let loginDetail {
+                    SettingsDetailRow(title: Text("Open at Login"), detail: loginDetail) { loginControl }
+                } else {
+                    LabeledContent("Open at Login") { loginControl }
                 }
                 SettingsSwitch(
                     "Show in Dock",
@@ -37,11 +32,6 @@ struct GeneralSettingsPane: View {
                 )
                 // With the menu bar extra hidden too there'd be no way back into Tracks.
                 .disabled(behaviour.showsDockIcon && !showsMenuBarExtra)
-                SettingsSwitch(
-                    "Reopen Tracks If It Quits Unexpectedly",
-                    detail: reopenDetail,
-                    isOn: $quitMonitor.reopensAutomatically
-                )
             } header: {
                 Text("Startup")
             }
@@ -65,45 +55,47 @@ struct GeneralSettingsPane: View {
         }
     }
 
+    @ViewBuilder
+    private var loginControl: some View {
+        if behaviour.launchAtLoginNeedsApproval {
+            Button("Open Login Items…") { SMAppService.openSystemSettingsLoginItems() }
+        }
+        Toggle("Open at Login", isOn: $launchesAtLogin)
+            .toggleStyle(.switch)
+            .labelsHidden()
+    }
+
+    /// Where Tracks can be found, or the one thing left to do.
     private var statusLine: String {
         if behaviour.launchAtLoginNeedsApproval {
             return String(localized: "Allow Tracks under Login Items to finish turning on Open at Login.")
         }
-        return behaviour.launchesAtLogin
-            ? String(localized: "Opens when you log in, so nothing you play gets missed.")
-            : String(localized: "Tracks only notices what’s playing while it’s open.")
+        return switch (behaviour.showsDockIcon, showsMenuBarExtra) {
+        case (true, true): String(localized: "In the Dock and the menu bar")
+        case (true, false): String(localized: "In the Dock")
+        case (false, _): String(localized: "In the menu bar")
+        }
     }
 
     private var statusTone: SettingsTone {
         behaviour.launchAtLoginNeedsApproval ? .attention : .plain
     }
 
-    private var loginDetail: Text {
+    /// Only a failure, or the wait for approval. The hero says what to do about it.
+    private var loginDetail: Text? {
         if let error = behaviour.launchAtLoginError {
             return Text(error).foregroundStyle(.ink(.red))
         }
-        // The hero says what to do; the row only says where it stands.
         if behaviour.launchAtLoginNeedsApproval {
             return Text("Waiting for Login Items.")
         }
-        return behaviour.launchesAtLogin
-            ? Text("Starts in the background.")
-            : Text("When you open it, Tracks fills in what it missed from Recently Played.")
+        return nil
     }
 
-    private var reopenDetail: Text {
-        quitMonitor.reopensAutomatically
-            ? Text("If macOS closes Tracks, it opens again. Quit and Force Quit leave it closed.")
-            : Text("If macOS closes Tracks, it stays closed until you open it.")
-    }
-
-    private var dockDetail: Text {
-        if behaviour.showsDockIcon && !showsMenuBarExtra {
-            return Text("Needed while Tracks is hidden from the menu bar, so there’s a way back in.")
-        }
-        return behaviour.showsDockIcon
-            ? Text("Tracks shows in the Dock and the app switcher.")
-            : Text("Tracks lives in the menu bar only.")
+    /// Only when the switch can't be turned off, so it doesn't look broken.
+    private var dockDetail: Text? {
+        guard behaviour.showsDockIcon && !showsMenuBarExtra else { return nil }
+        return Text("Needed while Tracks isn’t in the menu bar.")
     }
 }
 
@@ -123,7 +115,6 @@ private struct PanePreview<Pane: View>: View {
         pane
             .environment(previewModel)
             .environment(MacAppBehaviour())
-            .environment(UnexpectedQuitMonitor())
     }
 }
 

@@ -110,8 +110,10 @@ struct PlaySettingsPage: View {
         } header: {
             Text("Source")
         } footer: {
-            Text(PlaySettingsWords.sourceFooter(model.musicSource, quickSwitch: .init(music: music, isOn: quickSwitch)))
-                .contentTransition(.opacity)
+            if let footer = PlaySettingsWords.sourceFooter(quickSwitch: .init(music: music, isOn: quickSwitch)) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
     }
 
@@ -126,8 +128,6 @@ struct PlaySettingsPage: View {
             }
         } header: {
             Text("Offline")
-        } footer: {
-            Text("Play shows only songs downloaded to this iPhone, which play without a connection. It switches to them by itself when you’re offline. To download songs you add to your library from Tracks, turn on Automatic Downloads in Settings ▸ Apps ▸ Music.")
         }
         .task { await downloads.loadIfNeeded() }
     }
@@ -158,7 +158,7 @@ struct PlaySettingsPage: View {
         } header: {
             Text("On This iPhone")
         } footer: {
-            Text("Add songs from Play, or put them in On My iPhone ▸ Tracks ▸ Music in the Files app. FLAC, ALAC, MP3, AAC, WAV and AIFF all play, with their tags and covers.")
+            Text("Put songs in On My iPhone ▸ Tracks ▸ Music in the Files app.")
         }
 
         ServersSection()
@@ -170,8 +170,10 @@ struct PlaySettingsPage: View {
         } header: {
             Text("Suggestions")
         } footer: {
-            Text(PlaySettingsWords.suggestionFooter(suggestionMode))
-                .contentTransition(.opacity)
+            if let footer = PlaySettingsWords.suggestionFooter(suggestionMode) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
 
         PlaySettingsPlaylistMerge()
@@ -191,8 +193,10 @@ struct PlaySettingsPage: View {
         } header: {
             Text("Downloads and Streaming")
         } footer: {
-            Text(PlaySettingsWords.downloadsFooter(automatic: automaticDownloads, wiFi: wiFiQuality, cellular: cellularQuality, download: downloadQuality))
-                .contentTransition(.opacity)
+            if let footer = PlaySettingsWords.downloadQualityFooter(downloadQuality) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
     }
 
@@ -218,23 +222,12 @@ struct PlaySettingsPage: View {
         } header: {
             Text("Tracks Radio")
         } footer: {
-            Text(radioFooter)
-                .contentTransition(.opacity)
+            if isRadioOn, isYourMusic, radioDownloadsFirst,
+               let footer = PlaySettingsWords.deleteAfterPlayingFooter(radioDeletesAfterPlaying) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
-    }
-
-    private var radioFooter: String {
-        PlaySettingsWords.radioFooter(
-            isOn: isRadioOn,
-            place: PlaySettingsWords.RadioPlace(
-                source: model.musicSource,
-                showsForYou: layout.isVisible(.forYou),
-                showsSuggestedSongs: layout.isVisible(.suggestedSongs),
-                suggests: suggestionMode != .off
-            ),
-            downloadsFirst: radioDownloadsFirst,
-            deletesAfterPlaying: radioDeletesAfterPlaying
-        )
     }
 
     // MARK: - Driving
@@ -250,8 +243,6 @@ struct PlaySettingsPage: View {
             }
         } header: {
             Text("Driving")
-        } footer: {
-            Text("Your music comes up on the highway and down at the lights, following the car.")
         }
     }
 
@@ -272,8 +263,10 @@ struct PlaySettingsPage: View {
         } header: {
             Text("Around Tracks")
         } footer: {
-            Text("\(PlaySettingsWords.openingFooter(openingTab)) \(PlaySettingsWords.destinationFooter(songDestination))")
-                .contentTransition(.opacity)
+            if let footer = PlaySettingsWords.destinationFooter(songDestination) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
     }
 
@@ -281,8 +274,10 @@ struct PlaySettingsPage: View {
         Section {
             Toggle("Shake to Play", isOn: $shakeToPlay)
         } footer: {
-            Text(PlaySettingsWords.shakeFooter(shakeToPlay))
-                .contentTransition(.opacity)
+            if let footer = PlaySettingsWords.shakeFooter(shakeToPlay) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
     }
 
@@ -293,9 +288,6 @@ struct PlaySettingsPage: View {
             Toggle("Explicit Songs", isOn: $allowsExplicit)
         } header: {
             Text("Content")
-        } footer: {
-            Text(PlaySettingsWords.explicitFooter(allowsExplicit))
-                .contentTransition(.opacity)
         }
     }
 
@@ -320,8 +312,10 @@ struct PlaySettingsPage: View {
         } header: {
             Text("Transitions")
         } footer: {
-            Text(PlaySettingsWords.transitionFooter(transition))
-                .contentTransition(.opacity)
+            if let footer = PlaySettingsWords.transitionFooter(transition) {
+                Text(footer)
+                    .contentTransition(.opacity)
+            }
         }
     }
 
@@ -336,8 +330,6 @@ struct PlaySettingsPage: View {
             }
         } header: {
             Text("Layout")
-        } footer: {
-            Text("Choose which sections Play shows, and their order.")
         }
     }
 

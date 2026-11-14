@@ -160,8 +160,8 @@ struct RootView: View {
                 if source == .yourMusic { model.prepareYourMusic() }
             }
             .onChange(of: scenePhase) { _, phase in
-                // iOS only sees music while Tracks is open, so pick up what was missed each
-                // time it comes back. Launch is covered by `startCapture`.
+                // Coming back is when to send what's still owed and fold in what synced.
+                // Launch is covered by `startCapture`.
                 if phase == .background {
                     wasInBackground = true
                 } else if phase == .active, wasInBackground, !model.isDemoLaunch {

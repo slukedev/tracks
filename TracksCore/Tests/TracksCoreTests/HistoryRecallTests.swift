@@ -222,10 +222,10 @@ struct HistoryRecallSearchTests {
             )
         }
         var metadata = years.reduce(into: [String: SongMetadata]()) { result, entry in
-            result[HistoryImport.key(title: entry.key, artistName: "Mara Solís")] = SongMetadata(genre: "Jazz", releaseYear: entry.value)
+            result[SongIdentity.key(title: entry.key, artistName: "Mara Solís")] = SongMetadata(genre: "Jazz", releaseYear: entry.value)
         }
         for (title, genre) in genres {
-            metadata[HistoryImport.key(title: title, artistName: "Mara Solís")] = SongMetadata(genre: genre, releaseYear: nil)
+            metadata[SongIdentity.key(title: title, artistName: "Mara Solís")] = SongMetadata(genre: genre, releaseYear: nil)
         }
         return SearchIndex(history: ListeningHistory(captures).with(artistArtwork: [:], songMetadata: metadata))
     }

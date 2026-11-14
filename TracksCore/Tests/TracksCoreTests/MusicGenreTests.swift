@@ -50,7 +50,7 @@ struct MusicGenreTests {
                 plays.append(CaptureStat(songKey: song.title, songID: song.title, title: song.title, artistName: song.artist, capturedAt: now.addingTimeInterval(-Double(play + 1) * 86_400)))
             }
             if let genre = song.genre {
-                metadata[HistoryImport.key(title: song.title, artistName: song.artist)] = SongMetadata(genre: genre, releaseYear: nil)
+                metadata[SongIdentity.key(title: song.title, artistName: song.artist)] = SongMetadata(genre: genre, releaseYear: nil)
             }
         }
         return ListeningHistory(plays).with(artistArtwork: [:], songMetadata: metadata)

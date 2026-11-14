@@ -2,9 +2,9 @@
 
 The Mac app (`Apps/macOS`, with most screens in `Apps/Shared`), its menu bar extra
 (`Apps/macOS/MenuBar`), the Mini Player, Stage and Song Info windows (`Apps/macOS/Play`,
-`Apps/macOS/SongInfo`), the widget extension (`Widgets/`), the Settings panes
-(`Apps/macOS/Settings`) and the Watchdog helper (`Watchdog/`). Logic shared with the iPhone
-lives in `TracksCore/`, and Music.app is driven through `TracksCore/Sources/TracksMusic`.
+`Apps/macOS/SongInfo`), the widget extension (`Widgets/`) and the Settings panes
+(`Apps/macOS/Settings`). Logic shared with the iPhone lives in `TracksCore/`, and Music.app,
+for Play Songs In set to Music, is driven through `TracksCore/Sources/TracksMusic`.
 
 See [README.md](README.md) for the legend and how to keep this current.
 
@@ -12,23 +12,17 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ### History capture
 
-- Keeps every song played inside Tracks, from Apple Music or your own music.
-- Keeps songs played in Music.app, from its `playerInfo` notifications and a poll, including
-  while no Tracks window is open (the menu bar extra keeps it running).
-- Tells radio from on demand (a station track reports no duration), and keeps radio songs
-  Apple Music doesn't count.
-- Searches the catalog for each song, for its ID and cover, since Music gives neither.
-- Recovers songs played while Tracks was closed from Recently Played.
-- Counts After, Same Song Again Within, Keep Songs Played on Demand, Treat Everything as Radio.
+- Keeps every song played inside Tracks, from Apple Music or your own music, including while
+  no Tracks window is open. Songs played in Music.app or other apps aren't kept.
+- Knows radio from on demand because Tracks' player queued it, and keeps radio songs Apple
+  Music doesn't count.
+- Counts After, Same Song Within, Keep On-Demand Songs.
 - Pause History.
 - Exclude stations you don't want recorded.
 - Heard on Radio playlist in your library.
-- Play Back, and Play Back Automatically (Mac only).
+- Imports your Last.fm history, from any app you scrobbled from, in Settings › Last.fm.
 - Repair Artwork.
-- Motif import, again from Settings › History.
 - Sample data with `-TracksDemoData YES` in Debug builds.
-- Reopen Tracks If It Quits Unexpectedly: the Watchdog helper reopens the app when macOS ends
-  it without a quit, and the app says what happened.
 
 ### Insights (Summary)
 
@@ -125,7 +119,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 ### Scrobbling and Last.fm
 
 - Connect a Last.fm account (Connect… in a browser), key in the Keychain.
-- Scrobbles every kept song, radio and recovered included; Now Playing updates.
+- Scrobbles every kept song, radio included; Now Playing updates.
 - Import Last.fm history and Sync Now.
 
 ### Sync and backup
@@ -145,7 +139,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ### Menu bar extra
 
-- The current song and cover, playback controls and a progress track to click or drag.
+- The song Tracks is playing and its cover, playback controls and a progress track to click
+  or drag; the last song played when nothing is.
 - Today's listening and streak, and your last few songs.
 - Status item shows the radio icon, a note, the cover, the title, the artist, cover and title,
   or a format you write (with tokens such as `{station}`), optionally animated.
@@ -155,8 +150,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - Desktop and Notification Center widgets: Listening (small, medium), Top Songs, Last Played,
   Today.
-- Controls: Play in Tracks, Save Radio Song, Identify Song, Play Back Today.
-- App Shortcuts for Siri, Spotlight and Shortcuts: the same ten as iPhone.
+- Controls: Play in Tracks, Identify Song.
+- App Shortcuts for Siri, Spotlight and Shortcuts: the same nine as iPhone.
 - Get Top Artist, Open Artist, Song and Album; Spotlight indexing.
 - Menu commands with Music's shortcuts: Space, ⌘→, ⌘←, ⌘., ⇧⌘F, ⌥⌘R for Tracks Radio, ⌥⌘N
   for something new; Song menu (Favorite, Add to Library, Go to Album or Artist, Share, Create
@@ -168,8 +163,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - Panes: General, Play, History, Radio, Last.fm, iCloud, Devices, Menu Bar, each sized to fit
   and opening with a line on how it's doing.
-- General: Open at Login, Show in Dock, Reopen If It Quits Unexpectedly, Apple Music access.
-- Copy Debug Info, and a notice after an unexpected quit.
+- General: Open at Login, Show in Dock, Apple Music access.
 
 ### Accessibility
 
@@ -206,16 +200,16 @@ Engine parity (no visible change):
 
 ## Platform-only
 
-- **Menu bar extra, Dock icon choice, Open at Login, Watchdog**: Mac app conventions. A
-  phone app has none of them.
+- **Menu bar extra, Dock icon choice, Open at Login**: Mac app conventions. A phone app has
+  none of them.
 - **Sortable table with inspector, menu commands and keyboard shortcuts, drag to Finder**:
   desktop interaction. Android tablets and Chromebooks could use keyboard shortcuts later,
   but they aren't parity.
 - **Mini Player and Stage as windows**: Stage exists on iPhone too, from Now Playing.
 - **Week-by-hour heat map**: shown where there's room. The iPhone could have it (listed there
   as missing).
-- **Music.app scripting, AirPlay speakers through Music, the Core Audio tap, Play Back
-  Automatically**: these exist because Music.app is the player on the Mac.
+- **Music.app scripting, AirPlay speakers through Music, the Core Audio tap**: these exist
+  because Music.app is the Mac's own player.
 - **CarPlay, Louder at Speed, driving, Shake to Play, Action button, Focus filter
-  surfaces, Background App Refresh**: phone-only surfaces. (The Focus filter intent is
+  surfaces**: phone-only surfaces. (The Focus filter intent is
   shared code, but Focus filters are most useful on iPhone.)

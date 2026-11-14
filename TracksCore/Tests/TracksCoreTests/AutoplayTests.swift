@@ -22,7 +22,7 @@ struct AutoplayTests {
                         let title = "\(artist) \(track)"
                         let at = now.addingTimeInterval(-Double(day) * 86_400 + sitting.hour * 3_600 + Double(position * 3 + track) * 240)
                         plays.append(CaptureStat(songKey: title, songID: title, title: title, artistName: artist, capturedAt: at))
-                        metadata[HistoryImport.key(title: title, artistName: artist)] = SongMetadata(genre: sitting.genre, releaseYear: nil)
+                        metadata[SongIdentity.key(title: title, artistName: artist)] = SongMetadata(genre: sitting.genre, releaseYear: nil)
                     }
                 }
             }
@@ -31,7 +31,7 @@ struct AutoplayTests {
     }
 
     func seed(_ title: String, _ artist: String) -> AutoplaySeed {
-        AutoplaySeed(songIdentity: HistoryImport.key(title: title, artistName: artist), artistName: artist)
+        AutoplaySeed(songIdentity: SongIdentity.key(title: title, artistName: artist), artistName: artist)
     }
 
     @Test("after a rock song, autoplay mostly plays rock and the band played with it")

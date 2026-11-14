@@ -8,9 +8,10 @@
   <strong>Keep track. Find more.</strong>
 </p>
 
-Tracks is a music app for iPhone and Mac. Play Apple Music or your own library, and Tracks
-keeps every song you hear, radio included, then turns it into mixes, stations and charts,
-and finds the songs and artists you'll want next. It scrobbles to Last.fm if you like.
+Tracks is a music app for iPhone and Mac. Play Apple Music or your own library in Tracks,
+and it keeps every song you play, radio included, then turns it into mixes, stations and
+charts, and finds the songs and artists you'll want next. It scrobbles to Last.fm if you like,
+and can bring in your Last.fm history.
 
 It's written in SwiftUI, with SwiftData and CloudKit for storage. There's no Tracks account
 and no analytics. Your history stays on your devices and in your private iCloud database.
@@ -19,9 +20,6 @@ There's also an Android app, built on the same Rust engine with Material 3 Expre
 keeps the songs you play in it, from the phone and your own servers, and can import your
 Last.fm history. See [Android/README.md](Android/README.md), and
 [docs/platforms](docs/platforms/README.md) for what each platform has.
-
-Tracks replaces Motif. On a device that has Motif, it brings your Motif history over by
-itself the first time it opens.
 
 ## Screenshots
 
@@ -46,9 +44,11 @@ All screenshots use the built-in sample data.
 
 ### Your history
 
-- Songs you play in Apple Music, on demand or on a radio station. Apple doesn't count songs
-  heard on a station as plays, but Tracks keeps each one.
-- Songs that played while Tracks wasn't running, recovered from Apple Music's Recently Played.
+- Songs you play in Tracks, from Apple Music or your own music, on demand or on a radio
+  station. Apple doesn't count songs heard on a station as plays, but Tracks keeps each one.
+  Songs played in other apps aren't kept.
+- Your Last.fm history, from any app you scrobbled from, brought in from Settings. Songs
+  already in Tracks are skipped.
 - Covers that stop loading can be found and fetched again from Settings.
 - iCloud sync between your iPhone and your Mac, covering settings as well as history.
 
@@ -63,7 +63,7 @@ All screenshots use the built-in sample data.
 
 ### Scrobbling
 
-- Connect a Last.fm account and Tracks scrobbles every song it keeps, radio and recovered songs included.
+- Connect a Last.fm account and Tracks scrobbles every song it keeps, radio included.
 
 ### Play (iPhone and Mac)
 
@@ -104,22 +104,21 @@ All screenshots use the built-in sample data.
 
 ### Radio
 
-- Songs you hear on stations are added to a "Heard on Radio" playlist in your library.
-  Apple Music doesn't let apps take songs back out, so trim it in Music when you like.
-- Play Back plays those songs again through Apple Music so that Apple counts them. It only runs when you're at the device to hear it.
+- Songs you hear on stations in Tracks are added to a "Heard on Radio" playlist in your
+  library. Apple Music doesn't let apps take songs back out, so trim it in Music when you like.
 - You can exclude stations you don't want recorded.
 
 ### On the Mac
 
 - A sidebar window with a dashboard Summary, a sortable history table with an inspector, and top charts.
-- A menu bar extra with the current song and its cover, playback controls, today's listening and streak, and your last few songs. The status item can show a symbol, the cover, the title, the artist, or a format you write.
+- A menu bar extra with the song Tracks is playing and its cover, playback controls, today's listening and streak, and your last few songs. The status item can show a symbol, the cover, the title, the artist, or a format you write.
 - A Settings window with General, Play, History, Radio, Last.fm, iCloud, Devices and Menu Bar panes.
 
 ### Widgets & Shortcuts
 
-- Widgets for the Home Screen and the Mac desktop. _Listening_ shows the last seven days and your streak (and comes in Lock Screen sizes on iPhone); _Last Played_ shows the last song Tracks kept; _Today_ shows today's songs and the radio songs queued for play-back.
-- A Control Center control that plays back today's radio songs.
-- _Save Current Radio Song_ and _Play Back Today_ actions for Siri, Spotlight and Shortcuts.
+- Widgets for the Home Screen and the Mac desktop. _Listening_ shows the last seven days and your streak (and comes in Lock Screen sizes on iPhone); _Last Played_ shows the last song Tracks kept; _Today_ shows today's songs.
+- Controls for Control Center, the Lock Screen and the Action button that start Tracks Radio or a mix, and identify the song playing nearby.
+- Siri, Spotlight and Shortcuts actions to play music, search, and ask for your top artist.
 
 ### Privacy
 
@@ -182,12 +181,10 @@ A device build, and any Mac build you intend to run, has to be signed with your 
     TRACKS_BUNDLE_ID = com.example.Tracks
     ```
 
-    The template also points two things at your own team, which a build signed by anyone
-    but the maintainer needs: Motif's App Group, which belongs to the maintainer's team, and
-    the iOS entitlements, so they leave out CarPlay, which needs Apple's approval:
+    The template also points the iOS entitlements at the ones without CarPlay, which a build
+    signed by anyone but the maintainer needs, since CarPlay needs Apple's approval:
 
     ```
-    TRACKS_MOTIF_APP_GROUP[sdk=iphoneos*] = group.$(TRACKS_BUNDLE_ID).motif
     TRACKS_IOS_ENTITLEMENTS = Apps/iOS/Resources/Tracks.entitlements
     ```
 

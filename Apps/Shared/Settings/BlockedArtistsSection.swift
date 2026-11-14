@@ -24,9 +24,9 @@ struct BlockedArtistsSection: View {
         } header: {
             Text("Blocked Artists")
         } footer: {
-            Text(names.isEmpty
-                ? "Block an artist from their page or a song’s menu, and Tracks won’t play or suggest them on any of your devices."
-                : "Tracks won’t play or suggest these artists on any of your devices, and skips their songs on stations. Songs you’ve already played stay in your history.")
+            if names.isEmpty {
+                Text("Block an artist from their page or a song’s menu.")
+            }
         }
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: names)
     }

@@ -13,7 +13,7 @@ extension DeepLink {
             nil
         case .song(let title, let artistName):
             // A song's page is keyed the way `CaptureStat.songIdentity` groups its plays.
-            .song(HistoryImport.key(title: title, artistName: artistName))
+            .song(SongIdentity.key(title: title, artistName: artistName))
         }
     }
 

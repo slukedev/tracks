@@ -27,7 +27,6 @@ public enum Insight: Sendable, Equatable, Identifiable {
     case dominantStation(name: String, count: Int, total: Int)
     case repeatedSong(title: String, artistName: String, count: Int)
     case longestSession(minutes: Int)
-    case playedBack(count: Int, total: Int)
 
     /// Whether it still reads true for a period that has ended. A streak is about today, and
     /// a trend compares with "this time last month".
@@ -57,7 +56,6 @@ public enum Insight: Sendable, Equatable, Identifiable {
         case .dominantStation: "dominantStation"
         case .repeatedSong: "repeatedSong"
         case .longestSession: "longestSession"
-        case .playedBack: "playedBack"
         }
     }
 
@@ -79,7 +77,6 @@ public enum Insight: Sendable, Equatable, Identifiable {
         case .dominantStation: "dot.radiowaves.left.and.right"
         case .repeatedSong: "arrow.trianglehead.2.clockwise"
         case .longestSession: "hourglass"
-        case .playedBack: "play.circle.fill"
         }
     }
 
@@ -90,7 +87,7 @@ public enum Insight: Sendable, Equatable, Identifiable {
         case .onRepeat, .repeatedSong, .topArtistShare, .topGenre, .favouriteDecade: .favourites
         case .newArtists, .allNew, .mostlyNew: .discovery
         case .persona, .busiestHour, .weekendListener, .busiestDay: .rhythm
-        case .dominantStation, .longestSession, .playedBack: .radio
+        case .dominantStation, .longestSession: .radio
         }
     }
 

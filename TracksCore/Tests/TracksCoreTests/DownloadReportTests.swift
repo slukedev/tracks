@@ -27,7 +27,7 @@ struct DownloadReportTests {
         return SongFacts(plays: plays, radioPlays: 0, firstHeard: last, lastHeard: last)
     }
 
-    func key(_ title: String) -> String { HistoryImport.key(title: title, artistName: "Mara Solis") }
+    func key(_ title: String) -> String { SongIdentity.key(title: title, artistName: "Mara Solis") }
 
     @Test("counts songs, albums, artists, room, time, what's lossless and what's never played")
     func stats() {
@@ -82,7 +82,7 @@ struct DownloadReportTests {
         ]
         let facts = [
             key("New"): facts(5, lastHeardDaysAgo: 1),
-            HistoryImport.key(title: "Old", artistName: "Aria"): facts(1, lastHeardDaysAgo: 1),
+            SongIdentity.key(title: "Old", artistName: "Aria"): facts(1, lastHeardDaysAgo: 1),
         ]
         #expect(DownloadReport.sorted(songs, by: order, facts: facts).map(\.track.title) == expected)
     }
