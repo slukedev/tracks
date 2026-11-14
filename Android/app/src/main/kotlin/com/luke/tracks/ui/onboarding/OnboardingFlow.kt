@@ -287,33 +287,33 @@ private fun StepContent(
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         when (step) {
             OnboardingStep.Welcome -> {
-                Words(0, "Every song you play, kept", "Tracks keeps a record of everything you listen to, in any app and on the radio, and turns it into charts, mixes and a station of your own.")
+                Words(0, "Welcome to Tracks", "Tracks keeps a history of the songs you play in any music app, including radio, and uses it for charts, mixes and Tracks Radio.")
                 Actions(2, primary = "Get started", onPrimary = onNext)
             }
             OnboardingStep.Capture -> {
                 Words(
                     0,
-                    if (access) "Tracks can see what's playing" else "Keep songs from every app",
-                    "Allow notification access and Tracks keeps what Spotify, YouTube Music and radio apps play.",
+                    if (access) "Notification access is on" else "Keep songs from other apps",
+                    "With notification access, Tracks keeps the songs you play in Spotify, YouTube Music and radio apps.",
                 )
-                Promise(1, Icons.Rounded.Shield, "Tracks only reads what's playing. It never reads your notifications, and your history never leaves your phone.")
+                Promise(1, Icons.Rounded.Shield, "Tracks only reads what's playing, not your notifications. Your history stays on this phone.")
                 if (access) Actions(2, primary = "Continue", onPrimary = onNext)
                 else Actions(2, primary = "Allow notification access", onPrimary = onAllowAccess, secondary = "Not now", onSecondary = onNext)
             }
             OnboardingStep.Permissions -> {
-                Words(0, "A couple more things", "Both are optional, and you can change them in Android's settings any time.")
-                Permission(1, Icons.Rounded.Notifications, "Notifications", "Tracks Radio's controls, and a note if Last.fm needs you.", notifications, onAskNotifications)
+                Words(0, "Permissions", "Both are optional. You can change them later in Android's settings.")
+                Permission(1, Icons.Rounded.Notifications, "Notifications", "Playback controls, and a message if Last.fm needs you to sign in again.", notifications, onAskNotifications)
                 Spacer(Modifier.height(8.dp))
-                Permission(2, Icons.Rounded.LibraryMusic, "Music on this phone", "Play the songs you own, right in Tracks.", music, onAskMusic)
+                Permission(2, Icons.Rounded.LibraryMusic, "Music on this phone", "Play the music files on this phone in Tracks.", music, onAskMusic)
                 Actions(3, primary = "Continue", onPrimary = onNext)
             }
             OnboardingStep.LastFm -> when (lastFm) {
                 LastFm.Connection.NotConfigured -> {
-                    Words(0, "Last.fm, another time", "This copy of Tracks was built without Last.fm, so scrobbling isn't available. Everything else works as usual.")
+                    Words(0, "Last.fm isn't available", "This build of Tracks has no Last.fm key, so it can't scrobble.")
                     Actions(2, primary = "Continue", onPrimary = onNext)
                 }
                 is LastFm.Connection.Connected -> {
-                    Words(0, "Scrobbling as ${lastFm.username}", "Every song Tracks keeps goes to your Last.fm profile. You can bring your Last.fm history in from Settings.")
+                    Words(0, "Scrobbling as ${lastFm.username}", "Songs Tracks keeps are scrobbled to your profile. You can import your Last.fm history in Settings.")
                     Actions(2, primary = "Continue", onPrimary = onNext)
                 }
                 LastFm.Connection.Waiting -> {
@@ -330,14 +330,14 @@ private fun StepContent(
                         0,
                         "Scrobble to Last.fm",
                         if (lastFm is LastFm.Connection.Failed) lastFm.message
-                        else "Optional. Every song Tracks keeps goes to your Last.fm profile, radio included. Your password is never shared with Tracks.",
+                        else "Optional. Songs Tracks keeps, including radio, are scrobbled to your profile. You sign in on Last.fm's site, so Tracks never sees your password.",
                     )
                     Actions(2, primary = "Connect Last.fm", onPrimary = onConnectLastFm, secondary = "Skip", onSecondary = onNext)
                 }
             }
             OnboardingStep.Ready -> {
-                Words(0, "You're all set", "Play something in any app. Once it's played long enough to count, it's in Tracks.")
-                Actions(2, primary = "Start listening", onPrimary = { onDone(false) }, secondary = "Try it with sample data", onSecondary = { onDone(true) })
+                Words(0, "Ready", "Play something in any music app. A song shows up in Tracks once it has played for half its length or four minutes.")
+                Actions(2, primary = "Done", onPrimary = { onDone(false) }, secondary = "Try it with sample data", onSecondary = { onDone(true) })
             }
         }
     }

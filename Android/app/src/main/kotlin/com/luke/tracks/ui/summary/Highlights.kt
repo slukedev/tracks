@@ -78,7 +78,7 @@ object Highlights {
         if (input.isCurrent && streak.current >= 7u && streak.current >= streak.longest) {
             out += Highlight(
                 "streak", HighlightCategory.Achievement, HighlightSymbol.Flame,
-                "Your longest streak yet: ${Format.days(streak.current.toLong())} in a row.",
+                "Your longest streak: ${Format.days(streak.current.toLong())} in a row.",
             )
         }
 
@@ -108,7 +108,7 @@ object Highlights {
             input.artists.rows.take(3).firstOrNull { it.artist.firstPlayedMs >= input.periodStartMs!! && it.artist.plays >= 5uL }?.let {
                 out += Highlight(
                     "newFavourite", HighlightCategory.Discovery, HighlightSymbol.Star,
-                    "New favorite: ${it.artist.name}, first heard on ${Format.shortDate(it.artist.firstPlayedMs)}, is already number ${it.rank}.",
+                    "${it.artist.name}, first heard on ${Format.shortDate(it.artist.firstPlayedMs)}, is now number ${it.rank}.",
                 )
             }
         }
@@ -151,10 +151,10 @@ object Highlights {
             val morning = listOf(5, 6, 7, 8).sumOf { hours[it] }.toDouble() / hourTotal
             if (night >= 0.35) {
                 persona = true
-                out += Highlight("persona", HighlightCategory.Rhythm, HighlightSymbol.Moon, "Night owl: ${percent(night)}% of your listening happens after 10 PM.")
+                out += Highlight("persona", HighlightCategory.Rhythm, HighlightSymbol.Moon, "${percent(night)}% of your listening was after 10 PM.")
             } else if (morning >= 0.3) {
                 persona = true
-                out += Highlight("persona", HighlightCategory.Rhythm, HighlightSymbol.Sunrise, "Early bird: ${percent(morning)}% of your listening happens before 9 AM.")
+                out += Highlight("persona", HighlightCategory.Rhythm, HighlightSymbol.Sunrise, "${percent(morning)}% of your listening was before 9 AM.")
             }
         }
         if (!persona) {
@@ -173,7 +173,7 @@ object Highlights {
         if (input.kind != PeriodKind.Week && total >= 20 && days >= 7) {
             val weekend = (weekdays[0] + weekdays[6]).toDouble() / weekdays.sum().coerceAtLeast(1)
             if (weekend >= 0.5) {
-                out += Highlight("weekend", HighlightCategory.Rhythm, HighlightSymbol.Sun, "Weekends are for music: ${percent(weekend)}% of your listening falls on them.")
+                out += Highlight("weekend", HighlightCategory.Rhythm, HighlightSymbol.Sun, "${percent(weekend)}% of your listening was on weekends.")
             }
         }
         if (input.kind != PeriodKind.Week && days > 1) {

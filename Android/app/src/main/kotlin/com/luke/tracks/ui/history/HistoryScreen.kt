@@ -169,8 +169,8 @@ fun HistoryScreen() {
                     EmptyState(
                         icon = Icons.Rounded.History,
                         title = "No plays yet",
-                        message = "Every song you play lands here: from other music apps once Tracks has " +
-                            "notification access, and your own music played in Tracks.",
+                        message = "Songs you play in Tracks show up here. To include other music apps, " +
+                            "allow notification access in Settings.",
                         action = "Open settings",
                         onAction = { navigator.open(SettingsRoute) },
                     )

@@ -310,7 +310,7 @@ private fun ArtistRail(artists: List<ArtistStats>, actions: PlayActions, modifie
 private fun SuggestedSongs(feed: PlayFeed, actions: PlayActions, onMore: (SongRef) -> Unit, modifier: Modifier) {
     val songs = remember(feed) { feed.suggested.map { it.ref(feed.playable[it.identity]) } }
     Column(modifier) {
-        SectionTitle("Suggested songs", "What you keep coming back to this month")
+        SectionTitle("Suggested songs", "Your most played this month")
         Spacer(Modifier.height(8.dp))
         LazyHorizontalGrid(
             rows = GridCells.Fixed(4),
@@ -359,10 +359,10 @@ private fun EmptyPlay(modifier: Modifier = Modifier) {
             )
         }
         Spacer(Modifier.height(16.dp))
-        Text("Your mixes start here", style = MaterialTheme.typography.titleLargeEmphasized, textAlign = TextAlign.Center)
+        Text("No mixes yet", style = MaterialTheme.typography.titleLargeEmphasized, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Play anything, here or in any music app, and Tracks keeps it. Mixes for each time of day, your favorites and new finds appear as you listen.",
+            "Mixes appear here once you've played some music, in Tracks or another app.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -379,5 +379,5 @@ fun greeting(hour: Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)): Stri
     in 5..11 -> "Good morning"
     in 12..16 -> "Good afternoon"
     in 17..21 -> "Good evening"
-    else -> "Hello, night owl"
+    else -> "Good night"
 }

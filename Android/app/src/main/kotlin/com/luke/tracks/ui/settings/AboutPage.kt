@@ -69,7 +69,7 @@ fun AboutPage() {
                     Text("Tracks", style = MaterialTheme.typography.headlineMediumEmphasized)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Every song you play, kept.",
+                        "Keep track. Find more.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -101,16 +101,16 @@ fun PrivacyPage() {
                 icon = Icons.Rounded.Shield,
                 shape = androidx.compose.material3.MaterialShapes.Clover4Leaf,
                 tone = Tone.Primary,
-                headline = "Your history is yours",
-                body = "Tracks has no account, no ads and no analytics. Nothing about you is sent to the people who made it.",
+                headline = "Privacy",
+                body = "Tracks has no account, no ads and no analytics.",
             )
         }
         group("What Tracks keeps", key = "keeps") {
             custom {
-                Point(Icons.Rounded.PhoneAndroid, "On this phone", "Every song you play, when, and in which app. It's kept in Tracks' own storage and nowhere else.")
+                Point(Icons.Rounded.PhoneAndroid, "On this phone", "Each song you play, when, and in which app, stored on this phone.")
                 Point(Icons.Rounded.NotificationsNone, "Notification access", "Lets Tracks read what's playing in music apps' media controls. Tracks never reads, keeps or sends your notifications.")
                 Point(Icons.Rounded.GraphicEq, "Last.fm, if you connect it", "Each song you keep is sent to your Last.fm profile. Turn scrobbling off or disconnect at any time.")
-                Point(Icons.Rounded.CloudOff, "Nothing else leaves", "Covers load from the music services that offer them. Your history never does.", last = true)
+                Point(Icons.Rounded.CloudOff, "Covers", "Covers load from the services that provide them. Your history isn't sent with them.", last = true)
             }
         }
         footnote("Your history and settings go in your phone's own Android backup, so a new phone can pick them up. Uninstalling Tracks removes everything it kept on this one.", key = "backup")
@@ -156,7 +156,7 @@ fun LicensesPage() {
         group("Tracks", key = "tracks") {
             link(
                 "GNU General Public License v3.0",
-                summary = "You're free to use, study, share and change Tracks. Changed copies you share stay free too.",
+                summary = "You can use, study, share and change Tracks. Copies you share must stay under the same license.",
                 icon = Icons.Rounded.Code,
                 tone = Tone.Primary,
             ) {

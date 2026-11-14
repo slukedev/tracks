@@ -117,11 +117,11 @@ fun SettingsScreen() {
             toggle(
                 "Sample data",
                 checked = graph.sampleData,
-                summary = if (graph.sampleData) "Showing invented listening. Your own history is safe." else "Try Tracks with invented listening",
+                summary = if (graph.sampleData) "On. Your own history is kept separately." else "Invented listening history for trying Tracks",
                 icon = Icons.Rounded.Science,
                 tone = Tone.Tertiary,
             ) { confirmSample = it }
-            link("Privacy", summary = "Your history stays on this phone", icon = Icons.Rounded.Shield, tone = Tone.Secondary) { open("privacy") }
+            link("Privacy", summary = "What Tracks keeps and where", icon = Icons.Rounded.Shield, tone = Tone.Secondary) { open("privacy") }
             link("About Tracks", summary = "Version ${BuildConfig.VERSION_NAME}", icon = Icons.Rounded.Info, tone = Tone.Neutral) { open("about") }
         }
     }
@@ -133,7 +133,7 @@ fun SettingsScreen() {
             title = { Text(if (on) "Show sample data?" else "Back to your history?") },
             text = {
                 Text(
-                    if (on) "Tracks restarts with ten months of invented listening, kept apart from yours. Nothing is kept or scrobbled while it's on."
+                    if (on) "Tracks restarts with ten months of invented listening, stored separately from yours. Nothing is kept or scrobbled while it's on."
                     else "Tracks restarts with your own history.",
                 )
             },
@@ -182,11 +182,11 @@ private fun AccessBanner(modifier: Modifier = Modifier, onAllow: () -> Unit) {
                     Icon(Icons.Rounded.History, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
                 }
                 Spacer(Modifier.size(16.dp))
-                Text("Keep songs from every app", style = MaterialTheme.typography.titleMediumEmphasized)
+                Text("Keep songs from other apps", style = MaterialTheme.typography.titleMediumEmphasized)
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "Allow notification access and Tracks keeps what you play in Spotify, YouTube Music and radio apps. It only reads what's playing, and nothing leaves your phone.",
+                "With notification access, Tracks keeps what you play in Spotify, YouTube Music and radio apps. It only reads what's playing, and your history stays on this phone.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(16.dp))
@@ -201,7 +201,7 @@ fun historySummary(settings: AppSettings, access: Boolean, sample: Boolean): Str
     sample -> "Paused while sample data is on"
     !settings.captureOtherApps -> "Only songs played in Tracks"
     !access -> "Needs notification access"
-    settings.excludedApps.isEmpty() -> "Keeping songs from every app"
+    settings.excludedApps.isEmpty() -> "Keeping songs from all music apps"
     else -> "Keeping songs from your music apps"
 }
 

@@ -30,7 +30,7 @@ class BrowseTree(private val graph: AppGraph) {
 
     suspend fun children(parentId: String): List<MediaItem> = when {
         parentId == ROOT -> listOf(
-            playableItem(RADIO, "Tracks Radio", "Endless, from what you love", MediaMetadata.MEDIA_TYPE_RADIO_STATION),
+            playableItem(RADIO, "Tracks Radio", "Your favorites and songs you haven't played", MediaMetadata.MEDIA_TYPE_RADIO_STATION),
             folder(MIXES, "Mixes", playable = false, type = MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS),
             folder(RECENT, "Recently played", playable = true, type = MediaMetadata.MEDIA_TYPE_PLAYLIST),
             folder(ALBUMS, "Albums", playable = false, type = MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),

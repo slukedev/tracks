@@ -150,10 +150,9 @@ fun SummaryScreen() {
                 current.historyEmpty -> Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
                     EmptyState(
                         icon = Icons.Rounded.Headphones,
-                        title = "Your listening shows up here",
-                        message = "Tracks keeps every song you play: songs from other music apps once it has " +
-                            "notification access, and your own music played right here. Play something, then " +
-                            "come back for your week.",
+                        title = "No listening yet",
+                        message = "Your stats appear once you've played some music. To include other music apps, " +
+                            "allow notification access in Settings.",
                         action = "Open settings",
                         onAction = { navigator.open(SettingsRoute) },
                     )

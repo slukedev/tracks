@@ -361,4 +361,4 @@ private fun CrateCaption(
 }
 
 private fun radioLine(feed: PlayFeed?): String =
-    if (feed?.hasHistory == false) "Plays from your music, and learns as you listen" else "Songs you love and new finds"
+    if (feed?.hasHistory == false) "Plays from your music and adjusts to your skips" else "Your favorites and songs you haven't played"

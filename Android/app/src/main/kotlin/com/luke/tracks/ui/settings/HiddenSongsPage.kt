@@ -75,7 +75,7 @@ fun HiddenSongsPage() {
                     shape = MaterialShapes.Ghostish,
                     tone = Tone.Secondary,
                     headline = "Nothing here",
-                    body = "Songs you ask to hear less of leave every mix and Tracks Radio, and show up here in case you change your mind.",
+                    body = "Songs you hear less of are left out of mixes and Tracks Radio.",
                     modifier = Modifier.animateItem(),
                 )
             }

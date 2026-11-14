@@ -98,7 +98,7 @@ fun ServerList(
     LazyColumn(modifier.fillMaxSize(), contentPadding = contentPadding) {
         item(key = "intro") {
             Text(
-                "Play from your own music server: Navidrome, Gonic, Airsonic, Ampache and any other that speaks the Subsonic API. Its songs join Your Music, your mixes and Tracks Radio.",
+                "Play from your own music server: Navidrome, Gonic, Airsonic, Ampache or any other Subsonic-compatible server. Its songs are added to Your Music, your mixes and Tracks Radio.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
@@ -203,7 +203,7 @@ class ServerEditing {
                 onDismissRequest = { removing = null },
                 icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
                 title = { Text("Remove ${server.name}?") },
-                text = { Text("Its songs leave Your Music. What you've played stays in your history.") },
+                text = { Text("Its songs are removed from Your Music. Your history isn't affected.") },
                 confirmButton = {
                     TextButton(onClick = { removing = null; scope.launch { servers?.remove(server.id) } }) { Text("Remove") }
                 },
@@ -293,7 +293,7 @@ fun ServerEditorForm(
     ) {
         Text(if (existing == null) "Add a server" else "Edit ${existing.name}", style = MaterialTheme.typography.headlineSmallEmphasized)
         Text(
-            "Works with Navidrome, Gonic, Airsonic, Ampache, LMS and other servers that speak the Subsonic API.",
+            "Works with Navidrome, Gonic, Airsonic, Ampache, LMS and other Subsonic-compatible servers.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

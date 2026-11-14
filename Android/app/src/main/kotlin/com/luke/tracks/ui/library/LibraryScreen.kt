@@ -467,7 +467,7 @@ private fun PermissionState(onAllow: () -> Unit, onAddServer: () -> Unit) {
     EmptyState(
         icon = Icons.Rounded.LibraryMusic,
         title = "Play the music on your phone",
-        body = "Allow Tracks to see your music files to play them here, and to keep what you listen to.",
+        body = "Allow access to music files to play them in Tracks.",
     ) {
         Button(onClick = onAllow, modifier = Modifier.height(56.dp), contentPadding = PaddingValues(horizontal = 28.dp)) {
             Text("Allow access", style = MaterialTheme.typography.titleMedium)
@@ -482,7 +482,7 @@ private fun NoMusicState(onAddServer: () -> Unit) {
     EmptyState(
         icon = Icons.Rounded.MusicNote,
         title = "No music here yet",
-        body = "Songs you put on this phone show up here. You can also play from your own music server.",
+        body = "Music files on this phone show up here. You can also add a music server.",
     ) {
         OutlinedButton(onClick = onAddServer, modifier = Modifier.height(56.dp), contentPadding = PaddingValues(horizontal = 28.dp)) {
             Icon(Icons.Rounded.Dns, contentDescription = null)

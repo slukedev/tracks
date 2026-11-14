@@ -157,7 +157,7 @@ private fun Empty() {
         )
         Spacer(GlanceModifier.height(6.dp))
         Text(
-            "Songs you play show up here",
+            "No songs yet",
             style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 13.sp),
             maxLines = 2,
         )

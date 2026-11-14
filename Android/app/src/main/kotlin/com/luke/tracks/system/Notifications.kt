@@ -43,7 +43,7 @@ object Notifications {
         val notification = NotificationCompat.Builder(context, LASTFM)
             .setSmallIcon(R.drawable.ic_widget_headphones)
             .setContentTitle("Reconnect Last.fm")
-            .setContentText("Scrobbles are waiting. Connect your account again and Tracks sends them.")
+            .setContentText("Sign in again to send waiting scrobbles.")
             .setContentIntent(open)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)

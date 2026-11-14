@@ -81,10 +81,10 @@ fun CapturePage() {
     }
 
     val (headline, body) = when {
-        graph.sampleData -> "Paused for sample data" to "Nothing is kept while Tracks shows invented listening. Turn sample data off to pick up where you left off."
+        graph.sampleData -> "Paused for sample data" to "Nothing is kept while sample data is on."
         !settings.captureOtherApps -> "Only songs played in Tracks" to "Songs you play in other apps aren't kept. Tracks' own player always keeps its songs."
         !access -> "Tracks can't see other apps yet" to "Android calls this notification access. Tracks only reads what's playing from music apps' media controls, never your notifications."
-        else -> "Keeping songs from every app" to "Spotify, YouTube Music, radio apps and more. A song is kept once it has played long enough to count."
+        else -> "Keeping songs from all music apps" to "Spotify, YouTube Music, radio apps and others. A song is kept once it has played for half its length or four minutes."
     }
 
     SettingsScaffold(title = "Listening history") {
@@ -123,7 +123,7 @@ fun CapturePage() {
                 link(
                     "Choose apps",
                     summary = when (val n = settings.excludedApps.size) {
-                        0 -> "Every music app"
+                        0 -> "All music apps"
                         1 -> "1 app left out"
                         else -> "$n apps left out"
                     },

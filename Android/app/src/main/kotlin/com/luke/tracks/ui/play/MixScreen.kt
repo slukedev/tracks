@@ -322,10 +322,10 @@ private fun MixGone() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("This mix has moved on", style = MaterialTheme.typography.titleLargeEmphasized)
+        Text("This mix isn't available", style = MaterialTheme.typography.titleLargeEmphasized)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Mixes change with your listening. Today's are on Play.",
+            "Mixes change daily. Today's are on the Play tab.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

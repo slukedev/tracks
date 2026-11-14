@@ -104,7 +104,7 @@ fun AppearancePage() {
                 }
             }
         }
-        footnote("Wallpaper colors follow your phone's Material You palette, and change when your wallpaper does.", key = "note")
+        footnote("Wallpaper colors match your phone's wallpaper.", key = "note")
     }
 }
 

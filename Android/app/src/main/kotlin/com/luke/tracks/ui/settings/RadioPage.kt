@@ -40,9 +40,9 @@ object RadioLevels {
 
     val all = listOf(
         Level(0f, "Only favorites", "Songs you've played most, and nothing new."),
-        Level(0.25f, "Mostly favorites", "Now and then, something new that's like what you love."),
+        Level(0.25f, "Mostly favorites", "Mostly favorites, with a new song now and then."),
         Level(0.5f, "A good mix", "Half favorites, half songs you haven't heard yet."),
-        Level(0.75f, "Adventurous", "Mostly new finds, with favorites to keep you grounded."),
+        Level(0.75f, "Adventurous", "Mostly songs you haven't played, with some favorites."),
         Level(1f, "Explorer", "Almost all songs you've never played."),
     )
 
@@ -74,7 +74,7 @@ fun RadioPage() {
                 modifier = Modifier.animateItem(),
             )
         }
-        group("How adventurous", key = "adventure") {
+        group("New songs", key = "adventure") {
             custom {
                 Slider(
                     value = value,
@@ -96,7 +96,7 @@ fun RadioPage() {
             }
         }
         group(key = "more") {
-            link("Play Tracks Radio", summary = "Endless, picked a song at a time", icon = Icons.Rounded.PlayArrow, tone = Tone.Primary) {
+            link("Play Tracks Radio", summary = "Plays from your history and your music", icon = Icons.Rounded.PlayArrow, tone = Tone.Primary) {
                 graph.player.startRadio()
                 navigator.nowPlayingOpen = true
             }
@@ -104,6 +104,6 @@ fun RadioPage() {
                 navigator.open(SettingsPageRoute("hidden"))
             }
         }
-        footnote("Tracks Radio is made from your history and your music. Skips teach it what to play less.", key = "note")
+        footnote("Tracks Radio is made from your history and your music. It plays less of what you skip.", key = "note")
     }
 }
