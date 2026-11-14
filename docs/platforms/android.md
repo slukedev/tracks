@@ -276,6 +276,21 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 ### Your Music
 
 - Octo: find and fetch songs you don't own.
+- Get More, ownership marks and missing songs. The rules are in the engine already
+  (`tracks-library`, exposed in `tracks-ffi/src/library.rs`), so Android calls the same ones
+  the Apple apps do:
+  - `OwnedLibrary(songs)`, built off the main thread when the library changes, then
+    `owns(title, artist)` and `classifyAlbum(tracks)` for owned, partly owned or missing and
+    the missing songs' positions; `ownershipOfCounts(owned, total)` where only counts are known.
+  - `rankGetMore(candidates, taste, similar, rules)` for Get More's order.
+  - `searchShowsFinds(returned, outsideLibrary)` to learn a server finds songs (Octo), from
+    its own search answers.
+  - `canGet(sources)`, `songGetRoute(foundOnServer, hasAlbum, sources)` and
+    `albumGetRoute(foundOnServer, sources)` for whether and how to get something. Show none
+    of it when `canGet` is false.
+
+  What's left to write on Android is the asking (server searches, Lidarr albums and tracks)
+  and the pages; the Apple apps' `Apps/Shared/YourMusic/GetMore.swift` is the model to follow.
 - Downloads from servers for offline, a Downloads page, Free Up Space, cellular rules.
 - Streaming and download quality.
 - Playlists and smart playlists.

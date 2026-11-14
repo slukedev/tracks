@@ -90,7 +90,8 @@ All screenshots use the built-in sample data.
 - Your Music: play the FLAC and other files you own, and your own Subsonic-compatible
   server (Navidrome and others), with downloads for offline, discovery on your servers, and
   Tracks Radio, mixes and moods made from all of it. Suggestions are checked against what you
-  have, and Lidarr can fetch what you don't.
+  have. With Octo or Lidarr, Get More fetches what you don't, and artist and album pages show
+  what you're missing.
 - Siri ("Play music in Tracks") and CarPlay. CarPlay needs Apple's CarPlay Audio
   entitlement on a device; see `Config/Tracks.xcconfig`.
 - Your Devices: see what's playing on your iPhone and Mac, control one from the other, and

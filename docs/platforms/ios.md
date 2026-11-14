@@ -151,7 +151,12 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Tags, covers and folder names are read.
 - Subsonic-compatible servers (Navidrome, Gonic, Airsonic, Ampache, LMS), streamed; passwords
   in the Keychain.
-- Octo in front of Navidrome: find songs you don't own and add them to your music.
+- Octo in front of Navidrome: find songs you don't own and get them. Tracks learns a server
+  finds songs from its own search answers, and remembers it.
+- Get More, with Octo or Lidarr: songs and albums you don't own, from the artists you play
+  and ones like them, with Get, a ring while they come in, and a tick when they're here. Also
+  on artist pages (Your Music, server, Apple Music and history), album pages (Missing, Get
+  All), search and Downloads (Requested). None of it shows without Octo or Lidarr.
 - Picked for You, discovery, newest, most played, random albums and Keep Exploring per server.
 - Tracks Radio, mixes, moods and "Waiting to Be Heard" from your own music.
 - Downloads from your servers, as original files, in the background; cellular optional.

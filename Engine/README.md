@@ -13,6 +13,7 @@ same everywhere.
 | `tracks-store` | The history index: SQLite with running totals, and every chart, total, timeline, activity, streak and search read from it. |
 | `tracks-lastfm` | Last.fm requests, signing and response parsing, the scrobble queue rules and backoff. Sans-IO: the host sends the request with its own HTTP stack. |
 | `tracks-demo` | The invented sample library (artists, albums, songs, collaborations) and a seeded, believable listening history over it, the same on every platform. Pure, no I/O. |
+| `tracks-library` | Your own music against what you could get: whether an album is owned, partly owned or missing and which songs are missing (matching names loosely enough that Apple Music's, Last.fm's and a server's agree), Get More's ranking from the artists you play and ones like them, and the rules for when a server finds songs it doesn't have and whether to get something from it or from Lidarr. Pure, no I/O. |
 | `tracks-ffi` | The surface the apps see, generated with [UniFFI](https://mozilla.github.io/uniffi-rs/) (Swift today, Kotlin for Android later). |
 | `uniffi-bindgen` | The bindings generator. |
 
@@ -85,8 +86,11 @@ calculator row for row.
 ## Status
 
 Moved to the engine so far: name folding, artist credits, the history index and its charts,
-totals, activity, streaks and search; Last.fm request building, signing and parsing. In the app,
-Charts (songs, artists, albums) reads from the engine. Still in Swift, to move next: Summary and
+totals, activity, streaks and search; Last.fm request building, signing and parsing; what you
+own of an album and Get More's ranking (`tracks-library`). In the app, Charts (songs, artists,
+albums) reads from the engine, and Your Music's Get More, artist and album pages ask
+`OwnedLibrary`, `rankGetMore`, `ownershipOfCounts`, `searchShowsFinds` and the get routes
+through TracksCore's `LibraryOwnership.swift`. Still in Swift, to move next: Summary and
 the profiles, search with its "remembered" phrases, mixes and Tracks Radio, the scrobble service
 (switching it to the Rust request builder), widgets reading the shared index, and replacing the
 in-memory `ListeningHistoryReader` so launch and memory no longer scale with history.

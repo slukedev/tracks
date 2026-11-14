@@ -164,7 +164,9 @@ As of November 2026, on `feat/android-m3-expressive`.
 | --- | --- | --- | --- | --- |
 | Play your own files (FLAC, ALAC, MP3, AAC, WAV, AIFF) | Yes | Yes | Yes (MediaStore) | Platform |
 | Subsonic servers (Navidrome and others) | Yes | Yes | Yes | Candidate (`SubsonicClient`) |
-| Octo: find and fetch songs you don't own | Yes | Yes | No | Candidate |
+| Octo: find and fetch songs you don't own | Yes | Yes | No | Engine (`search_shows_finds`, routes); requests Candidate |
+| Get More: songs and albums you don't own, from what you play | Yes | Yes | No | Engine (`tracks-library` ranking) |
+| Albums marked owned or partly owned, and their missing songs | Yes | Yes | No | Engine (`OwnedLibrary`) |
 | Downloads for offline, Downloads page, Free Up Space | Yes | Yes | No | Platform |
 | Playlists and smart playlists | Yes | Yes | No | Candidate (`SmartRules`) |
 | Merge playlists with Apple Music | Yes | Yes | n/a | Platform |
@@ -251,6 +253,9 @@ What every platform already shares through `Engine/` (see `Engine/README.md`):
 - **Mixes** (`tracks-mixes`): the history mixes, the fresh shuffle that keeps artists apart,
   daily seeds, and Tracks Radio's picker (`RadioStation`).
 - **Sample data** (`tracks-demo`): the invented library and listening history.
+- **Your library and what to get** (`tracks-library`): what you own of an album and which
+  songs are missing, Get More's ranking, when a server finds songs it doesn't have, and
+  whether to get something from it or from Lidarr.
 
 How much each app uses it:
 
@@ -284,7 +289,13 @@ otherwise have to write again:
   matching (`SubsonicClient`, `RequestBudget`, `ServerMix`, `ServerSongMatcher`), sans-IO like
   Last.fm.
 - **Smart playlists**: the rules and ordering (`SmartRules`, `LibraryOrdering`).
-- **Lidarr client** (`LidarrClient`).
+- **Lidarr client** (`LidarrClient`): requests and parsing, sans-IO like Last.fm, with
+  `LidarrClient.albumKey` (edition-blind album titles) and the album request flow. Android is
+  getting a Lidarr client, so this is the next piece to share.
+- **Get More's lookups**: which artists to ask about and how (`GetMore.loadSuggestions`,
+  `gets(forArtist:)`, `gaps(in:)` in `Apps/Shared/YourMusic/GetMore.swift`). The ranking and
+  ownership already live in `tracks-library`; the asking order, caching and request budget
+  are still Swift.
 - **MusicBrainz client**: credits and samples (`MusicBrainzClient`, `SongCredits`).
 - **Scrobble service**: the Swift `ScrobbleService` on top of the Rust request builder and
   queue, so both platforms send the same scrobbles the same way.
