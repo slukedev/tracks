@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The history and settings back up with Android's own backup. The index is rebuilt from
+     the history, so it stays out. -->
+<full-backup-content>
+    <include domain="database" path="history.db" />
+    <include domain="sharedpref" path="." />
+    <include domain="file" path="datastore/" />
+    <exclude domain="file" path="index.sqlite" />
+</full-backup-content>

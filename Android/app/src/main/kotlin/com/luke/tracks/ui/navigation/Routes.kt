@@ -1,0 +1,35 @@
+package com.luke.tracks.ui.navigation
+
+import androidx.navigation3.runtime.NavKey
+import kotlinx.serialization.Serializable
+
+/** The five places in the navigation bar. */
+enum class Tab { Play, Summary, Charts, History, Library }
+
+@Serializable sealed interface Route : NavKey
+
+@Serializable data object PlayRoute : Route
+@Serializable data object SummaryRoute : Route
+@Serializable data object ChartsRoute : Route
+@Serializable data object HistoryRoute : Route
+@Serializable data object LibraryRoute : Route
+
+@Serializable data class ArtistRoute(val identity: String, val name: String) : Route
+@Serializable data class AlbumRoute(val identity: String, val title: String, val artistName: String) : Route
+@Serializable data class SongRoute(val identity: String, val title: String, val artistName: String) : Route
+@Serializable data class MixRoute(val mixId: String) : Route
+@Serializable data object SearchRoute : Route
+@Serializable data object SettingsRoute : Route
+/** A page inside Settings, by name ("lastfm", "capture", "servers", "appearance", "about"). */
+@Serializable data class SettingsPageRoute(val page: String) : Route
+/** A library album or artist (from Your Music, by its library id). */
+@Serializable data class LibraryAlbumRoute(val albumId: String) : Route
+@Serializable data class LibraryArtistRoute(val artistId: String) : Route
+
+fun Tab.root(): Route = when (this) {
+    Tab.Play -> PlayRoute
+    Tab.Summary -> SummaryRoute
+    Tab.Charts -> ChartsRoute
+    Tab.History -> HistoryRoute
+    Tab.Library -> LibraryRoute
+}

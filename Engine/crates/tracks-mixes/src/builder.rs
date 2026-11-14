@@ -3,9 +3,12 @@
 //! Each mix says why it holds what it holds (see [`MixKind`]), leaves out songs the person
 //! asked to hear less of, and is only offered when it has enough songs to be worth playing.
 
+use std::collections::HashSet;
+use std::hash::BuildHasher;
+
 use jiff::tz::TimeZone;
 use jiff::{Timestamp, ToSpan, Zoned};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 use crate::shuffle::{daily_seed, fresh_order};
 
@@ -173,9 +176,9 @@ fn zoned(ms: i64, zone: &TimeZone) -> Zoned {
 }
 
 /// Builds every mix from `plays` (any order), leaving out songs in `excluded`.
-pub fn build_mixes(
+pub fn build_mixes<S: BuildHasher>(
     plays: &[MixPlay],
-    excluded: &FxHashSet<String>,
+    excluded: &HashSet<String, S>,
     now_ms: i64,
     zone: &TimeZone,
 ) -> MixOutput {
@@ -222,7 +225,11 @@ pub fn build_mixes(
     }
 }
 
-fn aggregate(plays: &[&MixPlay], excluded: &FxHashSet<String>, zone: &TimeZone) -> Vec<Aggregate> {
+fn aggregate<S: BuildHasher>(
+    plays: &[&MixPlay],
+    excluded: &HashSet<String, S>,
+    zone: &TimeZone,
+) -> Vec<Aggregate> {
     let mut by_identity: FxHashMap<&str, usize> = FxHashMap::default();
     let mut out: Vec<Aggregate> = Vec::new();
     for play in plays {
@@ -490,6 +497,7 @@ fn mix(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustc_hash::FxHashSet;
 
     const NOW: i64 = 1_794_000_000_000; // 2026-11-11
 

@@ -57,10 +57,10 @@ pub struct RadioPicker {
 impl RadioPicker {
     /// A station over `candidates`. `new_share` is how often a new find plays, from 0 to 1.
     pub fn new(candidates: Vec<RadioCandidate>, new_share: f64, seed: u64) -> Self {
-        let mut seen = FxHashSet::default();
+        let mut unique = FxHashSet::default();
         let candidates: Vec<RadioCandidate> = candidates
             .into_iter()
-            .filter(|c| c.weight > 0.0 && seen.insert(c.identity.clone()))
+            .filter(|c| c.weight > 0.0 && unique.insert(c.identity.clone()))
             .collect();
         let by_identity = candidates
             .iter()
@@ -88,6 +88,10 @@ impl RadioPicker {
     }
 
     /// The next song's identity, or `None` when there are no candidates.
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "a station never runs out, so it isn't an iterator; `next` is the FFI's name"
+    )]
     pub fn next(&mut self) -> Option<String> {
         if self.candidates.is_empty() {
             return None;

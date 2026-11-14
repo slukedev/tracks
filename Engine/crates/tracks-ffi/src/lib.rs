@@ -14,14 +14,15 @@ use std::sync::Arc;
 
 uniffi::setup_scaffolding!();
 
+mod demo;
 mod lastfm;
 mod mixes;
 
 /// Something the engine couldn't do.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum EngineError {
-    #[error("database: {message}")]
-    Database { message: String },
+    #[error("database: {detail}")]
+    Database { detail: String },
     #[error("unknown time zone `{identifier}`")]
     TimeZone { identifier: String },
     #[error("the index is closed")]
@@ -34,7 +35,7 @@ impl From<tracks_store::StoreError> for EngineError {
             tracks_store::StoreError::TimeZone(identifier) => Self::TimeZone { identifier },
             tracks_store::StoreError::Closed => Self::Closed,
             other => Self::Database {
-                message: other.to_string(),
+                detail: other.to_string(),
             },
         }
     }
@@ -59,6 +60,17 @@ impl From<PlayKind> for tracks_model::PlayKind {
             PlayKind::OnDemand => Self::OnDemand,
             PlayKind::Imported => Self::Imported,
             PlayKind::LastFm => Self::LastFm,
+        }
+    }
+}
+
+impl From<tracks_model::PlayKind> for PlayKind {
+    fn from(kind: tracks_model::PlayKind) -> Self {
+        match kind {
+            tracks_model::PlayKind::Radio => Self::Radio,
+            tracks_model::PlayKind::OnDemand => Self::OnDemand,
+            tracks_model::PlayKind::Imported => Self::Imported,
+            tracks_model::PlayKind::LastFm => Self::LastFm,
         }
     }
 }

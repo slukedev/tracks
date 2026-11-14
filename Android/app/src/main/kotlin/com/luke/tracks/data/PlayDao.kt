@@ -1,0 +1,64 @@
+package com.luke.tracks.data
+
+import androidx.paging.PagingSource
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface PlayDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(plays: List<PlayEntity>)
+
+    @Query("DELETE FROM plays WHERE id IN (:ids)")
+    suspend fun delete(ids: List<String>)
+
+    @Query("DELETE FROM plays")
+    suspend fun deleteAll()
+
+    @Query("SELECT * FROM plays ORDER BY playedAt")
+    suspend fun all(): List<PlayEntity>
+
+    @Query("SELECT * FROM plays WHERE id = :id")
+    suspend fun byId(id: String): PlayEntity?
+
+    @Query("SELECT COUNT(*) FROM plays")
+    fun countFlow(): Flow<Int>
+
+    /** The history, newest first, for the History tab. */
+    @Query("SELECT * FROM plays ORDER BY playedAt DESC")
+    fun pagedNewestFirst(): PagingSource<Int, PlayEntity>
+
+    @Query("SELECT * FROM plays WHERE kind = :kind ORDER BY playedAt DESC")
+    fun pagedOfKind(kind: PlayKindValue): PagingSource<Int, PlayEntity>
+
+    @Query("SELECT * FROM plays ORDER BY playedAt DESC LIMIT :limit")
+    fun latest(limit: Int): Flow<List<PlayEntity>>
+
+    @Query("SELECT * FROM plays ORDER BY playedAt DESC LIMIT 1")
+    suspend fun last(): PlayEntity?
+
+    /** Plays still owed to Last.fm, oldest first. */
+    @Query(
+        "SELECT * FROM plays WHERE scrobbledAt IS NULL AND scrobbleError IS NULL " +
+            "AND kind != 'LastFm' AND playedAt >= :since ORDER BY playedAt LIMIT :limit"
+    )
+    suspend fun owedScrobbles(since: Long, limit: Int): List<PlayEntity>
+
+    @Query(
+        "SELECT COUNT(*) FROM plays WHERE scrobbledAt IS NULL AND scrobbleError IS NULL " +
+            "AND kind != 'LastFm' AND playedAt >= :since"
+    )
+    fun owedScrobbleCount(since: Long): Flow<Int>
+
+    @Query("UPDATE plays SET scrobbledAt = :at, scrobbleError = NULL WHERE id IN (:ids)")
+    suspend fun markScrobbled(ids: List<String>, at: Long)
+
+    @Query("UPDATE plays SET scrobbleError = :error, scrobbleAttempts = scrobbleAttempts + 1 WHERE id = :id")
+    suspend fun markScrobbleFailed(id: String, error: String)
+
+    @Query("UPDATE plays SET scrobbleAttempts = scrobbleAttempts + 1 WHERE id IN (:ids)")
+    suspend fun noteScrobbleAttempt(ids: List<String>)
+}

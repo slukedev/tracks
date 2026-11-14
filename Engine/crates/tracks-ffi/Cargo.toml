@@ -8,7 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [lib]
-crate-type = ["staticlib", "lib"]
+crate-type = ["staticlib", "cdylib", "lib"]
 name = "tracks_engine"
 
 
@@ -17,6 +17,8 @@ tracks-model.workspace = true
 tracks-store.workspace = true
 tracks-lastfm.workspace = true
 tracks-mixes.workspace = true
+tracks-demo.workspace = true
+jiff.workspace = true
 rustc-hash.workspace = true
 uniffi.workspace = true
 thiserror.workspace = true

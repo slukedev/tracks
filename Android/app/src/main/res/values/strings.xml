@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Tracks</string>
+    <string name="capture_service_label">Tracks listening history</string>
+    <string name="tile_radio">Tracks Radio</string>
+    <string name="widget_listening">Listening</string>
+    <string name="widget_listening_description">The last seven days and your streak</string>
+    <string name="widget_last_played">Last Played</string>
+    <string name="widget_last_played_description">The last song Tracks kept</string>
+    <string name="shortcut_radio_short">Tracks Radio</string>
+    <string name="shortcut_radio_long">Play Tracks Radio</string>
+    <string name="shortcut_search_short">Search</string>
+    <string name="shortcut_search_long">Search your history</string>
+    <string name="shortcut_summary_short">Summary</string>
+    <string name="shortcut_summary_long">This week\'s listening</string>
+</resources>

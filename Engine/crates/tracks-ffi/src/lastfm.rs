@@ -14,8 +14,8 @@ pub enum LastFmError {
     NotAuthorised,
     #[error("Last.fm answered HTTP {status}")]
     Http { status: u16 },
-    #[error("Last.fm error {code}: {message}")]
-    Service { code: i64, message: String },
+    #[error("Last.fm error {code}: {detail}")]
+    Service { code: i64, detail: String },
     #[error("Last.fm's answer could not be read")]
     MalformedResponse,
 }
@@ -28,7 +28,7 @@ impl From<tracks_lastfm::LastFmError> for LastFmError {
             E::NotConnected => Self::NotConnected,
             E::NotAuthorised => Self::NotAuthorised,
             E::Http { status } => Self::Http { status },
-            E::Service { code, message } => Self::Service { code, message },
+            E::Service { code, message } => Self::Service { code, detail: message },
             E::MalformedResponse => Self::MalformedResponse,
         }
     }
@@ -42,9 +42,9 @@ impl LastFmError {
             Self::NotConnected => E::NotConnected,
             Self::NotAuthorised => E::NotAuthorised,
             Self::Http { status } => E::Http { status: *status },
-            Self::Service { code, message } => E::Service {
+            Self::Service { code, detail } => E::Service {
                 code: *code,
-                message: message.clone(),
+                message: detail.clone(),
             },
             Self::MalformedResponse => E::MalformedResponse,
         }

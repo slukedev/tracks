@@ -1,0 +1,13 @@
+.gradle/
+build/
+local.properties
+.kotlin/
+*.iml
+.idea/
+# Built from Engine/ by Engine/build-android.sh.
+app/src/main/jniLibs/
+# Last.fm keys; see secrets.example.properties.
+secrets.properties
+app/engine-bindings/
+app/src/test/resources/linux-*/
+app/src/test/resources/darwin-*/

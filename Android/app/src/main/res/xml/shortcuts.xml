@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="radio" android:enabled="true"
+        android:icon="@drawable/ic_shortcut_radio"
+        android:shortcutShortLabel="@string/shortcut_radio_short"
+        android:shortcutLongLabel="@string/shortcut_radio_long">
+        <intent android:action="android.intent.action.VIEW" android:data="tracks://radio"
+            android:targetPackage="com.luke.tracks" android:targetClass="com.luke.tracks.MainActivity" />
+        <capability-binding android:key="actions.intent.PLAY" />
+    </shortcut>
+    <shortcut android:shortcutId="search" android:enabled="true"
+        android:icon="@drawable/ic_shortcut_search"
+        android:shortcutShortLabel="@string/shortcut_search_short"
+        android:shortcutLongLabel="@string/shortcut_search_long">
+        <intent android:action="android.intent.action.VIEW" android:data="tracks://search"
+            android:targetPackage="com.luke.tracks" android:targetClass="com.luke.tracks.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="summary" android:enabled="true"
+        android:icon="@drawable/ic_shortcut_summary"
+        android:shortcutShortLabel="@string/shortcut_summary_short"
+        android:shortcutLongLabel="@string/shortcut_summary_long">
+        <intent android:action="android.intent.action.VIEW" android:data="tracks://summary"
+            android:targetPackage="com.luke.tracks" android:targetClass="com.luke.tracks.MainActivity" />
+    </shortcut>
+</shortcuts>
