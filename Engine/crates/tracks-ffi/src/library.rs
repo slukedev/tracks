@@ -84,6 +84,13 @@ impl OwnedLibrary {
     }
 }
 
+/// How much of an album is yours from counts alone: songs of it you have, and how many it
+/// has, where that's known.
+#[uniffi::export]
+pub fn ownership_of_counts(owned: u32, total: Option<u32>) -> Ownership {
+    tracks_library::ownership_of_counts(owned, total).into()
+}
+
 // MARK: - Get More
 
 #[derive(Debug, Clone, uniffi::Record)]

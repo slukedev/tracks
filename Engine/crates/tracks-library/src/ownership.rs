@@ -164,9 +164,36 @@ pub fn classify_album<'a>(
     }
 }
 
+/// How much of an album is yours from counts alone, for a shelf that knows how many songs an
+/// album has without its tracklist. With no total, any song of it makes it partly yours: the
+/// rest can't be told apart from songs it doesn't have.
+pub fn ownership_of_counts(owned: u32, total: Option<u32>) -> Ownership {
+    match (owned, total) {
+        (0, _) => Ownership::Missing,
+        (owned, Some(total)) if owned >= total => Ownership::Owned,
+        _ => Ownership::Partial,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn counts_judge_an_album_owned_partly_owned_or_missing() {
+        assert_eq!(ownership_of_counts(0, Some(10)), Ownership::Missing);
+        assert_eq!(ownership_of_counts(0, None), Ownership::Missing);
+        assert_eq!(ownership_of_counts(4, Some(10)), Ownership::Partial);
+        assert_eq!(ownership_of_counts(10, Some(10)), Ownership::Owned);
+        // A deluxe copy with bonus songs is still the album.
+        assert_eq!(ownership_of_counts(12, Some(10)), Ownership::Owned);
+        assert_eq!(ownership_of_counts(3, None), Ownership::Partial);
+    }
+
+    #[test]
+    fn counts_with_a_total_of_zero_are_owned_once_anything_is() {
+        assert_eq!(ownership_of_counts(1, Some(0)), Ownership::Owned);
+    }
 
     fn library(songs: &[(&str, &str)]) -> OwnedSongs {
         OwnedSongs::from_songs(songs.iter().copied())

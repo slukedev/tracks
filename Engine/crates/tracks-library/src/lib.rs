@@ -26,4 +26,5 @@ pub use get_more::{
 };
 pub use ownership::{
     AlbumOwnership, OwnedSongs, Ownership, classify_album, loose_key, loose_title,
+    ownership_of_counts,
 };
