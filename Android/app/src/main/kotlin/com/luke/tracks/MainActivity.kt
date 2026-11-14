@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
                 ThemeChoice.Dark -> true
             }
             TracksTheme(dark = dark, dynamic = settings.colors != ColorChoice.Tracks) {
-                AppShell(remember { navigator })
+                com.luke.tracks.ui.onboarding.OnboardingGate { AppShell(remember { navigator }) }
             }
         }
     }
@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme != "tracks") return
+        com.luke.tracks.system.Shortcuts.reportUsed(this, data)
         when (data.host) {
             "radio" -> graph.player.startRadio().also { navigator.nowPlayingOpen = true }
             "search" -> navigator.open(SearchRoute)
@@ -61,6 +62,10 @@ class MainActivity : ComponentActivity() {
             "history" -> navigator.select(Tab.History)
             "nowplaying" -> navigator.nowPlayingOpen = true
             "mix" -> data.lastPathSegment?.let { navigator.open(com.luke.tracks.ui.navigation.MixRoute(it)) }
+            "settings" -> navigator.open(
+                data.lastPathSegment?.let { com.luke.tracks.ui.navigation.SettingsPageRoute(it) }
+                    ?: com.luke.tracks.ui.navigation.SettingsRoute,
+            )
         }
     }
 }

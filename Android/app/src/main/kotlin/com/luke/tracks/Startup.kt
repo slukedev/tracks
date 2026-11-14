@@ -28,5 +28,7 @@ object Startup {
             if (Build.FINGERPRINT != "robolectric") it.connect()
         }
         graph.radio = TracksRadio(graph)
+        // Last.fm scrobbling, widgets, shortcuts and notification channels.
+        com.luke.tracks.system.SystemIntegration.start(app, graph)
     }
 }

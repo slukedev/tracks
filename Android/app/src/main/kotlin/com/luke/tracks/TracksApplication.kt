@@ -2,10 +2,11 @@ package com.luke.tracks
 
 import android.app.Application
 import android.content.Context
+import androidx.work.Configuration
 import com.luke.tracks.data.SampleData
 import kotlinx.coroutines.launch
 
-class TracksApplication : Application() {
+class TracksApplication : Application(), Configuration.Provider {
     lateinit var graph: AppGraph
         private set
 
@@ -20,6 +21,10 @@ class TracksApplication : Application() {
             graph.history.syncIndex()
         }
     }
+
+    /** WorkManager starts on first use (its startup initializer is removed in the manifest). */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder().setMinimumLoggingLevel(android.util.Log.WARN).build()
 }
 
 val Context.graph: AppGraph get() = (applicationContext as TracksApplication).graph
