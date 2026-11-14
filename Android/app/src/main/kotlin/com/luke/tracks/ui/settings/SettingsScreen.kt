@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Dns
+import com.luke.tracks.discover.discovery
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
@@ -90,6 +92,9 @@ fun SettingsScreen() {
             link("Last.fm", summary = lastFmSummary(lastFm, settings), icon = Icons.Rounded.GraphicEq, tone = Tone.Error) { open("lastfm") }
             link("Your Music servers", summary = "Navidrome and other Subsonic servers", icon = Icons.Rounded.Dns, tone = Tone.Secondary) {
                 open("servers")
+            }
+            link("Get music", summary = getMusicSummary(graph), icon = Icons.Rounded.CloudDownload, tone = Tone.Tertiary) {
+                open("getmusic")
             }
         }
         group("Play") {
@@ -203,6 +208,19 @@ fun historySummary(settings: AppSettings, access: Boolean, sample: Boolean): Str
     !access -> "Needs notification access"
     settings.excludedApps.isEmpty() -> "Keeping songs from all music apps"
     else -> "Keeping songs from your music apps"
+}
+
+/** Whether anything can get music you don't have: a server with Octo, or Lidarr. */
+@Composable
+private fun getMusicSummary(graph: com.luke.tracks.AppGraph): String {
+    val discovery = remember(graph) { graph.discovery }
+    val sources by discovery.sources.collectAsStateWithLifecycle()
+    return when {
+        sources.octo.isNotEmpty() && sources.lidarr -> "${sources.octo.first()} and Lidarr"
+        sources.octo.isNotEmpty() -> "With ${sources.octo.first()}"
+        sources.lidarr -> "With Lidarr"
+        else -> "Octo and Lidarr"
+    }
 }
 
 fun lastFmSummary(state: LastFm.Connection, settings: AppSettings): String = when (state) {

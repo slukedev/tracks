@@ -135,6 +135,9 @@ fun LibraryAlbumPage(album: LibraryAlbum, currentMediaId: String?, artistId: Str
                         modifier = Modifier.animateItem(),
                     )
                 }
+                item(key = "missing") {
+                    com.luke.tracks.ui.discover.MissingFromAlbum(album.title, album.artistName, album.songs.size, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+                }
             }
         }
     }

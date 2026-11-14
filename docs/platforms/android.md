@@ -134,6 +134,27 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - Results as you type across artists, songs and albums, with recent searches.
 - Your Music search across device files and servers.
+- Search beyond your music: the iTunes catalog (no account, the phone's own storefront) under
+  your own results, as "Not in your music": artists, albums (marked when you have some or all
+  of them) and songs, each with a 30 second preview, open in another app, its catalog artist
+  and album pages, and a get button when something can get it.
+
+### Getting music you don't have
+
+- Get music only appears when something can do it: a Subsonic server with Octo (found by its
+  OpenSubsonic type or by search results it found elsewhere) or a connected Lidarr. Settings,
+  Get music shows which servers can, and checks again on a tap. *(Octo and Lidarr untested
+  against real servers; built against recorded answers)*
+- Octo: find a song on the server and star it, which has Octo fetch it; Tracks syncs until it
+  arrives and shows it as on its way meanwhile.
+- Lidarr: connect with an address and API key (sealed in the Keystore), choose what Tracks
+  follows, quality, metadata and folder, see what's downloading; ask for an album or follow an
+  artist from any song, album or artist.
+- Suggested for you in Your Music: albums and songs by the artists you play most (and artists
+  like them where this build has a Last.fm key) that you don't have, ranked by the engine.
+- More by an artist on both artist pages, with albums marked as yours, partly yours or not, and
+  their songs you don't have. Your album pages say how many songs are missing and open the full
+  album, which can list just the missing ones.
 
 ### Play, mixes and Tracks Radio
 
@@ -279,12 +300,10 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 
 ### Your Music
 
-- Octo: find and fetch songs you don't own.
 - Downloads from servers for offline, a Downloads page, Free Up Space, cellular rules.
 - Streaming and download quality.
 - Playlists and smart playlists.
-- Suggestions checked against what you have.
-- Lidarr.
+- Lidarr's Wanted and Coming Soon lists, and adding an artist picked from Lidarr's own search.
 - Tell the server about plays (Subsonic `scrobble`).
 
 ### Sync and backup

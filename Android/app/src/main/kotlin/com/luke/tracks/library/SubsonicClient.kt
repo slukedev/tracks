@@ -62,6 +62,9 @@ class SubsonicClient(
         call("ping")
     }
 
+    /** What the server says it is, from OpenSubsonic's ping: "navidrome", "octo", or null. */
+    suspend fun serverType(): String? = call("ping").type
+
     suspend fun artists(): List<SubsonicArtist> =
         call("getArtists").artists?.index.orEmpty().flatMap { it.artist }
 

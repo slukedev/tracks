@@ -157,6 +157,10 @@ fun ArtistScreen(identity: String, name: String) {
                 }
             }
         }
+        // Theirs you don't have, where your server or Lidarr can get it.
+        item(key = "more", contentType = "more") {
+            com.luke.tracks.ui.discover.MoreFromArtist(d.stats.name, Modifier.bleed(16.dp), edge = 20.dp)
+        }
         artistShelf("with", "Plays with", d.collaborators)
         clockSection(d.hours)
     }

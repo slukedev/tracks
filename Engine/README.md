@@ -12,6 +12,7 @@ same everywhere.
 | `tracks-model` | Play kinds and sources, name folding (byte-for-byte Foundation's, checked against golden vectors produced by Foundation), song and album identities, artist credits ("A feat. B", "A & B"), search folding. Pure, no I/O. |
 | `tracks-store` | The history index: SQLite with running totals, and every chart, total, timeline, activity, streak and search read from it. |
 | `tracks-lastfm` | Last.fm requests, signing and response parsing, the scrobble queue rules and backoff. Sans-IO: the host sends the request with its own HTTP stack. |
+| `tracks-catalog` | Music you don't have: iTunes catalog search and lookups, the Lidarr v1 client, matching catalog and server names to what you own, and ranking suggestions. Sans-IO like `tracks-lastfm`. |
 | `tracks-demo` | The invented sample library (artists, albums, songs, collaborations) and a seeded, believable listening history over it, the same on every platform. Pure, no I/O. |
 | `tracks-ffi` | The surface the apps see, generated with [UniFFI](https://mozilla.github.io/uniffi-rs/) (Swift today, Kotlin for Android later). |
 | `uniffi-bindgen` | The bindings generator. |
