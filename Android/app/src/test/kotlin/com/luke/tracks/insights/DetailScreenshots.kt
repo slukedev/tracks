@@ -79,4 +79,11 @@ class DetailScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         assertEquals(true, worked.isNotEmpty())
         assertEquals(emptyList<String>(), worked.filter { it !in albums })
     }
+
+    @Test
+    @Config(qualifiers = "w412dp-h3600dp-xxhdpi")
+    fun historyFull() {
+        withSampleHistory()
+        snap("full-history", settleMs = 6000, content = nav { HistoryScreen() })
+    }
 }

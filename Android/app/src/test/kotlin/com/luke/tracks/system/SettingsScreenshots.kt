@@ -11,6 +11,7 @@ import com.luke.tracks.ui.settings.SettingsPageScreen
 import com.luke.tracks.ui.settings.SettingsScreen
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
+import org.robolectric.annotation.Config
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -95,4 +96,24 @@ class SettingsScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     @Test fun privacy() = page("settings-privacy") { SettingsPageScreen("privacy") }
 
     @Test fun licenses() = page("settings-licenses") { SettingsPageScreen("licenses") }
+
+    @Test @Config(qualifiers = "w412dp-h2600dp-xxhdpi") fun settingsFull() = page("full-settings") { SettingsScreen() }
+    @Test @Config(qualifiers = "w412dp-h2200dp-xxhdpi") fun captureFull() = page("full-settings-capture") { SettingsPageScreen("capture") }
+    @Test @Config(qualifiers = "w412dp-h2200dp-xxhdpi") fun lastfmFull() = page("full-settings-lastfm") { SettingsPageScreen("lastfm") }
+    @Test @Config(qualifiers = "w412dp-h2200dp-xxhdpi") fun radioFull() = page("full-settings-radio") { SettingsPageScreen("radio") }
+    @Test @Config(qualifiers = "w412dp-h2200dp-xxhdpi") fun aboutFull() = page("full-settings-about") { SettingsPageScreen("about") }
+    @Test @Config(qualifiers = "w412dp-h2400dp-xxhdpi") fun privacyFull() = page("full-settings-privacy") { SettingsPageScreen("privacy") }
+    @Test @Config(qualifiers = "w412dp-h2800dp-xxhdpi") fun licensesFull() = page("full-settings-licenses") { SettingsPageScreen("licenses") }
+
+    @Test @Config(qualifiers = "w412dp-h2400dp-xxhdpi")
+    fun appearanceFull() {
+        val blue = PresetColors.first { it.name == "Blue" }.argb
+        runBlocking { graph.settings.update { it.copy(colors = ColorChoice.Custom, seedColor = blue, paletteStyle = PaletteChoice.TonalSpot) } }
+        page("full-settings-appearance") {
+            TracksTheme(dark = LocalDarkTheme.current, seed = Color(blue), style = PaletteChoice.TonalSpot) {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) { SettingsPageScreen("appearance") }
+            }
+        }
+        runBlocking { graph.settings.update { it.copy(colors = ColorChoice.Wallpaper) } }
+    }
 }

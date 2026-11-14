@@ -32,7 +32,7 @@ class SummaryScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     fun summaryFull() {
         withSampleHistory()
         warm()
-        snap("summary-full", settleMs = 9000) {
+        snap("summary-full", settleMs = 15000) {
             CompositionLocalProvider(LocalNavigator provides Navigator()) { SummaryScreen() }
         }
     }

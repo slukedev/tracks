@@ -174,4 +174,15 @@ class PlayScreenshots(dark: Boolean) : ScreenshotTest(dark) {
             }
         }
     }
+
+    /** The whole mix page, past the fold. */
+    @Test
+    @Config(qualifiers = "w412dp-h3400dp-xxhdpi")
+    fun mixFull() {
+        withSampleHistory()
+        withLibrary()
+        snap("full-mix", settleMs = 3000) {
+            CompositionLocalProvider(LocalNavigator provides Navigator()) { MixScreen("onRepeat") }
+        }
+    }
 }

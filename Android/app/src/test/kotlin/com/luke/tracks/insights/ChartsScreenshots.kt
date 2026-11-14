@@ -23,4 +23,15 @@ class ChartsScreenshots(dark: Boolean) : ScreenshotTest(dark) {
             CompositionLocalProvider(LocalNavigator provides Navigator()) { ChartsScreen() }
         }
     }
+
+    /** The whole chart, all hundred rows' worth of page. */
+    @Test
+    @Config(qualifiers = "w412dp-h5200dp-xxhdpi")
+    fun chartsFull() {
+        withSampleHistory()
+        runBlocking { loadCharts(graph.engine, ChartKind.Songs, PeriodKind.Week, 0, SourceChoice.All) }
+        snap("full-charts", settleMs = 8000) {
+            CompositionLocalProvider(LocalNavigator provides Navigator()) { ChartsScreen() }
+        }
+    }
 }

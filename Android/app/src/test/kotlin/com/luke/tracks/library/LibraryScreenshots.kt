@@ -26,6 +26,7 @@ import com.luke.tracks.ui.library.servers.ServersPageContent
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.Navigator
 import org.junit.Test
+import org.robolectric.annotation.Config
 import uniffi.tracks_engine.songIdentity
 
 /** A library made from the sample history's songs, as if they were files on the phone. */
@@ -136,6 +137,26 @@ class LibraryScreenshots(dark: Boolean) : ScreenshotTest(dark) {
                     }
                 }
             }
+        }
+    }
+
+    @Test @Config(qualifiers = "w412dp-h3000dp-xxhdpi") fun albumsFull() = library("full-library-albums", LibraryTab.Albums)
+    @Test @Config(qualifiers = "w412dp-h3000dp-xxhdpi") fun songsFull() = library("full-library-songs", LibraryTab.Songs)
+    @Test @Config(qualifiers = "w412dp-h3000dp-xxhdpi") fun artistsFull() = library("full-library-artists", LibraryTab.Artists)
+
+    @Test @Config(qualifiers = "w412dp-h2200dp-xxhdpi")
+    fun albumFull() = snap("full-library-album") {
+        Frame {
+            val album = FakeLibrary.index.snapshot.albums.maxBy { it.songs.size }
+            LibraryAlbumPage(album, album.songs.first().mediaId, artistId = "x")
+        }
+    }
+
+    @Test @Config(qualifiers = "w412dp-h2400dp-xxhdpi")
+    fun artistFull() = snap("full-library-artist") {
+        Frame {
+            val artist = FakeLibrary.index.snapshot.artists.maxBy { it.albums.size }
+            LibraryArtistPage(artist, FakeLibrary.index.songsBy(artist), null)
         }
     }
 }
