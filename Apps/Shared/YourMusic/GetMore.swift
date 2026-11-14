@@ -165,7 +165,7 @@ final class GetMore {
     }
 
     func finds(on serverID: String?) -> Bool {
-        serverID.map(findingServers.contains) ?? false
+        serverID.map { findingServers.contains($0) } ?? false
     }
 
     /// Hears a server's answer to a search, to learn whether it finds songs it doesn't have:
@@ -606,6 +606,9 @@ final class GetMore {
 
     /// An artist's albums from a server that finds songs and from Lidarr, each once.
     private func albums(by artist: String) async -> [Album] {
+        #if DEBUG
+        if isDemo { return demoGets(forArtist: artist).albums.map(\.album) }
+        #endif
         let fromServer = await serverAlbums(by: artist)
         if let lidarr = music.lidarr, lidarr.isConnected, let followed = lidarr.artist(named: artist), let id = followed.id {
             // Fills Lidarr's cache, which `lidarrAlbums(by:)` reads.
