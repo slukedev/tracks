@@ -55,6 +55,40 @@ public enum ExplicitVersions {
         return result
     }
 
+    /// The explicit version of a clean song among search results: the same title and artist
+    /// once version markers are off, and about as long, since an edit runs within seconds of
+    /// the original. The closest in length wins.
+    ///
+    /// A different take ("Live", "Remix", "Acoustic") keeps its marker and so never matches.
+    public static func explicitTwin<Candidate>(
+        title: String,
+        artist: String,
+        duration: TimeInterval?,
+        among candidates: [Candidate],
+        title candidateTitle: (Candidate) -> String,
+        artist candidateArtist: (Candidate) -> String,
+        duration candidateDuration: (Candidate) -> TimeInterval?,
+        isExplicit: (Candidate) -> Bool
+    ) -> Candidate? {
+        let key = versionKey(title: title, artist: artist)
+        var best: (candidate: Candidate, gap: TimeInterval)?
+        for candidate in candidates where isExplicit(candidate) {
+            guard versionKey(title: candidateTitle(candidate), artist: candidateArtist(candidate)) == key else { continue }
+            let gap: TimeInterval
+            if let duration, let other = candidateDuration(candidate) {
+                gap = abs(duration - other)
+                guard gap <= twinDurationTolerance else { continue }
+            } else {
+                gap = twinDurationTolerance
+            }
+            if best.map({ gap < $0.gap }) ?? true { best = (candidate, gap) }
+        }
+        return best?.candidate
+    }
+
+    /// How far apart in length a clean edit and its original can be.
+    static let twinDurationTolerance: TimeInterval = 15
+
     /// Whether an item may be played at all under the setting.
     public static func allows(isExplicit: Bool, allowsExplicit: Bool) -> Bool {
         allowsExplicit || !isExplicit
