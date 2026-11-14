@@ -34,6 +34,8 @@ data class AppSettings(
     val showSampleData: Boolean = false,
     val onboarded: Boolean = false,
     val subsonicServers: String = "[]",
+    /** Songs liked from the player or the media controls, by identity. */
+    val likedSongs: Set<String> = emptySet(),
 )
 
 class SettingsRepository(private val context: Context) {
@@ -49,6 +51,7 @@ class SettingsRepository(private val context: Context) {
         val sample = booleanPreferencesKey("showSampleData")
         val onboarded = booleanPreferencesKey("onboarded")
         val servers = stringPreferencesKey("subsonicServers")
+        val liked = stringSetPreferencesKey("likedSongs")
     }
 
     val settings: Flow<AppSettings> = context.settingsStore.data.map { p -> p.toSettings() }
@@ -65,6 +68,7 @@ class SettingsRepository(private val context: Context) {
         showSampleData = this[Keys.sample] ?: false,
         onboarded = this[Keys.onboarded] ?: false,
         subsonicServers = this[Keys.servers] ?: "[]",
+        likedSongs = this[Keys.liked] ?: emptySet(),
     )
 
     suspend fun update(transform: (AppSettings) -> AppSettings) {
@@ -81,6 +85,7 @@ class SettingsRepository(private val context: Context) {
             p[Keys.sample] = new.showSampleData
             p[Keys.onboarded] = new.onboarded
             p[Keys.servers] = new.subsonicServers
+            p[Keys.liked] = new.likedSongs
         }
     }
 }
