@@ -69,23 +69,24 @@ fun LibraryArtistPage(artist: LibraryArtist, songs: List<PlayableSong>, currentM
     val origin = remember(artist.id) { QueueOrigin(artist.name, QueueOrigin.Kind.Artist) }
     WithLibraryActions {
         val actions = LocalLibraryActions.current
+        val list = androidx.compose.foundation.lazy.rememberLazyListState()
         Scaffold(
             contentWindowInsets = WindowInsets(0),
             containerColor = MaterialTheme.colorScheme.surface,
             topBar = {
-                TopAppBar(
-                    title = {},
-                    navigationIcon = { IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
-                    actions = {
-                        IconButton(onClick = { actions.open(LibraryTarget.Artist(artist, songs)) }) { Icon(Icons.Rounded.MoreVert, contentDescription = "More for ${artist.name}") }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer),
+                LibraryPageBar(
+                    title = artist.name,
+                    list = list,
+                    moreLabel = "More for ${artist.name}",
+                    onBack = { navigator.back() },
+                    onMore = { actions.open(LibraryTarget.Artist(artist, songs)) },
                 )
             },
         ) { padding ->
             val tint = MaterialTheme.colorScheme.tertiaryContainer
             LazyColumn(
-                Modifier.fillMaxSize().background(Brush.verticalGradient(0f to tint.copy(alpha = 0.5f), 0.4f to MaterialTheme.colorScheme.surface)),
+                state = list,
+                modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(0f to tint.copy(alpha = 0.5f), 0.4f to MaterialTheme.colorScheme.surface)),
                 contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = MiniPlayerClearance),
             ) {
                 item(key = "header") {
