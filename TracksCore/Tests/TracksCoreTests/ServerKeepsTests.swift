@@ -47,12 +47,35 @@ struct ServerKeepsTests {
         #expect(keeps.isWaiting(for: "night drive|mara solis"))
     }
 
-    @Test("what's waited for survives being saved and read back")
+    @Test("what's waited for survives being saved and read back, names and all")
     func roundTrip() throws {
         var keeps = ServerKeeps()
-        keeps.ask(for: "night drive|mara solis", at: askedAt)
+        keeps.ask(for: "night drive|mara solis", title: "Night Drive", artist: "Mara Solis", at: askedAt)
+        keeps.ask(for: "tidal|mara solis", at: askedAt)
         let saved = try JSONEncoder().encode(["home": keeps])
         let read = try JSONDecoder().decode([String: ServerKeeps].self, from: saved)
         #expect(read == ["home": keeps])
+    }
+
+    @Test("what an earlier build saved, with no names, still reads")
+    func readsOlderSaves() throws {
+        let older = Data(#"{"home":{"asked":{"night drive|mara solis":800000000}}}"#.utf8)
+        let read = try JSONDecoder().decode([String: ServerKeeps].self, from: older)
+        let keeps = try #require(read["home"])
+        #expect(keeps.isWaiting(for: "night drive|mara solis"))
+        #expect(keeps.waiting.map(\.name) == [nil])
+    }
+
+    @Test("what's waited for lists newest first, with its names until it arrives")
+    func waitingList() {
+        var keeps = ServerKeeps()
+        keeps.ask(for: "night drive|mara solis", title: "Night Drive", artist: "Mara Solis", at: askedAt)
+        keeps.ask(for: "tidal|mara solis", title: "Tidal", artist: "Mara Solis", at: askedAt.addingTimeInterval(60))
+        #expect(keeps.waiting.map(\.name?.title) == ["Tidal", "Night Drive"])
+        keeps.settle(arrived: ["tidal|mara solis"], now: askedAt.addingTimeInterval(120))
+        #expect(keeps.waiting.map(\.identity) == ["night drive|mara solis"])
+        keeps.settle(arrived: ["night drive|mara solis"], now: askedAt.addingTimeInterval(180))
+        #expect(keeps.waiting.isEmpty)
+        #expect(keeps == ServerKeeps())
     }
 }
