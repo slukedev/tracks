@@ -108,6 +108,9 @@ final class GetMore {
         let isAlbum: Bool
         var status: Status
         var doneAt: Date?
+        /// Songs of the album you had when you asked, so an album you owned part of counts as
+        /// arrived only once more of it is in.
+        var ownedAtAsk = 0
     }
 
     /// Servers seen to find songs they don't have. Kept between launches.
@@ -326,7 +329,7 @@ final class GetMore {
         for (key, request) in requests where request.doneAt == nil && request.status == .waiting {
             var arrived = !request.songs.isEmpty && request.songs.allSatisfy { !music.index.tracks(withIdentity: $0).isEmpty }
             if request.isAlbum, request.route == .lidarr {
-                arrived = state(ofAlbum: Album(title: request.title, artist: request.artist)) != .missing
+                arrived = ownedSongs(of: Album(title: request.title, artist: request.artist)).count > request.ownedAtAsk
             }
             guard arrived else { continue }
             requests[key]?.doneAt = .now
@@ -396,7 +399,7 @@ final class GetMore {
         case nil:
             break
         }
-        let reason = problem ?? String(localized: "None of your servers can find this song.")
+        let reason = problem ?? String(localized: "Couldn't find this song. Try again later.")
         requests[key] = Request(route: .server, songs: [identity], title: title, artist: artist, isAlbum: false, status: .failed(reason))
         return reason
     }
@@ -407,7 +410,7 @@ final class GetMore {
     func get(_ album: Album, only missing: [LocalTrack]? = nil) async -> String? {
         let key = album.id
         let route = ability.route(forAlbumFoundOnServer: finds(on: album.serverID) || !(missing?.isEmpty ?? true))
-        requests[key] = Request(route: route ?? .server, songs: [], title: album.title, artist: album.artist, isAlbum: true, status: .asking)
+        requests[key] = Request(route: route ?? .server, songs: [], title: album.title, artist: album.artist, isAlbum: true, status: .asking, ownedAtAsk: ownedSongs(of: album).count)
         #if DEBUG
         if isDemo {
             let songs = missing ?? demoMissing(of: album)
@@ -461,7 +464,7 @@ final class GetMore {
         case nil:
             break
         }
-        let reason = String(localized: "Nothing you've connected can get this album.")
+        let reason = String(localized: "Couldn't find this album. Try again later.")
         requests[key]?.status = .failed(reason)
         return reason
     }
@@ -834,14 +837,10 @@ final class GetMore {
         var list: [Incoming] = []
         var listed = Set<String>()
         for server in music.servers.servers {
-            for waiting in music.servers.kept[server.id]?.waiting ?? [] where listed.insert(Self.songKey(waiting.identity)).inserted {
-                list.append(Incoming(
-                    id: Self.songKey(waiting.identity),
-                    title: waiting.name?.title ?? String(localized: "A Song"),
-                    artist: waiting.name?.artist,
-                    isAlbum: false,
-                    state: .queued
-                ))
+            // Songs asked for before names were kept have none to show, and aren't listed.
+            for waiting in music.servers.kept[server.id]?.waiting ?? [] {
+                guard let name = waiting.name, listed.insert(Self.songKey(waiting.identity)).inserted else { continue }
+                list.append(Incoming(id: Self.songKey(waiting.identity), title: name.title, artist: name.artist, isAlbum: false, state: .queued))
             }
         }
         for item in music.lidarr?.queue ?? [] {

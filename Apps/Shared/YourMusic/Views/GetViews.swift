@@ -181,8 +181,23 @@ struct GetAlbumTile: View {
         let state = getMore.state(ofAlbum: album)
         VStack(alignment: .leading, spacing: 6) {
             if let route = route(state: state) {
+                #if os(macOS)
+                // The library's tile: it brightens under the pointer, with its menu on it.
+                LibraryCoverTile(
+                    title: album.title,
+                    subtitle: subtitle ?? album.artist,
+                    route: route,
+                    side: LibraryCoverTile<EmptyView, EmptyView>.shelfSide
+                ) { side in
+                    cover(state: state, side: side ?? LibraryCoverTile<EmptyView, EmptyView>.shelfSide)
+                } menu: {
+                    GetAlbumMenu(album: album, route: route)
+                }
+                .accessibilityValue(Text(OwnershipBadge.spoken(state)))
+                #else
                 NavigationLink(value: route) { label(state: state) }
                     .buttonStyle(.pressable)
+                #endif
             } else {
                 label(state: state)
             }
@@ -197,13 +212,17 @@ struct GetAlbumTile: View {
 
     private func label(state: AlbumHoldings.State) -> some View {
         TileLabel(title: held.album.title, subtitle: subtitle ?? held.album.artist) { side in
-            CoverImage(cover: music.cover(of: held.album), size: side)
-                .overlay(alignment: .bottomTrailing) {
-                    OwnershipBadge(state: state)
-                        .padding(6)
-                }
+            cover(state: state, side: side)
         }
         .accessibilityValue(Text(OwnershipBadge.spoken(state)))
+    }
+
+    private func cover(state: AlbumHoldings.State, side: CGFloat) -> some View {
+        CoverImage(cover: music.cover(of: held.album), size: side)
+            .overlay(alignment: .bottomTrailing) {
+                OwnershipBadge(state: state)
+                    .padding(6)
+            }
     }
 
     /// Your copy where you own part of it, else the server's page for it.
