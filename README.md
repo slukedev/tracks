@@ -15,6 +15,10 @@ and finds the songs and artists you'll want next. It scrobbles to Last.fm if you
 It's written in SwiftUI, with SwiftData and CloudKit for storage. There's no Tracks account
 and no analytics. Your history stays on your devices and in your private iCloud database.
 
+There's also an Android app, built on the same Rust engine with Material 3 Expressive. It
+keeps what you play in any music app. See [Android/README.md](Android/README.md), and
+[docs/platforms](docs/platforms/README.md) for what each platform has.
+
 Tracks replaces Motif. On a device that has Motif, it brings your Motif history over by
 itself the first time it opens.
 
