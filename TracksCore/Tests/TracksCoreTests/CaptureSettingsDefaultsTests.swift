@@ -20,11 +20,6 @@ struct CaptureSettingsDefaultsTests {
         #expect(settings.capturesOnDemand)
     }
 
-    @Test("listening from while Tracks was closed is recovered")
-    func recoversRecentlyPlayed() {
-        #expect(settings.importsRecentlyPlayed)
-    }
-
     @Test("a song counts once half of it has played, as Last.fm counts a scrobble")
     func minimumListen() {
         #expect(settings.minimumListenShare == 0.5)
@@ -33,12 +28,6 @@ struct CaptureSettingsDefaultsTests {
     @Test("the same song again inside ten minutes counts once")
     func dedupeWindow() {
         #expect(settings.dedupePolicy.window == 10 * 60)
-    }
-
-    /// It captures songs a station never played, so it stays an escape hatch.
-    @Test("nothing is forced to count as radio")
-    func doesNotForceCapture() {
-        #expect(!settings.forceCapture)
     }
 
     // MARK: - The playlist
@@ -57,21 +46,6 @@ struct CaptureSettingsDefaultsTests {
         #expect(settings.scrobblesToLastFM)
     }
 
-    /// On the iPhone, recovered songs are most of the history; leaving them out meant most
-    /// listening never reached Last.fm.
-    @Test("recovered songs are scrobbled too")
-    func scrobblesRecoveredSongs() {
-        #expect(settings.scrobblesImported)
-    }
-
-    // MARK: - Playing back
-
-    /// It starts music on its own and plays audibly, so it has to be asked for.
-    @Test("play back does not start on its own")
-    func autoPlayBackIsOff() {
-        #expect(!settings.autoPlayBack)
-    }
-
     // MARK: - Appearance
 
     @Test("the menu bar shows the note symbol and cross-fades between songs")
@@ -82,17 +56,11 @@ struct CaptureSettingsDefaultsTests {
         #expect(settings.showsMenuBarProgress)
     }
 
-    @Test("the Today widget lists what play back will play next")
-    func widgetDefaults() {
-        #expect(settings.showsUpNextInWidget)
-    }
-
     // MARK: - Nothing excluded yet
 
     @Test("no stations are excluded and no songs forgotten")
     func nothingExcluded() {
         #expect(settings.excludedStations.isEmpty)
         #expect(settings.forgottenSongs.isEmpty)
-        #expect(settings.recentlyPlayedAnchor.isEmpty)
     }
 }

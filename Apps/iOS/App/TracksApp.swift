@@ -29,15 +29,9 @@ struct TracksApp: App {
                 WidgetRefresher.shared?.reloadIfChanged()
                 // Where the music is, for a launch after iOS or a swipe ends the app.
                 model.player.saveSession()
-                Task { await BackgroundRefresh.schedule() }
             default:
                 break
             }
-        }
-        .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) { [model] in
-            // Ask for the next one first, so a refresh that runs out of time still has one.
-            await BackgroundRefresh.schedule()
-            await BackgroundRefresh.run(model)
         }
     }
 }

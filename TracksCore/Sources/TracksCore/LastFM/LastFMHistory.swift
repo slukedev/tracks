@@ -72,7 +72,7 @@ public enum LastFMHistory {
 
         var result: [ScrobbledTrack] = []
         for scrobble in scrobbles.sorted(by: { $0.playedAt < $1.playedAt }) {
-            let key = HistoryImport.key(title: scrobble.title, artistName: scrobble.artistName)
+            let key = SongIdentity.key(title: scrobble.title, artistName: scrobble.artistName)
             guard !forgotten.contains(key) else { continue }
             let isKnown = plays[key, default: []].contains { other in
                 if other.at <= scrobble.playedAt {

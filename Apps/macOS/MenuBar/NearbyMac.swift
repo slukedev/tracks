@@ -2,105 +2,27 @@ import SwiftUI
 import TracksCore
 import TracksMusic
 
-/// Your other devices, on the Mac: they see what Music is playing here and can play, pause and
-/// skip it; the menu bar shows what they're playing, with their controls.
+/// Your other devices, on the Mac: they see what Tracks is playing here and can play, pause
+/// and skip it; the menu bar shows what they're playing, with their controls.
+///
+/// The commands and the song itself are the app model's, as on iPhone. What's the Mac's own
+/// is where its sound goes, which changes without the player knowing.
 @MainActor
 enum NearbyMac {
-    /// Starts listening, and tells your devices what Music is playing while any are connected:
-    /// read every few seconds then, and not at all otherwise, since each read is an Apple event.
     static func start(_ model: AppModel) {
         guard !model.isDemoLaunch else { return }
         let nearby = model.nearby
-        let player = model.player
-        nearby.onCommand = { command in
-            Task {
-                let presence = await ScriptingQueue.run { MusicScripting.presence() }
-                if speaksForTracks(model, musicIsPlaying: presence.isPlaying) {
-                    switch command {
-                    case .playPause: player.togglePlayPause()
-                    case .next: player.skipToNext()
-                    case .previous: player.skipToPrevious()
-                    }
-                } else {
-                    _ = await ScriptingQueue.run { MediaTransportControl.perform(command) }
-                }
-                try? await Task.sleep(for: .milliseconds(400))
-                await tell(model)
-            }
-        }
-        nearby.onPause = {
-            // The song moved to another device: nothing here keeps playing it.
-            if player.isPlaying { player.togglePlayPause() }
-            Task {
-                let presence = await ScriptingQueue.run { MusicScripting.presence() }
-                guard presence.isPlaying else { return }
-                _ = await ScriptingQueue.run { MediaTransportControl.pause() }
-                await tell(model)
-            }
-        }
-        nearby.onJoin = { Task { await tell(model) } }
         nearby.start()
-        // The read loop runs only while a device is connected, so a Mac alone never wakes. So
-        // does following the Mac's sound output, which is told as it changes.
+        // Only while a device is connected, so a Mac alone never follows its output.
         Task {
-            var polling: Task<Void, Never>?
             var output: SystemOutputFollower?
-            var isPolling = false
-            for await isConnected in Observations({ !nearby.devices.isEmpty }) where isConnected != isPolling {
-                isPolling = isConnected
-                polling?.cancel()
-                polling = isConnected ? Task { await keepTelling(model) } : nil
+            var isFollowing = false
+            for await isConnected in Observations({ !nearby.devices.isEmpty }) where isConnected != isFollowing {
+                isFollowing = isConnected
                 output?.stop()
-                output = isConnected ? SystemOutputFollower { Task { await tell(model) } } : nil
+                output = isConnected ? SystemOutputFollower { model.tellNearby() } : nil
             }
         }
-    }
-
-    private static func keepTelling(_ model: AppModel) async {
-        while !Task.isCancelled {
-            await tell(model)
-            try? await Task.sleep(for: .seconds(3))
-        }
-    }
-
-    /// Whether what this Mac is playing is Tracks’ own player rather than Music. One voice for
-    /// the Mac, so your other devices don't see it flick between the two. See ``NearbyVoice``.
-    private static func speaksForTracks(_ model: AppModel, musicIsPlaying: Bool) -> Bool {
-        let player = model.player
-        return NearbyVoice.isTracks(hasSong: player.hasQueue, isPlaying: player.isPlaying, musicIsPlaying: musicIsPlaying)
-    }
-
-    /// Tells your devices what this Mac is playing, from whichever player speaks for it. Also
-    /// what the window calls as Tracks’ own player changes, so that change is told through
-    /// the same choice rather than over Music's song.
-    static func tell(_ model: AppModel) async {
-        guard !model.isDemoLaunch else { return }
-        let presence = await ScriptingQueue.run { MusicScripting.presence() }
-        if speaksForTracks(model, musicIsPlaying: presence.isPlaying) {
-            model.tellNearby()
-            return
-        }
-        let capabilities = TransportRouting.capabilities(presence: presence)
-        guard presence.isRunning, let song = model.capture?.nowPlaying else {
-            model.nearby.publish(NearbyState())
-            return
-        }
-        let artwork = song.artworkURL.flatMap { $0.hasPrefix("https://") ? $0 : nil }
-        // Music's own AirPlay choice, which the Mac's sound output doesn't show. Playing on
-        // the Mac alone, it's heard wherever the Mac's sound goes.
-        let airPlay = await ScriptingQueue.run { MusicAirPlay.read() }
-        var speakers: NearbySpeakers?
-        if case .speakers(let read) = airPlay { speakers = NearbySpeakers(music: read) ?? SystemOutput.current }
-        model.nearby.publish(NearbyState(
-            title: song.title,
-            artist: song.artistName,
-            album: song.albumTitle,
-            artworkURL: model.nearbyArtwork(artwork, for: song.title, by: song.artistName),
-            isPlaying: presence.isPlaying,
-            canSkipBack: capabilities.canSkipBack,
-            canSkipForward: capabilities.canSkipForward,
-            speakers: speakers
-        ))
     }
 }
 

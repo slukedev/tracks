@@ -21,7 +21,7 @@ struct SongStoryTests {
         CaptureStat(songKey: title, title: title, artistName: "Artist", capturedAt: date, stationName: station, kind: kind)
     }
 
-    var songIdentity: String { HistoryImport.key(title: "Song", artistName: "Artist") }
+    var songIdentity: String { SongIdentity.key(title: "Song", artistName: "Artist") }
 
     func story(_ captures: [CaptureStat], listeningSince: Date? = nil) -> SongStory? {
         SongStories.story(of: songIdentity, in: ListeningHistory(captures), listeningSince: listeningSince, now: now, calendar: calendar)

@@ -34,8 +34,8 @@ struct BlockedArtistsTests {
     @Test("A song identity is read for its artist")
     func matchesIdentity() {
         let blocked = BlockedArtists(["Nova Harbor"])
-        #expect(blocked.blocks(songIdentity: HistoryImport.key(title: "Golden Moon", artistName: "Nova Harbor")))
-        #expect(!blocked.blocks(songIdentity: HistoryImport.key(title: "Nova Harbor", artistName: "Paper Lanterns")))
+        #expect(blocked.blocks(songIdentity: SongIdentity.key(title: "Golden Moon", artistName: "Nova Harbor")))
+        #expect(!blocked.blocks(songIdentity: SongIdentity.key(title: "Nova Harbor", artistName: "Paper Lanterns")))
         #expect(!blocked.blocks(songIdentity: "no separator"))
     }
 
@@ -68,7 +68,7 @@ struct BlockedArtistsTests {
     @Test("Listening signals leave out a blocked artist's songs, and don't keep the list")
     func signalsExclude() throws {
         var signals = ListeningSignals()
-        let song = HistoryImport.key(title: "Golden Moon", artistName: "Nova Harbor")
+        let song = SongIdentity.key(title: "Golden Moon", artistName: "Nova Harbor")
         #expect(!signals.excludes(song))
         signals.blocked = BlockedArtists(["Nova Harbor"])
         #expect(signals.excludes(song))

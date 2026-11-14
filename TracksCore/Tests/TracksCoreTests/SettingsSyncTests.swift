@@ -22,14 +22,19 @@ struct SettingsSyncTests {
 
     // MARK: - Which settings take part
 
-    /// The anchor records Apple's recently-played list as *this* device last saw it. Sharing
-    /// it would make one device skip real plays and the other import old ones again, so it
-    /// must stay out however emphatic a future "sync everything" is.
-    @Test("settings that mean something different on each device are not mirrored")
-    func deviceLocalSettingsAreExcluded() {
-        let mirrored = Set(SyncedSetting.all.map(\.key))
-        #expect(!mirrored.contains(CaptureSettings.recentlyPlayedAnchorKey))
-        #expect(!mirrored.contains(CaptureSettings.forceCaptureKey))
+    /// Older builds on the user's other devices still write the settings Tracks dropped when
+    /// it stopped keeping songs played in other apps. Taking them in would bring back state
+    /// nothing reads, under names a later setting mustn't share.
+    @Test("a setting an older build still writes doesn't land here", arguments: [
+        "autoPlayBack", "importsRecentlyPlayed", "scrobblesImported", "showsUpNextInWidget", "passedOverSongs",
+    ])
+    func retiredKeysAreIgnored(key: String) {
+        cloud.set([SettingsSync.valueField: true, SettingsSync.modifiedAtField: 100.0], forKey: key)
+        let sync = sync()
+        sync.pull(keys: [key])
+        sync.reconcileAll()
+
+        #expect(defaults.object(forKey: key) == nil)
     }
 
     @Test("the settings the user actually sets are all mirrored")
@@ -39,16 +44,13 @@ struct SettingsSyncTests {
             CaptureSettings.playlistNameKey,
             CaptureSettings.playlistIDKey,
             CaptureSettings.autoAddKey,
-            CaptureSettings.autoPlayBackKey,
             CaptureSettings.capturesOnDemandKey,
             CaptureSettings.minimumListenShareKey,
-            CaptureSettings.importsRecentlyPlayedKey,
             CaptureSettings.scrobblesToLastFMKey,
-            CaptureSettings.scrobblesImportedKey,
             CaptureSettings.excludedStationsKey,
             CaptureSettings.blockedArtistsKey,
             CaptureSettings.forgottenSongsKey,
-            CaptureSettings.showsUpNextInWidgetKey,
+            CaptureSettings.forgottenSongDatesKey,
         ] {
             #expect(mirrored.contains(key), "\(key) should mirror")
         }
@@ -336,42 +338,6 @@ struct SettingsSyncTests {
             cloud.object(forKey: CaptureSettings.forgottenSongsKey) as? [String: Any]
         )
         #expect(envelope[SettingsSync.valueField] as? [String] == ["my song", "their song"])
-    }
-
-    /// Each device trims its own list, but the union put back everything the other device
-    /// still had, so the key only ever grew toward iCloud's limit.
-    @Test("passed-over songs are trimmed after joining both devices' lists")
-    func passedOverSongsAreTrimmedAfterUnion() throws {
-        let now = Date.now
-        let stale = PassedOverSongs.entry("old song", at: now.addingTimeInterval(-3 * 24 * 3_600))
-        let theirs = (0..<PassedOverSongs.limit).map {
-            PassedOverSongs.entry("their song \($0)", at: now.addingTimeInterval(-3_600 - Double($0)))
-        }
-        let mine = PassedOverSongs.entry("my song", at: now.addingTimeInterval(-60))
-        cloud.set(
-            [SettingsSync.valueField: [stale] + theirs, SettingsSync.modifiedAtField: 100.0],
-            forKey: CaptureSettings.passedOverSongsKey
-        )
-        let sync = sync()
-        defaults.set([mine], forKey: CaptureSettings.passedOverSongsKey)
-        sync.pull(keys: [CaptureSettings.passedOverSongsKey])
-
-        let local = try #require(defaults.stringArray(forKey: CaptureSettings.passedOverSongsKey))
-        #expect(local.count == PassedOverSongs.limit)
-        #expect(!local.contains(stale))
-        #expect(local.contains(mine))
-        let envelope = try #require(
-            cloud.object(forKey: CaptureSettings.passedOverSongsKey) as? [String: Any]
-        )
-        #expect(envelope[SettingsSync.valueField] as? [String] == local)
-
-        // Pushing a local change joins the lists as well, and trims them the same way.
-        defaults.set(local + [stale], forKey: CaptureSettings.passedOverSongsKey)
-        sync.pushLocalChanges()
-        let pushed = try #require(
-            cloud.object(forKey: CaptureSettings.passedOverSongsKey) as? [String: Any]
-        )
-        #expect(pushed[SettingsSync.valueField] as? [String] == local)
     }
 
     /// Excluding a station is a list the user curates, so taking one back out has to travel.

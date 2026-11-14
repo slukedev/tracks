@@ -479,7 +479,7 @@ private nonisolated struct HistoryRow: Identifiable, Equatable, Sendable {
             ? capture.capturedAt.formatted(.dateTime.month(.abbreviated).day().hour().minute())
             : capture.capturedAt.formatted(.dateTime.month(.abbreviated).day().year().hour().minute())
         credits = ArtistCredits.song(artist: capture.artistName, title: capture.title)
-        songIdentity = HistoryImport.key(title: capture.title, artistName: capture.artistName)
+        songIdentity = SongIdentity.key(title: capture.title, artistName: capture.artistName)
         scrobble = if capture.scrobbledAt != nil {
             .scrobbled
         } else if capture.isHeldFromScrobbling {

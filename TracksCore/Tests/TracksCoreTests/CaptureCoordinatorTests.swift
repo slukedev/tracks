@@ -29,7 +29,6 @@ final class FakePlaylistWriter: PlaylistWriter, @unchecked Sendable {
 struct FakeCatalogResolver: CatalogResolving {
     let result: CatalogCandidate?
     var artwork: [String: String] = [:]
-    var stationName: String?
     /// The search request fails, as it does offline or without a MusicKit developer token.
     var searchFails = false
     func resolve(_ query: CatalogQuery) async throws -> CatalogCandidate? {
@@ -39,7 +38,6 @@ struct FakeCatalogResolver: CatalogResolving {
     func artworkURLs(forSongIDs ids: [String]) async throws -> [String: String] {
         artwork.filter { ids.contains($0.key) }
     }
-    func mostRecentStationName() async throws -> String? { stationName }
 }
 
 @MainActor
@@ -77,14 +75,16 @@ struct CaptureCoordinatorTests {
     func radio(
         title: String = "Dai Dai",
         artist: String = "Shakira & Burna Boy",
-        id: String? = "6768469976"
+        id: String? = "6768469976",
+        station: String? = nil
     ) -> NowPlayingObservation {
         NowPlayingObservation(
             title: title,
             artistName: artist,
             catalogSongID: id,
             duration: 223,
-            rawFields: ["entry.id": "PxDIf4ejk::STREAM"]
+            stationName: station,
+            isStation: true
         )
     }
 
@@ -144,7 +144,7 @@ struct CaptureCoordinatorTests {
     @Test("an on-demand track is neither stored nor written")
     func ignoresOnDemand() async throws {
         var observation = radio()
-        observation.rawFields["entry.id"] = "PRhKeIIy0::6ostOUDHU"
+        observation.isStation = false
         let subject = coordinator()
         await subject.handle(observation)
         await subject.drainPendingWrites()
@@ -153,8 +153,8 @@ struct CaptureCoordinatorTests {
         #expect(writer.added.isEmpty)
     }
 
-    /// macOS: no catalog id at capture time, so the row is stored first and resolved after.
-    @Test("a macOS capture is resolved by catalog search before being written")
+    /// No catalog id at capture time, so the row is stored first and resolved after.
+    @Test("a capture with no catalog id is resolved by catalog search before being written")
     func resolvesCatalogID() async throws {
         let subject = coordinator(
             resolver: FakeCatalogResolver(
@@ -173,7 +173,8 @@ struct CaptureCoordinatorTests {
             albumTitle: "Nostalgia - Single",
             catalogSongID: nil,
             duration: nil,
-            playerPosition: 0
+            playerPosition: 0,
+            isStation: true
         )
         await subject.handle(observation)
         await subject.drainPendingWrites()
@@ -181,7 +182,7 @@ struct CaptureCoordinatorTests {
         let captures = try store.context.fetch(TracksStore.radioCaptures())
         #expect(captures.first?.songID == "9999")
         #expect(writer.addedIDs == ["9999"])
-        // macOS gets no artwork from playerInfo, so the match has to supply it.
+        // The observation had no artwork, so the match has to supply it.
         #expect(captures.first?.artworkURL == "https://example.test/art.jpg")
     }
 
@@ -190,7 +191,7 @@ struct CaptureCoordinatorTests {
     func unresolvableIsNotWritten() async throws {
         let subject = coordinator(resolver: FakeCatalogResolver(result: nil))
         let observation = NowPlayingObservation(
-            title: "Nostalgia", artistName: "Lossapardo", catalogSongID: nil, playerPosition: 0
+            title: "Nostalgia", artistName: "Lossapardo", catalogSongID: nil, playerPosition: 0, isStation: true
         )
         for _ in 0..<maxCatalogLookupAttempts {
             await subject.handle(observation)
@@ -209,7 +210,7 @@ struct CaptureCoordinatorTests {
     @Test("a failed search doesn't use up the song's lookup attempts")
     func failedSearchIsRetried() async throws {
         let observation = NowPlayingObservation(
-            title: "Nostalgia", artistName: "Lossapardo", catalogSongID: nil, playerPosition: 0
+            title: "Nostalgia", artistName: "Lossapardo", catalogSongID: nil, playerPosition: 0, isStation: true
         )
         var failing = FakeCatalogResolver(result: nil)
         failing.searchFails = true
@@ -287,35 +288,6 @@ struct CaptureCoordinatorTests {
         #expect(capture.artworkURL == "https://example.test/cover.jpg")
     }
 
-    /// Starting the app mid-station misses the tune-in, which used to leave the session
-    /// called "Radio".
-    @Test("the station is looked up when no tune-in was witnessed")
-    func stationLookedUpWhenNotAnnounced() async throws {
-        let subject = coordinator(
-            resolver: FakeCatalogResolver(result: nil, stationName: "Apple Música Uno")
-        )
-        await subject.handle(radio())
-
-        let sessions = try store.context.fetch(Self.sessionsInOrder)
-        try #require(sessions.count == 1)
-        let session = sessions[0]
-        #expect(session.station?.name == "Apple Música Uno")
-    }
-
-    @Test("an announced station beats the lookup")
-    func announcedStationWins() async throws {
-        let subject = coordinator(
-            resolver: FakeCatalogResolver(result: nil, stationName: "Something Else")
-        )
-        await subject.handle(NowPlayingObservation(title: "Apple Music 1", artistName: ""))
-        await subject.handle(radio())
-
-        let sessions = try store.context.fetch(Self.sessionsInOrder)
-        try #require(sessions.count == 1)
-        let session = sessions[0]
-        #expect(session.station?.name == "Apple Music 1")
-    }
-
     @Test("turning off auto-add stores the capture without writing it")
     func autoAddOff() async throws {
         settings.autoAddToPlaylist = false
@@ -339,17 +311,21 @@ struct CaptureCoordinatorTests {
         #expect(writer.addedIDs == ["1", "2"])
     }
 
-    @Test("a station announcement names the session without being captured")
-    func stationAnnouncementNamesSession() async throws {
+    @Test("the station the player names, names the session, and is the one playing")
+    func stationNamesSession() async throws {
         let subject = coordinator()
-        await subject.handle(NowPlayingObservation(title: "Apple Music 1", artistName: ""))
-        await subject.handle(radio())
+        await subject.handle(radio(station: "Apple Music 1"))
 
         #expect(try store.context.fetch(TracksStore.radioCaptures()).count == 1)
         let sessions = try store.context.fetch(Self.sessionsInOrder)
         try #require(sessions.count == 1)
-        let session = sessions[0]
-        #expect(session.station?.name == "Apple Music 1")
+        #expect(sessions[0].station?.name == "Apple Music 1")
+        #expect(subject.currentStationName == "Apple Music 1")
+
+        var onDemand = radio(title: "Other", id: "2")
+        onDemand.isStation = false
+        await subject.handle(onDemand)
+        #expect(subject.currentStationName == nil)
     }
 }
 
@@ -383,7 +359,7 @@ struct MinimumListenTests {
             artistName: "An Artist",
             catalogSongID: title,
             duration: duration,
-            rawFields: ["entry.id": "x::STREAM"]
+            isStation: true
         )
     }
 
@@ -504,7 +480,6 @@ final class SlowCatalogResolver: CatalogResolving, @unchecked Sendable {
         return nil
     }
     func artworkURLs(forSongIDs ids: [String]) async throws -> [String: String] { [:] }
-    func mostRecentStationName() async throws -> String? { nil }
 }
 
 /// Capture can't wait on the catalog: an observation that sits behind a slow search starts
@@ -524,7 +499,7 @@ struct CaptureDrainTests {
     }
 
     func unresolved(_ title: String) -> NowPlayingObservation {
-        NowPlayingObservation(title: title, artistName: "Lossapardo", catalogSongID: nil, playerPosition: 0)
+        NowPlayingObservation(title: title, artistName: "Lossapardo", catalogSongID: nil, playerPosition: 0, isStation: true)
     }
 
     @Test("an observation is handled without waiting for the catalog")
@@ -597,7 +572,7 @@ struct ScrobbleRuleTests {
             catalogSongID: title,
             duration: duration,
             playbackState: state,
-            rawFields: ["entry.id": "x::STREAM"]
+            isStation: true
         )
     }
 

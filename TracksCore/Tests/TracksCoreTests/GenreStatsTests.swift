@@ -19,7 +19,7 @@ private func capture(_ title: String, artist: String = "An Artist", songID: Stri
 }
 
 private func identity(_ title: String, artist: String = "An Artist") -> String {
-    HistoryImport.key(title: title, artistName: artist)
+    SongIdentity.key(title: title, artistName: artist)
 }
 
 /// `plays` of each song, an hour apart, on 8 September 2026.
@@ -260,6 +260,6 @@ struct GenreStatsTests {
     func demoMetadataCoversDemoPlays() {
         let metadata = DemoLibrary.songMetadata()
         let plays = DemoLibrary.plays(endingAt: date(2026, 9, 9), calendar: calendar, days: 30)
-        #expect(plays.allSatisfy { metadata[HistoryImport.key(title: $0.title, artistName: $0.artistName)]?.genre != nil })
+        #expect(plays.allSatisfy { metadata[SongIdentity.key(title: $0.title, artistName: $0.artistName)]?.genre != nil })
     }
 }

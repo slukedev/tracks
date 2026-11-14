@@ -44,7 +44,6 @@ struct MusicPlayerReadingTests {
         #expect(MusicPlayerReading.observation(from: nil, status: .playing, playbackTime: 0) == nil)
     }
 
-    /// Radio detection reads the entry id back out of the raw fields.
     @Test("the entry id and title are kept in the raw fields")
     func rawFields() throws {
         let entry = MusicPlayer.Queue.Entry(try Self.song())
@@ -66,15 +65,6 @@ struct MusicPlayerReadingTests {
         )
         #expect(observation.playbackState == .paused)
         #expect(observation.isCapturable == false)
-    }
-
-    @Test("an on-demand song with a real duration is not radio")
-    func onDemandIsNotRadio() throws {
-        let entry = MusicPlayer.Queue.Entry(try Self.song())
-        let observation = try #require(
-            MusicPlayerReading.observation(from: entry, status: .playing, playbackTime: 28.1)
-        )
-        #expect(observation.radioVerdict() == .onDemand)
     }
 
     @Test("a position the player can't report is left unknown", arguments: [TimeInterval.nan, .infinity])

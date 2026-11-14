@@ -10,9 +10,8 @@ public enum CaptureDecision: Sendable, Equatable {
 
     public struct Capturable: Sendable, Equatable {
         public let observation: NowPlayingObservation
-        /// `.radio` or `.onDemand`. Only radio goes to the playlist and play-back.
+        /// `.radio` or `.onDemand`. Only radio goes to the playlist.
         public let kind: CaptureKind
-        public let confidence: RadioHeuristic.Confidence
         /// Set when the platform gave an ID; nil means a catalog search is needed.
         public let catalogSongID: String?
         /// Present when this observation also names the station.
@@ -21,30 +20,26 @@ public enum CaptureDecision: Sendable, Equatable {
         public init(
             observation: NowPlayingObservation,
             kind: CaptureKind = .radio,
-            confidence: RadioHeuristic.Confidence,
             catalogSongID: String?,
             stationName: String?
         ) {
             self.observation = observation
             self.kind = kind
-            self.confidence = confidence
             self.catalogSongID = catalogSongID
             self.stationName = stationName
         }
     }
 
     public enum Reason: Sendable, Equatable {
-        /// Paused, stopped, or an empty state-change payload.
+        /// Paused or stopped.
         case notPlaying
-        /// The queue announced a station, not a track.
-        case stationAnnouncement(name: String)
         /// Playing on demand, with on-demand capture switched off.
         case onDemand
         /// Not enough metadata to identify anything.
         case unidentifiable
         /// The user excluded this station in Settings.
         case excludedStation(name: String)
-        /// Seen recently enough to be the same play. Common, since macOS polls every 10 seconds.
+        /// Seen recently enough to be the same play.
         case duplicate(secondsSinceLast: TimeInterval)
         /// Playing, but not long enough to count yet. The caller uses `needs` to know when
         /// to check again.
@@ -61,19 +56,16 @@ public enum CaptureDecision: Sendable, Equatable {
 public struct CapturePolicy: Sendable {
     public let dedupe: DedupePolicy
     public let excludedStations: Set<String>
-    public let forceCapture: Bool
     /// Whether to keep on-demand plays too. Off, only stations are recorded.
     public let capturesOnDemand: Bool
 
     public init(
         dedupe: DedupePolicy = .default,
         excludedStations: Set<String> = [],
-        forceCapture: Bool = false,
         capturesOnDemand: Bool = true
     ) {
         self.dedupe = dedupe
         self.excludedStations = excludedStations
-        self.forceCapture = forceCapture
         self.capturesOnDemand = capturesOnDemand
     }
 
@@ -85,30 +77,10 @@ public struct CapturePolicy: Sendable {
         now: Date = .now
     ) -> CaptureDecision {
         guard observation.playbackState == .playing else { return .ignore(.notPlaying) }
-
-        if let station = observation.announcedStationName {
-            return .ignore(.stationAnnouncement(name: station))
-        }
-
         guard observation.isIdentifiable else { return .ignore(.unidentifiable) }
 
-        let verdict = observation.radioVerdict(userForcedCapture: forceCapture)
-        let kind: CaptureKind
-        let confidence: RadioHeuristic.Confidence
-        switch verdict {
-        case .radio(let stated):
-            kind = .radio
-            confidence = stated
-        case .onDemand:
-            guard capturesOnDemand else { return .ignore(.onDemand) }
-            kind = .onDemand
-            // Confidence is about radio, so it means nothing here. It's only logged.
-            confidence = .likely
-        case .unknown:
-            // `RadioHeuristic.evaluate` never returns this today. Don't keep what we can't
-            // classify.
-            return .ignore(.unidentifiable)
-        }
+        let kind: CaptureKind = observation.isRadio ? .radio : .onDemand
+        if kind == .onDemand, !capturesOnDemand { return .ignore(.onDemand) }
 
         // Only stations can be excluded.
         if kind == .radio, let station = observation.stationName,
@@ -125,7 +97,6 @@ public struct CapturePolicy: Sendable {
             .init(
                 observation: observation,
                 kind: kind,
-                confidence: confidence,
                 catalogSongID: observation.catalogSongID,
                 stationName: observation.stationName
             )

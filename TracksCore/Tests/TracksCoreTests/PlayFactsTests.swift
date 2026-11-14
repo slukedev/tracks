@@ -26,7 +26,7 @@ struct PlayFactsTests {
             play("Other", at: 1),
         ])
         let facts = PlayFacts.songs(in: history)
-        let song = try #require(facts[HistoryImport.key(title: "Song", artistName: "Artist")])
+        let song = try #require(facts[SongIdentity.key(title: "Song", artistName: "Artist")])
         #expect(song.plays == 3)
         #expect(song.radioPlays == 1)
         #expect(song.firstHeard == start)

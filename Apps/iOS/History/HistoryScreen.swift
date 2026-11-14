@@ -106,7 +106,7 @@ private struct HistoryList: View {
             ForEach(days, id: \.day) { day in
                 Section {
                     ForEach(day.captures) { capture in
-                        NavigationLink(value: Route.song(HistoryImport.key(title: capture.title, artistName: capture.artistName))) {
+                        NavigationLink(value: Route.song(SongIdentity.key(title: capture.title, artistName: capture.artistName))) {
                             CaptureRow(capture: capture, showsScrobbleState: isScrobbling)
                         }
                         .swipeActions(edge: .trailing) {

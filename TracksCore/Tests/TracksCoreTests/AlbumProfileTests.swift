@@ -165,9 +165,9 @@ struct AlbumProfileTests {
                 play("Undertow", id: "2", at: date(2026, 9, 2)),
             ],
             songMetadata: [
-                HistoryImport.key(title: "Saltwater", artistName: "Mara Solis"):
+                SongIdentity.key(title: "Saltwater", artistName: "Mara Solis"):
                     SongMetadata(genre: "Alternative", releaseYear: 1994),
-                HistoryImport.key(title: "Undertow", artistName: "Mara Solis"):
+                SongIdentity.key(title: "Undertow", artistName: "Mara Solis"):
                     SongMetadata(genre: "Alternative", releaseYear: 2011),
             ]
         )

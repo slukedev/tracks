@@ -77,7 +77,7 @@ struct ServerMixTests {
             [song("Night Drive", by: "Mara Solis"), song("Tidal", by: "Mara Solis")],
             [song("Night Drive", by: "Mara Solis"), song("Harbor Lights", by: "Nova Harbor")],
         ]
-        let heard = HistoryImport.key(title: "Tidal", artistName: "Mara Solis")
+        let heard = SongIdentity.key(title: "Tidal", artistName: "Mara Solis")
         let mix = ServerMix.mix(found, heard: { $0 == heard }, seed: 1)
         #expect(mix.map(\.title).sorted() == ["Harbor Lights", "Night Drive"])
     }

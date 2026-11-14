@@ -127,7 +127,7 @@ public enum DemoLibrary {
                 // Favourites have catalogues going back decades; the long tail is newer.
                 let year = 2025 - (rank * 7 + number * 4) % (rank < 6 ? 40 : 15)
                 for song in album.songs {
-                    result[HistoryImport.key(title: song.title, artistName: song.artist)] =
+                    result[SongIdentity.key(title: song.title, artistName: song.artist)] =
                         SongMetadata(genre: genre, releaseYear: year, artists: Catalog.catalogArtists(of: song))
                 }
             }

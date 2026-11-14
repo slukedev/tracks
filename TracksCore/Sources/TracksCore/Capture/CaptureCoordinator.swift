@@ -4,27 +4,22 @@ import SwiftData
 /// The capture loop: observations in, rows and playlist writes out.
 ///
 /// The store work happens in the store's ``HistoryWriter``, off the main actor. Observations
-/// are taken in one at a time, so two of the same song (macOS polls every 10 seconds) can't
-/// both pass the dedupe check. The slow work (catalog lookup, playlist write) happens
-/// afterwards, from the saved row.
+/// are taken in one at a time, so two of the same song can't both pass the dedupe check. The
+/// slow work (catalog lookup, playlist write) happens afterwards, from the saved row.
 @MainActor
 public final class CaptureCoordinator {
     private let store: TracksStore
     private let writer: HistoryWriter
     private let settings: CaptureSettings
     private let playlistWriter: any PlaylistWriter
-    /// Catalog ids (macOS, where the notification has none), artwork, and the station's
-    /// name when Tracks starts mid-station. Nil in tests that don't need it.
+    /// Catalog ids for rows that have none, and artwork. Nil in tests that don't need it.
     private let catalogResolver: (any CatalogResolving)?
     private let sessionPolicy: SessionPolicy
 
     /// The most recent decision, for the UI and the probe to show.
     public private(set) var lastDecision: CaptureDecision?
-    /// Station name learned from the last announcement, applied to subsequent captures.
+    /// The station playing, as of the last song seen. Nil on demand.
     public private(set) var currentStationName: String?
-    /// Whether we've already asked Apple which station is on. It's a network call, so once
-    /// per station.
-    private var hasAskedForStationName = false
 
     public init(
         store: TracksStore,
@@ -57,23 +52,13 @@ public final class CaptureCoordinator {
         now: Date = .now,
         force: Bool = false
     ) async -> CaptureDecision {
-        // Station announcements aren't captured, but they're where the station name comes from.
-        if let station = observation.announcedStationName {
-            currentStationName = station
-            hasAskedForStationName = true
-        } else if currentStationName == nil, !hasAskedForStationName {
-            // The app started mid-station, so there was no announcement. Ask Apple.
-            hasAskedForStationName = true
-            currentStationName = try? await catalogResolver?.mostRecentStationName()
+        if observation.isCapturable {
+            currentStationName = observation.isRadio ? observation.stationName : nil
         }
-
-        var observation = observation
-        if observation.stationName == nil { observation.stationName = currentStationName }
 
         let policy = CapturePolicy(
             dedupe: settings.dedupePolicy,
             excludedStations: settings.excludedStations,
-            forceCapture: settings.forceCapture,
             capturesOnDemand: settings.capturesOnDemand
         )
 
@@ -81,7 +66,7 @@ public final class CaptureCoordinator {
         lastDecision = decision
 
         // Drain on every observation, not just new captures, so a failed write is retried
-        // within 10 seconds instead of waiting for the next song. Cheap when nothing is owed.
+        // soon instead of waiting for the next song. Cheap when nothing is owed.
         // Not waited for: a drain can spend minutes on the catalog, and the observations
         // queued behind it would be handled late, with their listening clocks started late.
         startDrain()
@@ -236,9 +221,9 @@ public final class CaptureCoordinator {
 
     /// The watch an earlier run left behind, when the song it held back is still playing.
     ///
-    /// The watch lives in memory, so when iOS ended Tracks in the background while Music
-    /// kept playing, the play stayed held for good and the song never scrobbled. Dedupe keeps
-    /// the same song from being captured again, so nothing else would start a new watch.
+    /// The watch lives in memory, so when Tracks was relaunched while its player kept the song
+    /// on, the play stayed held for good and the song never scrobbled. Dedupe keeps the same
+    /// song from being captured again, so nothing else would start a new watch.
     /// The time since it was kept counts as played, as long as that fits inside the song.
     private func heldPlayStillPlaying(_ observation: NowPlayingObservation, now: Date) async -> ScrobbleWatch? {
         guard observation.isCapturable,
@@ -275,7 +260,7 @@ public final class CaptureCoordinator {
         )
     }
 
-    /// Identity for a track with no catalog ID yet (macOS, before the search runs).
+    /// Identity for a track with no catalog ID, such as one of your own files.
     static func metadataKey(for observation: NowPlayingObservation) -> String {
         "\(observation.title)\u{1F}\(observation.artistName)".lowercased()
     }
@@ -284,8 +269,8 @@ public final class CaptureCoordinator {
 
     /// The drain in progress, which later callers wait on rather than starting their own.
     ///
-    /// Launch, every observation, the Mac's poll and the housekeeping timer all drain, and a
-    /// drain spends most of its time waiting on Apple with the rows it fetched. Two at once
+    /// Launch, every observation and the housekeeping timer all drain, and a drain spends
+    /// most of its time waiting on Apple with the rows it fetched. Two at once
     /// both wrote the same songs, so the playlist got them twice.
     private var runningDrain: Task<Void, Never>?
     /// Set when someone asked for a drain while one was running, so a capture made after the
@@ -296,7 +281,7 @@ public final class CaptureCoordinator {
     /// any one song's fault.
     private(set) var writeBackoff = RetryBackoff()
     /// The same for catalog searches and artwork lookups, which otherwise went out on every
-    /// ten-second poll while offline or without a token.
+    /// observation while offline or without a token.
     private(set) var lookupBackoff = RetryBackoff()
     /// The clock, replaceable so tests can step past the backoff.
     var now: () -> Date = { .now }
@@ -462,7 +447,7 @@ public final class CaptureCoordinator {
         }
     }
 
-    /// macOS has no catalog ID until we search for one.
+    /// Rows with no catalog ID until one is searched for.
     private func resolveMissingCatalogIDs() async {
         guard let catalogResolver, lookupBackoff.allows(at: now()) else { return }
         store.saveMainContext()
@@ -628,7 +613,7 @@ public final class CaptureCoordinator {
             } else {
                 id = try await playlistWriter.createPlaylist(
                     name: name,
-                    description: "Songs Tracks captured from Apple Music Radio."
+                    description: "Radio songs played in Tracks."
                 )
             }
             // Synced down while the request was out: that one wins.

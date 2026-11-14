@@ -246,7 +246,7 @@ struct SubsonicTests {
         #expect(track.origin == .server(serverID: "home", songID: "s1"))
         #expect(track.format?.detail == "24-bit/96 kHz")
         #expect(track.artwork == .server(serverID: "home", coverID: "al-1"))
-        #expect(track.identity == HistoryImport.key(title: "Night Drive", artistName: "Mara Solis"))
+        #expect(track.identity == SongIdentity.key(title: "Night Drive", artistName: "Mara Solis"))
     }
 
     @Test("says why a server refused", arguments: [
@@ -302,7 +302,7 @@ struct SubsonicTests {
         let track = song.track(on: "home")
         #expect(track.origin == .server(serverID: "home", songID: "4hT9xQbZ2mLr8VnC1kPw0a"))
         #expect(track.artwork == .server(serverID: "home", coverID: "4hT9xQbZ2mLr8VnC1kPw0a"))
-        #expect(track.identity == HistoryImport.key(title: "Night Drive", artistName: "Mara Solis"))
+        #expect(track.identity == SongIdentity.key(title: "Night Drive", artistName: "Mara Solis"))
     }
 }
 
@@ -403,7 +403,7 @@ struct LocalLibraryTests {
         let file = track("Night Drive")
         let copy = track("Night Drive", server: true)
         let index = LocalLibraryIndex(tracks: [file, copy, track("Tidal")])
-        #expect(Set(index.tracks(withIdentity: HistoryImport.key(title: "night drive", artistName: "MARA SOLIS"))) == [file, copy])
+        #expect(Set(index.tracks(withIdentity: SongIdentity.key(title: "night drive", artistName: "MARA SOLIS"))) == [file, copy])
         #expect(index.tracks(withIdentity: "nothing").isEmpty)
     }
 

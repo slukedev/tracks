@@ -41,24 +41,6 @@ struct StoreMaintenanceTests {
         #expect(try store.context.fetch(TracksStore.allCaptures()).first?.capturedByDeviceID == "")
     }
 
-    // MARK: - Recently Played anchor
-
-    @Test("the anchor moves after a successful import, and when nothing was new")
-    func anchorMovesAfterSuccess() throws {
-        let settings = CaptureSettings(suiteName: suiteName)
-        defer { ScratchDefaults.remove(suiteName: suiteName) }
-        let songs = [PlayedSong(songID: "1", title: "One", artistName: "A")]
-
-        #expect(try store.importPlayedSongs(songs, settings: settings) == 1)
-        let anchor = settings.recentlyPlayedAnchor
-        #expect(anchor == [HistoryImport.key(title: "One", artistName: "A")])
-
-        // Already imported, so nothing new; the anchor still reflects this list.
-        settings.recentlyPlayedAnchor = []
-        #expect(try store.importPlayedSongs(songs, settings: settings) == 0)
-        #expect(settings.recentlyPlayedAnchor == anchor)
-    }
-
     // MARK: - Narrowed scans
 
     @Test("forgetting matches case, accents and spacing, for plain and accented names")
@@ -91,7 +73,7 @@ struct StoreMaintenanceTests {
         #expect(try await store.forgetSong(title: "cafe", artistName: "BAND", settings: settings) == 2)
         #expect(try await store.forgetSong(title: "Cafe Society", artistName: "Bänd", settings: settings) == 1)
         #expect(try store.context.fetch(TracksStore.allCaptures()).map(\.artistName) == ["Other"])
-        #expect(settings.forgottenSongs.contains(HistoryImport.key(title: "Café", artistName: "Band")))
+        #expect(settings.forgottenSongs.contains(SongIdentity.key(title: "Café", artistName: "Band")))
     }
 
     @Test("forgetting through the history reader sees a play saved just before")

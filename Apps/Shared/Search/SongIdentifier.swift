@@ -141,7 +141,7 @@ nonisolated struct IdentifiedSong: Equatable, Sendable {
         self.artistName = artistName
         self.cover = cover
         self.songID = songID
-        let identity = HistoryImport.key(title: title, artistName: artistName)
+        let identity = SongIdentity.key(title: title, artistName: artistName)
         songIdentity = identity
         lastPlay = history.captures.last { $0.songIdentity == identity }
     }

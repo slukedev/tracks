@@ -149,7 +149,7 @@ struct PartyMixTests {
 
     func history(genres: [String: (String, Int?)], plays: [CaptureStat]) -> ListeningHistory {
         let metadata = Dictionary(uniqueKeysWithValues: genres.map {
-            (HistoryImport.key(title: $0.key, artistName: "A"), SongMetadata(genre: $0.value.0, releaseYear: $0.value.1))
+            (SongIdentity.key(title: $0.key, artistName: "A"), SongMetadata(genre: $0.value.0, releaseYear: $0.value.1))
         })
         return ListeningHistory(plays).with(artistArtwork: [:], songMetadata: metadata)
     }

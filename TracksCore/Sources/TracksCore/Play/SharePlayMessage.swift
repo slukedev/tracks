@@ -27,7 +27,7 @@ public struct SharePlaySong: Codable, Sendable, Hashable {
 
     /// The key Tracks’ history groups plays by, which ties a row in Up Next back to the
     /// request that put it there, whichever copy of the song the host found.
-    public var identity: String { HistoryImport.key(title: title, artistName: artistName) }
+    public var identity: String { SongIdentity.key(title: title, artistName: artistName) }
 }
 
 /// A song in the host's queue, as the group sees it.
@@ -48,7 +48,7 @@ public struct SharePlayTrack: Codable, Sendable, Hashable, Identifiable {
         self.isFromSharePlay = isFromSharePlay
     }
 
-    public var identity: String { HistoryImport.key(title: title, artistName: artistName) }
+    public var identity: String { SongIdentity.key(title: title, artistName: artistName) }
 }
 
 /// What's on at the host: the song, what's next, and whether there's a queue to add to.

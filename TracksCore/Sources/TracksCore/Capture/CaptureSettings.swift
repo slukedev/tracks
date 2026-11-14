@@ -3,31 +3,29 @@ import Foundation
 /// User-facing capture settings, shared with extensions through the App Group.
 ///
 /// In `UserDefaults` so widgets and intents can read them without opening the model container.
+///
+/// Keys an older build may still write, and a newer one must not take for something else:
+/// `forceCapture`, `autoPlayBack`, `importsRecentlyPlayed`, `recentlyPlayedAnchor`,
+/// `passedOverSongs`, `scrobblesImported` and `showsUpNextInWidget`. Tracks once recorded
+/// songs played in other apps and played radio back; nothing reads these now.
 public struct CaptureSettings: Sendable {
     public static let playlistNameKey = "playlistName"
     public static let playlistIDKey = "playlistID"
     public static let dedupeWindowKey = "dedupeWindowSeconds"
     public static let autoAddKey = "autoAddToPlaylist"
-    public static let forceCaptureKey = "forceCapture"
-    public static let autoPlayBackKey = "autoPlayBack"
     public static let capturesOnDemandKey = "capturesOnDemand"
     public static let minimumListenShareKey = "minimumListenShare"
     /// When a play counted after a set time. Read once, by ``migrateMinimumListen()``.
     static let legacyMinimumListenKey = "minimumListenSeconds"
-    public static let importsRecentlyPlayedKey = "importsRecentlyPlayed"
     public static let forgottenSongsKey = "forgottenSongs"
     public static let forgottenSongDatesKey = "forgottenSongDates"
-    public static let passedOverSongsKey = "passedOverSongs"
     public static let scrobblesToLastFMKey = "scrobblesToLastFM"
-    public static let scrobblesImportedKey = "scrobblesImported"
     public static let menuBarLabelStyleKey = "menuBarLabelStyle"
     public static let menuBarLabelFormatKey = "menuBarLabelFormat"
     public static let animatesMenuBarKey = "animatesMenuBar"
     public static let showsMenuBarProgressKey = "showsMenuBarProgress"
     public static let excludedStationsKey = "excludedStations"
     public static let blockedArtistsKey = "blockedArtists"
-    public static let showsUpNextInWidgetKey = "showsUpNextInWidget"
-    public static let recentlyPlayedAnchorKey = "recentlyPlayedAnchor"
     public static let artworkMissesKey = "artworkMisses"
     public static let lastFMHistoryKey = "lastFMHistoryImport"
 
@@ -83,18 +81,10 @@ public struct CaptureSettings: Sendable {
         defaults.set(seconds, forKey: Self.dedupeWindowKey)
     }
 
-    /// Whether to play the day's radio songs again once a station stops, so Apple counts
-    /// them as plays. Off by default: it starts music on its own, so the user has to opt in.
-    /// The songs play audibly, and apps that read Apple's history will list them twice.
-    public var autoPlayBack: Bool {
-        get { defaults.object(forKey: Self.autoPlayBackKey) as? Bool ?? false }
-        nonmutating set { defaults.set(newValue, forKey: Self.autoPlayBackKey) }
-    }
-
     /// Half, as Last.fm counts a scrobble.
     public static let defaultMinimumListenShare = 0.5
-    /// The most that can be asked for. The Mac looks every 10 seconds, so a song that had to
-    /// play to the end would often finish before anyone saw it get there.
+    /// The most that can be asked for. A song that had to play to the end would often
+    /// finish, and move on, before the check that counts it.
     public static let maximumListenShare = 0.9
     /// The length taken for a song whose own isn't known, such as one on a live stream.
     public static let assumedSongLength: TimeInterval = 240
@@ -143,14 +133,6 @@ public struct CaptureSettings: Sendable {
         nonmutating set { defaults.set(newValue, forKey: Self.capturesOnDemandKey) }
     }
 
-    /// Whether to import listening that happened while Tracks wasn't running. On by default;
-    /// iOS suspends Tracks within about thirty seconds in the background, so this is most of
-    /// the iPhone's history.
-    public var importsRecentlyPlayed: Bool {
-        get { defaults.object(forKey: Self.importsRecentlyPlayedKey) as? Bool ?? true }
-        nonmutating set { defaults.set(newValue, forKey: Self.importsRecentlyPlayedKey) }
-    }
-
     /// What the macOS menu bar shows. Defaults to the note symbol.
     public var menuBarLabelStyle: MenuBarLabelStyle {
         get { MenuBarLabelStyle(stored: defaults.string(forKey: Self.menuBarLabelStyleKey)) }
@@ -178,21 +160,9 @@ public struct CaptureSettings: Sendable {
         nonmutating set { defaults.set(newValue, forKey: Self.menuBarLabelFormatKey) }
     }
 
-    /// Whether the Today widget shows what "Play back" will play next. On by default.
-    public var showsUpNextInWidget: Bool {
-        get { defaults.object(forKey: Self.showsUpNextInWidgetKey) as? Bool ?? true }
-        nonmutating set { defaults.set(newValue, forKey: Self.showsUpNextInWidgetKey) }
-    }
-
     public var autoAddToPlaylist: Bool {
         get { defaults.object(forKey: Self.autoAddKey) as? Bool ?? true }
         nonmutating set { defaults.set(newValue, forKey: Self.autoAddKey) }
-    }
-
-    /// Captures even when the radio heuristic says no.
-    public var forceCapture: Bool {
-        get { defaults.bool(forKey: Self.forceCaptureKey) }
-        nonmutating set { defaults.set(newValue, forKey: Self.forceCaptureKey) }
     }
 
     public var excludedStations: Set<String> {
@@ -206,29 +176,23 @@ public struct CaptureSettings: Sendable {
         nonmutating set { defaults.set(newValue.names, forKey: Self.blockedArtistsKey) }
     }
 
-    /// Apple's recently played list as it was at the last import, as `HistoryImport.key`
-    /// values, newest first.
-    public var recentlyPlayedAnchor: [String] {
-        get { defaults.stringArray(forKey: Self.recentlyPlayedAnchorKey) ?? [] }
-        nonmutating set { defaults.set(newValue, forKey: Self.recentlyPlayedAnchorKey) }
-    }
-
-    /// Songs the user has removed, by ``HistoryImport/key(title:artistName:)``. They're
-    /// still in Apple's recently-played list, so without this the next import brings them back.
+    /// Songs the user has removed, by ``SongIdentity/key(title:artistName:)``, so the Last.fm
+    /// history import doesn't bring them back.
     public var forgottenSongs: Set<String> {
         get { Set(defaults.stringArray(forKey: Self.forgottenSongsKey) ?? []) }
         nonmutating set { defaults.set(Array(newValue).sorted(), forKey: Self.forgottenSongsKey) }
     }
 
-    /// When each song in ``forgottenSongs`` was last forgotten, kept beside it as
-    /// ``PassedOverSongs``-style entries so two devices' copies join with a union.
+    /// When each song in ``forgottenSongs`` was last forgotten, kept beside it as entries that
+    /// sort oldest first, `"<seconds since 1970>␞<song key>"`, so two devices' copies join
+    /// with a union.
     ///
     /// A key of its own, so a build that only knows ``forgottenSongs`` reads that unchanged.
     /// Songs forgotten before this existed have no date and stay forgotten for good.
     public var forgottenSongDates: [String: Date] {
         var dates: [String: Date] = [:]
         for entry in defaults.stringArray(forKey: Self.forgottenSongDatesKey) ?? [] {
-            guard let (at, key) = PassedOverSongs.parse(entry) else { continue }
+            guard let (at, key) = Self.parseDated(entry) else { continue }
             dates[key] = max(dates[key] ?? at, at)
         }
         return dates
@@ -238,39 +202,37 @@ public struct CaptureSettings: Sendable {
     public func noteForgotten(_ songKey: String, at date: Date = .now) {
         forgottenSongs.insert(songKey)
         var entries = Set(defaults.stringArray(forKey: Self.forgottenSongDatesKey) ?? [])
-        entries.insert(PassedOverSongs.entry(songKey, at: date))
+        entries.insert(Self.dated(songKey, at: date))
         defaults.set(entries.sorted(), forKey: Self.forgottenSongDatesKey)
     }
 
-    /// Whether a play of a forgotten song, dated `playedAt`, still counts as forgotten.
-    ///
-    /// Only plays from before the song was forgotten, plus `grace` for lists like Apple's
-    /// recently played that keep showing it for a while. Forgetting a song used to block every
-    /// later play of it on every device for good.
+    /// Whether a play of a forgotten song, dated `playedAt`, still counts as forgotten: only
+    /// plays from before the song was forgotten. Forgetting a song used to block every later
+    /// play of it on every device for good.
     static func isForgotten(
         _ songKey: String,
         playedAt: Date,
         forgotten: Set<String>,
-        dates: [String: Date],
-        grace: TimeInterval = 0
+        dates: [String: Date]
     ) -> Bool {
         guard forgotten.contains(songKey) else { return false }
         guard let forgottenAt = dates[songKey] else { return true }
-        return playedAt < forgottenAt.addingTimeInterval(grace)
+        return playedAt < forgottenAt
     }
 
-    /// Songs Tracks’ player moved on from before they counted, on any of the user's devices.
-    /// They're in Apple's recently-played list, so without this the next import counts them.
-    public var passedOverSongs: PassedOverSongs {
-        get { PassedOverSongs(defaults.stringArray(forKey: Self.passedOverSongsKey) ?? []) }
-        nonmutating set { defaults.set(newValue.entries, forKey: Self.passedOverSongsKey) }
+    private static let datedSeparator: Character = "\u{1E}"
+
+    /// Whole seconds, padded so the entries sort by time as strings.
+    static func dated(_ songKey: String, at date: Date) -> String {
+        let seconds = max(0, Int(date.timeIntervalSince1970))
+        return String(format: "%011d", seconds) + String(datedSeparator) + songKey
     }
 
-    /// Notes a song Tracks’ player moved on from before it counted.
-    public func notePassedOver(title: String, artistName: String, at date: Date = .now) {
-        var songs = passedOverSongs
-        songs.note(HistoryImport.key(title: title, artistName: artistName), at: date)
-        passedOverSongs = songs
+    static func parseDated(_ entry: String) -> (at: Date, key: String)? {
+        guard let split = entry.firstIndex(of: datedSeparator),
+              let seconds = Int(entry[..<split])
+        else { return nil }
+        return (Date(timeIntervalSince1970: TimeInterval(seconds)), String(entry[entry.index(after: split)...]))
     }
 
     /// Whether to send listening to Last.fm. On by default, but nothing is sent until an
@@ -278,15 +240,6 @@ public struct CaptureSettings: Sendable {
     public var scrobblesToLastFM: Bool {
         get { defaults.object(forKey: Self.scrobblesToLastFMKey) as? Bool ?? true }
         nonmutating set { defaults.set(newValue, forKey: Self.scrobblesToLastFMKey) }
-    }
-
-    /// Whether to scrobble imported songs. On by default: on the iPhone, recovered songs are
-    /// most of the history, so leaving them out meant most listening never reached Last.fm.
-    /// The trade-off is the time: imports are dated when found, so a scrobble can be hours
-    /// late (see ``HistoryImport``).
-    public var scrobblesImported: Bool {
-        get { defaults.object(forKey: Self.scrobblesImportedKey) as? Bool ?? true }
-        nonmutating set { defaults.set(newValue, forKey: Self.scrobblesImportedKey) }
     }
 
     /// Songs the catalog had no cover for, by song ID, with when to ask again.
@@ -327,7 +280,7 @@ public struct CaptureSettings: Sendable {
     }
 
     public func hasForgotten(title: String, artistName: String) -> Bool {
-        forgottenSongs.contains(HistoryImport.key(title: title, artistName: artistName))
+        forgottenSongs.contains(SongIdentity.key(title: title, artistName: artistName))
     }
 
     public func isExcluded(station: String?) -> Bool {

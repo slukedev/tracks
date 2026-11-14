@@ -257,8 +257,8 @@ public final class TracksStore {
 
     /// When this track was last captured, by `songKey`, across every witnessed kind.
     ///
-    /// Don't filter this to radio: on-demand songs would never dedupe, and the 10-second poll
-    /// would write a new row each time. Imports are excluded because they're dated when
+    /// Don't filter this to radio: on-demand songs would never dedupe, and each check of a
+    /// playing song would write a new row. Imports are excluded because they're dated when
     /// found, so a recent import would suppress a real play.
     nonisolated static func lastCaptureDate(songKey: String, in context: ModelContext) throws -> Date? {
         let imported = CaptureKind.imported.rawValue
@@ -482,7 +482,7 @@ public final class TracksStore {
     // MARK: - Queries
 
     /// Every capture, whatever the source. Use this for showing listening history;
-    /// ``radioCaptures(since:limit:)`` is for the playlist and play-back.
+    /// ``radioCaptures(since:limit:)`` is for the playlist.
     public nonisolated static func allCaptures(
         since: Date? = nil,
         limit: Int? = nil
@@ -496,7 +496,7 @@ public final class TracksStore {
         return descriptor
     }
 
-    /// Radio rows only, for the playlist and play-back.
+    /// Radio rows only, for the playlist.
     public nonisolated static func radioCaptures(
         since: Date? = nil,
         limit: Int? = nil
@@ -510,20 +510,6 @@ public final class TracksStore {
         )
         if let limit { descriptor.fetchLimit = limit }
         return descriptor
-    }
-
-    /// What "Play back today" would queue, in play order.
-    ///
-    /// Both the Today widget's Up Next and ``PlaybackController`` use this, so they always
-    /// agree.
-    public func playBackQueue(now: Date = .now, calendar: Calendar = .current) throws -> [Capture] {
-        try Self.playBackQueue(in: context, now: now, calendar: calendar)
-    }
-
-    /// ``playBackQueue(now:calendar:)`` on any context, for reads off the main actor.
-    nonisolated static func playBackQueue(in context: ModelContext, now: Date, calendar: Calendar) throws -> [Capture] {
-        let captures = try context.fetch(radioCaptures(since: calendar.startOfDay(for: now)))
-        return PlaybackSelection.todaysUnplayed(from: captures, now: now, calendar: calendar)
     }
 
     /// The most recent row for one song, so a display can show what's playing.
@@ -554,81 +540,6 @@ public final class TracksStore {
         )
     }
 
-    /// Writes songs read out of Apple's recently-played list.
-    ///
-    /// Dated now, since Apple's list has no timestamps (see ``HistoryImport``), and inserted
-    /// oldest first so the order is right.
-    ///
-    /// `lookback` is how far back a song counts as already known. A song played again days
-    /// later should be a new row.
-    @discardableResult
-    public func importPlayedSongs(
-        _ songs: [PlayedSong],
-        lookback: TimeInterval = 24 * 60 * 60,
-        settings: CaptureSettings = CaptureSettings(),
-        now: Date = .now
-    ) throws -> Int {
-        guard !songs.isEmpty else { return 0 }
-
-        // Apple's list keeps songs for days. Only what's above the part matching last time's
-        // list can be new; otherwise yesterday's songs were imported again at every launch.
-        let keys = songs.map { HistoryImport.key(title: $0.title, artistName: $0.artistName) }
-        let fresh = Array(songs[..<HistoryImport.unseenCount(in: keys, previous: settings.recentlyPlayedAnchor)])
-
-        let cutoff = now.addingTimeInterval(-lookback)
-        let recent = try context.fetch(TracksStore.allCaptures(since: cutoff))
-        var known = Set(recent.map {
-            HistoryImport.key(title: $0.title, artistName: $0.artistName)
-        })
-        // Don't bring back songs the user removed, or ones Tracks’ player skipped: Apple
-        // lists a song the moment it starts. A song forgotten a while ago that turns up again
-        // was played again.
-        let forgotten = settings.forgottenSongs
-        let forgottenDates = settings.forgottenSongDates
-        known.formUnion(forgotten.filter {
-            CaptureSettings.isForgotten(
-                $0, playedAt: now, forgotten: forgotten, dates: forgottenDates, grace: PassedOverSongs.memory
-            )
-        })
-        known.formUnion(settings.passedOverSongs.keys(since: cutoff))
-
-        // The anchor moves only once this list has been dealt with. It used to move before
-        // the fetch and save, so a save that failed marked the new songs as seen and the
-        // next import skipped them for good.
-        let new = HistoryImport.newSongs(in: fresh, known: known)
-        guard !new.isEmpty else {
-            settings.recentlyPlayedAnchor = keys
-            return 0
-        }
-
-        var inserted: [Capture] = []
-        for song in new {
-            let capture = Capture(
-                songID: song.songID,
-                // The catalog ID, same as iOS uses for a witnessed play.
-                songKey: song.songID,
-                title: song.title,
-                artistName: song.artistName,
-                albumTitle: song.albumTitle,
-                artworkURL: ArtworkURL.loadable(song.artworkURL),
-                kind: .imported,
-                capturedAt: now
-            )
-            context.insert(capture)
-            inserted.append(capture)
-        }
-        do {
-            try context.save()
-        } catch {
-            // Take these back out so an unrelated later save doesn't write them: the anchor
-            // hasn't moved, so the next import offers them again.
-            for capture in inserted { context.delete(capture) }
-            throw error
-        }
-        settings.recentlyPlayedAnchor = keys
-        return new.count
-    }
-
     /// Writes plays read from the connected Last.fm account. See ``LastFMHistory``.
     ///
     /// Dated when they played, marked as already scrobbled so they're never sent back, and
@@ -656,7 +567,7 @@ public final class TracksStore {
         ))
         let known = nearby.map {
             LastFMHistory.KnownPlay(
-                key: HistoryImport.key(title: $0.title, artistName: $0.artistName),
+                key: SongIdentity.key(title: $0.title, artistName: $0.artistName),
                 playedAt: $0.capturedAt,
                 kind: $0.kind
             )
@@ -667,7 +578,7 @@ public final class TracksStore {
         let forgottenDates = settings.forgottenSongDates
         let wanted = scrobbles.filter {
             !CaptureSettings.isForgotten(
-                HistoryImport.key(title: $0.title, artistName: $0.artistName),
+                SongIdentity.key(title: $0.title, artistName: $0.artistName),
                 playedAt: $0.playedAt, forgotten: forgotten, dates: forgottenDates
             )
         }
@@ -716,11 +627,11 @@ public final class TracksStore {
         artistName: String,
         settings: CaptureSettings = CaptureSettings()
     ) async throws -> Int {
-        let identity = HistoryImport.key(title: title, artistName: artistName)
+        let identity = SongIdentity.key(title: title, artistName: artistName)
         let ids = try await historyReader.captureIDs(ofSong: identity)
         // Checked again, in case a play was renamed since the reader looked.
         let rows = existingCaptures(ids).values.filter {
-            HistoryImport.key(title: $0.title, artistName: $0.artistName) == identity
+            SongIdentity.key(title: $0.title, artistName: $0.artistName) == identity
         }
         for row in rows { context.delete(row) }
         settings.noteForgotten(identity)
@@ -729,16 +640,16 @@ public final class TracksStore {
     }
 
     /// Deletes every row for a song (matched on title and artist) and adds it to
-    /// `forgottenSongs`, so the next import doesn't bring it back from Apple's list.
+    /// `forgottenSongs`, so the Last.fm history import doesn't bring it back.
     @discardableResult
     public func forgetSong(
         title: String,
         artistName: String,
         settings: CaptureSettings = CaptureSettings()
     ) throws -> Int {
-        let identity = HistoryImport.key(title: title, artistName: artistName)
+        let identity = SongIdentity.key(title: title, artistName: artistName)
         let rows = try context.fetch(Self.possibleMatches(title: title, artistName: artistName)).filter {
-            HistoryImport.key(title: $0.title, artistName: $0.artistName) == identity
+            SongIdentity.key(title: $0.title, artistName: $0.artistName) == identity
         }
         for row in rows { context.delete(row) }
         settings.noteForgotten(identity)
@@ -747,7 +658,7 @@ public final class TracksStore {
     }
 
     /// Rows that might be this song, for narrowing before the exact match on
-    /// ``HistoryImport/key(title:artistName:)``.
+    /// ``SongIdentity/key(title:artistName:)``.
     ///
     /// A predicate can't fold the way that key does, but for plain ASCII names folding is
     /// only case, and a case- and diacritic-insensitive contains finds every row whose folded
@@ -840,11 +751,11 @@ public final class TracksStore {
     @discardableResult
     public func mergeDuplicateCaptures(policy: DedupePolicy = CaptureSettings().dedupePolicy) throws -> Int {
         // Every kind, since an import and a witnessed row are a common pair. Grouped on title
-        // and artist because IDs differ across sources (see `HistoryImport.key`).
+        // and artist because IDs differ across sources (see `SongIdentity.key`).
         let captures = try context.fetch(TracksStore.allCaptures())
         var groups: [String: [Capture]] = [:]
         for capture in captures {
-            let identity = HistoryImport.key(title: capture.title, artistName: capture.artistName)
+            let identity = SongIdentity.key(title: capture.title, artistName: capture.artistName)
             groups[identity, default: []].append(capture)
         }
         let merged = Self.mergePlays(in: groups.values, policy: policy, context: context)
@@ -880,8 +791,8 @@ public final class TracksStore {
             // merged on its own, and devices would disagree on what to keep. The next merge
             // sees it whole.
             guard plays.count == ids.count,
-                  let identity = plays.first.map({ HistoryImport.key(title: $0.title, artistName: $0.artistName) }),
-                  plays.allSatisfy({ HistoryImport.key(title: $0.title, artistName: $0.artistName) == identity })
+                  let identity = plays.first.map({ SongIdentity.key(title: $0.title, artistName: $0.artistName) }),
+                  plays.allSatisfy({ SongIdentity.key(title: $0.title, artistName: $0.artistName) == identity })
             else { continue }
             songs.append(plays)
         }
@@ -1133,9 +1044,9 @@ public final class TracksStore {
 
     /// Songs owed a scrobble, oldest first.
     ///
-    /// Only this device's rows, or every device would scrobble every synced row. Imports are
-    /// left out unless `includingImported`, since they're dated when found (see
-    /// ``HistoryImport``).
+    /// Only this device's rows, or every device would scrobble every synced row. Rows imported
+    /// from Recently Played by earlier versions are left out unless `includingImported`, since
+    /// they're dated when found.
     public nonisolated static func pendingScrobbles(
         deviceID: String = DeviceIdentity.current,
         includingImported: Bool,

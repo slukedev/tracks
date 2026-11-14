@@ -31,7 +31,7 @@ struct SearchIndexMatchingTests {
                 ))
             }
             if let genre = entry.genre {
-                metadata[HistoryImport.key(title: entry.title, artistName: entry.artist)] = SongMetadata(genre: genre, releaseYear: nil)
+                metadata[SongIdentity.key(title: entry.title, artistName: entry.artist)] = SongMetadata(genre: genre, releaseYear: nil)
             }
         }
         return SearchIndex(history: ListeningHistory(plays).with(artistArtwork: [:], songMetadata: metadata))

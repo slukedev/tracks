@@ -111,7 +111,7 @@ enum LaunchScene {
         case "song":
             let song = parts[1].split(separator: "|").map(String.init)
             guard song.count == 2 else { return nil }
-            return .song(HistoryImport.key(title: song[0], artistName: song[1]))
+            return .song(SongIdentity.key(title: song[0], artistName: song[1]))
         case "album":
             // Album and artist together, as `CaptureStat.albumIdentity` builds it.
             let album = parts[1].split(separator: "|").map(String.init)

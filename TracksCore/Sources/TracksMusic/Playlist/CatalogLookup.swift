@@ -19,9 +19,8 @@ public struct StationDescription: Sendable, Equatable {
 
 /// Resolves track metadata to an Apple Music catalog ID.
 ///
-/// The only identity path on macOS, where `playerInfo` has no catalog id. The strictness
-/// lives in ``CatalogMatcher``: writing the wrong song into someone's library is worse than
-/// missing a capture.
+/// For rows with no catalog id. The strictness lives in ``CatalogMatcher``: writing the wrong
+/// song into someone's library is worse than missing a capture.
 public struct CatalogLookup: CatalogResolving {
     public init() {}
 
@@ -70,8 +69,8 @@ public struct CatalogLookup: CatalogResolving {
     public func artistArtworkURLs(
         for requests: [ArtistArtworkLookup.Request]
     ) async throws -> [String: String] {
-        // A song without a catalog id is found the way a macOS capture is: by title and
-        // artist, through the same strict matcher, so a guess never picks the artist.
+        // A song without a catalog id is found by title and artist, through the strict
+        // matcher, so a guess never picks the artist.
         var songIDs: [String: String] = [:]
         for request in requests {
             if request.hasCatalogID {
@@ -127,8 +126,8 @@ public struct CatalogLookup: CatalogResolving {
             } else if request.hasLibraryID {
                 libraryIDs[request.songID, default: []].append(request.songIdentity)
             } else if let match = try await resolve(CatalogQuery(
-                // Found the way a macOS capture is: through the strict matcher, so a guess
-                // never gives a song someone else's genre.
+                // Through the strict matcher, so a guess never gives a song someone else's
+                // genre.
                 title: request.title,
                 artistName: request.artistName,
                 duration: nil,
@@ -192,13 +191,6 @@ public struct CatalogLookup: CatalogResolving {
             ) else { return }
             result[song.id.rawValue] = url
         }
-    }
-
-    public func mostRecentStationName() async throws -> String? {
-        // The only way to learn what station was on without having seen the tune-in.
-        var request = MusicRecentlyPlayedRequest<MusicKit.Station>()
-        request.limit = 1
-        return try await request.response().items.first?.name
     }
 
     /// Every station Apple Music remembers, with what the probe needs to tell them apart.

@@ -191,7 +191,7 @@ public final class SettingsSync {
                 changed.append(key)
 
             case .unionBoth:
-                let merged = Self.union(localValue, remoteValue, forKey: key)
+                let merged = Self.union(localValue, remoteValue)
                 let stamp = max(
                     stamps[key] ?? 0,
                     remoteModifiedAt?.timeIntervalSince1970 ?? 0
@@ -238,7 +238,7 @@ public final class SettingsSync {
                 // A union key's local copy may be missing entries another device added and
                 // this one hasn't pulled yet, so push the union rather than the local set.
                 let remote = (cloud.object(forKey: key) as? [String: Any])?[Self.valueField]
-                value = Self.union(current[key], remote, forKey: key)
+                value = Self.union(current[key], remote)
             }
             stamps[key] = now
             write(value, forKey: key, modifiedAt: now)
@@ -329,16 +329,9 @@ public final class SettingsSync {
 
     /// Both sides of a ``SyncedSetting/Merge/union`` key, sorted so every device stores the
     /// same array and neither sees the other's copy as a change.
-    ///
-    /// A list that trims itself is trimmed again here. Each device only trims its own copy,
-    /// and the union would otherwise put back everything the other device still had.
-    static func union(_ lhs: Any?, _ rhs: Any?, forKey key: String, now: Date = .now) -> [String] {
+    static func union(_ lhs: Any?, _ rhs: Any?) -> [String] {
         let left = lhs as? [String] ?? []
         let right = rhs as? [String] ?? []
-        let joined = Set(left).union(right).sorted()
-        guard key == CaptureSettings.passedOverSongsKey else { return joined }
-        var passedOver = PassedOverSongs(joined)
-        passedOver.trim(now: now)
-        return passedOver.entries
+        return Set(left).union(right).sorted()
     }
 }

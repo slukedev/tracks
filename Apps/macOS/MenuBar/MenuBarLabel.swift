@@ -10,13 +10,13 @@ import TracksCore
 struct MenuBarLabel: View {
     /// What is audible now. Present from a song's first second, before it has been captured.
     let nowPlaying: NowPlaying?
-    /// Fallback for the moment before the first poll answers, and while nothing is playing.
+    /// Fallback for a song that's playing but not on show yet.
     let lastCapture: CaptureSnapshot?
     /// The station playing, for a custom format's `{station}`.
     let station: String?
     let isCapturing: Bool
-    /// Nil until the first poll. See ``CaptureService/isSomethingPlaying``.
-    let isPlaying: Bool?
+    /// Whether Tracks’ player is playing.
+    let isPlaying: Bool
 
     /// The song playing now, otherwise the last capture.
     private var song: (title: String, artistName: String, albumTitle: String?)? {
@@ -62,8 +62,7 @@ struct MenuBarLabel: View {
     }
 
     /// Whether to name a song at all. With nothing playing the label is just the symbol.
-    /// Unknown counts as playing, so the label doesn't blank at launch.
-    private var showsSong: Bool { isPlaying != false }
+    private var showsSong: Bool { isPlaying }
 
     @ViewBuilder
     private var icon: some View {

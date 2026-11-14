@@ -2,17 +2,17 @@ import Testing
 import Foundation
 @testable import TracksCore
 
-/// Which observations become captures. Every case here comes from the phase 0 logs.
+/// Which observations become captures.
 @Suite("Capture decisions")
 struct CaptureDecisionTests {
     let policy = CapturePolicy()
     let now = Date(timeIntervalSince1970: 3_000_000)
 
-    /// iOS: a station entry, id ending in STREAM.
-    func radioObservation(
+    /// Tracks' Apple Music player, which says whether it queued a station.
+    func observation(
         title: String = "Dai Dai",
         artist: String = "Shakira & Burna Boy",
-        entryID: String = "PxDIf4ejk::STREAM",
+        isStation: Bool? = true,
         station: String? = nil
     ) -> NowPlayingObservation {
         NowPlayingObservation(
@@ -21,61 +21,46 @@ struct CaptureDecisionTests {
             catalogSongID: "6768469976",
             duration: 223,
             stationName: station,
-            rawFields: ["entry.id": entryID]
+            isStation: isStation
         )
     }
 
-    @Test("a playing radio track is captured")
-    func capturesRadio() {
-        let decision = policy.decide(radioObservation(), lastSeen: nil, now: now)
-        #expect(decision.isCapture)
-    }
-
-    /// An album entry has an opaque item id instead of STREAM. It's kept for scrobbling, but
-    /// only radio goes to the playlist and play-back.
-    @Test("an on-demand track is captured, as on demand")
-    func capturesOnDemandSeparately() {
-        let observation = radioObservation(entryID: "PRhKeIIy0::6ostOUDHU")
-        let decision = policy.decide(observation, lastSeen: nil, now: now)
+    @Test("a song on a station is kept as radio, and anything else as on demand", arguments: [
+        (isStation: true as Bool?, kind: CaptureKind.radio),
+        (isStation: false, kind: .onDemand),
+        // A player that doesn't say, as in tests, is taken as on demand.
+        (isStation: nil, kind: .onDemand),
+    ])
+    func kindFollowsThePlayer(isStation: Bool?, kind: CaptureKind) {
+        let decision = policy.decide(observation(isStation: isStation), lastSeen: nil, now: now)
         guard case .capture(let capturable) = decision else {
             Issue.record("Expected a capture, got \(decision)")
             return
         }
-        #expect(capturable.kind == .onDemand)
+        #expect(capturable.kind == kind)
     }
 
-    @Test("with on-demand capture off, an on-demand track is ignored")
+    @Test("with on-demand capture off, an on-demand song is ignored and radio still kept")
     func honoursTheOnDemandSwitch() {
         let stationsOnly = CapturePolicy(capturesOnDemand: false)
-        let observation = radioObservation(entryID: "PRhKeIIy0::6ostOUDHU")
-        #expect(stationsOnly.decide(observation, lastSeen: nil, now: now) == .ignore(.onDemand))
+        #expect(stationsOnly.decide(observation(isStation: false), lastSeen: nil, now: now) == .ignore(.onDemand))
+        #expect(stationsOnly.decide(observation(), lastSeen: nil, now: now).isCapture)
     }
 
-    @Test("an excluded station does not suppress on-demand plays")
+    @Test("an excluded station is skipped, and doesn't suppress on-demand plays")
     func exclusionOnlyAppliesToRadio() {
         let excluding = CapturePolicy(excludedStations: ["Apple Music Chill"])
-        let onDemand = radioObservation(entryID: "PRhKeIIy0::6ostOUDHU", station: "Apple Music Chill")
+        let onDemand = observation(isStation: false, station: "Apple Music Chill")
         #expect(excluding.decide(onDemand, lastSeen: nil, now: now).isCapture)
 
-        let radio = radioObservation(station: "Apple Music Chill")
+        let radio = observation(station: "Apple Music Chill")
         #expect(
             excluding.decide(radio, lastSeen: nil, now: now)
                 == .ignore(.excludedStation(name: "Apple Music Chill"))
         )
     }
 
-    /// Observed at tune-in on both platforms: the station arrives as a track with no artist.
-    @Test("a station announcement is rejected, and names the station")
-    func rejectsStationAnnouncement() {
-        let observation = NowPlayingObservation(title: "Apple Music 1", artistName: "")
-        #expect(
-            policy.decide(observation, lastSeen: nil, now: now)
-                == .ignore(.stationAnnouncement(name: "Apple Music 1"))
-        )
-    }
-
-    /// Two of these arrived back to back at a state transition, carrying nothing but a state.
-    @Test("a paused or empty observation is rejected")
+    @Test("a paused observation is rejected")
     func rejectsNotPlaying() {
         let paused = NowPlayingObservation(
             title: "Dai Dai", artistName: "Shakira", playbackState: .paused
@@ -83,55 +68,24 @@ struct CaptureDecisionTests {
         #expect(policy.decide(paused, lastSeen: nil, now: now) == .ignore(.notPlaying))
     }
 
-    /// playerInfo repeats on a ~16 second heartbeat, so this is the common case.
-    @Test("a repeat inside the dedupe window is rejected as a duplicate")
-    func rejectsDuplicate() {
-        let decision = policy.decide(
-            radioObservation(),
-            lastSeen: now.addingTimeInterval(-16),
-            now: now
-        )
-        #expect(decision == .ignore(.duplicate(secondsSinceLast: 16)))
-    }
-
-    @Test("the same song after the window is a new play")
-    func capturesAfterWindow() {
-        let decision = policy.decide(
-            radioObservation(),
-            lastSeen: now.addingTimeInterval(-601),
-            now: now
-        )
-        #expect(decision.isCapture)
-    }
-
-    @Test("an excluded station is skipped")
-    func excludedStation() {
-        var observation = radioObservation()
-        observation.stationName = "Apple Music 1"
-        let policy = CapturePolicy(excludedStations: ["Apple Music 1"])
+    @Test("a repeat inside the dedupe window is a duplicate, and after it a new play")
+    func dedupeWindow() {
         #expect(
-            policy.decide(observation, lastSeen: nil, now: now)
-                == .ignore(.excludedStation(name: "Apple Music 1"))
+            policy.decide(observation(), lastSeen: now.addingTimeInterval(-16), now: now)
+                == .ignore(.duplicate(secondsSinceLast: 16))
         )
+        #expect(policy.decide(observation(), lastSeen: now.addingTimeInterval(-601), now: now).isCapture)
     }
 
-    @Test("forcing capture overrides an on-demand verdict")
-    func forceCapture() {
-        let observation = radioObservation(entryID: "PRhKeIIy0::6ostOUDHU")
-        let policy = CapturePolicy(forceCapture: true)
-        #expect(policy.decide(observation, lastSeen: nil, now: now).isCapture)
-    }
-
-    /// macOS before the catalog search: no id yet, but title and artist are enough.
-    @Test("a macOS observation with no catalog id is still capturable")
-    func macOSObservation() {
+    /// One of your own files: no catalog id, but title and artist are enough.
+    @Test("an observation with no catalog id is still capturable")
+    func noCatalogID() {
         let observation = NowPlayingObservation(
             title: "Nostalgia",
             artistName: "Lossapardo",
             albumTitle: "Nostalgia - Single",
             catalogSongID: nil,
-            duration: nil,
-            playerPosition: 0
+            isStation: false
         )
         let decision = policy.decide(observation, lastSeen: nil, now: now)
         #expect(decision.isCapture)

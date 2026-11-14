@@ -1,16 +1,13 @@
 import Foundation
 
-/// A metadata search used to resolve a track to an Apple Music catalog ID.
-///
-/// The only way to identify a track on macOS, since `playerInfo` has no catalog ID on
-/// macOS 27 (see ``PlayerInfoKey``).
+/// A metadata search used to resolve a track to an Apple Music catalog ID, for rows that
+/// arrived without one (older Mac history, your own music).
 public struct CatalogQuery: Sendable, Equatable, Hashable {
     public let title: String
     public let artistName: String
-    /// Narrows the match when known. Usually nil for radio on macOS, where `playerInfo`
-    /// omits `Total Time`.
+    /// Narrows the match when known.
     public let duration: TimeInterval?
-    /// Narrows the match. `playerInfo` does include `Album` for a station.
+    /// Narrows the match.
     public let albumTitle: String?
 
     public init(
@@ -140,7 +137,6 @@ public struct CatalogCandidate: Sendable, Equatable, Hashable {
     public let artistName: String
     public let albumTitle: String?
     public let duration: TimeInterval?
-    /// The only source of artwork on macOS.
     public let artworkURL: String?
 
     public init(

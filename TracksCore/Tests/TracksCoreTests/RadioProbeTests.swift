@@ -38,7 +38,7 @@ struct RadioProbeTests {
 
     static func song(_ title: String, artist: String) -> MixSong {
         MixSong(
-            songIdentity: HistoryImport.key(title: title, artistName: artist),
+            songIdentity: SongIdentity.key(title: title, artistName: artist),
             songID: title,
             title: title,
             artistName: artist,

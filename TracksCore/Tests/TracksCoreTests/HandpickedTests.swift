@@ -23,7 +23,7 @@ struct HandpickedTests {
                         let title = "\(artist) \(track)"
                         let at = now.addingTimeInterval(-Double(day) * 86_400 + sitting.hour * 3_600 + Double(position * 3 + track) * 240)
                         plays.append(CaptureStat(songKey: title, songID: title, title: title, artistName: artist, capturedAt: at))
-                        metadata[HistoryImport.key(title: title, artistName: artist)] = SongMetadata(genre: sitting.genre, releaseYear: nil)
+                        metadata[SongIdentity.key(title: title, artistName: artist)] = SongMetadata(genre: sitting.genre, releaseYear: nil)
                     }
                 }
             }
@@ -33,7 +33,7 @@ struct HandpickedTests {
 
     func song(_ title: String, _ artist: String, genre: String? = nil) -> MixSong {
         MixSong(
-            songIdentity: HistoryImport.key(title: title, artistName: artist), songID: title, title: title,
+            songIdentity: SongIdentity.key(title: title, artistName: artist), songID: title, title: title,
             artistName: artist, albumTitle: nil, artworkURL: nil, plays: 0, lastHeard: .distantPast, genre: genre
         )
     }

@@ -16,7 +16,7 @@ struct ApplicationMusicPlayerSourceTests {
         ))
         #expect(observation.isStation == true)
         #expect(observation.stationName == "Apple Music 1")
-        #expect(observation.radioVerdict() == .radio(confidence: .stated))
+        #expect(observation.isRadio)
         #expect(CapturePolicy().decide(observation, lastSeen: nil).isCapture)
     }
 
@@ -28,7 +28,7 @@ struct ApplicationMusicPlayerSourceTests {
         ))
         #expect(observation.isStation == false)
         #expect(observation.stationName == nil)
-        #expect(observation.radioVerdict() == .onDemand)
+        #expect(!observation.isRadio)
         guard case .capture(let capturable) = CapturePolicy().decide(observation, lastSeen: nil) else {
             Issue.record("expected a capture")
             return

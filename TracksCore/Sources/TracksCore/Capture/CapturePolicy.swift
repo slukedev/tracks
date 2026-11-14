@@ -8,9 +8,10 @@ public struct DedupePolicy: Sendable, Equatable {
 
     /// How long after a witnessed play an import of the same song is still that play.
     ///
-    /// An import is dated when it was *found*, not when it played (see ``HistoryImport``), so
-    /// it lands after the witnessed copy, once observed 45 minutes after it. The ordinary
-    /// window is far too short to catch that.
+    /// Earlier versions imported songs from Apple Music's Recently Played, and those rows are
+    /// still in people's histories. An import is dated when it was *found*, not when it
+    /// played, so it lands after the witnessed copy, once observed 45 minutes after it. The
+    /// ordinary window is far too short to catch that.
     ///
     /// It must still be bounded. Treating an import as "always the same play" meant a song
     /// played again a month later was merged into the first play and deleted.
@@ -36,14 +37,12 @@ public struct DedupePolicy: Sendable, Equatable {
     /// - A play this device witnessed, then recovered from Recently Played before the
     ///   witnessed row ruled it out, once seen 45 minutes apart.
     /// - A play on *another* device. Apple Music's recently-played list is account-wide, so
-    ///   the iPhone reads back plays that happened on the Mac and imports them dated now,
-    ///   hours later. ``TracksStore/importPlayedSongs(_:lookback:settings:now:)`` suppresses
-    ///   that when the other device's row has already synced, and this catches it when it
-    ///   hasn't.
+    ///   the iPhone read back plays that happened on the Mac and imported them dated then,
+    ///   hours later.
     ///
-    /// A day is the horizon because the importer uses the same one: it will not write a
-    /// second import of a song already in the store from the last 24 hours. So two imports
-    /// closer together than that cannot have come from one device, and are the same play seen
+    /// A day is the horizon because the importer used the same one: it never wrote a second
+    /// import of a song already in the store from the last 24 hours. So two imports
+    /// closer together than that can't have come from one device, and are the same play seen
     /// twice, while two further apart are two plays the importer deliberately let through.
     public func mergeWindow(earlier: CaptureKind, later: CaptureKind) -> TimeInterval {
         later.timeIsKnown ? window : importWindow

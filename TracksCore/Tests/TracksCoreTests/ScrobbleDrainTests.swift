@@ -381,7 +381,7 @@ struct ScrobbleDrainTests {
         let plays = rows.map {
             ScrobbleService.ImportedPlay(
                 id: $0.persistentModelID,
-                key: HistoryImport.key(title: $0.title, artistName: $0.artistName),
+                key: SongIdentity.key(title: $0.title, artistName: $0.artistName),
                 foundAt: base
             )
         }

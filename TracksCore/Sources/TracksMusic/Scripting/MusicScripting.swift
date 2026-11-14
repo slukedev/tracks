@@ -3,8 +3,7 @@ import Foundation
 import AppKit
 import TracksCore
 
-/// Reads the Music.app properties the `playerInfo` notification doesn't carry, such as the
-/// station name.
+/// Reads what Music.app is doing, for sending its music to a speaker.
 ///
 /// Expect any read to fail. Since macOS 26, `current track` returns error -1728 for
 /// non-library, streamed and autoplayed tracks (FB19908171), which includes radio.
@@ -18,8 +17,8 @@ public enum MusicScripting {
         public var succeeded: Bool { errorDescription == nil }
     }
 
-    /// Properties worth sampling. `current stream title` and `current stream URL` are the
-    /// station signals; the `current track` reads are the ones expected to fail on radio.
+    /// Properties read together. The `current track` reads are the ones expected to fail on
+    /// radio.
     public static let probedProperties: [String] = [
         "player state",
         "player position",
@@ -109,31 +108,6 @@ public enum MusicScripting {
         }
     }
 
-    /// Reads a single property. The sampler uses ``readAll(timeoutSeconds:isRunning:)``
-    /// instead. Doesn't launch Music, as ``readAll(timeoutSeconds:isRunning:)`` doesn't.
-    public static func read(_ property: String, timeoutSeconds: Int = 2, isRunning: Bool = isMusicRunning) -> Reading {
-        guard isRunning else { return Reading(property: property, value: nil, errorDescription: notRunning) }
-        let source = """
-        with timeout of \(timeoutSeconds) seconds
-            tell application id "com.apple.Music"
-                return \(property) as text
-            end tell
-        end timeout
-        """
-        guard let script = NSAppleScript(source: source) else {
-            return Reading(property: property, value: nil, errorDescription: "Could not compile script")
-        }
-        var error: NSDictionary?
-        let result = script.executeAndReturnError(&error)
-        if let error {
-            let code = error[NSAppleScript.errorNumber] as? Int
-            let message = error[NSAppleScript.errorMessage] as? String ?? "unknown"
-            let suffix = code.map { " (error \($0))" } ?? ""
-            return Reading(property: property, value: nil, errorDescription: message + suffix)
-        }
-        return Reading(property: property, value: result.stringValue, errorDescription: nil)
-    }
-
     /// Checked first so the probe doesn't launch Music.app by asking it something.
     public static var isMusicRunning: Bool {
         !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty
@@ -141,7 +115,7 @@ public enum MusicScripting {
 
     static let notRunning = "Music isn't running"
 
-    /// What Music is doing, for routing the menu bar's transport controls.
+    /// What Music is doing.
     ///
     /// No duration means a station, but a stopped Music has no duration either, so radio
     /// also requires a track name.
@@ -171,21 +145,6 @@ public enum MusicScripting {
             position: PlayerPresence.seconds(value("player position")),
             duration: duration.flatMap { $0 > 0 ? $0 : nil }
         )
-    }
-
-    /// Moves Music to `seconds` into the song. False if Music didn't take it.
-    @discardableResult
-    public static func seek(to seconds: Double, timeoutSeconds: Int = 2) -> Bool {
-        guard isMusicRunning, seconds.isFinite, seconds >= 0 else { return false }
-        // AppleScript reads a number with a point whatever the region's decimal mark.
-        let source = """
-        with timeout of \(timeoutSeconds) seconds
-            tell application id "com.apple.Music" to set player position to \(String(format: "%.2f", seconds))
-        end timeout
-        """
-        var error: NSDictionary?
-        _ = NSAppleScript(source: source)?.executeAndReturnError(&error)
-        return error == nil
     }
 }
 #endif

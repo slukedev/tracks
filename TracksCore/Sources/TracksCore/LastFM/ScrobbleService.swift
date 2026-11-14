@@ -88,10 +88,10 @@ public final class ScrobbleService {
         while true {
             // Saved first, so every row has the identity it will keep.
             store.saveMainContext()
-            let includingImported = settings.scrobblesImported
+            // Rows earlier versions imported from Recently Played still go, as they did by default.
             guard let owed = try? await writer.read({ context in
                 try context.fetch(TracksStore.pendingScrobbles(
-                    includingImported: includingImported,
+                    includingImported: true,
                     limit: LastFMClient.batchLimit
                 )).map(OwedScrobble.init)
             }), !owed.isEmpty else { break }
@@ -104,7 +104,7 @@ public final class ScrobbleService {
                 let candidates = imports.map {
                     ImportedPlay(
                         id: $0.id,
-                        key: HistoryImport.key(title: $0.title, artistName: $0.artistName),
+                        key: SongIdentity.key(title: $0.title, artistName: $0.artistName),
                         foundAt: $0.capturedAt
                     )
                 }
@@ -257,7 +257,7 @@ public final class ScrobbleService {
     ) -> Set<PersistentIdentifier> {
         var scrobbled: [String: [Date]] = [:]
         for track in history {
-            scrobbled[HistoryImport.key(title: track.title, artistName: track.artistName), default: []]
+            scrobbled[SongIdentity.key(title: track.title, artistName: track.artistName), default: []]
                 .append(track.playedAt)
         }
         var found: Set<PersistentIdentifier> = []

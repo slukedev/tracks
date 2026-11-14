@@ -6,7 +6,7 @@ private let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
 private let day: TimeInterval = 86_400
 
 private func identity(_ title: String, _ artist: String) -> String {
-    HistoryImport.key(title: title, artistName: artist)
+    SongIdentity.key(title: title, artistName: artist)
 }
 
 /// One sitting: the songs four minutes apart, starting `daysAgo` days before now.
