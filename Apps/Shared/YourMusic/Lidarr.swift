@@ -293,18 +293,36 @@ final class Lidarr {
 
     /// Asks for one album. Returns what to tell the person.
     func request(album title: String, by artist: String) async -> String {
-        guard let client, let options = addOptions else { return Self.notReady }
         do {
-            let album = try await client.request(album: title, by: artist, options: options)
-            forgetCollection()
-            await refreshArtists(force: true)
-            onChange?()
+            let album = try await requestAlbum(title, by: artist)
             return String(localized: "Lidarr Is Getting \u{201C}\(album.title)\u{201D}")
-        } catch let error as LidarrError {
-            return Self.describe(error)
         } catch {
-            return String(localized: "Couldn't Reach Lidarr")
+            return Self.reason(for: error)
         }
+    }
+
+    /// Asks for one album, and says whether Lidarr took it.
+    func requestAlbum(_ title: String, by artist: String) async throws -> LidarrAlbum {
+        guard let client, let options = addOptions else { throw NotReady() }
+        let album = try await client.request(album: title, by: artist, options: options)
+        forgetCollection()
+        await refreshArtists(force: true)
+        onChange?()
+        return album
+    }
+
+    private struct NotReady: Error {}
+
+    /// What to tell the person when asking Lidarr failed.
+    static func reason(for error: any Error) -> String {
+        if error is NotReady { return notReady }
+        if let error = error as? LidarrError { return describe(error) }
+        return String(localized: "Couldn't Reach Lidarr")
+    }
+
+    /// An artist's albums as last looked up, without asking again. Empty if they haven't been.
+    func cachedAlbums(of artistID: Int) -> [LidarrAlbum] {
+        albumsByArtist[artistID]?.albums ?? []
     }
 
     /// Asks Lidarr to look for albums it follows but doesn't have.

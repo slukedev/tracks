@@ -199,6 +199,7 @@ final class Downloads {
         }
         for id in trackIDs {
             progress[id] = nil
+            shownAt[id] = nil
             started.remove(id)
             sizeUnknown.remove(id)
             pending[id] = nil
@@ -239,11 +240,17 @@ final class Downloads {
             if !sizeUnknown.contains(trackID) { sizeUnknown.insert(trackID) }
             return
         }
-        // Every row showing a download redraws on each write: whole percents are plenty, and
-        // the session reports every chunk.
+        // Every row showing a download redraws on each write: whole percents are plenty, four
+        // times a second at most, and the session reports every chunk.
         if let shown = progress[trackID], fraction < 1, fraction - shown < 0.01 { return }
+        let now = ContinuousClock.now
+        if fraction < 1, let last = shownAt[trackID], now - last < .milliseconds(250) { return }
+        shownAt[trackID] = now
         progress[trackID] = fraction
     }
+
+    /// When each download's progress last changed, for the limit above.
+    @ObservationIgnored private var shownAt: [String: ContinuousClock.Instant] = [:]
 
     fileprivate func didFinish(_ trackID: String, attempt: String, fileName: String?, bytes: Int64, outcome: Outcome) {
         let current = pending[trackID]
@@ -255,6 +262,7 @@ final class Downloads {
             return
         }
         progress[trackID] = nil
+        shownAt[trackID] = nil
         started.remove(trackID)
         sizeUnknown.remove(trackID)
         pending[trackID] = nil

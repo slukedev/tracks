@@ -29,6 +29,12 @@ final class YourMusic {
     @ObservationIgnored private(set) lazy var discover = ServerDiscovery(music: self, isDemo: isDemo)
     /// Your playlists and Apple Music's, together, when you choose.
     @ObservationIgnored private(set) lazy var playlistMerge = PlaylistMerge(music: self)
+    /// Getting music you don't own, where a server or Lidarr can.
+    @ObservationIgnored private(set) lazy var getMore = GetMore(music: self, isDemo: isDemo)
+    /// The servers' songs as of the index: ``MusicServers/catalogRevision`` when it was built.
+    @ObservationIgnored private(set) var indexedCatalogRevision = -1
+    /// Sample songs held back from the sample library, for Get More to offer.
+    @ObservationIgnored private(set) var demoMissing: [LocalTrack] = []
     /// Your Lidarr, for songs your servers don't have yet. Set by the app.
     @ObservationIgnored weak var lidarr: Lidarr?
     /// What's known of songs suggested from outside your music, one answer for each song, so
@@ -68,6 +74,7 @@ final class YourMusic {
         playlists = Playlists(isDemo: isDemo)
         servers.onStatusChange = { [weak self] in self?.forgetUnavailable() }
         servers.onKeptArrived = { [weak self] in self?.keptArrived($0) }
+        servers.onRemoved = { [weak self] in self?.getMore.forget(serverID: $0) }
         downloads.onDownloaded = { [weak self] in self?.onReady?($0.identity) }
         downloads.onAsked = { [weak self] in self?.downloadsAsked($0) }
         #if DEBUG
@@ -389,6 +396,7 @@ final class YourMusic {
         let found = await asking.value
         serverQuestions[key] = nil
         if let found {
+            getMore.noteAnswer(trackIDs: found.map { LocalTrack.id(for: .server(serverID: serverID, songID: $0.id)) }, from: serverID)
             // Out-of-date answers go too, or a Mac left running for weeks keeps every search.
             serverAnswers = serverAnswers.filter { Date.now.timeIntervalSince($0.value.at) < Self.answersLast }
             serverAnswers[key] = ServerAnswer(at: .now, songs: found)
@@ -496,6 +504,9 @@ final class YourMusic {
     /// A page of search results with what's in your music already left out, remembered so
     /// playing one is kept in your history as this song, as a suggestion found on a server is.
     private func newToYou(_ page: ServerSearchPage) -> ServerSearchPage {
+        for (serverID, tracks) in Dictionary(grouping: page.tracks, by: { $0.serverID ?? "" }) where !serverID.isEmpty {
+            getMore.noteAnswer(trackIDs: tracks.map(\.id), from: serverID)
+        }
         var page = page
         page.tracks = index.notIncluded(page.tracks)
         for track in page.tracks { foundOnServers[track.identity] = track }
@@ -668,9 +679,12 @@ final class YourMusic {
                 while rebuildsAgain {
                     rebuildsAgain = false
                     let (files, catalogs, downloaded) = (files.values.map(\.track), servers.catalogs, downloads.tracks)
+                    let catalogRevision = servers.catalogRevision
                     index = await Self.makeIndex(files: files, catalogs: catalogs, downloaded: downloaded)
+                    indexedCatalogRevision = catalogRevision
                     // Songs that weren't here may be now.
                     forgetUnavailable()
+                    getMore.libraryChanged()
                 }
                 rebuilding = nil
             }
@@ -739,10 +753,41 @@ final class YourMusic {
                 addedAt: Date.now.addingTimeInterval(-Double(index) * 36_000)
             )
         }
+        // Every eighth song is held back, as if the server could get it, so albums are partly
+        // yours and Get More has something to offer.
+        let held = tracks.enumerated().filter { $0.offset % 8 == 5 }.map { index, track in
+            LocalTrack(
+                origin: .server(serverID: "demo", songID: "missing-\(index)"),
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                trackNumber: track.trackNumber,
+                year: track.year,
+                genre: track.genre,
+                duration: track.duration,
+                format: track.format,
+                addedAt: track.addedAt
+            )
+        }
+        let heldIdentities = Set(held.map(\.identity))
+        let kept = tracks.filter { !heldIdentities.contains($0.identity) }
         let server = SubsonicServer(id: "demo", name: "Home Server", url: URL(string: "https://music.example.com")!, username: "demo")
-        servers.fillDemo(tracks.filter(\.isFromServer), server: server)
-        index = LocalLibraryIndex(tracks: tracks)
+        servers.fillDemo(kept.filter(\.isFromServer), server: server)
+        index = LocalLibraryIndex(tracks: kept)
+        demoMissing = held
+        remember(found: held)
         hasScanned = true
+        getMore.libraryChanged()
+    }
+
+    /// Sample songs Get More fetched: in the library now, as a sync would bring them.
+    func demoAdd(_ tracks: [LocalTrack]) {
+        let arrived = tracks.filter { index.track(id: $0.id) == nil }
+        guard !arrived.isEmpty else { return }
+        index = LocalLibraryIndex(tracks: index.tracks + arrived)
+        demoMissing.removeAll { track in arrived.contains { $0.id == track.id } }
+        forgetUnavailable()
+        getMore.libraryChanged()
     }
     #endif
 }

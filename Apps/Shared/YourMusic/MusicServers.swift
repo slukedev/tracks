@@ -43,6 +43,8 @@ final class MusicServers {
     @ObservationIgnored var onStatusChange: (() -> Void)?
     /// Called with songs asked for that a sync has brought in.
     @ObservationIgnored var onKeptArrived: (([LocalTrack]) -> Void)?
+    /// Called with a server's id once it's removed.
+    @ObservationIgnored var onRemoved: ((String) -> Void)?
     @ObservationIgnored private var syncTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var keepFollowUps: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private let isDemo: Bool
@@ -155,6 +157,7 @@ final class MusicServers {
         writeArtists(nil, serverID)
         artists[serverID] = nil
         save()
+        onRemoved?(serverID)
     }
 
     /// Checks every server, and syncs the ones not synced today.
@@ -378,7 +381,7 @@ final class MusicServers {
     func keep(_ track: LocalTrack) async throws {
         guard case .server(let serverID, let songID) = track.origin, let client = clients[serverID] else { return }
         try await client.star(songID: songID)
-        kept[serverID, default: ServerKeeps()].ask(for: track.identity)
+        kept[serverID, default: ServerKeeps()].ask(for: track.identity, title: track.title, artist: track.artist)
         saveKept()
         keepFollowUps[serverID]?.cancel()
         keepFollowUps[serverID] = Task { [weak self] in
