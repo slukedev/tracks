@@ -477,20 +477,6 @@ struct StatsChartTests {
         #expect(!summary.insights.contains { $0.id == "busiestDay" })
     }
 
-    @Test("Played-back captures are reported")
-    func playedBackIsReported() {
-        var captures = (0..<4).map { capture("s\($0)", at: date(2025, 6, 2, 9 + $0)) }
-        captures[0] = CaptureStat(
-            songKey: "s0", title: "s0", artistName: "An Artist",
-            capturedAt: date(2025, 6, 2, 9), playedBackAt: date(2025, 6, 2, 18)
-        )
-
-        #expect(summary(for: captures).insights.contains {
-            if case .playedBack(let count, let total) = $0 { return count == 1 && total == 4 }
-            return false
-        })
-    }
-
     /// A week's chart already shows its days.
     @Test("Busiest weekday is reserved for ranges wider than a week")
     func busiestDayOnlyBeyondAWeek() {

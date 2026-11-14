@@ -13,13 +13,12 @@ final class WidgetRefresher {
     /// One per process. Shared so a background intent can flush it before it's suspended.
     static let shared: WidgetRefresher? = (try? TracksStore.shared()).map { WidgetRefresher(store: $0) }
 
-    /// How long to collect saves before checking. A Mac capture saves the row, then its
-    /// catalog id and cover a second or two later, then the playlist write and scrobble.
+    /// How long to collect saves before checking. A capture saves the row, then its cover a
+    /// second or two later, then the playlist write and scrobble.
     /// Waiting a few seconds usually turns that into one reload.
     private static let settle: Duration = .seconds(5)
 
     private let store: TracksStore
-    private let settings: CaptureSettings
     /// What the widgets showed at the last reload, or nil if unknown.
     private var faces: WidgetFaces?
     private var pendingCheck: Task<Void, Never>?
@@ -30,9 +29,8 @@ final class WidgetRefresher {
     private var reads = 0
     private var appliedRead = 0
 
-    private init(store: TracksStore, settings: CaptureSettings = CaptureSettings()) {
+    private init(store: TracksStore) {
         self.store = store
-        self.settings = settings
         Self.reloadAfterUpdate()
         // Starting from the current state means a launch doesn't cost a reload by itself.
         // Read in the background, long before the first check's settle runs out.
@@ -121,10 +119,10 @@ final class WidgetRefresher {
     }
 
     private func currentFaces() -> WidgetFaces? {
-        try? store.widgetFaces(showsUpNext: settings.showsUpNextInWidget)
+        try? store.widgetFaces()
     }
 
     private func backgroundFaces() async -> WidgetFaces? {
-        try? await store.widgetFacesInBackground(showsUpNext: settings.showsUpNextInWidget)
+        try? await store.widgetFacesInBackground()
     }
 }

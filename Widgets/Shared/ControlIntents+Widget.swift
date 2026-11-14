@@ -10,10 +10,6 @@ extension StartPlayChoiceIntent {
     @MainActor static func start(_ choice: PlayChoice) async throws { throw runsInApp }
 }
 
-extension SaveRadioSongControlIntent {
-    @MainActor static func save() async throws -> String { throw runsInApp }
-}
-
 extension IdentifySongIntent {
     @MainActor static func open() async throws { throw runsInApp }
 }

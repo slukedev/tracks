@@ -2,17 +2,12 @@
 import Foundation
 import AppKit
 
-/// Tells Music.app to play a track from one of its playlists.
-///
-/// On macOS, `ApplicationMusicPlayer` (the only MusicKit player there) adds plays to the
-/// listening history behind Recently Played and Replay, but never moves the play count shown
-/// in Get Info. Music.app playing the same track moves it within seconds. Measured with both
-/// the catalog song and the library copy; see `docs/PlatformNotes.md`.
+/// Tells Music.app to play a track from one of its playlists, for Play Songs In set to Music.
 public enum MusicLibraryPlayback {
     public struct Track: Sendable, Equatable {
         public let name: String
         public let artist: String
-        /// A station track, which Music.app reports with no duration. Play-back uses this to
+        /// A station track, which Music.app reports with no duration. The queue uses this to
         /// tell "the user started a station" from "our song ended".
         public let isStream: Bool
 
@@ -134,58 +129,6 @@ public enum MusicLibraryPlayback {
         }
         return result.stringValue.flatMap(Location.init(rawValue:)).map { .success($0) }
             ?? .failure(.scriptFailed("Unexpected answer: \(result.stringValue ?? "nothing")"))
-    }
-
-    /// Where Music has each of `tracks`, in one round of Apple events. Doesn't launch Music:
-    /// when it isn't running this fails with `.musicNotRunning` and nothing is known.
-    public static func locateAll(
-        _ tracks: [Track],
-        inPlaylist playlist: String,
-        timeoutSeconds: Int = 5
-    ) -> Result<[Location], Failure> {
-        guard isMusicRunning else { return .failure(.musicNotRunning) }
-        guard !tracks.isEmpty else { return .success([]) }
-        let list = tracks
-            .map { "{\"\(escape($0.name))\", \"\(escape($0.artist))\"}" }
-            .joined(separator: ", ")
-        let source = """
-        with timeout of \(timeoutSeconds) seconds
-            set answers to {}
-            tell application id "com.apple.Music"
-                repeat with pair in {\(list)}
-                    set songName to item 1 of pair
-                    set artistName to item 2 of pair
-                    set found to "missing"
-                    try
-                        if (count of (every track of playlist "\(escape(playlist))" ¬
-                            whose name is songName and artist is artistName)) > 0 then set found to "playlist"
-                    end try
-                    if found is "missing" then
-                        if (count of (every track of library playlist 1 of source 1 ¬
-                            whose name is songName and artist is artistName)) > 0 then set found to "library"
-                    end if
-                    set end of answers to found
-                end repeat
-            end tell
-            set AppleScript's text item delimiters to ","
-            return answers as text
-        end timeout
-        """
-        guard let script = NSAppleScript(source: source) else {
-            return .failure(.scriptFailed("Could not compile script"))
-        }
-        var error: NSDictionary?
-        let result = script.executeAndReturnError(&error)
-        if let error {
-            let number = error[NSAppleScript.errorNumber] as? Int
-            let message = error[NSAppleScript.errorMessage] as? String
-            return .failure(.scriptFailed("\(message ?? "unknown") (\(number ?? 0))"))
-        }
-        let answers = (result.stringValue ?? "").split(separator: ",").compactMap { Location(rawValue: String($0)) }
-        guard answers.count == tracks.count else {
-            return .failure(.scriptFailed("Unexpected answer: \(result.stringValue ?? "nothing")"))
-        }
-        return .success(answers)
     }
 
     /// Shows a catalog song in Music, one click from playing. For a song that isn't in the

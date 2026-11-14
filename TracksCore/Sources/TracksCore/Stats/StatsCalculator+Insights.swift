@@ -212,13 +212,6 @@ extension StatsCalculator {
             insights.append(.longestSession(minutes: Int(longest / 60)))
         }
 
-        // Play Back only applies to radio songs.
-        let radio = inRange.count { $0.kind == .radio }
-        let played = inRange.count { $0.kind == .radio && $0.playedBackAt != nil }
-        if played > 0 {
-            insights.append(.playedBack(count: played, total: radio))
-        }
-
         return insights
     }
 

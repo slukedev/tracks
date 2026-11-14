@@ -64,10 +64,9 @@ struct ErrorWordsTests {
     @MainActor
     @Test("a play that fails says why without the error's domain and code")
     func controllerWords() async throws {
-        let store = try TracksStore(inMemory: true)
         let service = FakePlaybackService()
         service.playResult = .failure(NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet))
-        let controller = PlaybackController(store: store, service: service)
+        let controller = PlaybackController(service: service)
 
         await controller.play(PlaybackItem(songID: "1", title: "T", artistName: "A"))
         #expect(controller.lastError == "You’re offline. Connect to the internet and try again.")

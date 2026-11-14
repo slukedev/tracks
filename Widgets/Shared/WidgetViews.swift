@@ -74,7 +74,7 @@ struct LastCapturedView: View {
     }
 }
 
-/// Today's listening, plus what "Play back" will play next when that's on in Settings.
+/// Today's listening.
 struct TodayOnRadioView: View {
     let entry: CaptureEntry
     @Environment(\.widgetFamily) private var family
@@ -83,17 +83,10 @@ struct TodayOnRadioView: View {
         Group {
             if entry.today.isEmpty {
                 WidgetEmptyState(isStoreReadable: entry.isStoreReadable, compact: false)
-            } else if let upNext = entry.upNext {
-                if family == .systemLarge {
-                    StackedUpNextLayout(today: entry.today, upNext: upNext)
-                } else if let latest = entry.today.first {
-                    SplitUpNextLayout(latest: latest, upNext: upNext)
-                }
             } else {
                 TodaySection(
                     captures: entry.today,
-                    rowStyle: family == .systemLarge ? .regular : .compact,
-                    showsPlayButton: true
+                    rowStyle: family == .systemLarge ? .regular : .compact
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }

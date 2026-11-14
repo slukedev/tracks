@@ -11,13 +11,11 @@ struct TracksWidgetBundle: WidgetBundle {
         LastCapturedWidget()
         TodayOnRadioWidget()
         PlayInTracksControl()
-        SaveRadioSongControl()
         IdentifySongControl()
-        PlayBackTodayControl()
     }
 }
 
-/// The most recent capture, whatever it came from.
+/// The most recent song kept.
 struct LastCapturedWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(
@@ -29,12 +27,12 @@ struct LastCapturedWidget: Widget {
                 .tint(.tracks)
         }
         .configurationDisplayName("Last Played")
-        .description("The last song Tracks kept.")
+        .description("The last song you played.")
         .supportedFamilies([.systemSmall])
     }
 }
 
-/// Today's listening, what play-back will play next, and a button to play it.
+/// Today's listening.
 struct TodayOnRadioWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(
@@ -46,8 +44,7 @@ struct TodayOnRadioWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Today")
-        // Play back is radio-only, so the description says so.
-        .description("What you've listened to today, and the radio songs up next to play back.")
+        .description("What you've played today.")
         .supportedFamilies([.systemMedium, .systemLarge])
     }
 }

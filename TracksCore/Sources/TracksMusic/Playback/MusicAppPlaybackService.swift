@@ -4,12 +4,7 @@ import Synchronization
 import MusicKit
 import TracksCore
 
-/// Plays captures by handing them to Music.app, so the plays count.
-///
-/// `ApplicationMusicPlayer` adds plays to Apple's listening history but never moves the play
-/// count Music.app shows (tested with both the catalog song and the library copy), and
-/// `SystemMusicPlayer` is unavailable on macOS. Music.app playing the same track updates the
-/// count within seconds. The songs are already in the library because Tracks added them.
+/// Plays songs from the history by handing them to Music.app, for Play Songs In set to Music.
 ///
 /// Tracks sequences the queue itself. Started on a playlist track, Music.app left the playlist
 /// after one song and went into Autoplay, so this plays one song at a time and starts the next
@@ -34,15 +29,13 @@ public final class MusicAppPlaybackService: PlaybackService, Sendable {
     }
 
     private let state = Mutex(Pending())
-    private let reached = ReachedSongs()
     private let sequencer = TaskSlot()
 
     public init(playlistName: @escaping @Sendable () -> String) {
         self.playlistName = playlistName
     }
 
-    /// Plays songs by the names Music.app reported when they were captured, which is what
-    /// the library search below matches on. No catalog request, so a song imported with a
+    /// Plays songs by their names, which is what the library search below matches on. No catalog request, so a song imported with a
     /// library ID ("i.…") plays too.
     ///
     /// One song that isn't in the library can't be started, so it's opened in Music instead,
@@ -102,14 +95,14 @@ public final class MusicAppPlaybackService: PlaybackService, Sendable {
             $0.remaining = Array(ordered.dropFirst())
             $0.current = nil
         }
-        reached.clearBacklog()
 
         try await start(first)
         startSequencer()
     }
 
-    /// Starts one song. The sequencer only reports it once Music.app is actually playing it,
-    /// because Music.app accepts some commands without acting on them (`next track`, for one).
+    /// Starts one song. The sequencer only counts it as reached once Music.app is actually
+    /// playing it, because Music.app accepts some commands without acting on them (`next
+    /// track`, for one).
     private func start(_ song: Song) async throws {
         let playlist = playlistName()
         let result = await ScriptingQueue.run {
@@ -132,14 +125,10 @@ public final class MusicAppPlaybackService: PlaybackService, Sendable {
 
                 if let playing, Self.matches(playing, current) {
                     // Music.app is on this song now.
-                    if !announced.contains(current.id) {
-                        announced.insert(current.id)
-                        reached.deliver(current.id)
-                    }
+                    announced.insert(current.id)
                 } else if let playing, playing.isStream {
-                    // The user started a station, so drop the queue. Without this, a station
-                    // started mid play-back was replaced by the next capture three seconds
-                    // later and nothing on it was heard or captured.
+                    // The user started a station, so drop the queue. Without this, the station
+                    // was replaced by the next song three seconds later.
                     state.withLock { $0.remaining = [] }
                     return
                 } else if announced.contains(current.id) {
@@ -157,8 +146,8 @@ public final class MusicAppPlaybackService: PlaybackService, Sendable {
                 try? await Task.sleep(for: .seconds(3))
             }
         }
-        // Replacing cancels the one before: two play-backs started together each start one,
-        // and the earlier must not keep driving Music.app.
+        // Replacing cancels the one before: two queues started together each start one, and
+        // the earlier must not keep driving Music.app.
         sequencer.replace(with: task)
     }
 
@@ -169,10 +158,6 @@ public final class MusicAppPlaybackService: PlaybackService, Sendable {
     private func stopIfStillPlaying() async {
         guard await ScriptingQueue.run({ MusicLibraryPlayback.currentTrack() }) != nil else { return }
         _ = await ScriptingQueue.run { MediaTransportControl.perform(.playPause) }
-    }
-
-    public func nowPlayingIDs() -> AsyncStream<String> {
-        reached.subscribe()
     }
 
     public func pause() async {

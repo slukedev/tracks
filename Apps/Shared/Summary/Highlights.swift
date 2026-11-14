@@ -85,8 +85,6 @@ struct HighlightSentence: View {
             Text("Your most played song is \(title) by \(artist), ^[\(count) time](inflect: true).")
         case .longestSession(let minutes):
             Text("Your longest radio session ran ^[\(minutes) minute](inflect: true).")
-        case .playedBack(let count, let total):
-            Text("You've played back \(count) of \(total) radio songs, so Apple Music counts them.")
         }
     }
 }

@@ -2,12 +2,9 @@ import Foundation
 import TracksCore
 import TracksMusic
 
-/// The player each platform uses.
-///
-/// iOS uses `SystemMusicPlayer`, which reaches both listening history and the play count.
-/// macOS has no `SystemMusicPlayer`, and `ApplicationMusicPlayer` never moves the play count,
-/// so the Mac hands playback to Music.app. See "What Apple counts as a play" in
-/// `docs/PlatformNotes.md`.
+/// Where Play Songs In set to Apple Music sends songs on each platform: the Music app through
+/// `SystemMusicPlayer` on iOS, and Music.app by scripting on the Mac, which has no
+/// `SystemMusicPlayer`.
 enum PlatformPlaybackService {
     static func make() -> any PlaybackService {
         #if os(macOS)

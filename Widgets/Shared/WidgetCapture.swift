@@ -46,33 +46,25 @@ struct CaptureEntry: TimelineEntry {
     let lastPlayed: WidgetCapture?
     /// Today's listening, newest first, as many as fit.
     let today: [WidgetCapture]
-    /// What "Play back" will play next, or nil when Up Next is off in Settings.
-    ///
-    /// Empty isn't nil: an empty queue still shows the section, or it would look like the
-    /// setting was broken.
-    let upNext: UpNextQueue?
-    /// Tells "no radio today" apart from "couldn't read the database".
+    /// Tells "nothing today" apart from "couldn't read the database".
     let isStoreReadable: Bool
 }
 
 extension CaptureEntry {
     /// This entry as it stands once the day turns over at `midnight`: nothing played yet
-    /// today, and nothing today to play back. The last song played is still the last.
+    /// today. The last song played is still the last.
     func startingNewDay(at midnight: Date) -> CaptureEntry {
         CaptureEntry(
             date: midnight,
             lastPlayed: lastPlayed,
             today: [],
-            // Play back only plays today's radio, so the queue empties too. Kept rather than
-            // made nil, which would hide the section as if Up Next had been turned off.
-            upNext: upNext.map { _ in UpNextQueue(songs: [], totalCount: 0) },
             isStoreReadable: isStoreReadable
         )
     }
 
     /// The shape of a real entry, for the system to draw redacted while the real one loads.
     static func placeholder(capacity: WidgetCapacity) -> CaptureEntry {
-        let songs = (0..<max(capacity.today, capacity.upNext ?? 0, 1)).map { index in
+        let songs = (0..<max(capacity.today, 1)).map { index in
             WidgetCapture(
                 id: "placeholder-\(index)",
                 title: "Song Title",
@@ -84,7 +76,6 @@ extension CaptureEntry {
             date: .now,
             lastPlayed: songs.first,
             today: Array(songs.prefix(capacity.today)),
-            upNext: capacity.upNext.map { UpNextQueue(songs: Array(songs.prefix($0)), totalCount: $0) },
             isStoreReadable: true
         )
     }
@@ -104,28 +95,15 @@ extension CaptureEntry {
             prefix: "sample-today",
             firstHue: 0.02
         )
-        let upNext = sampleSongs(
-            [
-                ("Saltwater Summer", "Coastline"),
-                ("Neon Letters", "Mira Vale"),
-                ("After the Rain", "Quiet Hours"),
-                ("Heliotrope", "June Atlas"),
-                ("Low Tide", "Harbour Club"),
-            ],
-            prefix: "sample-next",
-            firstHue: 0.55
-        )
         return CaptureEntry(
             date: .now,
             lastPlayed: today.first?.withCoverColor(),
             today: Array(today.prefix(capacity.today)),
-            upNext: capacity.upNext.map { UpNextQueue(songs: Array(upNext.prefix($0)), totalCount: upNext.count) },
             isStoreReadable: true
         )
     }
 
-    /// Each song gets its own colour, stepping round the wheel from `firstHue`, so the two
-    /// sections look different at a glance.
+    /// Each song gets its own colour, stepping round the wheel from `firstHue`.
     private static func sampleSongs(
         _ songs: [(String, String)],
         prefix: String,

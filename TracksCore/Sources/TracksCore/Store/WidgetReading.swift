@@ -8,59 +8,45 @@ public struct WidgetReading: Sendable {
     public let lastPlayed: CaptureSnapshot?
     /// Today's listening, newest first.
     public let today: [CaptureSnapshot]
-    /// What play-back will play next, or nil when it wasn't asked for.
-    public let upNext: UpNext?
-
-    public struct UpNext: Sendable {
-        /// The first few, in play order.
-        public let songs: [CaptureSnapshot]
-        /// Every song owed.
-        public let totalCount: Int
-    }
 
     /// The most rows any widget shows. Widget capacities must stay within these, since the
     /// app only looks this far down when deciding whether to reload.
     public static let mostTodayRows = 6
-    public static let mostUpNextRows = 3
     /// The Top Songs widget's most covers, and the days it counts back over.
     public static let mostTopSongs = 4
     public static let topSongDays = 7
 
     public var allSongs: [CaptureSnapshot] {
-        [lastPlayed].compactMap(\.self) + today + (upNext?.songs ?? [])
+        [lastPlayed].compactMap(\.self) + today
     }
 }
 
 public extension TracksStore {
-    /// Reads what a widget with this much room would show. A nil `upNextLimit` skips the
-    /// queue, for when Up Next is turned off.
+    /// Reads what a widget with this much room would show.
     func widgetReading(
         todayLimit: Int,
-        upNextLimit: Int?,
         now: Date = .now,
         calendar: Calendar = .current
     ) throws -> WidgetReading {
-        try Self.widgetReading(in: context, todayLimit: todayLimit, upNextLimit: upNextLimit, now: now, calendar: calendar)
+        try Self.widgetReading(in: context, todayLimit: todayLimit, now: now, calendar: calendar)
     }
 
     /// Everything the largest widgets could show, for comparing before and after a save.
     func widgetFaces(
-        showsUpNext: Bool,
         now: Date = .now,
         calendar: Calendar = .current
     ) throws -> WidgetFaces {
-        try Self.widgetFaces(in: context, showsUpNext: showsUpNext, now: now, calendar: calendar)
+        try Self.widgetFaces(in: context, now: now, calendar: calendar)
     }
 
-    /// ``widgetFaces(showsUpNext:now:calendar:)`` read in the background, on a context of its
-    /// own, so the app can compare after a save without the main actor doing the reads.
+    /// ``widgetFaces(now:calendar:)`` read in the background, on a context of its own, so the
+    /// app can compare after a save without the main actor doing the reads.
     @concurrent
     nonisolated func widgetFacesInBackground(
-        showsUpNext: Bool,
         now: Date = .now,
         calendar: Calendar = .current
     ) async throws -> WidgetFaces {
-        try Self.widgetFaces(in: ModelContext(container), showsUpNext: showsUpNext, now: now, calendar: calendar)
+        try Self.widgetFaces(in: ModelContext(container), now: now, calendar: calendar)
     }
 
     /// The most played songs of the last `days` days, today included, most played first.
@@ -81,7 +67,6 @@ public extension TracksStore {
     nonisolated static func widgetReading(
         in context: ModelContext,
         todayLimit: Int,
-        upNextLimit: Int?,
         now: Date,
         calendar: Calendar
     ) throws -> WidgetReading {
@@ -93,29 +78,20 @@ public extension TracksStore {
                 limit: todayLimit
             ))
             : []
-        // The same query the Play button uses, so Up Next matches what Play plays.
-        let upNext = try upNextLimit.map { limit in
-            let owed = try playBackQueue(in: context, now: now, calendar: calendar)
-            return WidgetReading.UpNext(songs: owed.prefix(limit).map(\.snapshot), totalCount: owed.count)
-        }
         return WidgetReading(
             lastPlayed: lastPlayed?.snapshot,
-            today: today.map(\.snapshot),
-            upNext: upNext
+            today: today.map(\.snapshot)
         )
     }
 
     nonisolated static func widgetFaces(
         in context: ModelContext,
-        showsUpNext: Bool,
         now: Date,
         calendar: Calendar
     ) throws -> WidgetFaces {
         let reading = try widgetReading(
             in: context,
             todayLimit: WidgetReading.mostTodayRows,
-            // With Up Next off, the queue isn't on screen, so play-back shouldn't reload.
-            upNextLimit: showsUpNext ? WidgetReading.mostUpNextRows : nil,
             now: now,
             calendar: calendar
         )
@@ -157,8 +133,8 @@ public extension TracksStore {
 /// a widget shows. WidgetKit limits how often a background app can reload its widgets, and
 /// the Mac app is nearly always in the background, so only visible changes should reload.
 public struct WidgetFaces: Equatable, Sendable {
-    /// A song as a widget draws it. The row id, capture time and played-back date aren't
-    /// shown, so they're left out.
+    /// A song as a widget draws it. The row id and capture time aren't shown, so they're
+    /// left out.
     struct Song: Equatable, Sendable {
         let title: String
         let artistName: String
@@ -179,9 +155,6 @@ public struct WidgetFaces: Equatable, Sendable {
 
     let lastPlayed: Song?
     let today: [Song]
-    let upNext: [Song]?
-    /// Shown as "3 songs" and "2 more".
-    let upNextCount: Int?
     /// The Top Songs widget, in rank order.
     let topSongs: [Song]
     /// Stands in for the Listening widget. Its time, bars and streak only move when a row is
@@ -192,8 +165,6 @@ public struct WidgetFaces: Equatable, Sendable {
         lastPlayed = reading.lastPlayed.map(Song.init)
         self.topSongs = topSongs.map(Song.init)
         today = reading.today.map(Song.init)
-        upNext = reading.upNext?.songs.map(Song.init)
-        upNextCount = reading.upNext?.totalCount
         self.captureCount = captureCount
     }
 
@@ -201,9 +172,7 @@ public struct WidgetFaces: Equatable, Sendable {
     public func kindsChanged(since previous: WidgetFaces) -> [String] {
         var kinds: [String] = []
         if lastPlayed != previous.lastPlayed { kinds.append(WidgetKind.lastPlayed) }
-        if today != previous.today || upNext != previous.upNext || upNextCount != previous.upNextCount {
-            kinds.append(WidgetKind.today)
-        }
+        if today != previous.today { kinds.append(WidgetKind.today) }
         if captureCount != previous.captureCount { kinds.append(WidgetKind.listening) }
         // Most plays move no song past another, so this reloads far less often than Listening.
         if topSongs != previous.topSongs { kinds.append(WidgetKind.topSongs) }

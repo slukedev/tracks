@@ -1,8 +1,6 @@
 import Foundation
 
-/// Plays captured songs back through Apple Music, so Apple logs them normally.
-///
-/// The user actually hears them: nothing here is muted or sped up.
+/// Plays songs from the history in the Music app, for Play Songs In set to Apple Music.
 public protocol PlaybackService: Sendable {
     /// Queues the given catalog songs and starts playing.
     func play(songIDs: [String]) async throws
@@ -11,12 +9,6 @@ public protocol PlaybackService: Sendable {
     func play(_ items: [PlaybackItem]) async throws
     func pause() async
     func skipToNext() async throws
-
-    /// Emits each song ID as playback reaches it.
-    ///
-    /// Captures are marked played back from this, not at queue time, because a queue can
-    /// fail to start or be abandoned.
-    func nowPlayingIDs() -> AsyncStream<String>
 }
 
 extension PlaybackService {
@@ -48,21 +40,4 @@ public enum PlaybackError: Error, Sendable, Equatable {
     /// The player couldn't start the song, so it opened it in Music for the person to play.
     /// Not a failure to report: it did what the person asked as far as it could.
     case openedInMusic
-}
-
-/// Chooses what "play back" means when the user has not picked anything.
-public enum PlaybackSelection {
-    /// Today's radio captures not yet played back, oldest first. Rows with no catalog ID
-    /// are skipped so they don't fail the whole queue.
-    public static func todaysUnplayed(
-        from captures: [Capture],
-        now: Date = .now,
-        calendar: Calendar = .current
-    ) -> [Capture] {
-        let startOfDay = calendar.startOfDay(for: now)
-        return captures
-            .filter { $0.kind == .radio && $0.capturedAt >= startOfDay && $0.playedBackAt == nil }
-            .filter { !$0.songID.isEmpty }
-            .sorted { $0.capturedAt < $1.capturedAt }
-    }
 }

@@ -93,7 +93,7 @@ public enum ArtistCredits {
     /// looked it up, so a page or menu credits a song as the statistics do.
     public static func song(artist: String, title: String) -> [ArtistCredit] {
         guard mayCreditSeveral(artist: artist, title: title),
-              let known = CatalogCredits.shared.artists(forSong: HistoryImport.key(title: title, artistName: artist))
+              let known = CatalogCredits.shared.artists(forSong: SongIdentity.key(title: title, artistName: artist))
         else { return byName(artist: artist, title: title) }
         return parse(artist: artist, title: title, catalogArtists: known)
     }
