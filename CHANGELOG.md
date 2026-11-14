@@ -3,14 +3,14 @@
 ## Tracks 1.0
 
 Motif is now Tracks, a new app with a new name and icon, made for playing and finding music
-as much as keeping it. On a device with Motif, Tracks brings your Motif history over the
-first time it opens: every play, station and session, with your blocked artists, forgotten
-songs and radio playlist. Settings › History can bring it over again.
+as much as keeping it.
 
 Tracks opens to Play.
 
 Tracks can now play your music on iPhone and Mac. Every song you play in Tracks is kept, even
 with the app in the background, so your history no longer depends on having Tracks open.
+Tracks keeps only what plays in Tracks: songs played in the Music app or other apps aren't
+recorded any more. Your Last.fm history can still bring in what you scrobbled anywhere else.
 
 ### A New Look
 
@@ -229,7 +229,14 @@ with the app in the background, so your history no longer depends on having Trac
 - Choose whether Tracks opens to Summary or Play in Settings. The tab it opens to sits on the
   far left
 - Play on a song or album page plays it in Tracks, so the play is kept. Settings can send
-  them to Apple Music instead
+  them to Apple Music instead, where they aren't kept
+- Import your Last.fm history from Settings › Last.fm: it adds the songs you scrobbled from
+  any app, skips the ones Tracks already has, and shows its progress in place. Nothing asks
+  first
+- Gone with recording other apps: recovering songs from Recently Played, Play Back and its
+  control and widget queue, Save Current Radio Song, Treat Everything as Radio, and Background
+  App Refresh
+- Settings say less: shorter names, and a note under a setting only where it saves a mistake
 - Summary's charts: tap a bar to read it and swipe sideways for the week or month before,
   and the page still scrolls from a chart. Charts compares your listening with the same
   point last week, month or year

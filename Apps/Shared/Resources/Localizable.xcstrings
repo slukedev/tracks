@@ -228,9 +228,6 @@
         }
       }
     },
-    "%@ of songs from your servers, on this Mac." : {
-
-    },
     "%@ of your listening time" : {
 
     },
@@ -410,12 +407,6 @@
     "60 min" : {
 
     },
-    "A couple of minutes after a station stops, Tracks plays its songs again so Apple Music counts them." : {
-
-    },
-    "A new find’s download goes once it’s played, unless you keep it." : {
-
-    },
     "A smart playlist fills itself with the songs that fit its rules, and keeps up as your music changes." : {
 
     },
@@ -435,9 +426,6 @@
 
     },
     "Add Songs" : {
-
-    },
-    "Add songs from Play, or put them in On My iPhone ▸ Tracks ▸ Music in the Files app. FLAC, ALAC, MP3, AAC, WAV and AIFF all play, with their tags and covers." : {
 
     },
     "Added by SharePlay" : {
@@ -486,9 +474,6 @@
 
     },
     "Apple Music" : {
-
-    },
-    "Apple Music and Your Music are both in Listen Now’s title." : {
 
     },
     "Apple Music couldn't be reached, and none of your songs suit it yet. As Tracks learns the genres of what you play, they'll show up here." : {
@@ -540,9 +525,6 @@
         }
       }
     },
-    "Brought over ^[%@ play](inflect: true) from Motif. Motif itself isn't changed." : {
-
-    },
     "Browse by Mood" : {
 
     },
@@ -565,19 +547,10 @@
     "Check your connection and try again." : {
 
     },
-    "Checked ^[%@ cover](inflect: true). They all load." : {
-
-    },
-    "Checks every cover in your history and asks Apple Music again for the ones that no longer load. It can take a minute over a long history." : {
-
-    },
     "Choose a device to play there. Songs pick up where they were." : {
 
     },
     "Choose the sections Listen Now shows. Drag to change their order." : {
-
-    },
-    "Choose which sections Play shows, and their order." : {
 
     },
     "Click a %@ to see its chart." : {
@@ -611,12 +584,6 @@
 
     },
     "Content" : {
-
-    },
-    "Copies everything Motif kept on this device into Tracks, with its stations, sessions and settings. Motif itself isn't changed." : {
-
-    },
-    "Copying your plays from Motif. Motif itself isn't changed." : {
 
     },
     "Couldn’t change Open at Login: %@" : {
@@ -685,16 +652,7 @@
     "Every song in your music" : {
 
     },
-    "Every song is kept and handled as radio, even ones you chose." : {
-
-    },
-    "Every song Tracks keeps goes to Last.fm, radio included." : {
-
-    },
     "Everyone Else" : {
-
-    },
-    "Everything from Motif is already here." : {
 
     },
     "Everything, as you play it. Pick genres to hear more of them." : {
@@ -736,9 +694,6 @@
     "For each different song, on average" : {
 
     },
-    "For when Tracks misses a station. Stays on this Mac." : {
-
-    },
     "Free Up Space removes the ^[%@ song](inflect: true) you haven't played in three months. They stay on your servers, to download again whenever you like." : {
 
     },
@@ -752,9 +707,6 @@
 
     },
     "Go to %@ (⌘T)" : {
-
-    },
-    "Hidden from Listen Now and Radio." : {
 
     },
     "History" : {
@@ -784,16 +736,10 @@
     "iPhone" : {
 
     },
-    "It all goes to your private iCloud database. Songs are kept as Apple Music catalog identifiers, never audio." : {
-
-    },
     "It may have been deleted on another device." : {
 
     },
     "It may have been removed from your music." : {
-
-    },
-    "It reopened by itself %@ later." : {
 
     },
     "Its songs stay in your music." : {
@@ -868,9 +814,6 @@
     "Look for New Songs" : {
 
     },
-    "Looking in the Music folder…" : {
-
-    },
     "Made from Your Listening" : {
 
     },
@@ -902,9 +845,6 @@
 
     },
     "Mixes change as you listen, and this one isn't among today's." : {
-
-    },
-    "Mixes leave out songs you skip early twice or ask to hear less of. That stays on this iPhone." : {
 
     },
     "More" : {
@@ -946,25 +886,13 @@
     "Motif" : {
 
     },
-    "Motif History" : {
-
-    },
     "Music Folder" : {
-
-    },
-    "Needed while Tracks is hidden from the menu bar, so there’s a way back in." : {
 
     },
     "New" : {
 
     },
     "New Albums Only" : {
-
-    },
-    "New finds stay downloaded after they play." : {
-
-    },
-    "New finds stream from your servers as they come up." : {
 
     },
     "New Playlist" : {
@@ -1007,9 +935,6 @@
     "None of your music suits it yet, and none of your playlists look like party ones. Tracks goes by each song's genre." : {
 
     },
-    "Not available while Tracks shows sample data." : {
-
-    },
     "Not connected" : {
 
     },
@@ -1022,9 +947,6 @@
     "Not out yet. Add them now, and they'll be in your library the day they are." : {
 
     },
-    "Nothing downloaded from your servers yet." : {
-
-    },
     "Nothing from %@ was played in this %@." : {
       "localizations" : {
         "en" : {
@@ -1035,13 +957,7 @@
         }
       }
     },
-    "Nothing is sent to Last.fm until you turn this back on." : {
-
-    },
     "Nothing Playing" : {
-
-    },
-    "Nothing you play is kept until you turn this off." : {
 
     },
     "Nothing's queued after this song. Search for one to play next." : {
@@ -1119,9 +1035,6 @@
     "Only Albums I Ask For" : {
 
     },
-    "Only radio is kept. Songs you choose yourself aren’t." : {
-
-    },
     "Open at Login" : {
 
     },
@@ -1164,15 +1077,6 @@
     "Play and download from your own music server: Navidrome, Gonic, Airsonic, Ampache and any other that speaks the Subsonic API." : {
 
     },
-    "Play Back" : {
-
-    },
-    "Play Back only starts when you’re at your Mac, and never over music you chose." : {
-
-    },
-    "Play shows only songs downloaded to this iPhone, which play without a connection. It switches to them by itself when you’re offline. To download songs you add to your library from Tracks, turn on Automatic Downloads in Settings ▸ Apps ▸ Music." : {
-
-    },
     "Play something in Apple Music. Tracks keeps what you listen to, including radio, and turns it into charts and highlights." : {
 
     },
@@ -1209,15 +1113,6 @@
     "Playlists you make or add show up here." : {
 
     },
-    "Put both sources a click away." : {
-
-    },
-    "Radio songs don’t reach your play counts, Replay or recommendations until you play them back." : {
-
-    },
-    "Radio songs stay in your Tracks history only." : {
-
-    },
     "Recently Added" : {
 
     },
@@ -1231,12 +1126,6 @@
 
     },
     "Removes the songs you haven't played in three months. They stay on your servers, to download again whenever you like." : {
-
-    },
-    "Removing the whole song also stops Tracks recovering it from Recently Played." : {
-
-    },
-    "Removing the whole song also stops Tracks recovering it from Recently Played. Scrobbles already sent stay on Last.fm." : {
 
     },
     "Repair Artwork" : {
@@ -1259,9 +1148,6 @@
 
     },
     "Rules" : {
-
-    },
-    "Same Song Again Within" : {
 
     },
     "Screen Time or a device profile doesn’t allow Apple Music access." : {
@@ -1289,9 +1175,6 @@
 
     },
     "Select a song to see its plays." : {
-
-    },
-    "Sent with the time Tracks found them, since Recently Played doesn’t say when you played them." : {
 
     },
     "Servers" : {
@@ -1327,28 +1210,10 @@
     "Songs download only when you ask." : {
 
     },
-    "Songs played until it reopened at %@ may be missing." : {
-
-    },
-    "Songs played while Tracks was closed aren’t kept." : {
-
-    },
-    "Songs recovered from Recently Played stay off Last.fm, so nothing arrives with a guessed time." : {
-
-    },
-    "Songs stay in the playlist until you remove them in Apple Music. Tracks can add songs but can’t take them out." : {
-
-    },
     "Songs you added stay in their Up Next." : {
 
     },
-    "Songs you choose are kept alongside radio." : {
-
-    },
     "Songs you haven’t played in a few months come round more often." : {
-
-    },
-    "Songs you hear on Apple Music radio go into a playlist in your library." : {
 
     },
     "Songs you import or sync from a server show here." : {
@@ -1357,19 +1222,7 @@
     "Songs you play in Apple Music will collect here." : {
 
     },
-    "Songs you play in Music show up here." : {
-
-    },
     "Songs you play in Music will collect here." : {
-
-    },
-    "Songs you play now won’t be kept, counted toward your stats or scrobbled, and your music server isn’t told about them. When you resume, Tracks won’t fill them in from Recently Played. Your history so far stays as it is." : {
-
-    },
-    "Songs you play or add from your servers download as they do." : {
-
-    },
-    "Songs you put in the Music folder, or import from Listen Now’s Add Music menu, play with their tags and covers. FLAC, ALAC, MP3, AAC, WAV and AIFF all play." : {
 
     },
     "Songs you've never played, like the ones you do" : {
@@ -1387,13 +1240,7 @@
     "Start here. Every song you hear is kept, with its station." : {
 
     },
-    "Start sampling, then play a radio station." : {
-
-    },
     "Start with This" : {
-
-    },
-    "Starts with songs on this Mac, and gets new finds ready behind them." : {
 
     },
     "Startup" : {
@@ -1403,9 +1250,6 @@
 
     },
     "Statistics" : {
-
-    },
-    "Stop keeping what you play for a while." : {
 
     },
     "Storage" : {
@@ -1447,16 +1291,7 @@
     "the month before" : {
 
     },
-    "The new song fades in. Reduce Motion turns this off." : {
-
-    },
-    "The new song replaces the old one at once." : {
-
-    },
     "The station starts again from whatever you pick next." : {
-
-    },
-    "The Today widget lists the songs Play Back will play next." : {
 
     },
     "the week before" : {
@@ -1501,28 +1336,7 @@
     "Tracks doesn’t look for your other devices." : {
 
     },
-    "Tracks has no servers and no analytics. Your history stays on your devices and in your iCloud account." : {
-
-    },
     "Tracks keeps this song once you've heard enough of it to count. Its story starts here." : {
-
-    },
-    "Tracks keeps what you play either way. Apple Music asks before anything is shared." : {
-
-    },
-    "Tracks lives in the menu bar only." : {
-
-    },
-    "Tracks looks each time it opens. Look again after adding songs in Finder." : {
-
-    },
-    "Tracks opens Last.fm so you can allow it. Your password is never shared with Tracks." : {
-
-    },
-    "Tracks quit unexpectedly around %@." : {
-
-    },
-    "Tracks quit unexpectedly at %@." : {
 
     },
     "Tracks Radio" : {
@@ -1543,22 +1357,13 @@
     "Tracks sends a token made from your password, never the password itself, and keeps the password in this Mac’s keychain." : {
 
     },
-    "Tracks shows in the Dock and the app switcher." : {
-
-    },
     "Tracks starts in the background when you log in." : {
-
-    },
-    "Tracks stops scrobbling. What’s already on Last.fm stays there." : {
 
     },
     "Tracks syncs the list of songs on your server each day, so Tracks Radio, your mixes and search reach all of it. The songs themselves stream as you play them, unless you download them." : {
 
     },
     "Transitions" : {
-
-    },
-    "Troubleshooting" : {
 
     },
     "Try another %@, or a longer range." : {
@@ -1573,9 +1378,6 @@
     "Turn a station off to stop keeping what it plays. Songs already kept from it stay in your history." : {
 
     },
-    "Turn this on to collect what you hear on radio in a playlist in your library." : {
-
-    },
     "Two or three you love is plenty. The station plays them, and finds more like them." : {
 
     },
@@ -1583,9 +1385,6 @@
 
     },
     "Up Next" : {
-
-    },
-    "Use %@. Long labels are shortened so they can’t push other apps off the menu bar." : {
 
     },
     "Visualizer" : {
@@ -1603,16 +1402,7 @@
     "What Syncs" : {
 
     },
-    "What Tracks Keeps" : {
-
-    },
-    "When Tracks starts, it fills in what you played while it was closed." : {
-
-    },
     "When You Come Back" : {
-
-    },
-    "Where your own files live. Put songs in, and Tracks finds them." : {
 
     },
     "While Music Plays" : {
@@ -1732,19 +1522,10 @@
         }
       }
     },
-    "Your Motif history came over on %@ and reaches this device through iCloud. Bring it over here too if anything's missing." : {
-
-    },
-    "Your music comes up on the highway and down at the lights, following the car." : {
-
-    },
     "Your own music moves it as it plays. Apple Music doesn't let Tracks hear the song, so for it the visualizer keeps to the song's beat." : {
 
     },
     "Your own station plays everything you love and new finds like it, picked as it plays." : {
-
-    },
-    "Your own station, from everything you love and new finds like it." : {
 
     },
     "Your Picks" : {

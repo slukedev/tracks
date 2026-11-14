@@ -7,47 +7,36 @@ add it, with the platform and OS version you saw it on.
 ## What Apple counts as a play
 
 - Songs heard on an Apple Music radio station don't count as plays in Music. That's why
-  Tracks keeps them itself, adds them to "Heard on Radio", and offers Play Back.
-- On iOS, `SystemMusicPlayer` hands the queue to Music, so a play moves both the listening
-  history behind Recently Played and Replay and the play count in Get Info.
-- `ApplicationMusicPlayer` adds to the listening history but never moves the play count.
-  Measured on macOS with both the catalog song and the library copy. macOS has no
-  `SystemMusicPlayer`, so the Mac plays back through Music itself (`MusicAppPlaybackService`),
-  which moves the count within seconds.
+  Tracks keeps them itself and adds them to "Heard on Radio".
+- `ApplicationMusicPlayer`, which Tracks plays Apple Music with, adds to the listening history
+  behind Recently Played and Replay but never moves the play count in Get Info. Measured on
+  macOS with both the catalog song and the library copy.
+- On iOS, `SystemMusicPlayer` hands the queue to Music, so a play there moves the play count
+  too. macOS has no `SystemMusicPlayer`; Music itself moves the count within seconds
+  (`MusicAppPlaybackService`). Both are only for Play Songs In set to Apple Music, and Tracks
+  doesn't record what they play.
 
 ## Telling radio from on demand
 
-No API says a song came from a station.
+No API says a song came from a station. Tracks only records what its own players play, and
+it queued the music itself, so the player says (`TracksPlayerContext`).
 
-- **iOS.** On iOS 27 a queue entry's identifier is `<queue>::<item>`, and the item half is
-  `STREAM` for radio. When it's there it decides on its own. The queue half stays the same
-  across a station's songs and changes with the station, which marks a new session. The
-  format is undocumented; `QueueEntryIdentifier`'s tests use real ones. MusicKit reports a
-  real duration for a radio song once the entry resolves, so duration means nothing on iOS.
-- **macOS.** A station track reports no duration: Music's `playerInfo` notification leaves out
-  `Total Time`, and AppleScript's `duration of current track` is `missing value`. The player
-  position also stays at 0 on a station, and the composer is usually missing. Music drops
-  integer keys whose value is zero.
-- These were the same for radio and on demand, so they're no use: `cloud status`,
-  `current playlist`, `current stream title` and `URL`, `media kind`, and `database ID`.
-- Both platforms name a station only when you tune in. Tracks opened mid-station asks
-  MusicKit for the most recently played station instead.
-
-The rules are in `RadioHeuristic`, with tests.
+Earlier versions recorded other apps too, and had to guess. On iOS 27 a queue entry's
+identifier is `<queue>::<item>`, with the item half `STREAM` for radio. On the Mac a station
+track reports no duration in Music's `playerInfo` notification. Both platforms name a station
+only when you tune in.
 
 ## Catalog IDs and artwork
 
-- iOS reads the catalog song ID off the queue entry, so it only searches the catalog for rows
-  a Mac synced first.
-- macOS gets no ID and no artwork from `playerInfo`, so it searches the catalog for every song,
-  and that search is also its only source of covers.
+- Tracks' Apple Music player gives each song's catalog ID. A radio song's cover there is a
+  `musicKit://` address that never loads (see `ArtworkURL`), so covers come from the catalog.
+- Rows from older Mac versions, which had no ID, and your own files are searched for by title
+  and artist, through the strict matcher.
 
-## Recently Played
+## History from earlier versions
 
-- The list has no dates, so a recovered song gets the time Tracks found it. Last.fm only gets
-  those when the person allows it.
-- Each device sees its own list. The point Tracks last read up to is kept per device and
-  never synced, or one device would skip real plays and the other import old ones again.
+- Songs recovered from Recently Played have no real date: they carry the time Tracks found
+  them, and merge with a witnessed play of the same song up to a day apart.
 
 ## Scripting Music on the Mac
 
@@ -61,8 +50,8 @@ The rules are in `RadioHeuristic`, with tests.
 ## Music's transport controls on the Mac
 
 - On a live radio station, `next track`, `previous track` and `back track` return no error
-  and do nothing. Only `playpause` works, so Tracks disables skipping on radio. Only tested
-  on a live broadcast; an algorithmic station might accept `next track`.
+  and do nothing. Only `playpause` works. Only tested on a live broadcast; an algorithmic
+  station might accept `next track`.
 - Delivered isn't done. To know a skip worked, compare `database ID of current track` before
   and after.
 - Addressing Music when it isn't running launches it, so check first.

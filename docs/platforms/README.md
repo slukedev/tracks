@@ -6,8 +6,8 @@ something we rediscover by reading code.
 
 - [iPhone](ios.md): the iOS app, CarPlay, widgets, controls, Siri and App Intents, SharePlay
   and its App Clip.
-- [Mac](macos.md): the Mac app, the menu bar extra, the Mini Player, Stage, widgets, the
-  Settings panes and the Watchdog helper.
+- [Mac](macos.md): the Mac app, the menu bar extra, the Mini Player, Stage, widgets and the
+  Settings panes.
 - [Android](android.md): the new Android app in `Android/` (Kotlin, Compose, Material 3
   Expressive), being built now.
 
@@ -65,17 +65,13 @@ As of November 2026, on `feat/android-m3-expressive`.
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
 | Keep songs played inside Tracks | Yes | Yes | Yes | Platform |
-| Keep songs played in the system music app (Apple Music) | Yes | Yes | n/a | Platform |
-| Keep songs played in any music app | n/a | n/a | Removed | Platform |
-| Tell radio from on demand | Yes | Yes | n/a | Platform (`RadioHeuristic`, Swift) |
-| Recover songs played while closed (Recently Played) | Yes | Yes | n/a | Platform |
-| Catch up in the background | Yes | n/a (stays running) | No | Platform |
+| Keep songs played in other apps | Removed | Removed | Removed | Platform |
+| Tell radio from on demand | Yes (the player says) | Yes (the player says) | n/a | Platform |
 | Keep threshold, repeat window, keep on demand or radio only | Yes | Yes | No | Candidate (`CapturePolicy`) |
 | Pause History | Yes | Yes | No | Platform |
 | Exclude stations or apps | Yes (stations) | Yes (stations) | Removed | Platform |
-| Heard on Radio playlist and Play Back | Yes | Yes | n/a | Platform |
+| Heard on Radio playlist | Yes | Yes | n/a | Platform |
 | Repair Artwork | Yes | Yes | No | Platform |
-| Motif import | Yes | Yes | n/a | Platform |
 | Sample data | Yes (Debug launch argument) | Yes (Debug launch argument) | Yes (setting) | Engine (`tracks-demo`) |
 
 ### Insights and charts
@@ -209,9 +205,9 @@ As of November 2026, on `feat/android-m3-expressive`.
 | Listening widget | Yes (incl. Lock Screen) | Yes | Yes | Platform |
 | Last Played widget | Yes | Yes | Yes | Platform |
 | Top Songs widget | Yes | Yes | No | Platform |
-| Today widget (with Play Back) | Yes | Yes | No | Platform |
+| Today widget | Yes | Yes | No | Platform |
 | Play in Tracks control or tile | Yes (Control Center, Lock Screen, Action button) | Yes (menu bar controls) | Yes (Quick Settings tile) | Platform |
-| Save Radio Song, Identify Song, Play Back Today controls | Yes | Yes | No | Platform |
+| Identify Song control | Yes | Yes | No | Platform |
 | Voice: play music, mixes, moods, anything by name | Yes (Siri) | Yes (Siri) | Yes (Assistant) | Platform |
 | App Shortcuts and actions (top artist, search, switch source, play on device) | Yes | Yes | Partial (static and dynamic shortcuts) | Platform |
 | System search indexing (Spotlight) | Yes | Yes | No | Platform |

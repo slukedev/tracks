@@ -64,6 +64,3 @@ Explain these in the review notes, since each draws questions:
   which often run plain HTTP on a home network or a VPN.
 - **Background location.** Louder at Speed follows the car's speed to set the volume. It's
   off until turned on in Play settings.
-- **The Mac watchdog.** "Reopen Tracks If It Quits Unexpectedly" in Settings › General is
-  off by default. When it's on, a small helper reopens Tracks if macOS ends it, but never
-  after Quit or Force Quit.
