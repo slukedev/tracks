@@ -11,6 +11,7 @@
 
 mod directory;
 mod ingest;
+mod plays;
 mod pool;
 mod query;
 mod schema;
@@ -25,6 +26,7 @@ pub use query::{
     ActivitySummary, AlbumRow, ArtistRow, Chart, ChartRow, HeatCell, Period, PeriodTotals, Scope,
     SearchResults, SongRow, SourceFilter, Streak, TimelineBucket,
 };
+pub use plays::PlayRow;
 pub use schema::DERIVATION_VERSION;
 
 use pool::ConnectionPool;
@@ -118,6 +120,11 @@ impl Store {
             jiff::tz::TimeZone::get(name).map_err(|_| StoreError::TimeZone(name.to_owned()))?;
         *self.zone.write().map_err(|_| StoreError::Closed)? = zone;
         Ok(())
+    }
+
+    /// The time zone set with [`Store::set_time_zone`].
+    pub fn time_zone(&self) -> jiff::tz::TimeZone {
+        self.zone()
     }
 
     pub(crate) fn zone(&self) -> jiff::tz::TimeZone {

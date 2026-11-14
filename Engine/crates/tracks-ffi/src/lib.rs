@@ -14,6 +14,9 @@ use std::sync::Arc;
 
 uniffi::setup_scaffolding!();
 
+mod lastfm;
+mod mixes;
+
 /// Something the engine couldn't do.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum EngineError {
@@ -365,7 +368,7 @@ pub struct Credit {
 /// The play history as an index on disk, and every chart and figure read from it.
 #[derive(Debug, uniffi::Object)]
 pub struct HistoryIndex {
-    store: tracks_store::Store,
+    pub(crate) store: tracks_store::Store,
 }
 
 #[uniffi::export]

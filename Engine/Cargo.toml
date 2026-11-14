@@ -13,6 +13,7 @@ publish = false
 tracks-model = { path = "crates/tracks-model" }
 tracks-store = { path = "crates/tracks-store" }
 tracks-lastfm = { path = "crates/tracks-lastfm" }
+tracks-mixes = { path = "crates/tracks-mixes" }
 
 rusqlite = { version = "0.41", features = ["bundled", "functions"] }
 rusqlite_migration = "2.7"

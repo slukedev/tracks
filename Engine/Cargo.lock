@@ -1192,8 +1192,10 @@ checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 name = "tracks-ffi"
 version = "0.1.0"
 dependencies = [
+ "rustc-hash",
  "thiserror",
  "tracks-lastfm",
+ "tracks-mixes",
  "tracks-model",
  "tracks-store",
  "uniffi",
@@ -1208,6 +1210,15 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tracks-model",
+]
+
+[[package]]
+name = "tracks-mixes"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "rustc-hash",
  "tracks-model",
 ]
 
