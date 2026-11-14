@@ -4,9 +4,11 @@ The Android app in `Android/` (Kotlin, Jetpack Compose, Material 3 Expressive, M
 Glance), on the shared Rust engine through UniFFI bindings
 (`Android/app/engine-bindings/uniffi/tracks_engine`, built by `Engine/build-android.sh`).
 
-The app is mid-build. What's on `feat/android-m3-expressive` today is the foundation; the
-screens and services are being built in parallel worktrees. Items marked **In progress**
-are that planned scope. The lead flips them to Complete when the work merges.
+Everything below **Complete features** is built and merged on `feat/android-m3-expressive`.
+It has been checked with unit tests and Robolectric screenshots against the real engine, but
+not yet on a device: there is no emulator in the build environment. Items that need a device
+to prove (media sessions from other apps, Android Auto, Last.fm sign-in, widgets, the tile)
+are marked *(untested on a device)*.
 
 Two things to know about the platform:
 
@@ -81,76 +83,133 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - Screenshot tests with Robolectric and Roborazzi, including the icon.
 
-## In progress
+## Complete features (built in the app)
 
 ### History capture
 
-- Keeps plays from any music app through a notification listener (declared in the manifest
-  as `CaptureListenerService`).
-- Keeps every song played in Tracks' own player.
-- Exclude apps whose plays you don't want kept.
+- Keeps plays from any music app through a notification listener: Spotify, YouTube Music,
+  radio apps and the rest. Time counts only while playing, and a song is kept once it passes
+  Last.fm's rule. *(untested on a device)*
+- Skips Tracks itself, excluded apps, video and browser apps, podcasts and audiobooks, ads,
+  very long items and incomplete metadata. Two apps reporting the same song keep it once.
+- Radio detected by app or by a live stream with a station line; "Artist - Title" streams
+  are split and the station kept.
+- Covers saved from the media session.
+- Keeps every song played in Tracks' own player once the required time has played (seeks
+  don't count), with the final listened time saved.
+- Excluded apps page, listing the music apps seen.
 
-### Insights and charts
+### Insights (Summary)
 
-- Summary: listening time by period against last period, daily bars, streak.
-- Charts: top songs, artists and albums by period, with movement.
+- Week, month, year and all time, stepping back through past periods.
+- Listening time counting up, compared with the same point last period.
+- A bar for every day (every month for a year) with a daily average line; touch to read each
+  bar.
+- Artists, different songs, new to you and streak tiles.
+- Highlights ported from iOS where the engine has the data (milestones, on repeat, top
+  artist share, new artists, mostly new, night owl or early bird, busiest hours, weekend
+  listener, biggest day, most played song), plus new favorite, longest streak and radio share.
+- Top songs with movement, top artists and albums, a 24-hour clock, a weekday chart, a
+  week-by-hour heat map and how you listened.
+- Empty state that explains notification access and your own music.
+
+### Charts
+
+- Songs, artists and albums by period with up, down, new and same badges, a No. 1 card and up
+  to 100 rows.
+- Filter by All, Streaming and Your music.
+- Play and Shuffle when the songs are in your library.
 
 ### History list and detail pages
 
-- History list with filters, swipe to delete and long-press menus.
-- Artist, album and song pages.
+- The whole history, paged, with sticky day headings and filters for All, Radio, On demand
+  and Last.fm.
+- Each row shows the station, the app, Imported or Last.fm.
+- Swipe or press and hold to delete, with Undo.
+- Artist, album and song pages: rank and share, plays, listening, first and last heard, plays
+  per month, top songs, albums, plays with, credits and a time-of-day clock.
+- Covers fly from lists into the page headers.
 
 ### Search
 
-- Search across your history, and your library and servers.
+- Results as you type across artists, songs and albums, with recent searches.
+- Your Music search across device files and servers.
 
 ### Play, mixes and Tracks Radio
 
-- Play tab with mixes from the shared engine: time of day, On Repeat, New Finds, All-Time
-  Favorites, Deep Cuts, Radio Finds, Rediscover, A Year Ago.
-- Mix pages.
-- Tracks Radio through the engine's `RadioStation`.
-- "Open in another app" for songs in your history you don't have a copy of.
-- Hear less of: songs leave every mix and the radio.
+- A carousel of this hour's mix, Tracks Radio and the day's other mixes, with a play button
+  that changes shape between play and pause.
+- Mixes from the shared engine: time of day, On Repeat, New Finds, All-Time Favorites, Deep
+  Cuts, Radio Finds, Rediscover, A Year Ago.
+- Your artists lately, suggested songs from your history, Keep exploring.
+- Mix pages with Play and Shuffle; songs you can't play here are dimmed and offer "Open in"
+  another app.
+- Pin a mix to the home screen.
+- Hear less of, with Undo: the song leaves every mix and the radio.
+- Tracks Radio: the engine's `RadioStation` over your library, weighted by how much and how
+  recently you play each song, with never-played songs as new finds. Learns from skips.
+- Tracks Radio adventure setting.
 
 ### Now Playing
 
-- Now Playing with colors from the cover, a wavy seek bar, the queue, sleep timer, output
-  switcher and the keep ring.
-- Floating mini player.
+- Colors from the cover, artwork that breathes while playing and rests when paused.
+- Swipe the artwork to skip; pull down to close.
+- "Playing from", tappable artist, play count and a ring that fills until the song is kept.
+- Wavy seek bar that goes flat when paused.
+- Shuffle and repeat, expressive button group transport.
+- Output switcher, sleep timer with a fade, Up Next with drag to reorder and swipe to remove,
+  Share.
+- Floating mini player: tap or swipe up to expand, swipe to skip, press and hold for the
+  queue.
 
 ### Your Music
 
-- Device files through MediaStore (`READ_MEDIA_AUDIO`).
-- Subsonic-compatible servers.
+- Device files through MediaStore, with permission handling and change watching. *(untested
+  on a device)*
+- Subsonic-compatible servers (Navidrome and others): add, edit, test and remove. Passwords
+  sealed with an Android Keystore key. Song lists cached and synced.
+- Songs, Albums, Artists and Servers, with album and artist pages.
+- Sample music in sample-data mode, so the whole app plays.
 
 ### Playback and system
 
-- Media3 `PlaybackService` with the media notification, lock screen, Bluetooth and Wear OS
-  controls.
-- Android Auto browse tree (the service is a `MediaLibraryService`).
-- Assistant "play X on Tracks".
-- Quick Settings tile for Tracks Radio (declared as `RadioTileService`).
-- Dynamic shortcuts.
-- Listening and Last Played Glance widgets (declared, home screen and lock screen categories).
+- Media3 `PlaybackService`: audio focus, headphones unplugged, network wake lock, media
+  notification with like, shuffle and repeat buttons. Like stars the song on its server.
+  *(untested on a device)*
+- Android Auto browse tree: Tracks Radio, Mixes, Recently played, Albums, Artists.
+- Assistant "play X on Tracks"; "play music on Tracks" starts the radio.
+- Artist-spread shuffle from the engine, written into the queue so every controller sees it.
+- Resumes the last queue after a restart or from Bluetooth.
+- Quick Settings tile for Tracks Radio, showing the song; press and hold opens Tracks.
+- Dynamic shortcuts for your top two mixes, plus static ones for Radio, Search and Summary.
+- Listening and Last Played Glance widgets with dynamic colors. *(untested on a device)*
+- Animated launch splash; adaptive icon with a themed layer.
 
 ### Scrobbling and Last.fm
 
-- Connect, scrobble and import through the shared Rust Last.fm client, sent with OkHttp.
-  API keys from a gitignored `secrets.properties`.
+- Connect through a Custom Tab, with the session key sealed by an Android Keystore key.
+- Scrobbles in batches of 50 with WorkManager, settled by Last.fm's answer, with backoff.
+- Now playing updates.
+- Import from Last.fm, skipping plays already kept.
+- A notification when the session is revoked.
+- Keys come from a gitignored `secrets.properties`; without them the app says Last.fm isn't
+  set up in this build.
 
 ### Settings and the rest
 
-- Settings pages: Last.fm, capture, servers, appearance, about.
-- Onboarding (notification access, music files, notifications).
-- Long-press context menus and haptics throughout.
-- Material You dynamic color and themed icon carried through every screen.
-
-Note: the manifest declares `PlaybackService`, `CaptureListenerService`, `RadioTileService`
-and both widget receivers, but none of those classes exist on the branch yet, and every
-screen is a placeholder. `Startup` wires an empty library, an idle player and no radio.
+- Settings in Android 16's grouped style: capture, apps, Last.fm, servers, appearance (theme
+  and wallpaper or Tracks colors), Tracks Radio, Hear less of, privacy, about, licenses,
+  app language and sample data.
+- Onboarding: welcome, notification access, permissions, Last.fm, and try with sample data.
+- Press and hold on every song, album, artist, mix and history row.
+- Haptics matched to each action: long press, ticks while scrubbing and switching, confirm
+  and reject, toggles.
+- Expressive spring motion, shared element transitions, animated list items, count-ups.
 
 ## Missing for parity
+
+Known issue shared with iPhone and Mac: the engine's credit splitting reads a band name
+like "Wren & Ivy" as two artists.
 
 Grouped by area. Where Android needs its own equivalent rather than a copy, the line says so.
 
@@ -168,9 +227,9 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 
 ### Insights
 
-- Highlights, records, sessions, variety, discovery, top genres and decades, listening clock,
-  weekday and weekend rhythm, running total, new favorites. Unless the Summary work covers
-  some of these, they are missing; most should come from the engine first.
+- Records, sessions, variety, top genres and decades, running total, an all highlights page.
+  These should come from the engine first, so every platform shares them.
+- A dominant station highlight: the engine's play records don't carry the station yet.
 - Separate streaming and Your Music stats.
 
 ### Charts
@@ -221,12 +280,6 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - Suggestions checked against what you have.
 - Lidarr.
 - Tell the server about plays (Subsonic `scrobble`).
-- Passwords stored with the Android Keystore (EncryptedSharedPreferences or a Keystore key),
-  not in DataStore as plain JSON.
-
-### Scrobbling
-
-- Store the Last.fm session key in the Keystore, as Apple keeps it in the Keychain.
 
 ### Sync and backup
 

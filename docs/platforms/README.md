@@ -34,8 +34,8 @@ Where the two disagree, the code wins and the document says so.
   section below.
 - Keep each item to one line in plain language: what a person can do, not how it's built.
   Name the file or type only when it helps someone find the code.
-- Android statuses marked "In progress" are the planned scope being built in parallel
-  worktrees. The lead flips them to Complete when the work merges.
+- An Android "Yes" means built and covered by unit and screenshot tests. Paths that only a
+  device can prove are flagged in android.md.
 
 ## Status legend
 
@@ -64,15 +64,15 @@ As of November 2026, on `feat/android-m3-expressive`.
 
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
-| Keep songs played inside Tracks | Yes | Yes | In progress | Platform |
+| Keep songs played inside Tracks | Yes | Yes | Yes | Platform |
 | Keep songs played in the system music app (Apple Music) | Yes | Yes | n/a | Platform |
-| Keep songs played in any music app | n/a | n/a | In progress | Platform |
+| Keep songs played in any music app | n/a | n/a | Yes | Platform |
 | Tell radio from on demand | Yes | Yes | No | Platform (`RadioHeuristic`, Swift) |
 | Recover songs played while closed (Recently Played) | Yes | Yes | n/a | Platform |
 | Catch up in the background | Yes | n/a (stays running) | No | Platform |
 | Keep threshold, repeat window, keep on demand or radio only | Yes | Yes | No | Candidate (`CapturePolicy`) |
 | Pause History | Yes | Yes | No | Platform |
-| Exclude stations or apps | Yes (stations) | Yes (stations) | In progress (apps) | Platform |
+| Exclude stations or apps | Yes (stations) | Yes (stations) | Yes (apps) | Platform |
 | Heard on Radio playlist and Play Back | Yes | Yes | n/a | Platform |
 | Repair Artwork | Yes | Yes | No | Platform |
 | Motif import | Yes | Yes | n/a | Platform |
@@ -82,34 +82,34 @@ As of November 2026, on `feat/android-m3-expressive`.
 
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
-| Listening time by period, against last period, daily bars | Yes | Yes | In progress | Engine, Apple in Swift (totals, timeline) |
-| Swipe or step through earlier periods | Yes | Yes | In progress | Platform |
+| Listening time by period, against last period, daily bars | Yes | Yes | Yes | Engine, Apple in Swift (totals, timeline) |
+| Swipe or step through earlier periods | Yes | Yes | Yes | Platform |
 | Listening clock, weekday and weekend rhythm | Yes | Yes | No | Engine, Apple in Swift (activity) |
 | Week-by-hour heat map | No | Yes | No | Engine, Apple in Swift (activity) |
-| Streaks | Yes | Yes | In progress | Engine, Apple in Swift |
+| Streaks | Yes | Yes | Yes | Engine, Apple in Swift |
 | Highlights in plain language | Yes | Yes | No | Candidate (`StatsCalculator+Insights`) |
 | Records, sessions, running total, variety, discovery | Yes | Yes | No | Candidate |
 | Top genres and decades | Yes | Yes | No | Candidate (needs metadata) |
 | Separate Apple Music and Your Music stats | Yes | Yes | No | Engine (source filter) |
-| Top songs, artists and albums for any day, week, month, year or all time | Yes | Yes | In progress | Engine |
-| Movement since last period | Yes | Yes | In progress | Engine |
+| Top songs, artists and albums for any day, week, month, year or all time | Yes | Yes | Yes | Engine |
+| Movement since last period | Yes | Yes | Yes | Engine |
 | Per-song bars and play the chart | Yes | Yes | No | Engine (timeline) |
 
 ### History list, detail pages and search
 
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
-| History grouped by day, paged | Yes | n/a (table) | In progress | Platform |
+| History grouped by day, paged | Yes | n/a (table) | Yes | Platform |
 | Sortable history table with inspector | n/a | Yes | n/a | Platform |
-| Filters: radio, on demand, recovered, from Last.fm | Yes | Yes | In progress | Platform |
-| Delete plays (swipe or menu; several at once on the Mac) | Partial (one at a time) | Yes | In progress | Platform |
-| Artist, album and song pages: plays over time, rank, first and last heard | Yes | Yes | In progress | Engine (song, artist, album, rank) |
+| Filters: radio, on demand, recovered, from Last.fm | Yes | Yes | Yes | Platform |
+| Delete plays (swipe or menu; several at once on the Mac) | Partial (one at a time) | Yes | Yes | Platform |
+| Artist, album and song pages: plays over time, rank, first and last heard | Yes | Yes | Yes | Engine (song, artist, album, rank) |
 | How you heard it (radio, on demand, recovered, stations) | Yes | Yes | No | Platform |
 | About the artist and song (editorial note, genre, credits) | Yes | Yes | No | Platform (MusicKit) |
 | Get Info with MusicBrainz credits, samples and Last.fm similar songs | Yes | Yes (window) | No | Candidate (MusicBrainz client) |
-| Search your history | Yes | Yes | In progress | Engine, Apple in Swift |
+| Search your history | Yes | Yes | Yes | Engine, Apple in Swift |
 | Remembered phrases ("last night", "on the radio", a decade) | Yes | Yes | No | Candidate (`HistoryRecall`) |
-| Search the catalog, your library and your servers | Yes | Yes | In progress (library, servers) | Platform |
+| Search the catalog, your library and your servers | Yes | Yes | Yes (library, servers) | Platform |
 | Identify the song playing nearby (Shazam) | Yes | Yes | No | Platform |
 
 ### Play
@@ -117,12 +117,12 @@ As of November 2026, on `feat/android-m3-expressive`.
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
 | Play Apple Music inside Tracks | Yes | Yes | n/a | Platform |
-| Mixes from history (time of day, On Repeat, New Finds, All-Time Favorites, Deep Cuts, Radio Finds, Rediscover, A Year Ago) | Yes | Yes | In progress | Engine, Apple in Swift |
-| Shuffle that keeps artists apart | Yes | Yes | In progress | Engine, Apple in Swift |
-| Tracks Radio | Yes | Yes | In progress | Engine, Apple in Swift (picker core) |
+| Mixes from history (time of day, On Repeat, New Finds, All-Time Favorites, Deep Cuts, Radio Finds, Rediscover, A Year Ago) | Yes | Yes | Yes | Engine, Apple in Swift |
+| Shuffle that keeps artists apart | Yes | Yes | Yes | Engine, Apple in Swift |
+| Tracks Radio | Yes | Yes | Yes | Engine, Apple in Swift (picker core) |
 | Tune Tracks Radio (adventure, genres, old favorites, Through the Day) | Yes | Yes | Partial (adventure only) | Candidate |
 | Radio follows driving | Yes | n/a | No | Platform (sensing), Candidate (`DriveSense`) |
-| Hear less of, skip learning | Yes | Yes | In progress | Candidate (`ListeningSignals`, `TasteGraph`) |
+| Hear less of, skip learning | Yes | Yes | Yes | Candidate (`ListeningSignals`, `TasteGraph`) |
 | Save a mix as a playlist | Yes | Yes | No | Platform |
 | Suggested Songs and Artists, Find Songs, Find Artists, Keep Exploring | Yes | Yes | No | Candidate (`SuggestionWalk`) |
 | Moods (Feel Good, Energy, Chill and more) | Yes | Yes | No | Candidate (`Mood`, `LiveMix`) |
@@ -135,20 +135,20 @@ As of November 2026, on `feat/android-m3-expressive`.
 | Shake to Play | Yes | n/a | No | Platform |
 | Quick Switch between sources, Focus filter | Yes | Yes | n/a | Platform |
 | Offline Mode for downloaded Apple Music | Yes | No | n/a | Platform |
-| Open songs you don't have in another app | No | No | In progress | Platform |
+| Open songs you don't have in another app | No | No | Yes | Platform |
 
 ### Now Playing
 
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
-| Play count and keep ring | Yes | Yes | In progress | Platform |
-| Colors from the cover | Yes | Yes | In progress | Platform |
+| Play count and keep ring | Yes | Yes | Yes | Platform |
+| Colors from the cover | Yes | Yes | Yes | Platform |
 | Moving backgrounds (Full Cover, Living Colour, Pulse) | Yes | Yes | No | Platform |
 | Back of the sleeve (your history with the song) | Yes | Yes | No | Engine (song stats) |
-| Up Next: reorder, remove, jump | Yes | Yes | In progress | Platform |
-| Sleep timer | Yes | Yes | In progress | Platform |
-| Output switcher, AirPlay | Yes | Yes | In progress | Platform |
-| Mini player | Yes (bar) | Yes (window and bar) | In progress (floating) | Platform |
+| Up Next: reorder, remove, jump | Yes | Yes | Yes | Platform |
+| Sleep timer | Yes | Yes | Yes | Platform |
+| Output switcher, AirPlay | Yes | Yes | Yes | Platform |
+| Mini player | Yes (bar) | Yes (window and bar) | Yes (floating) | Platform |
 | Stage (full-screen visualizer) | Yes | Yes (window) | No | Platform |
 | Audio quality badge | Yes | Yes | No | Platform |
 | Crossfade | Yes | No | No | Platform |
@@ -162,8 +162,8 @@ As of November 2026, on `feat/android-m3-expressive`.
 
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
-| Play your own files (FLAC, ALAC, MP3, AAC, WAV, AIFF) | Yes | Yes | In progress (MediaStore) | Platform |
-| Subsonic servers (Navidrome and others) | Yes | Yes | In progress | Candidate (`SubsonicClient`) |
+| Play your own files (FLAC, ALAC, MP3, AAC, WAV, AIFF) | Yes | Yes | Yes (MediaStore) | Platform |
+| Subsonic servers (Navidrome and others) | Yes | Yes | Yes | Candidate (`SubsonicClient`) |
 | Octo: find and fetch songs you don't own | Yes | Yes | No | Candidate |
 | Downloads for offline, Downloads page, Free Up Space | Yes | Yes | No | Platform |
 | Playlists and smart playlists | Yes | Yes | No | Candidate (`SmartRules`) |
@@ -176,11 +176,11 @@ As of November 2026, on `feat/android-m3-expressive`.
 
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
-| Connect a Last.fm account | Yes | Yes | In progress | Engine, Apple in Swift |
-| Scrobble every kept song, radio included | Yes | Yes | In progress | Engine, Apple in Swift (requests, policy) |
-| Now Playing updates | Yes | Yes | In progress | Engine, Apple in Swift |
-| Import Last.fm history, Sync Now | Yes | Yes | In progress | Engine, Apple in Swift |
-| Scrobble queue with retries | Yes | Yes | In progress | Engine (queue rules, backoff), Apple in Swift |
+| Connect a Last.fm account | Yes | Yes | Yes | Engine, Apple in Swift |
+| Scrobble every kept song, radio included | Yes | Yes | Yes | Engine, Apple in Swift (requests, policy) |
+| Now Playing updates | Yes | Yes | Yes | Engine, Apple in Swift |
+| Import Last.fm history, Sync Now | Yes | Yes | Yes | Engine, Apple in Swift |
+| Scrobble queue with retries | Yes | Yes | Yes | Engine (queue rules, backoff), Apple in Swift |
 
 ### Sync and backup
 
@@ -206,32 +206,32 @@ As of November 2026, on `feat/android-m3-expressive`.
 
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
-| Listening widget | Yes (incl. Lock Screen) | Yes | In progress | Platform |
-| Last Played widget | Yes | Yes | In progress | Platform |
+| Listening widget | Yes (incl. Lock Screen) | Yes | Yes | Platform |
+| Last Played widget | Yes | Yes | Yes | Platform |
 | Top Songs widget | Yes | Yes | No | Platform |
 | Today widget (with Play Back) | Yes | Yes | No | Platform |
-| Play in Tracks control or tile | Yes (Control Center, Lock Screen, Action button) | Yes (menu bar controls) | In progress (Quick Settings tile) | Platform |
+| Play in Tracks control or tile | Yes (Control Center, Lock Screen, Action button) | Yes (menu bar controls) | Yes (Quick Settings tile) | Platform |
 | Save Radio Song, Identify Song, Play Back Today controls | Yes | Yes | No | Platform |
-| Voice: play music, mixes, moods, anything by name | Yes (Siri) | Yes (Siri) | In progress (Assistant) | Platform |
+| Voice: play music, mixes, moods, anything by name | Yes (Siri) | Yes (Siri) | Yes (Assistant) | Platform |
 | App Shortcuts and actions (top artist, search, switch source, play on device) | Yes | Yes | Partial (static and dynamic shortcuts) | Platform |
 | System search indexing (Spotlight) | Yes | Yes | No | Platform |
-| Car | Yes (CarPlay) | n/a | In progress (Android Auto) | Platform |
-| Media controls on lock screen, headphones, notification | Yes | Yes (menu bar, Dock, media keys) | In progress | Platform |
+| Car | Yes (CarPlay) | n/a | Yes (Android Auto) | Platform |
+| Media controls on lock screen, headphones, notification | Yes | Yes (menu bar, Dock, media keys) | Yes | Platform |
 | Menu bar extra | n/a | Yes | n/a | Platform |
 
 ### Settings, accessibility and privacy
 
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
-| Settings with a status line on each page | Yes | Yes | In progress | Platform |
-| Onboarding | Partial (permission prompts in context) | Partial | In progress | Platform |
+| Settings with a status line on each page | Yes | Yes | Yes | Platform |
+| Onboarding | Partial (permission prompts in context) | Partial | Yes | Platform |
 | Choose where the app opens | Yes | Yes | No | Platform |
-| App theme and color choice | n/a (follows system) | n/a | In progress (Material You) | Platform |
-| Screen reader labels and actions | Yes | Yes | In progress | Platform |
-| Large text layouts | Yes | Yes | In progress | Platform |
+| App theme and color choice | n/a (follows system) | n/a | Yes (Material You) | Platform |
+| Screen reader labels and actions | Yes | Yes | Partial | Platform |
+| Large text layouts | Yes | Yes | Partial | Platform |
 | Reduce Motion | Yes | Yes | No | Platform |
 | Differentiate Without Color in charts | Yes | Yes | No | Platform |
-| Haptics | Yes | n/a | In progress | Platform |
+| Haptics | Yes | n/a | Yes | Platform |
 | No account, no analytics | Yes | Yes | Yes | n/a |
 | Secrets in the system keystore | Yes (Keychain) | Yes (Keychain) | No | Platform |
 | Encrypted local network between your devices | Yes | Yes | No | Platform |
