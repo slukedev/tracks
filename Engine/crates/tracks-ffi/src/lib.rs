@@ -16,6 +16,7 @@ uniffi::setup_scaffolding!();
 
 mod demo;
 mod lastfm;
+mod library;
 mod mixes;
 
 /// Something the engine couldn't do.

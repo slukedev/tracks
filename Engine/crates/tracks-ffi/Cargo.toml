@@ -16,6 +16,7 @@ name = "tracks_engine"
 tracks-model.workspace = true
 tracks-store.workspace = true
 tracks-lastfm.workspace = true
+tracks-library.workspace = true
 tracks-mixes.workspace = true
 tracks-demo.workspace = true
 jiff.workspace = true
