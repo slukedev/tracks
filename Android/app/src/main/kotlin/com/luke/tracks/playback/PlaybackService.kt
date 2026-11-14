@@ -5,9 +5,12 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
+import android.util.Log
+import android.widget.Toast
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -90,6 +93,7 @@ class PlaybackService : MediaLibraryService() {
     private var fetchingRadio = false
 
     private var sleepJob: Job? = null
+    private var failuresInARow = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -158,8 +162,13 @@ class PlaybackService : MediaLibraryService() {
             remember()
         }
 
+        override fun onPlayerError(error: PlaybackException) = skipUnplayable(error)
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (isPlaying) startTicking() else {
+            if (isPlaying) {
+                failuresInARow = 0
+                startTicking()
+            } else {
                 stopTicking()
                 remember()
             }
@@ -167,6 +176,27 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = refreshButtons()
         override fun onRepeatModeChanged(repeatMode: Int) = refreshButtons()
+    }
+
+    /**
+     * A song that won't play (a format this phone can't decode, a file gone, a server down)
+     * stops Media3 where it is. Moves on to the next one and says so, and stops after a whole
+     * queue's worth of failures rather than spinning.
+     */
+    private fun skipUnplayable(error: PlaybackException) {
+        Log.w("Tracks", "Couldn't play ${player.currentMediaItem?.mediaId}", error)
+        val title = player.currentMediaItem?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "that song"
+        failuresInARow++
+        val moveOn = player.hasNextMediaItem() && failuresInARow < player.mediaItemCount
+        say(if (moveOn) "Couldn't play $title. Playing the next song." else "Couldn't play $title.")
+        if (!moveOn) return
+        player.seekToNextMediaItem()
+        player.prepare()
+        player.play()
+    }
+
+    private fun say(message: String) {
+        runCatching { Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show() }
     }
 
     private fun startPlay(item: MediaItem?) {
@@ -211,7 +241,7 @@ class PlaybackService : MediaLibraryService() {
         lastTick = now
         var count = counter ?: return
         // A stream that didn't say its length up front: count against it once it's known.
-        if (count.durationMs == null && exo.duration > 0 && exo.duration != C.TIME_UNSET && !count.kept) {
+        if (count.durationMs == null && ListenCounter.knownLength(exo.duration) != null && !count.kept) {
             val listened = count.listenedMs
             count = ListenCounter(exo.duration).also { it.add(listened) }
             counter = count
@@ -235,7 +265,7 @@ class PlaybackService : MediaLibraryService() {
             albumTitle = song.albumTitle,
             artworkUri = song.artworkUri?.toString(),
             playedAt = playStartedAt,
-            durationMs = song.durationMs ?: exo.duration.takeIf { it > 0 && it != C.TIME_UNSET },
+            durationMs = ListenCounter.knownLength(song.durationMs) ?: ListenCounter.knownLength(exo.duration),
             listenedMs = count.listenedMs,
             kind = PlayKindValue.OnDemand,
             source = PlaySourceValue.YourMusic,

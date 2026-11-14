@@ -50,6 +50,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.graph
 import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.playback.artistLabel
+import com.luke.tracks.playback.titleLabel
 import com.luke.tracks.ui.components.Artwork
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.sharedElement
@@ -157,9 +159,9 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
                         label = "song",
                     ) { s ->
                         Column {
-                            Text(s.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(s.titleLabel, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                s.artistName,
+                                s.artistLabel,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -186,7 +188,7 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
                 }
                 MiniProgress(
                     graph.player.position,
-                    state.durationMs.takeIf { it > 0 } ?: current.durationMs ?: 0,
+                    state.lengthMs ?: 0,
                     Modifier.align(Alignment.BottomCenter).padding(start = 24.dp, end = 24.dp, bottom = 6.dp).fillMaxWidth().height(3.dp),
                 )
             }

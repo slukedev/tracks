@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
-import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -114,7 +113,7 @@ class MediaControllerPlayer(private val context: Context) : PlayerController {
         }
         val index = c.currentMediaItemIndex.coerceAtLeast(0)
         val current = queueCache.getOrNull(index)
-        val duration = c.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: current?.durationMs ?: 0L
+        val duration = ListenCounter.knownLength(c.duration) ?: ListenCounter.knownLength(current?.durationMs) ?: 0L
         base.value = PlayerState(
             current = current,
             isPlaying = c.isPlaying,

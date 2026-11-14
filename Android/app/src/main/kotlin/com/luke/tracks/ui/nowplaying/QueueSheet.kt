@@ -47,6 +47,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.playback.artistLabel
+import com.luke.tracks.playback.titleLabel
 import com.luke.tracks.playback.PlayerController
 import com.luke.tracks.playback.PlayerState
 import com.luke.tracks.ui.components.Artwork
@@ -185,9 +187,9 @@ private fun NowRow(song: PlayableSong) {
         Artwork(song.artworkUri, song.albumTitle ?: song.title, Modifier.size(48.dp), shape = RoundedCornerShape(10.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(song.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(song.titleLabel, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSecondaryContainer)
-            Text(song.artistName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(song.artistLabel, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f))
         }
         Icon(Icons.Rounded.GraphicEq, "Now playing", tint = MaterialTheme.colorScheme.onSecondaryContainer)
@@ -207,8 +209,8 @@ private fun QueueRow(song: PlayableSong, onClick: () -> Unit, handle: Modifier) 
         Artwork(song.artworkUri, song.albumTitle ?: song.title, Modifier.size(44.dp), shape = RoundedCornerShape(10.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(song.artistName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(song.titleLabel, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(song.artistLabel, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Box(handle.size(48.dp), contentAlignment = Alignment.Center) {

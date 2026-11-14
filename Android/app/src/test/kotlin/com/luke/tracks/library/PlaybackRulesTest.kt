@@ -51,6 +51,33 @@ class ListenCounterTest {
         assertEquals(120_000L, ListenCounter(durationMs = null).requiredMs)
     }
 
+    /** Ringtones, streams and broken files: whatever length a player reports, nothing breaks. */
+    @Test fun oddLengths() {
+        // A three-second ringtone and the 30-second edge: never kept, no progress to show.
+        for (length in listOf(1L, 3_000L, 30_000L)) {
+            val counter = ListenCounter(length)
+            assertNull("$length ms", counter.requiredMs)
+            assertFalse(counter.add(60_000))
+            assertEquals(0f, counter.progress)
+            assertFalse(ListenCounter.canKeep(length))
+        }
+        assertTrue(ListenCounter.canKeep(31_000))
+        // Unknown, however it's said: Media3's C.TIME_UNSET, 0 from Bluetooth, a negative, an
+        // absurd header. All count as unknown (two minutes), so the real length can replace it.
+        for (length in listOf(androidx.media3.common.C.TIME_UNSET, 0L, -1L, Long.MAX_VALUE, null)) {
+            val counter = ListenCounter(length)
+            assertNull("$length is unknown", counter.durationMs)
+            assertEquals(120_000L, counter.requiredMs)
+            assertTrue(ListenCounter.canKeep(length))
+            counter.add(Long.MAX_VALUE / 2)
+            assertEquals(1f, counter.progress)
+        }
+        // A rule that answers nothing usable never divides by zero.
+        val zero = ListenCounter(200_000) { 0.0 }
+        assertNull(zero.requiredMs)
+        assertEquals(0f, zero.progress)
+    }
+
     @Test fun onlyTimePlayedCounts() {
         val counter = ListenCounter(durationMs = 200_000)
         // Seeking ahead adds nothing: the service only adds wall-clock time while playing.

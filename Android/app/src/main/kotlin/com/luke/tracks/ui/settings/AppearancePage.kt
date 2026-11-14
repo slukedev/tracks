@@ -1,6 +1,5 @@
 package com.luke.tracks.ui.settings
 
-import android.os.Build
 import android.app.WallpaperManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -46,8 +45,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -73,6 +70,7 @@ import com.luke.tracks.graph
 import com.luke.tracks.ui.theme.LocalDarkTheme
 import com.luke.tracks.ui.theme.TracksBrand
 import com.luke.tracks.ui.theme.seededScheme
+import com.luke.tracks.ui.theme.systemScheme
 import kotlinx.coroutines.launch
 
 /** Light or dark, and where the colors come from, each shown as it will look. */
@@ -96,9 +94,7 @@ fun AppearancePage() {
         }
         group("Colors", key = "colors") {
             custom {
-                val wallpaper = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-                } else seededScheme(TracksBrand, dark)
+                val wallpaper = systemScheme(context, dark) ?: seededScheme(TracksBrand, dark)
                 val custom = seededScheme(Color(settings.seedColor), dark, settings.paletteStyle)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ColorCard(
