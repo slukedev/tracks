@@ -315,16 +315,25 @@ final class MusicKitPlayerEngine: PlayerEngine {
         var queued: [Song] = []
         switch request {
         case .history(let songs, let start):
-            let wanted = songs.indices.contains(start) && !shuffled ? songs[start].songID : nil
-            let found = try await Self.lookUp(songs)
+            var wanted = songs.indices.contains(start) && !shuffled ? songs[start].songID : nil
+            var found = try await Self.lookUp(songs)
+            if allowsExplicit {
+                found = await ExplicitTwins.swapped(found)
+                wanted = wanted.map(ExplicitTwins.playingID)
+            }
             let allowed = Self.allowed(found, allowsExplicit: allowsExplicit)
             try Self.checkStart(wanted, in: found.map(\.id.rawValue), allowed: allowed.map(\.id.rawValue))
             let index = allowed.firstIndex { $0.id.rawValue == wanted }
             startSong = StartSong(allowed, at: index)
             queued = allowed
             queue = try await Self.queue(of: allowed, startingAt: index, shuffled: shuffled)
-        case .songs(let songs, let start):
-            let wanted = songs.indices.contains(start) && !shuffled ? songs[start].id.rawValue : nil
+        case .songs(let listed, let start):
+            var wanted = listed.indices.contains(start) && !shuffled ? listed[start].id.rawValue : nil
+            var songs = listed
+            if allowsExplicit {
+                songs = await ExplicitTwins.swapped(listed)
+                wanted = wanted.map(ExplicitTwins.playingID)
+            }
             let allowed = Self.allowed(songs, allowsExplicit: allowsExplicit)
             try Self.checkStart(wanted, in: songs.map(\.id.rawValue), allowed: allowed.map(\.id.rawValue))
             let index = allowed.firstIndex { $0.id.rawValue == wanted }
@@ -335,7 +344,11 @@ final class MusicKitPlayerEngine: PlayerEngine {
             // A station can't be filtered ahead of time; the player model skips what's not allowed.
             queue = ApplicationMusicPlayer.Queue(for: [station])
         case .album(let album):
-            if allowsExplicit {
+            // The clean edition of an album plays as its explicit songs, where they exist.
+            if allowsExplicit, album.contentRating == .clean {
+                queued = await ExplicitTwins.swapped(try await Self.tracks(of: album))
+                queue = try await Self.queue(of: queued, startingAt: nil, shuffled: shuffled)
+            } else if allowsExplicit {
                 queue = ApplicationMusicPlayer.Queue(for: [album])
                 systemShuffle = shuffled
             } else {
@@ -344,8 +357,15 @@ final class MusicKitPlayerEngine: PlayerEngine {
             }
         case .playlist(let playlist):
             if allowsExplicit {
-                queue = ApplicationMusicPlayer.Queue(for: [playlist])
-                systemShuffle = shuffled
+                // Only a playlist holding clean edits needs its own queue.
+                let songs = try await Self.tracks(of: playlist)
+                if songs.contains(where: { $0.contentRating == .clean }) {
+                    queued = await ExplicitTwins.swapped(songs)
+                    queue = try await Self.queue(of: queued, startingAt: nil, shuffled: shuffled)
+                } else {
+                    queue = ApplicationMusicPlayer.Queue(for: [playlist])
+                    systemShuffle = shuffled
+                }
             } else {
                 queued = Self.allowed(try await Self.tracks(of: playlist), allowsExplicit: false)
                 queue = try await Self.queue(of: queued, startingAt: nil, shuffled: shuffled)
@@ -456,7 +476,7 @@ final class MusicKitPlayerEngine: PlayerEngine {
         case .songs(let list, _):
             songs = list
         case .album(let album):
-            guard !allowsExplicit else {
+            guard !allowsExplicit || album.contentRating == .clean else {
                 await PlayerQuiet.settled()
                 guard queueID == latestPlay, starting == 0 else { throw CancellationError() }
                 try await ApplicationPlayerCommands.insert([album], next: next)
@@ -465,19 +485,20 @@ final class MusicKitPlayerEngine: PlayerEngine {
             }
             songs = try await Self.tracks(of: album)
         case .playlist(let playlist):
-            guard !allowsExplicit else {
+            songs = try await Self.tracks(of: playlist)
+            guard !allowsExplicit || songs.contains(where: { $0.contentRating == .clean }) else {
                 await PlayerQuiet.settled()
                 guard queueID == latestPlay, starting == 0 else { throw CancellationError() }
                 try await ApplicationPlayerCommands.insert([playlist], next: next)
                 refresh()
                 return
             }
-            songs = try await Self.tracks(of: playlist)
         case .station, .demoStation, .local:
             // A station replaces the queue; there's nothing to add it after.
             throw PlayerProblem.nothingToPlay
         }
-        let allowed = Self.allowed(songs, allowsExplicit: allowsExplicit)
+        let versions = allowsExplicit ? await ExplicitTwins.swapped(songs) : songs
+        let allowed = Self.allowed(versions, allowsExplicit: allowsExplicit)
         guard !allowed.isEmpty else { throw Self.emptyProblem(allowsExplicit: allowsExplicit) }
         await PlayerQuiet.settled()
         try Task.checkCancellation()
