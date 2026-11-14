@@ -2,6 +2,7 @@ package com.luke.tracks.ui.navigation
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -65,7 +66,8 @@ private val tabs = listOf(
  */
 @Composable
 fun AppShell(navigator: Navigator) {
-    CompositionLocalProvider(LocalNavigator provides navigator) {
+    SharedTransitionLayout {
+    CompositionLocalProvider(LocalNavigator provides navigator, LocalSharedTransitionScope provides this) {
         Box(Modifier.fillMaxSize()) {
             NavigationSuiteScaffold(
                 navigationSuiteItems = {
@@ -119,8 +121,11 @@ fun AppShell(navigator: Navigator) {
                 exit = slideOutVertically(tween(350)) { it } + fadeOut(tween(250)),
             ) {
                 BackHandler { navigator.nowPlayingOpen = false }
-                NowPlayingScreen(onClose = { navigator.nowPlayingOpen = false })
+                CompositionLocalProvider(LocalNowPlayingVisibilityScope provides this) {
+                    NowPlayingScreen(onClose = { navigator.nowPlayingOpen = false })
+                }
             }
         }
+    }
     }
 }
