@@ -16,54 +16,35 @@ struct MacRootView: View {
     @State private var showsTuner = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isOnScreen) private var isOnScreen
-    /// The sidebar row when macOS last saved the window, so a window it restores at launch
-    /// opens on the same page, as Music's does. A new window opens where Settings says.
-    @SceneStorage("sidebarSelection") private var savedSelection = ""
     #if DEBUG
     @Environment(\.openSettings) private var openSettings
     #endif
 
     var body: some View {
         if let store = model.store, let capture = model.capture, let playback = model.playback {
-            @Bindable var navigator = model.playNavigator
+            let navigator = model.playNavigator
             @Bindable var playerWindow = playerWindow
             let player = model.player
             NavigationSplitView {
                 MacSidebar(
-                    selection: $model.sidebarSelection,
+                    model: model,
                     opening: openingTab,
                     library: SidebarItem.library(for: model.musicSource, hasLidarr: model.lidarr.isSetUp),
                     libraryTitle: model.musicSource == .yourMusic ? "Your Music" : "Library"
                 )
                 .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 280)
             } detail: {
-                NavigationStack(path: $navigator.path) {
-                    detail
-                        .pageChrome()
-                        .tracksDestinations()
-                        .playDestinations()
+                MacDetailStack(navigator: navigator) {
+                    MacDetailPage(model: model)
                 }
             }
             // Under the full player, the page and its bar stop ticking.
             .environment(\.isOnScreen, isOnScreen && !isShowingFullPlayer)
             .environment(playerWindow)
-            .onAppear(perform: restoreSelection)
-            .onChange(of: model.sidebarSelection) { _, selection in
-                savedSelection = selection?.rawValue ?? ""
-                history.reset()
-                navigator.path = NavigationPath()
-                // Clicking Search puts the cursor in its field, as Podcasts does. Arrowing
-                // through the sidebar past it doesn't, or the next arrow would type.
-                if selection == .search, NSApp.currentEvent?.type != .keyDown {
-                    model.search.wantsFocus = true
-                }
-            }
+            .modifier(FollowsSidebar(model: model, history: history, openingTab: openingTab))
             // Siri's search too, which arrives without the window's help.
             .onChange(of: model.search.wantsFocus) { _, wants in
                 if wants { playerWindow.showsFullPlayer = false }
-            }
-            .onChange(of: navigator.path) { old, new in
-                history.pathChanged(from: old, to: new)
             }
             // Initial too, for a window the request itself had to open.
             .onChange(of: model.pendingRoute, initial: true) { _, route in
@@ -143,7 +124,7 @@ struct MacRootView: View {
                 window: playerWindow,
                 isShowingFullPlayer: isShowingFullPlayer,
                 history: history,
-                path: $navigator.path,
+                navigator: navigator,
                 goToCurrentSong: goToCurrentSong,
                 beginSearch: beginSearch,
                 open: open
@@ -220,17 +201,6 @@ struct MacRootView: View {
         if source == .yourMusic { model.prepareYourMusic() }
     }
 
-    /// The saved row, if it's still in the sidebar (Lidarr may be gone, or the source
-    /// changed) and the launch didn't ask for a page of its own.
-    private func restoreSelection() {
-        guard let item = SidebarItem(rawValue: savedSelection), item != model.sidebarSelection,
-              LaunchScene.sidebar == nil, LaunchScene.searchText == nil, model.pendingRoute == nil
-        else { return }
-        let shown = [.search] + SidebarItem.leading(opening: openingTab)
-            + SidebarItem.library(for: model.musicSource, hasLidarr: model.lidarr.isSetUp)
-        if shown.contains(item) { model.sidebarSelection = item }
-    }
-
     private var isShowingFullPlayer: Bool {
         playerWindow.showsFullPlayer && model.player.hasQueue
     }
@@ -266,10 +236,32 @@ struct MacRootView: View {
             navigator.show(.stats(.song(track.songIdentity)))
         }
     }
+}
 
-    @ViewBuilder
-    private var detail: some View {
-        switch model.sidebarSelection ?? SidebarItem.opening {
+/// The pages pushed over the sidebar's page. Its own body, for the same reason as
+/// ``MacDetailPage``: a binding to the path made by the window's root reads it there.
+private struct MacDetailStack<Root: View>: View {
+    @Bindable var navigator: PlayNavigator
+    @ViewBuilder let root: Root
+
+    var body: some View {
+        NavigationStack(path: $navigator.path) {
+            root
+                .pageChrome()
+                .tracksDestinations()
+                .playDestinations()
+        }
+    }
+}
+
+/// The page for the sidebar row, in a body of its own: read by the window's root, a click in
+/// the sidebar would rebuild the whole window around the page, its menus and toolbar too.
+private struct MacDetailPage: View {
+    let model: AppModel
+
+    var body: some View {
+        let selection = model.sidebarSelection ?? SidebarItem.opening
+        switch selection {
         case .search: SearchPage()
         case .listenNow: ListenNowPage()
         case .radio: RadioPage()
@@ -279,21 +271,63 @@ struct MacRootView: View {
         case .topArtists: TopChartView(kind: .artists)
         case .topAlbums: TopChartView(kind: .albums)
         case .recentlyAdded, .playlists, .albums, .artists, .songs, .downloads, .lidarr:
-            LibraryPage(item: model.sidebarSelection ?? .playlists, source: model.musicSource)
+            LibraryPage(item: selection, source: model.musicSource)
         }
+    }
+}
+
+/// A new place in the sidebar starts afresh: nothing pushed, nothing ahead. Back and Forward
+/// follow the pages pushed. Its own body, for the same reason as ``MacDetailPage``.
+private struct FollowsSidebar: ViewModifier {
+    let model: AppModel
+    let history: NavigationHistory
+    let openingTab: OpeningTab
+    /// The sidebar row when macOS last saved the window, so a window it restores at launch
+    /// opens on the same page, as Music's does. A new window opens where Settings says.
+    @SceneStorage("sidebarSelection") private var savedSelection = ""
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: restoreSelection)
+            .onChange(of: model.sidebarSelection) { _, selection in
+                savedSelection = selection?.rawValue ?? ""
+                history.reset()
+                if !model.playNavigator.path.isEmpty { model.playNavigator.path = NavigationPath() }
+                // Clicking Search puts the cursor in its field, as Podcasts does. Arrowing
+                // through the sidebar past it doesn't, or the next arrow would type.
+                if selection == .search, NSApp.currentEvent?.type != .keyDown {
+                    model.search.wantsFocus = true
+                }
+            }
+            .onChange(of: model.playNavigator.path) { old, new in
+                history.pathChanged(from: old, to: new)
+            }
+    }
+
+    /// The saved row, if it's still in the sidebar (Lidarr may be gone, or the source
+    /// changed) and the launch didn't ask for a page of its own.
+    private func restoreSelection() {
+        guard let item = SidebarItem(rawValue: savedSelection), item != model.sidebarSelection,
+              LaunchScene.sidebar == nil, LaunchScene.searchText == nil, model.pendingRoute == nil
+        else { return }
+        let shown = [.search] + SidebarItem.leading(opening: openingTab)
+            + SidebarItem.library(for: model.musicSource, hasLidarr: model.lidarr.isSetUp)
+        if shown.contains(item) { model.sidebarSelection = item }
     }
 }
 
 /// Places, in the order Open To gives them, then the library of the music Play is on, as
 /// Music's sidebar ends with its library.
 private struct MacSidebar: View {
-    @Binding var selection: SidebarItem?
+    /// The model rather than a binding made by the window's root, which would read the
+    /// selection there and rebuild the whole window on every click.
+    @Bindable var model: AppModel
     let opening: OpeningTab
     let library: [SidebarItem]
     let libraryTitle: LocalizedStringKey
 
     var body: some View {
-        List(selection: $selection) {
+        List(selection: $model.sidebarSelection) {
             Section { rows([.search]) }
             let leading = SidebarItem.leading(opening: opening)
             let playing = leading.filter { $0 == .listenNow || $0 == .radio }

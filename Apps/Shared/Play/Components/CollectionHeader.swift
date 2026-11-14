@@ -286,7 +286,8 @@ struct CollectionHeader<Cover: View, More: View>: View {
         .padding(.bottom, 28)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(alignment: .top) {
-            CoverGlow(color: glow ?? fieldTint)
+            // A colour already known is there from the first frame, rather than fading in.
+            CoverGlow(color: glow ?? tintCover.flatMap(CoverTint.knownGlow(for:)) ?? fieldTint)
         }
         .task(id: tintCover) {
             guard let tintCover, let found = await CoverTint.glow(for: tintCover), !Task.isCancelled else { return }

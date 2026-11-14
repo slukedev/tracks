@@ -300,7 +300,8 @@ private struct FeaturedRelease: View {
         .padding(.top, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(alignment: .top) {
-            CoverGlow(color: glow, overscroll: 160)
+            // A colour already known is there from the first frame, rather than fading in.
+            CoverGlow(color: glow ?? CoverTint.knownGlow(for: cover), overscroll: 160)
                 .padding(.bottom, -40)
         }
         .task(id: release.id) {

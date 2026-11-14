@@ -60,6 +60,26 @@ private struct MacHistoryTable: View {
     private var lastFMUsername: String?
     @Environment(\.modelContext) private var context
 
+    init(
+        filter: Binding<HistoryFilter>,
+        sort: Binding<HistorySort>,
+        source: SourceScope,
+        sourceSelection: Binding<SourceScope>?,
+        limit: Int,
+        loadMore: @escaping () -> Void
+    ) {
+        _filter = filter
+        _sort = sort
+        self.source = source
+        self.sourceSelection = sourceSelection
+        self.limit = limit
+        self.loadMore = loadMore
+        // Back on History, the rows it left show at once, and the load below only catches up.
+        let page = HistoryMemory.page(for: HistoryLoad(filter: filter.wrappedValue, source: source, sort: sort.wrappedValue, limit: limit, storeChanges: 0))
+        _rows = State(initialValue: page?.rows ?? [])
+        _total = State(initialValue: page?.total)
+    }
+
     var body: some View {
         Table(of: HistoryRow.self, selection: $selection, sortOrder: sortOrder) {
             TableColumn("Title", sortUsing: HistorySort.Field.title.comparator) { row in
@@ -263,6 +283,7 @@ private struct MacHistoryTable: View {
             }
             total = page.total
             loaded = load
+            HistoryMemory.remember(page, for: load)
         }
         .onStoreChange(of: context) { storeChanges += 1 }
         // Other contexts' saves (an import, a background write) and synced rows, which a
@@ -369,6 +390,23 @@ private struct MacHistoryTable: View {
                 .help("Waiting to be scrobbled")
                 .accessibilityLabel("Waiting to be scrobbled")
         }
+    }
+}
+
+/// The page History last showed, kept while the app runs so going back to it is instant.
+private enum HistoryMemory {
+    private static var last: (load: HistoryLoad, rows: [HistoryRow], total: Int?)?
+
+    /// The first rows last loaded for the same filter and order, whatever has been saved since.
+    static func page(for load: HistoryLoad) -> (rows: [HistoryRow], total: Int?)? {
+        guard let last, last.load.filter == load.filter, last.load.source == load.source,
+              last.load.sort == load.sort, last.load.limit >= load.limit
+        else { return nil }
+        return (Array(last.rows.prefix(load.limit)), last.total)
+    }
+
+    static func remember(_ page: (rows: [HistoryRow], total: Int?), for load: HistoryLoad) {
+        last = (load, page.rows, page.total)
     }
 }
 

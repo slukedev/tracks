@@ -15,22 +15,27 @@ struct MixTile: View {
             }
         }
         .buttonStyle(.pressable)
-        .tileHover($isHovered, play: player.songs(in: mix).isEmpty ? nil : { play(shuffled: false) }) { menu }
+        .tileHover($isHovered, play: hasSongs ? { play(shuffled: false) } : nil) { menu }
         .contextMenu { menu }
         .macDraggable(SongDrag(player.songs(in: mix)))
     }
 
+    /// Without making the songs: the tile's body runs as shelves are laid out.
+    private var hasSongs: Bool {
+        mix.songs.contains { player.canPlay(songID: $0.songID) }
+    }
+
+    /// The songs are made when an item is chosen, not each time the menu is.
     @ViewBuilder
     private var menu: some View {
-        let songs = player.songs(in: mix)
         Button("Play", systemImage: "play") { play(shuffled: false) }
         Button("Shuffle", systemImage: "shuffle") { play(shuffled: true) }
         Divider()
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-            player.enqueue(.history(songs), next: true, title: mix.kind.title)
+            player.enqueue(.history(player.songs(in: mix)), next: true, title: mix.kind.title)
         }
         Button("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward") {
-            player.enqueue(.history(songs), next: false, title: mix.kind.title)
+            player.enqueue(.history(player.songs(in: mix)), next: false, title: mix.kind.title)
         }
     }
 
@@ -44,46 +49,98 @@ struct MixTile: View {
 /// drags out as its Apple Music link.
 struct FeedTile: View {
     let item: FeedItem
+
+    var body: some View {
+        // Only a station waits to start playing, so only its tile carries what that takes.
+        if let (request, context) = item.stationRequest {
+            StationTile(item: item, request: request, context: context)
+        } else if let route = item.route {
+            FeedLinkTile(item: item, route: route)
+        }
+    }
+}
+
+/// An album or playlist on a shelf, which opens.
+private struct FeedLinkTile: View {
+    let item: FeedItem
+    let route: PlayRoute
+    @Environment(PlayerModel.self) private var player
+    @State private var isHovered = false
+
+    var body: some View {
+        NavigationLink(value: route) {
+            TileLabel(title: item.title, subtitle: item.subtitle) { side in
+                CoverImage(cover: item.cover, size: side)
+            }
+        }
+        .buttonStyle(.pressable)
+        .tileHover($isHovered, play: play) { FeedItemMenu(item: item) }
+        .contextMenu { FeedItemMenu(item: item) }
+        .macDraggable(item.url)
+    }
+
+    /// What Play over the cover does: the album or playlist from the top.
+    private func play() {
+        switch item.content {
+        case .album(let album):
+            player.play(.album(album), from: PlayContext(kind: .album, title: album.title))
+        case .playlist(let playlist):
+            player.play(.playlist(playlist), from: PlayContext(kind: .playlist, title: playlist.name))
+        case .station, .demoStation:
+            break
+        }
+    }
+}
+
+/// A station on a shelf, which starts playing, with a spinner until it does.
+private struct StationTile: View {
+    let item: FeedItem
+    let request: PlayRequest
+    let context: PlayContext
     @Environment(PlayerModel.self) private var player
     @State private var isHovered = false
     /// From a tap on a station until it plays: a live station takes a moment to tune in.
     @State private var isStarting = false
 
     var body: some View {
-        Group {
-            if let (request, context) = item.stationRequest {
-                Button {
-                    if !isPlayingThis { isStarting = true }
-                    player.play(request, from: context)
-                } label: {
-                    label
-                }
-                .accessibilityHint("Plays the station")
-            } else if let route {
-                NavigationLink(value: route) { label }
+        Button {
+            if !isPlayingThis { isStarting = true }
+            player.play(request, from: context)
+        } label: {
+            TileLabel(title: item.title, subtitle: item.subtitle) { side in
+                CoverImage(cover: item.cover, size: side)
+                    .overlay(alignment: .topLeading) {
+                        if item.isLive {
+                            LiveBadge().padding(8)
+                        }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if isPlayingThis {
+                            NowPlayingBadge().padding(8)
+                        } else {
+                            PlayStartingBadge(isStarting: isStarting).padding(8)
+                        }
+                    }
             }
         }
+        .accessibilityHint("Plays the station")
         .buttonStyle(.pressable)
-        .tileHover($isHovered, play: play) { FeedItemMenu(item: item) }
+        .tileHover($isHovered, play: { player.play(request, from: context) }) { FeedItemMenu(item: item) }
         .contextMenu { FeedItemMenu(item: item) }
-        .macDraggable(url)
+        .macDraggable(item.url)
         .endsPlayStart($isStarting, hasStarted: isPlayingThis)
     }
 
-    /// What Play over the cover does: the station, or the album or playlist from the top.
-    private var play: (() -> Void)? {
-        switch item.content {
-        case .station, .demoStation:
-            item.stationRequest.map { request, context in { player.play(request, from: context) } }
-        case .album(let album):
-            { player.play(.album(album), from: PlayContext(kind: .album, title: album.title)) }
-        case .playlist(let playlist):
-            { player.play(.playlist(playlist), from: PlayContext(kind: .playlist, title: playlist.name)) }
-        }
+    private var isPlayingThis: Bool {
+        guard let playing = player.context, playing.isStation else { return false }
+        return playing.title == item.title && player.hasQueue
     }
+}
 
-    private var url: URL? {
-        switch item.content {
+extension FeedItem {
+    /// Its Apple Music link, for dragging out.
+    var url: URL? {
+        switch content {
         case .station(let station): station.url
         case .album(let album): album.url
         case .playlist(let playlist): playlist.url
@@ -91,31 +148,9 @@ struct FeedTile: View {
         }
     }
 
-    private var label: some View {
-        TileLabel(title: item.title, subtitle: item.subtitle) { side in
-            CoverImage(cover: item.cover, size: side)
-                .overlay(alignment: .topLeading) {
-                    if item.isLive {
-                        LiveBadge().padding(8)
-                    }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    if isPlayingThis {
-                        NowPlayingBadge().padding(8)
-                    } else {
-                        PlayStartingBadge(isStarting: isStarting).padding(8)
-                    }
-                }
-        }
-    }
-
-    private var isPlayingThis: Bool {
-        guard item.isStation, let context = player.context, context.isStation else { return false }
-        return context.title == item.title && player.hasQueue
-    }
-
-    private var route: PlayRoute? {
-        switch item.content {
+    /// Where an album or playlist opens. Stations play instead.
+    var route: PlayRoute? {
+        switch content {
         case .album(let album): .album(album)
         case .playlist(let playlist): .playlist(playlist)
         case .station, .demoStation: nil
@@ -196,7 +231,7 @@ private struct TileHover<Menu: View>: ViewModifier {
         content
             .overlay(alignment: .top) {
                 // Over the cover's foot: a square as wide as the tile, the cover's place.
-                if isHovered {
+                if isHovered, isEnabled {
                     Color.clear
                         .aspectRatio(1, contentMode: .fit)
                         .overlay(alignment: .bottom) {
@@ -215,7 +250,6 @@ private struct TileHover<Menu: View>: ViewModifier {
             .onHover { hovering in
                 withAnimation(PlayMotion.hover) { isHovered = hovering && isEnabled }
             }
-            .onChange(of: isEnabled) { if !isEnabled { isHovered = false } }
     }
 }
 #endif

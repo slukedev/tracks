@@ -176,6 +176,9 @@ struct SongDeck: View {
         .padding(.horizontal, Self.isWide ? 28 : 16)
         .frame(maxWidth: .infinity)
         .background {
+            // A colour already known is there from the first frame, rather than fading in
+            // from the lens's each time the page opens.
+            let glow = glow ?? current.flatMap { CoverTint.knownGlow(for: $0.song.artwork.map(CoverArt.artwork) ?? .url(nil, seed: $0.song.albumTitle ?? $0.song.title)) }
             ZStack {
                 Color.cardFill
                 RadialGradient(

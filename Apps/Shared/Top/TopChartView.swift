@@ -18,16 +18,30 @@ struct TopChartView: View {
     /// A day inside the period on show, or nil to follow now as the days go by.
     @State private var anchor: Date? = LaunchScene.chartDate
     @State private var snapshot: ChartSnapshot?
+    /// What `snapshot` was made from, so coming back to a chart that hasn't changed shows it
+    /// at once rather than its loading rows and then the chart.
+    @State private var snapshotKey: String?
+    /// Whether this page has made a snapshot itself, rather than only showing the kept one.
+    @State private var hasMadeSnapshot = false
     @State private var isPickingDate = false
-    /// Whether the page is wide enough for its column layout rather than its stacked one.
-    @State private var isWide = false
+    /// Whether the page is wide enough for its column layout rather than its stacked one. As
+    /// it was last time, so the page isn't built in one layout and then again in the other.
+    @State private var isWide = Self.wasWide
     private var sources = SourceScopeSetting()
     private var playback = ChartPlayback()
 
     init(kind: ChartKind, kindSelection: Binding<ChartKind>? = nil) {
         self.kind = kind
         self.kindSelection = kindSelection
+        if let last = Self.lastShown[kind] {
+            _snapshot = State(initialValue: last.snapshot)
+            _snapshotKey = State(initialValue: last.key)
+        }
     }
+
+    /// Each kind's chart as last shown, with what it was made from.
+    private static var lastShown: [ChartKind: (key: String, snapshot: ChartSnapshot)] = [:]
+    private static var wasWide = false
 
     private var period: ChartPeriod {
         ChartPeriod.containing(anchor ?? .now, span: span)
@@ -38,26 +52,44 @@ struct TopChartView: View {
             .navigationTitle(kindSelection == nil ? kind.navigationTitle : "Charts")
             .sourceScopeSubtitle(sources.scope)
             .toolbar { toolbar }
-            .task(id: "\(kind.rawValue)|\(span.rawValue)|\(period.interval?.start.timeIntervalSinceReferenceDate ?? 0)|\(sources.scope.rawValue)|\(revision)") {
+            .task(id: snapshotID) {
                 // Until the first read there's nothing to chart, and an empty chart would say
                 // "No Charts Yet" to someone with years of listening.
                 guard model.library.isLoaded else { return }
+                let key = snapshotID
+                guard key != snapshotKey || snapshot == nil else {
+                    // The kept chart is this one, as it is now.
+                    hasMadeSnapshot = true
+                    return
+                }
+                // A chart kept from last time is only a stand-in: what changed since comes in
+                // at once, as a first load does, not as new listening.
+                let isShowing = shown != nil && hasMadeSnapshot
                 // New listening in the chart already shown: a play bumps the revision, and its
                 // lookups again a moment later, so let the burst settle. A switch is instant.
-                if shown != nil {
+                if isShowing {
                     do { try await Task.sleep(for: LiveUpdate.settle) } catch { return }
                 }
                 let (kind, period, scope, history, engine) = (kind, period, sources.scope, model.library.history, model.library.engineSource)
                 let next = await OffMainActor.run {
                     ChartSnapshot.make(kind: kind, period: period, scope: scope, history: history.scoped(to: scope), engine: engine?.engine)
                 }
-                guard !Task.isCancelled, next != snapshot else { return }
+                guard !Task.isCancelled else { return }
+                hasMadeSnapshot = true
+                snapshotKey = key
+                Self.lastShown[kind] = (key, next)
+                guard next != snapshot else { return }
                 // New listening in the same chart rolls in; a different chart just appears.
-                let isLive = snapshot?.identity == next.identity && snapshot?.playCount != next.playCount
+                let isLive = isShowing && snapshot?.identity == next.identity && snapshot?.playCount != next.playCount
                 LiveUpdate.apply(isLive: isLive, reduceMotion: reduceMotion) {
                     snapshot = next
                 }
             }
+    }
+
+    /// Everything the chart is made from. A change to any of it makes the chart again.
+    private var snapshotID: String {
+        "\(kind.rawValue)|\(span.rawValue)|\(period.interval?.start.timeIntervalSinceReferenceDate ?? 0)|\(sources.scope.rawValue)|\(revision)"
     }
 
     // MARK: - Moving through time
@@ -439,7 +471,10 @@ struct TopChartView: View {
             }
         }
         // Only the threshold: the width itself changed on every step of a window resize.
-        .onGeometryChange(for: Bool.self) { $0.size.width >= 1_100 } action: { isWide = $0 }
+        .onGeometryChange(for: Bool.self) { $0.size.width >= 1_100 } action: { wide in
+            isWide = wide
+            Self.wasWide = wide
+        }
         .background(Color.pageBackground)
     }
 

@@ -63,7 +63,8 @@ final class NavigationHistory {
 
     /// Forgets what's ahead, for a change of place in the sidebar.
     func reset() {
-        ahead.removeAll()
+        // Only when there's something to forget: each write tells the menu bar to rebuild.
+        if !ahead.isEmpty { ahead.removeAll() }
         expected = NavigationPath()
     }
 
@@ -86,7 +87,7 @@ extension View {
         window: PlayerWindowState,
         isShowingFullPlayer: Bool,
         history: NavigationHistory,
-        path: Binding<NavigationPath>,
+        navigator: PlayNavigator,
         goToCurrentSong: @escaping @MainActor () -> Void,
         beginSearch: @escaping @MainActor () -> Void,
         open: @escaping @MainActor (PlayRoute) -> Void
@@ -95,7 +96,7 @@ extension View {
             window: window,
             isShowingFullPlayer: isShowingFullPlayer,
             history: history,
-            path: path,
+            navigator: navigator,
             goToCurrentSong: goToCurrentSong,
             beginSearch: beginSearch,
             open: open
@@ -107,7 +108,9 @@ private struct PlayerCommandsModifier: ViewModifier {
     let window: PlayerWindowState
     let isShowingFullPlayer: Bool
     let history: NavigationHistory
-    @Binding var path: NavigationPath
+    /// The window's navigator rather than a binding to its path, which the window's root would
+    /// have to read to make.
+    @Bindable var navigator: PlayNavigator
     let goToCurrentSong: @MainActor () -> Void
     let beginSearch: @MainActor () -> Void
     let open: @MainActor (PlayRoute) -> Void
@@ -115,13 +118,13 @@ private struct PlayerCommandsModifier: ViewModifier {
     func body(content: Content) -> some View {
         // Read here, not in the closures, so the menu bar hears when they change.
         let inFullPlayer = isShowingFullPlayer
-        let path = $path
+        let path = $navigator.path
         content
             .focusedSceneValue(\.playerWindow, PlayerWindowActions(
                 isShowingUpNext: window.isShowing(.upNext, inFullPlayer: inFullPlayer),
                 isShowingHistory: window.isShowing(.history, inFullPlayer: inFullPlayer),
                 showsFullPlayer: window.showsFullPlayer,
-                canGoBack: !inFullPlayer && !self.path.isEmpty,
+                canGoBack: !inFullPlayer && !navigator.path.isEmpty,
                 canGoForward: !inFullPlayer && history.canGoForward,
                 togglePanel: { page in window.toggle(page, inFullPlayer: inFullPlayer) },
                 toggleFullPlayer: { window.showsFullPlayer.toggle() },

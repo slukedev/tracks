@@ -8,10 +8,22 @@ struct MacSummaryView: View {
     @Environment(UnexpectedQuitMonitor.self) private var quitMonitor
     @AppStorage("statsRange") private var range: StatsRange = .month
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var summary: StatsSummary?
+    /// Worked out since the page appeared. Until then, the one it last showed for the same
+    /// period, from ``SummaryMemory``.
+    @State private var computed: StatsSummary?
     /// 0 for this week, month or year; -1 for the one before. Back to 0 when the range changes.
     @State private var periodOffset = LaunchScene.periodOffset
     private var sources = SourceScopeSetting()
+
+    private var key: SummaryMemory.Key {
+        SummaryMemory.Key(range: range, periodOffset: periodOffset, scope: sources.scope, revision: revision)
+    }
+
+    /// Coming back to Summary draws the dashboard it left at once, rather than its skeleton
+    /// and then the dashboard, and catches up only if something was played since.
+    private var summary: StatsSummary? {
+        computed ?? SummaryMemory.summary(for: key)
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -79,6 +91,11 @@ struct MacSummaryView: View {
             // Not from the empty history before it's read, which would say nothing was played
             // and then animate the real week in as if it had just been heard.
             guard model.library.isLoaded else { return }
+            let key = key
+            if computed == nil, let remembered = SummaryMemory.summary(for: key), SummaryMemory.isCurrent(key) {
+                computed = remembered
+                return
+            }
             let (range, offset, scope, history, sessions) = (range, periodOffset, sources.scope, model.library.history, model.library.sessions)
             let includesStations = scope.includesStations
             let next = await OffMainActor.run {
@@ -91,11 +108,12 @@ struct MacSummaryView: View {
                 )
             }
             guard !Task.isCancelled else { return }
+            SummaryMemory.remember(next, for: key)
             // Only new plays animate: a revision from a lookup or a sync changes nothing to watch.
-            let isLive = summary?.range == range && summary?.periodOffset == next.periodOffset
-                && summary?.captureCount != next.captureCount
+            let isLive = computed?.range == range && summary?.periodOffset == next.periodOffset
+                && computed?.captureCount != next.captureCount
             LiveUpdate.apply(isLive: isLive, reduceMotion: reduceMotion) {
-                summary = next
+                computed = next
             }
         }
         .onChange(of: range) { periodOffset = 0 }
@@ -123,13 +141,13 @@ private struct Dashboard: View {
     /// copy of the list and leaving the sidebar on Summary.
     @Environment(AppModel.self) private var model
     /// Three albums to a row, or four once the card is wide enough to keep them a good size.
-    @State private var albumColumns = 3
+    @State private var albumColumns = SummaryMemory.albumColumns
     /// The dashboard's width, which picks each row's arrangement. Measured rather than left to
     /// `ViewThatFits`, which would build and measure both arrangements on every layout. Kept as
     /// the arrangements alone, so a resize redraws the dashboard only when one changes.
-    @State private var room = Room(width: 1000)
+    @State private var room = SummaryMemory.room
 
-    private nonisolated struct Room: Equatable {
+    nonisolated struct Room: Equatable {
         let isWide: Bool
         let pairsCharts: Bool
         let pairsRhythm: Bool
@@ -229,7 +247,10 @@ private struct Dashboard: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
         }
-        .onGeometryChange(for: Room.self) { Room(width: $0.size.width) } action: { room = $0 }
+        .onGeometryChange(for: Room.self) { Room(width: $0.size.width) } action: {
+            room = $0
+            SummaryMemory.room = $0
+        }
     }
 
     private var songs: some View {
@@ -268,7 +289,10 @@ private struct Dashboard: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .onGeometryChange(for: Int.self) { $0.size.width >= 600 ? 4 : 3 } action: { albumColumns = $0 }
+                .onGeometryChange(for: Int.self) { $0.size.width >= 600 ? 4 : 3 } action: {
+                    albumColumns = $0
+                    SummaryMemory.albumColumns = $0
+                }
             }
         }
     }
@@ -324,5 +348,39 @@ private struct DashboardSkeleton: View {
         .frame(maxWidth: .infinity)
         .onGeometryChange(for: Bool.self) { $0.size.width >= 836 } action: { isWide = $0 }
         .accessibilityHidden(true)
+    }
+}
+
+/// What Summary last showed, kept while the app runs so going back to it is instant. A page
+/// of the window's, so one is enough.
+private enum SummaryMemory {
+    struct Key: Equatable {
+        let range: StatsRange
+        let periodOffset: Int
+        let scope: SourceScope
+        let revision: Int
+    }
+
+    private static var last: (key: Key, summary: StatsSummary)?
+    /// The dashboard's arrangement for the window's last width, so it isn't laid out for a
+    /// guess first and then again.
+    static var room = Dashboard.Room(width: 1000)
+    static var albumColumns = 3
+
+    /// The last summary, if it's of the same period. One a play or two behind still shows,
+    /// until the new one is worked out.
+    static func summary(for key: Key) -> StatsSummary? {
+        guard let last, last.key.range == key.range, last.key.periodOffset == key.periodOffset,
+              last.key.scope == key.scope
+        else { return nil }
+        return last.summary
+    }
+
+    static func isCurrent(_ key: Key) -> Bool {
+        last?.key == key
+    }
+
+    static func remember(_ summary: StatsSummary, for key: Key) {
+        last = (key, summary)
     }
 }

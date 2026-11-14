@@ -39,7 +39,9 @@ struct Crate: View {
     @State private var isRowChanging = false
     /// Whether the crate's been flipped by hand, after which it stays where it was put.
     @State private var hasMoved = false
-    @State private var width: CGFloat = 0
+    /// As wide as the crate was last time, so it opens with its records in place rather
+    /// than laid out at no width first.
+    @State private var width: CGFloat = Crate.lastWidth
     @State private var glow: Color?
     @State private var showsTuner = LaunchScene.opensRadioTuner
     /// The songs dealt to each side, nearest the mixes first.
@@ -74,6 +76,28 @@ struct Crate: View {
     /// The crate's place under the fingers, which moves it on the Mac.
     @State private var motion = CrateMotion()
     #endif
+
+    init(
+        cards: [ForYouCard],
+        leadID: String?,
+        songs: [CrateSong] = [],
+        songsGoOn: Bool = false,
+        songsGeneration: Int = 0,
+        loadMoreSongs: (() async -> Void)? = nil
+    ) {
+        self.cards = cards
+        self.leadID = leadID
+        self.songs = songs
+        self.songsGoOn = songsGoOn
+        self.songsGeneration = songsGeneration
+        self.loadMoreSongs = loadMoreSongs
+        // In front from the first frame, so its dot doesn't fade in as the page opens.
+        _front = State(initialValue: leadID ?? cards.first?.id)
+    }
+
+    /// The crate's width the last time it was laid out, so opening the page again lays it
+    /// out at its width from the first frame.
+    static var lastWidth: CGFloat = 0
 
     /// Every record in order: the leading songs, the mixes, the trailing songs.
     private var items: [ForYouCard] {
@@ -123,7 +147,9 @@ struct Crate: View {
             if !isPlaced { CratePlaceholder() }
         }
         .background(alignment: .top) {
-            CrateGlow(color: glow)
+            // A colour already known is there from the first frame, rather than fading in
+            // each time the page opens.
+            CrateGlow(color: glow ?? current.flatMap { record(for: $0).knownTint })
         }
         .task(id: current?.id) {
             guard let current else { return }
@@ -354,7 +380,7 @@ struct Crate: View {
         // The records farthest out fade into the page rather than stopping at its edge.
         .mask { Self.edgeFade }
         .padding(.vertical, -Self.shadowRoom)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0; Crate.lastWidth = $0 }
         // To VoiceOver the crate is one control, flipped with a swipe up or down as a picker
         // is: only the records near the middle are drawn, and the one in front is what counts.
         .accessibilityElement(children: .ignore)
@@ -404,7 +430,7 @@ struct Crate: View {
         .frame(height: side + Self.shadowRoom * 2)
         .mask { Self.edgeFade }
         .padding(.vertical, -Self.shadowRoom)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0; Crate.lastWidth = $0 }
         .onAppear {
             motion.pitch = side + spacing
             motion.start()
@@ -440,7 +466,9 @@ struct Crate: View {
             motion.last = max(0, row.places - 1)
             if let front, let place = place(of: front) { motion.jump(to: place) }
             if !isPlaced {
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { isPlaced = true }
+                // At the width it had last time, the records are in place from the first
+                // frame: nothing to fade in from.
+                withAnimation(reduceMotion || width > 0 ? nil : .easeOut(duration: 0.2)) { isPlaced = true }
             }
         }
         .onChange(of: firstRecord) {
@@ -769,7 +797,7 @@ struct Crate: View {
 /// will be, and the lines under them, so nothing on the page moves when they arrive. Nothing
 /// made up on them.
 struct CratePlaceholder: View {
-    @State private var width: CGFloat = 0
+    @State private var width: CGFloat = Crate.lastWidth
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -796,7 +824,7 @@ struct CratePlaceholder: View {
             .frame(maxWidth: .infinity)
             .frame(height: side)
             .mask { Crate.edgeFade }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0; Crate.lastWidth = $0 }
             VStack(spacing: 6) {
                 CrateCaption(eyebrow: "Weekend Morning", title: "Morning Mix", reason: "What you play most on weekend mornings")
                 Button {} label: {
@@ -1389,6 +1417,16 @@ struct CrateRecord {
                 .overlay {
                     if isPlayingThis { NowPlayingMark(side: side, isPlaying: player.isPlaying) }
                 }
+        }
+    }
+
+    /// ``tint()``, when it's known without waiting.
+    var knownTint: Color? {
+        switch card {
+        case .mix(let mix): mix.covers.first.flatMap { CoverTint.knownGlow(for: .url($0.url, seed: $0.seed)) }
+        case .station: TracksRadioArt.color
+        case .discover(let songs): songs.first?.artwork.flatMap { CoverTint.knownGlow(for: .artwork($0)) }
+        case .song(let song): CoverTint.knownGlow(for: song.cover)
         }
     }
 
