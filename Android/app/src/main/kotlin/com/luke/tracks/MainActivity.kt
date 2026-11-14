@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
             "charts" -> navigator.select(Tab.Charts)
             "history" -> navigator.select(Tab.History)
             "nowplaying" -> navigator.nowPlayingOpen = true
+            "mix" -> data.lastPathSegment?.let { navigator.open(com.luke.tracks.ui.navigation.MixRoute(it)) }
         }
     }
 }
