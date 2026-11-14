@@ -19,21 +19,6 @@ struct ResumeSettingsSection: View {
             }
         } header: {
             Text("When You Come Back")
-        } footer: {
-            Text(footer)
-                .contentTransition(.opacity)
-        }
-    }
-
-    private var footer: String {
-        guard resumes else {
-            return String(localized: "Tracks opens with nothing playing.")
-        }
-        return switch window {
-        case .always:
-            String(localized: "The song that was on when you closed Tracks waits, paused where you left it, until you play something else.")
-        default:
-            String(localized: "The song that was on when you closed Tracks waits, paused where you left it, for \(Self.name(window).lowercased()). After that, Tracks opens with nothing playing.")
         }
     }
 

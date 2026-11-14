@@ -45,7 +45,7 @@ public enum LastFMHistoryWords {
     /// otherwise starts one.
     public static func action(_ state: State) -> String {
         switch state {
-        case .notImported: String(localized: "Import Your Scrobbles")
+        case .notImported: String(localized: "Import Scrobbles")
         case .importing: String(localized: "Stop Importing")
         case .stopped: String(localized: "Continue Importing")
         case .upToDate: String(localized: "Sync Now")
@@ -64,35 +64,21 @@ public enum LastFMHistoryWords {
         }
     }
 
-    /// The line under the title on the Mac, and the footer on iPhone.
+    /// The line under the title on the Mac, and the footer on iPhone. Before the first import
+    /// it says what the button does, since nothing asks first; after, where it stands. The
+    /// progress itself shows in the row.
     public static func detail(_ state: State) -> String {
         switch state {
         case .notImported:
-            String(localized: "Add the songs you’ve scrobbled to your history in Tracks, dated when you played them. Songs Tracks already has are skipped, and nothing is sent back to Last.fm.")
-        case .importing(let read, let total?, let added) where total > 0:
-            String(localized: "Importing… read \(read.formatted()) of \(total.formatted()) scrobbles · \(added.formatted()) new")
-        case .importing(let read, _, let added):
-            read == 0
-                ? String(localized: "Importing…")
-                : String(localized: "Importing… read \(read.formatted()) scrobbles · \(added.formatted()) new")
-        case .stopped(let added):
-            String(localized: "Stopped part way · \(plays(added)) added so far. Continue picks up where it left off.")
-        case .upToDate(let lastSynced, let added):
-            String(localized: "Synced \(lastSynced.formatted(.relative(presentation: .named, unitsStyle: .wide))) · \(plays(added)) added from Last.fm. Sync again to add what you’ve scrobbled since, from any app.")
+            String(localized: "Adds the songs you scrobbled on Last.fm, from any app, to your history. Songs already in Tracks are skipped.")
+        case .importing:
+            String(localized: "Importing…")
+        case .stopped:
+            String(localized: "Stopped. Continue picks up where it left off.")
+        case .upToDate(let lastSynced, _):
+            String(localized: "Synced \(lastSynced.formatted(.relative(presentation: .named, unitsStyle: .wide))).")
         case .failed(let message):
             String(localized: "Couldn’t import. \(message)")
         }
-    }
-
-    /// The question asked right after connecting.
-    public static let offerTitle = String(localized: "Import your Last.fm history?")
-
-    public static let offerMessage = String(localized: "Tracks can add the songs you’ve scrobbled to your history, dated when you played them. Songs Tracks already has are skipped, and nothing is sent back to Last.fm. You can do this later from this page.")
-
-    /// "1 play", "12,345 plays".
-    static func plays(_ count: Int) -> String {
-        count == 1
-            ? String(localized: "1 play")
-            : String(localized: "\(count.formatted()) plays")
     }
 }

@@ -26,7 +26,7 @@ struct AboutSection: View {
         } header: {
             Text("About")
         } footer: {
-            Text("Tracks has no servers and no analytics. Your history stays on your devices and in your iCloud account.")
+            Text("No servers, no analytics. Your history stays on your devices and in your iCloud.")
         }
     }
 

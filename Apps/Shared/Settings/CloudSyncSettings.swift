@@ -131,7 +131,7 @@ struct CloudSyncPage: View {
                 } header: {
                     Text("What Syncs")
                 } footer: {
-                    Text("It all goes to your private iCloud database. Songs are kept as Apple Music catalog identifiers, never audio.")
+                    Text("It all stays in your private iCloud.")
                 }
             }
             .animation(.default, value: status)

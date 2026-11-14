@@ -11,60 +11,60 @@ struct ArtworkRepairSection: View {
     @State private var isRepairing = false
     @State private var report: ArtworkRepairReport?
 
-    private var isAvailable: Bool {
-        !model.isShowingSampleData && model.capture != nil
-    }
-
     var body: some View {
-        Section {
-            #if os(macOS)
-            SettingsDetailRow(title: Text("Repair Artwork"), detail: detail) {
-                if isRepairing {
-                    // Where the button was, at a fixed width, so the row doesn't reflow.
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: 70)
+        // Sample data has no covers of its own to mend.
+        if !model.isShowingSampleData, model.capture != nil {
+            Section {
+                #if os(macOS)
+                if let result {
+                    SettingsDetailRow(title: Text("Repair Artwork"), detail: result) { control }
                 } else {
-                    Button("Repair", action: repair)
-                        .disabled(!isAvailable)
+                    LabeledContent("Repair Artwork") { control }
                 }
-            }
-            #else
-            Button(action: repair) {
-                // An `HStack` rather than `LabeledContent`, which would style the row as a
-                // read-out and lose the button's tint. The spinner sits where a disclosure
-                // would, so the title doesn't move when it appears.
-                HStack {
-                    Text(isRepairing ? "Repairing Artwork…" : "Repair Artwork")
-                    Spacer()
-                    if isRepairing {
-                        ProgressView()
+                #else
+                Button(action: repair) {
+                    // An `HStack` rather than `LabeledContent`, which would style the row as a
+                    // read-out and lose the button's tint. The spinner sits where a disclosure
+                    // would, so the title doesn't move when it appears.
+                    HStack {
+                        Text(isRepairing ? "Repairing Artwork…" : "Repair Artwork")
+                        Spacer()
+                        if isRepairing {
+                            ProgressView()
+                        }
                     }
                 }
+                .disabled(isRepairing)
+                #endif
+            } header: {
+                Text("Artwork")
+            } footer: {
+                #if os(iOS)
+                result
+                #endif
             }
-            .disabled(isRepairing || !isAvailable)
-            #endif
-        } header: {
-            Text("Artwork")
-        } footer: {
-            #if os(iOS)
-            detail
-            #endif
         }
     }
 
-    /// What the button does, then what it found once it has run.
-    private var detail: Text {
-        if model.isShowingSampleData {
-            return Text("Not available while Tracks shows sample data.")
+    #if os(macOS)
+    @ViewBuilder
+    private var control: some View {
+        if isRepairing {
+            // Where the button was, at a fixed width, so the row doesn't reflow.
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 70)
+        } else {
+            Button("Repair", action: repair)
         }
-        guard let report else {
-            return Text("Checks every cover in your history and asks Apple Music again for the ones that no longer load. It can take a minute over a long history.")
-        }
-        guard !report.foundNothingWrong else {
-            return Text("Checked ^[\(report.checked) cover](inflect: true). They all load.")
-        }
-        return Text("Replaced ^[\(report.restored) cover](inflect: true) of the ^[\(report.cleared) song](inflect: true) that had a broken one.")
+    }
+    #endif
+
+    /// What the last repair found, once one has run here.
+    private var result: Text? {
+        guard let report else { return nil }
+        guard !report.foundNothingWrong else { return Text("Every cover loads.") }
+        return Text("Replaced ^[\(report.restored) cover](inflect: true).")
     }
 
     private func repair() {

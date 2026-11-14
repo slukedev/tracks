@@ -57,25 +57,13 @@ struct MenuBarSettingsPane: View {
                                 .lineLimit(1)
                         }
                     }
-                    SettingsSwitch(
-                        "Animate Song Changes",
-                        detail: animates
-                            ? Text("The new song fades in. Reduce Motion turns this off.")
-                            : Text("The new song replaces the old one at once."),
-                        isOn: $animates
-                    )
-                    SettingsSwitch(
-                        "Show Song Progress",
-                        detail: showsProgress
-                            ? Text("The menu bar window shows how far into the song you are. Click or drag it to move.")
-                            : Text("The menu bar window shows the song and its controls only."),
-                        isOn: $showsProgress
-                    )
+                    SettingsSwitch("Animate Song Changes", isOn: $animates)
+                    SettingsSwitch("Show Song Progress", isOn: $showsProgress)
                 } header: {
                     Text("While Music Plays")
                 } footer: {
                     if style == .custom {
-                        Text("Use \(MenuBarLabelFormat.tokens.joined(separator: ", ")). Long labels are shortened so they can’t push other apps off the menu bar.")
+                        Text("Use \(MenuBarLabelFormat.tokens.formatted(.list(type: .and))).")
                     }
                 }
             }

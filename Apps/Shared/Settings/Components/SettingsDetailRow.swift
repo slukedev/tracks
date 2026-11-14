@@ -31,15 +31,15 @@ struct SettingsDetailRow<Trailing: View>: View {
     }
 }
 
-/// An on/off setting. On the Mac, a detail row whose line says what the current position
-/// means; on iPhone, a plain switch, with the explanation in its group's footer as iOS
-/// Settings does it.
+/// An on/off setting. On the Mac, a detail row when there's a line worth saying under it;
+/// on iPhone, a plain switch, with anything to explain in its group's footer as iOS Settings
+/// does it.
 struct SettingsSwitch: View {
     var title: LocalizedStringKey
-    var detail: Text
+    var detail: Text?
     @Binding var isOn: Bool
 
-    init(_ title: LocalizedStringKey, detail: Text, isOn: Binding<Bool>) {
+    init(_ title: LocalizedStringKey, detail: Text? = nil, isOn: Binding<Bool>) {
         self.title = title
         self.detail = detail
         self._isOn = isOn
@@ -47,10 +47,15 @@ struct SettingsSwitch: View {
 
     var body: some View {
         #if os(macOS)
-        SettingsDetailRow(title: Text(title), detail: detail) {
+        if let detail {
+            SettingsDetailRow(title: Text(title), detail: detail) {
+                Toggle(title, isOn: $isOn)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+            }
+        } else {
             Toggle(title, isOn: $isOn)
                 .toggleStyle(.switch)
-                .labelsHidden()
         }
         #else
         Toggle(title, isOn: $isOn)

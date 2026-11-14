@@ -2,8 +2,8 @@ import SwiftUI
 import MusicKit
 import TracksCore
 
-/// Apple Music access: what it's for, and asking for it or turning it back on; and the audio
-/// quality it's playing at, with where that's chosen. An iPhone page; on the Mac, the same
+/// Apple Music access, asking for it or turning it back on; and the audio quality it's
+/// playing at, with where that's chosen. An iPhone page; on the Mac, the same
 /// section sits in the General pane.
 struct AppleMusicSettingsPage: View {
     @Environment(AppModel.self) private var model
@@ -22,6 +22,8 @@ struct AppleMusicSettingsPage: View {
             AppleMusicQualitySection()
             #endif
         }
+        // Here too: with access allowed the section below has nothing in it to appear.
+        .onAppear(perform: model.refreshMusicAuthorization)
         #if os(iOS)
         .settingsPage("Apple Music")
         #endif
@@ -84,6 +86,7 @@ struct AppleMusicAccessSection: View {
         }
     }
 
+    /// Only where someone could be stuck: access that's off, or not theirs to turn on.
     @ViewBuilder
     private var footer: some View {
         switch status {
@@ -91,28 +94,22 @@ struct AppleMusicAccessSection: View {
             Text(turnOnPath)
         case .restricted:
             Text("Screen Time or a device profile doesn’t allow Apple Music access.")
-        case .notAsked where model.isShowingSampleData:
-            Text("Not available while Tracks shows sample data.")
-        case .notAsked:
-            Text("Tracks keeps what you play either way. Apple Music asks before anything is shared.")
-        case .allowed:
-            Text(turnOffPath)
+        case .notAsked, .allowed:
+            EmptyView()
         }
     }
 
     #if os(iOS)
     private var openSettingsTitle: LocalizedStringKey { "Open Settings…" }
     private var settingsURL: URL? { URL(string: UIApplication.openSettingsURLString) }
-    private var turnOnPath: LocalizedStringKey { "To turn it on, go to Settings ▸ Apps ▸ Tracks and turn on Media & Apple Music." }
-    private var turnOffPath: LocalizedStringKey { "You can turn access off in Settings ▸ Apps ▸ Tracks." }
+    private var turnOnPath: LocalizedStringKey { "Turn on Media & Apple Music in Settings ▸ Apps ▸ Tracks." }
     #else
     private var openSettingsTitle: LocalizedStringKey { "Open System Settings…" }
     /// Privacy & Security ▸ Media & Apple Music.
     private var settingsURL: URL? {
         URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media")
     }
-    private var turnOnPath: LocalizedStringKey { "To turn it on, go to System Settings ▸ Privacy & Security ▸ Media & Apple Music." }
-    private var turnOffPath: LocalizedStringKey { "You can turn access off in System Settings ▸ Privacy & Security ▸ Media & Apple Music." }
+    private var turnOnPath: LocalizedStringKey { "Turn on Tracks in System Settings ▸ Privacy & Security ▸ Media & Apple Music." }
     #endif
 }
 

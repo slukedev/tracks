@@ -37,11 +37,10 @@ enum PlaySettingsWords {
                 return (String(localized: "Allow Apple Music in Settings ▸ Apple Music to play it here."), .attention)
                 #endif
             }
-            if let offline = standing.offlineSongs {
-                let songs = plain(AttributedString(localized: "^[\(offline) downloaded song](inflect: true)"))
-                return (String(localized: "Offline Mode · \(songs)"), .plain)
+            if standing.offlineSongs != nil {
+                return (String(localized: "Offline Mode"), .plain)
             }
-            return (String(localized: "Plays Apple Music · opens to \(openingName(standing.opening))"), .plain)
+            return (String(localized: "Plays Apple Music"), .plain)
         case .yourMusic:
             if let server = standing.troubledServer {
                 let name = quoted(server.name)
@@ -52,45 +51,25 @@ enum PlaySettingsWords {
             guard standing.songs > 0 || standing.servers > 0 else {
                 return (String(localized: "Add songs or connect a server to start."), .attention)
             }
-            let songs = plain(AttributedString(localized: "^[\(standing.songs) song](inflect: true)"))
-            return (String(localized: "Plays Your Music · \(songs)"), .plain)
+            return (String(localized: "Plays Your Music"), .plain)
         }
     }
 
     // MARK: - Source
 
-    /// Each combination is one whole string to translate, rather than pieces put together.
-    static func sourceFooter(_ source: MusicSource, quickSwitch: QuickSwitchState) -> String {
-        let isAppleMusic = source == .appleMusic
+    /// Only where to find Quick Switch, which its name doesn't say.
+    static func sourceFooter(quickSwitch: QuickSwitchState) -> String? {
         #if os(macOS)
         switch quickSwitch {
-        case .unavailable:
-            return isAppleMusic
-                ? String(localized: "Listen Now and your library play Apple Music. Choose Your Music to play the FLAC and other files you own, and songs on your own music server.")
-                : String(localized: "Listen Now and your library play your own music: files on this Mac, and songs on your servers. Every song is kept in your history, just like Apple Music’s.")
-        case .off:
-            return isAppleMusic
-                ? String(localized: "Listen Now and your library play Apple Music. Choose Your Music to play the FLAC and other files you own, and songs on your own music server. Quick Switch puts both a click away, in Listen Now’s title.")
-                : String(localized: "Listen Now and your library play your own music: files on this Mac, and songs on your servers. Every song is kept in your history, just like Apple Music’s. Quick Switch puts both a click away, in Listen Now’s title.")
-        case .on:
-            return isAppleMusic
-                ? String(localized: "Listen Now and your library play Apple Music. Choose Your Music to play the FLAC and other files you own, and songs on your own music server. Click Listen Now’s title to switch. What’s playing carries on until you play something from the other.")
-                : String(localized: "Listen Now and your library play your own music: files on this Mac, and songs on your servers. Every song is kept in your history, just like Apple Music’s. Click Listen Now’s title to switch. What’s playing carries on until you play something from the other.")
+        case .unavailable: nil
+        case .off: String(localized: "Quick Switch puts both in Listen Now’s title.")
+        case .on: String(localized: "Click Listen Now’s title to switch.")
         }
         #else
         switch quickSwitch {
-        case .unavailable:
-            return isAppleMusic
-                ? String(localized: "Songs come from Apple Music. Choose Your Music to play the FLAC and other files you own, and songs on your own music server.")
-                : String(localized: "Songs come from your own music: files on this iPhone and songs on your servers. Every song is kept in your history, just like Apple Music’s.")
-        case .off:
-            return isAppleMusic
-                ? String(localized: "Songs come from Apple Music. Choose Your Music to play the FLAC and other files you own, and songs on your own music server. Quick Switch puts both a tap away, in Play’s title.")
-                : String(localized: "Songs come from your own music: files on this iPhone and songs on your servers. Every song is kept in your history, just like Apple Music’s. Quick Switch puts both a tap away, in Play’s title.")
-        case .on:
-            return isAppleMusic
-                ? String(localized: "Songs come from Apple Music. Choose Your Music to play the FLAC and other files you own, and songs on your own music server. Tap Play’s title to switch. What’s playing carries on until you play something from the other, and Play suggests your downloads when you’re offline. To switch with a Focus, add the Tracks filter in Settings ▸ Focus.")
-                : String(localized: "Songs come from your own music: files on this iPhone and songs on your servers. Every song is kept in your history, just like Apple Music’s. Tap Play’s title to switch. What’s playing carries on until you play something from the other, and Play suggests your downloads when you’re offline. To switch with a Focus, add the Tracks filter in Settings ▸ Focus.")
+        case .unavailable: nil
+        case .off: String(localized: "Quick Switch puts both in Play’s title.")
+        case .on: String(localized: "Tap Play’s title to switch.")
         }
         #endif
     }
@@ -117,18 +96,6 @@ enum PlaySettingsWords {
         }
     }
 
-    static func openingFooter(_ tab: OpeningTab) -> String {
-        #if os(macOS)
-        tab == .play
-            ? String(localized: "Tracks opens to Listen Now, and Listen Now and Radio come first in the sidebar, as ⌘1 and ⌘2.")
-            : String(localized: "Tracks opens to Summary, and your listening comes first in the sidebar, as ⌘1 onwards.")
-        #else
-        tab == .play
-            ? String(localized: "Tracks opens to Play, and Play comes first in the tab bar.")
-            : String(localized: "Tracks opens to Summary, and Play comes last in the tab bar.")
-        #endif
-    }
-
     /// "Tracks" or "Apple Music"; on the Mac, "Music" is the Music app.
     static func destinationName(_ destination: SongDestination) -> String {
         switch destination {
@@ -141,58 +108,40 @@ enum PlaySettingsWords {
         }
     }
 
-    static func destinationFooter(_ destination: SongDestination) -> String {
+    /// Only for Apple Music: Tracks keeps only what plays in Tracks, and that's easy to miss.
+    static func destinationFooter(_ destination: SongDestination) -> String? {
+        guard destination == .appleMusic else { return nil }
         #if os(macOS)
-        destination == .tracks
-            ? String(localized: "Play on a song or album in Your Listening plays it here, in Tracks.")
-            : String(localized: "Play on a song or album in Your Listening opens it in the Music app.")
+        return String(localized: "Songs played in Music aren’t kept in your history.")
         #else
-        destination == .tracks
-            ? String(localized: "Play on a song or album in Summary, History and Charts plays it here.")
-            : String(localized: "Play on a song or album in Summary, History and Charts opens it in Apple Music.")
+        return String(localized: "Songs played in Apple Music aren’t kept in your history.")
         #endif
     }
 
-    /// Shaking iPhone to play.
-    static func shakeFooter(_ shakeToPlay: Bool) -> String {
-        shakeToPlay
-            ? String(localized: "Shake iPhone to play a song you haven’t heard that Tracks thinks you’ll like, with Tracks Radio after it.")
-            : String(localized: "Shaking iPhone does nothing in Tracks.")
+    /// What a shake plays, which the switch's name doesn't say.
+    static func shakeFooter(_ shakeToPlay: Bool) -> String? {
+        shakeToPlay ? String(localized: "Plays a song you haven’t heard, then Tracks Radio.") : nil
     }
 
-    /// Why your devices can't be found, and where to fix it.
+    /// Where to turn on finding your devices.
     static var localNetworkOff: String {
         #if os(macOS)
-        String(localized: "Tracks can’t look for them: turn on Tracks in System Settings ▸ Privacy & Security ▸ Local Network.")
+        String(localized: "Turn on Tracks in System Settings ▸ Privacy & Security ▸ Local Network.")
         #else
-        String(localized: "Tracks can’t look for them: turn on Local Network in Settings ▸ Apps ▸ Tracks.")
+        String(localized: "Turn on Local Network in Settings ▸ Apps ▸ Tracks.")
         #endif
     }
 
     // MARK: - Your Music
 
-    static func suggestionFooter(_ mode: SuggestionMode) -> String {
-        switch mode {
-        case .everything:
-            String(localized: "Your servers find songs by the artists you play and artists like them, mixed with songs you have and haven’t played yet. No Apple Music needed.")
-        case .onlyYours:
-            #if os(macOS)
-            String(localized: "Tracks suggests only songs you have, on this Mac or your servers. Nothing new is found for you.")
-            #else
-            String(localized: "Tracks suggests only songs you have, on this iPhone or your servers. Nothing new is found for you.")
-            #endif
-        case .off:
-            #if os(macOS)
-            String(localized: "No suggestions: Listen Now shows your own music and nothing else.")
-            #else
-            String(localized: "No suggestions: Play shows your own music and nothing else.")
-            #endif
-        }
+    /// Only for Everything, the one that reaches past what you have.
+    static func suggestionFooter(_ mode: SuggestionMode) -> String? {
+        mode == .everything ? String(localized: "Includes songs you don’t have yet.") : nil
     }
 
-    /// iPhone's footer for Downloads and Streaming. The Mac's rows say it in their details.
-    static func downloadsFooter(automatic: Bool, wiFi: StreamQuality, cellular: StreamQuality, download: StreamQuality) -> String {
-        AudioQualityWords.downloadsFooter(automatic: automatic, wiFi: wiFi.maxBitRate, cellular: cellular.maxBitRate, download: download.maxBitRate)
+    /// Only when downloads are made smaller, since the ones already made stay as they were.
+    static func downloadQualityFooter(_ download: StreamQuality) -> String? {
+        download.maxBitRate.map { AudioQualityWords.downloadDetail($0) }
     }
 
     /// Show Audio Quality's detail on the Mac, and its sentence in iPhone's footer.
@@ -216,80 +165,16 @@ enum PlaySettingsWords {
 
     // MARK: - Tracks Radio
 
-    /// Where Tracks Radio shows, which depends on the source and on what the layout shows.
-    struct RadioPlace: Equatable {
-        var source: MusicSource
-        var showsForYou: Bool
-        var showsSuggestedSongs: Bool
-        /// Your Music's suggestions aren't off.
-        var suggests: Bool
+    /// Only when a download can go: how to keep one.
+    static func deleteAfterPlayingFooter(_ deletes: Bool) -> String? {
+        deletes ? String(localized: "Keep a song from Up Next, or add it to a playlist, and its download stays.") : nil
     }
 
-    /// On iPhone the footer carries it all. The Mac's rows say what each switch does, so its
-    /// footer says only where the station is and what Siri plays.
-    static func radioFooter(isOn: Bool, place: RadioPlace, downloadsFirst: Bool, deletesAfterPlaying: Bool) -> String {
-        #if os(macOS)
-        guard isOn else {
-            return String(localized: "Siri plays your mix for this time of day when you say “Play music in Tracks.”")
-        }
-        return [radioWhere(place), String(localized: "Siri plays it when you say “Play music in Tracks.”")]
-            .compactMap(\.self)
-            .joined(separator: " ")
-        #else
-        guard isOn else {
-            return String(localized: "Tracks Radio is hidden. Siri plays your mix for this time of day when you say “Play music in Tracks.”")
-        }
-        var lines = [String(localized: "Your own station, from everything you love and new finds like it, picked as it plays.")]
-        if let whereItIs = radioWhere(place) {
-            lines.append(whereItIs)
-        }
-        lines.append(String(localized: "Siri plays it when you say “Play music in Tracks.”"))
-        guard place.source == .yourMusic, downloadsFirst else { return lines.joined(separator: " ") }
-        lines.append(String(localized: "It starts with songs on this iPhone, so it plays at once, and downloads its new finds in the background. They wait in Up Next until they’re here, and you can swipe away any you don’t want."))
-        if deletesAfterPlaying {
-            lines.append(String(localized: "Each new find’s download goes once it’s played. Keep one from Up Next, or add it to a playlist, and it stays."))
-        }
-        return lines.joined(separator: " ")
-        #endif
-    }
+    // MARK: - Transitions
 
-    private static func radioWhere(_ place: RadioPlace) -> String? {
-        switch place.source {
-        case .appleMusic:
-            #if os(macOS)
-            if place.showsForYou { return String(localized: "It’s in For You, at the top of Listen Now, and on Radio.") }
-            if place.showsSuggestedSongs { return String(localized: "It leads Suggested Songs on Listen Now, and it’s on Radio.") }
-            return String(localized: "It’s on Radio in the sidebar.")
-            #else
-            if place.showsForYou { return String(localized: "It’s in For You, at the top of Play.") }
-            if place.showsSuggestedSongs { return String(localized: "It leads Suggested Songs, since For You is hidden.") }
-            return nil
-            #endif
-        case .yourMusic:
-            #if os(macOS)
-            return place.suggests
-                ? String(localized: "It leads Suggested Songs on Listen Now, and it’s on Radio.")
-                : String(localized: "It’s at the top of Listen Now, and on Radio.")
-            #else
-            return place.suggests
-                ? String(localized: "It leads Suggested Songs.")
-                : String(localized: "It’s at the top of Play.")
-            #endif
-        }
-    }
-
-    // MARK: - Content and transitions
-
-    static func explicitFooter(_ allows: Bool) -> String {
-        allows
-            ? String(localized: "When a song comes in both versions, Tracks plays the explicit one.")
-            : String(localized: "Tracks plays clean versions and leaves out songs that only come explicit. On stations, it skips them.")
-    }
-
-    static func transitionFooter(_ transition: SongTransition) -> String {
-        transition == .crossfade
-            ? String(localized: "Each song fades into the next. Songs that run into each other on an album still play without a gap. Starts with the next thing you play.")
-            : String(localized: "Each song ends before the next one starts.")
+    /// Only for crossfade, which doesn't change what's already playing.
+    static func transitionFooter(_ transition: SongTransition) -> String? {
+        transition == .crossfade ? String(localized: "Starts with the next thing you play.") : nil
     }
 
     // MARK: - Layout
@@ -303,14 +188,11 @@ enum PlaySettingsWords {
             : String(localized: "\(shown) of \(all) Shown")
     }
 
-    /// For the Mac's row: what the layout adds up to.
-    static func layoutDetail(_ layout: PlayLayout) -> String {
-        if layout == .standard {
-            return String(localized: "Every section, in the standard order.")
-        }
+    /// For the Mac's row: how many sections are hidden, when any are.
+    static func layoutDetail(_ layout: PlayLayout) -> String? {
         let hidden = layout.offered.count { !layout.isVisible($0) }
-        guard hidden > 0 else { return String(localized: "Every section, in your own order.") }
-        return plain(AttributedString(localized: "^[\(hidden) section](inflect: true) hidden."))
+        guard hidden > 0 else { return nil }
+        return plain(AttributedString(localized: "^[\(hidden) section](inflect: true) hidden"))
     }
 
     // MARK: - Mixes
@@ -370,11 +252,7 @@ enum PlaySettingsWords {
     }
 
     static var mixesFooter: String {
-        #if os(macOS)
-        String(localized: "Mixes leave out songs you skip early twice or ask to hear less of. That stays on this Mac.")
-        #else
-        String(localized: "Mixes leave out songs you skip early twice or ask to hear less of. That stays on this iPhone.")
-        #endif
+        String(localized: "Mixes leave out songs you skip early twice or ask to hear less of.")
     }
 
     // MARK: - Helpers

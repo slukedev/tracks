@@ -9,26 +9,26 @@ struct SettingsWordsTests {
 
     // MARK: - History
 
-    @Test("the History row says whether on-demand songs are kept")
-    func historyShort() {
+    /// A pause wins over what's kept: the row and the page mustn't say "All Music" while
+    /// nothing is being kept at all.
+    @Test("the History row and status say what's kept, and that it's paused when it is")
+    func historyShortAndStatus() {
         #expect(HistorySettingsWords.short(keepsOnDemand: true) == "All Music")
         #expect(HistorySettingsWords.short(keepsOnDemand: false) == "Radio Only")
+        #expect(HistorySettingsWords.short(keepsOnDemand: true, isPaused: true) == "Paused")
+        #expect(HistorySettingsWords.status(keepsOnDemand: true, isPaused: false) == "Keeping everything you play")
+        #expect(HistorySettingsWords.status(keepsOnDemand: false, isPaused: false) == "Keeping radio only")
+        #expect(HistorySettingsWords.status(keepsOnDemand: false, isPaused: true) == "Paused")
     }
 
-    @Test("History's status says what's kept, then when a play counts")
-    func historyStatus() {
-        #expect(HistorySettingsWords.status(keepsOnDemand: true, minimumListenShare: 0.5)
-            == "Keeping everything you play · counts after 50% of a song")
-        #expect(HistorySettingsWords.status(keepsOnDemand: false, minimumListenShare: 0)
-            == "Keeping radio only · counts as soon as a song starts")
-    }
-
-    @Test("Counts After reads Straight Away at zero, and its footer follows the slider")
+    @Test("Counts After reads Straight Away at zero, and only then warns that skips are kept")
     func countsAfter() {
         #expect(HistorySettingsWords.countsAfterValue(0) == "Straight Away")
         #expect(HistorySettingsWords.countsAfterValue(0.25) == "25%")
-        #expect(HistorySettingsWords.countsAfterFooter(0).hasPrefix("Every song is kept as soon as it starts"))
-        #expect(HistorySettingsWords.countsAfterFooter(0.5) == "A song is kept once 50% of it has played, so skipping through doesn’t fill your history. For a song 4 minutes long, that’s 2 minutes.")
+        #expect(HistorySettingsWords.countingFooter(share: 0, windowMinutes: 10)
+            == "Songs you skip are kept too. Hearing the same song again within 10 minutes counts once.")
+        #expect(HistorySettingsWords.countingFooter(share: 0.5, windowMinutes: 10)
+            == "Hearing the same song again within 10 minutes counts once.")
     }
 
     /// Steps of 0.05 don't add up exactly, so the slider can hand over 0.15000000000000002.
@@ -40,8 +40,7 @@ struct SettingsWordsTests {
     @Test("the same-song window reads in minutes, singular at one")
     func sameSongWindow() {
         #expect(HistorySettingsWords.windowValue(minutes: 10) == "10 min")
-        #expect(HistorySettingsWords.windowFooter(minutes: 1) == "Hearing the same song again within 1 minute counts once.")
-        #expect(HistorySettingsWords.windowFooter(minutes: 10) == "Hearing the same song again within 10 minutes counts once.")
+        #expect(HistorySettingsWords.countingFooter(share: 0.5, windowMinutes: 1) == "Hearing the same song again within 1 minute counts once.")
     }
 
     // MARK: - Radio
@@ -50,7 +49,7 @@ struct SettingsWordsTests {
     func radioStatus() {
         let adding = RadioSettingsWords.Playlist(addsSongs: true, name: "Heard on Radio")
 
-        #expect(RadioSettingsWords.status(adding) == "Adding radio songs to “Heard on Radio”")
+        #expect(RadioSettingsWords.status(adding) == "Adding to “Heard on Radio”")
         #expect(RadioSettingsWords.short(adding) == "Heard on Radio")
     }
 
@@ -59,7 +58,7 @@ struct SettingsWordsTests {
         let off = RadioSettingsWords.Playlist(addsSongs: false, name: "Heard on Radio")
 
         #expect(RadioSettingsWords.short(off) == nil)
-        #expect(RadioSettingsWords.status(off).hasPrefix("Radio songs are kept in your history."))
+        #expect(RadioSettingsWords.status(off) == "Not adding to a playlist")
     }
 
     @Test("a blank name reads as the default playlist, as capture reads it")

@@ -15,10 +15,6 @@ struct LastFMSettingsPage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(CaptureSettings.scrobblesToLastFMKey, store: CaptureSettings.sharedDefaults)
     private var scrobbles = true
-    @AppStorage(CaptureSettings.scrobblesImportedKey, store: CaptureSettings.sharedDefaults)
-    private var scrobblesRecovered = true
-    /// Asks whether to import the account's history, once, right after it connects.
-    @State private var offersImport = false
 
     private var status: LastFMSettingsStatus {
         LastFMSettingsStatus(connection.state, scrobbles: scrobbles)
@@ -43,15 +39,8 @@ struct LastFMSettingsPage: View {
         }
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: status.isConnected)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: scrobbles)
-        .onChange(of: connection.state) { old, new in
-            offerImportIfJustConnected(from: old, to: new)
-        }
-        .alert("Import Your Last.fm History?", isPresented: $offersImport) {
-            Button("Import") { model.lastFMHistory?.start() }
-            Button("Not Now", role: .cancel) {}
-        } message: {
-            Text(LastFMHistoryWords.offerMessage)
-        }
+        // Another account's progress isn't this one's.
+        .onChange(of: connection.state) { model.lastFMHistory?.readProgress() }
         #if os(macOS)
         .settingsPane()
         #else
@@ -79,7 +68,7 @@ struct LastFMSettingsPage: View {
         Section {
             connectButton
         } footer: {
-            Text("Tracks opens Last.fm so you can allow it. Your password is never shared with Tracks.")
+            Text("Your password stays with Last.fm.")
         }
     }
 
@@ -139,20 +128,6 @@ struct LastFMSettingsPage: View {
         }
     }
 
-    /// Offers the import when an account has just been approved, not when the page opens on
-    /// one connected before, and only if this account's history isn't already in.
-    private func offerImportIfJustConnected(from old: LastFMConnection.State, to new: LastFMConnection.State) {
-        guard let history = model.lastFMHistory else { return }
-        history.readProgress()
-        guard old == .waitingForBrowser, case .connected = new, history.state == .notImported else { return }
-        Task {
-            // On iPhone Last.fm's sheet is still closing, and an alert asked for while it
-            // does never appears.
-            try? await Task.sleep(for: .milliseconds(isIOS ? 700 : 0))
-            offersImport = true
-        }
-    }
-
     private var isIOS: Bool {
         #if os(iOS)
         true
@@ -165,44 +140,9 @@ struct LastFMSettingsPage: View {
 
     private var scrobblingSection: some View {
         Section {
-            SettingsSwitch(
-                "Scrobble What You Play",
-                detail: scrobbles
-                    ? Text("Every song Tracks keeps goes to Last.fm, radio included.")
-                    : Text("Nothing is sent to Last.fm until you turn this back on."),
-                isOn: $scrobbles
-            )
-            if scrobbles {
-                SettingsSwitch(
-                    "Include Recovered Songs",
-                    detail: scrobblesRecovered
-                        ? Text("Sent with the time Tracks found them, since Recently Played doesn’t say when you played them.")
-                        : Text("Songs recovered from Recently Played stay off Last.fm, so nothing arrives with a guessed time."),
-                    isOn: $scrobblesRecovered
-                )
-            }
-        } header: {
-            Text("Scrobbling")
-        } footer: {
-            #if os(iOS)
-            Text(scrobblingFooter)
-                .contentTransition(.opacity)
-            #endif
+            SettingsSwitch("Scrobble Songs", isOn: $scrobbles)
         }
     }
-
-    #if os(iOS)
-    private var scrobblingFooter: LocalizedStringKey {
-        switch (scrobbles, scrobblesRecovered) {
-        case (false, _):
-            "Nothing is sent to Last.fm until you turn scrobbling back on."
-        case (true, true):
-            "Every song Tracks keeps is scrobbled, radio included. Recovered songs are sent with the time Tracks found them, because Apple Music’s Recently Played doesn’t say when you played them."
-        case (true, false):
-            "Every song Tracks keeps is scrobbled, radio included. Songs recovered from Recently Played are left out, so nothing reaches Last.fm with a guessed time."
-        }
-    }
-    #endif
 
     private func accountSection(_ username: String) -> some View {
         Section {
@@ -227,7 +167,7 @@ struct LastFMSettingsPage: View {
             #if os(macOS)
             SettingsDetailRow(
                 title: Text("Disconnect"),
-                detail: Text("Tracks stops scrobbling. What’s already on Last.fm stays there.")
+                detail: Text("Your scrobbles stay on Last.fm.")
             ) {
                 Button("Disconnect", role: .destructive, action: disconnect)
             }
@@ -236,7 +176,7 @@ struct LastFMSettingsPage: View {
             #endif
         } footer: {
             #if os(iOS)
-            Text("Tracks stops scrobbling. What’s already on Last.fm stays there.")
+            Text("Your scrobbles stay on Last.fm.")
             #endif
         }
     }

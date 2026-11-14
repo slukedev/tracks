@@ -89,7 +89,7 @@ extension MixSong {
     /// A play in the history, as a song.
     init(_ capture: Capture) {
         self.init(
-            songIdentity: HistoryImport.key(title: capture.title, artistName: capture.artistName),
+            songIdentity: SongIdentity.key(title: capture.title, artistName: capture.artistName),
             songID: capture.songID,
             title: capture.title,
             artistName: capture.artistName,
@@ -141,10 +141,9 @@ struct DeleteConfirmation: ViewModifier {
                     Task { _ = try? await model.store?.forgetSong(title: title, artistName: artistName) }
                 }
             } message: { pending in
+                // Deleting here could look like it takes the song off Last.fm.
                 if pending.wasScrobbled {
-                    Text("Removing the whole song also stops Tracks recovering it from Recently Played. Scrobbles already sent stay on Last.fm.")
-                } else {
-                    Text("Removing the whole song also stops Tracks recovering it from Recently Played.")
+                    Text("Scrobbles already sent stay on Last.fm.")
                 }
             }
     }
@@ -167,8 +166,8 @@ extension View {
 
 /// Plays songs from the history in Tracks’ own player, where there is one.
 ///
-/// The iPhone has one, on the Play tab, and sets this at the root so a song's page plays there
-/// and every play is kept. The Mac leaves it unset and hands songs to Music.app.
+/// Set at the root so a song's page plays there and every play is kept, unless Settings sends
+/// songs to Apple Music.
 struct PlaySongsAction: Equatable {
     let run: @MainActor (_ items: [PlaybackItem], _ title: String) -> Void
 

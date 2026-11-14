@@ -43,8 +43,6 @@ struct DevicesSettingsPage: View {
             #if os(iOS)
             Section {
                 Toggle("Find Your Devices", isOn: $isOn)
-            } footer: {
-                Text(aboutFooter)
             }
             #endif
 
@@ -59,13 +57,6 @@ struct DevicesSettingsPage: View {
                 bringsQueueSection
                 handoffSection
             }
-
-            #if os(macOS)
-            Section {
-            } footer: {
-                Text(aboutFooter)
-            }
-            #endif
         }
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: isOn)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: model.nearby.devices.map(\.id))
@@ -121,7 +112,7 @@ struct DevicesSettingsPage: View {
             Text("Nearby")
         } footer: {
             if model.nearby.devices.isEmpty {
-                Text("Open Tracks on your other devices, on the same Wi‑Fi and iCloud account, and they appear here.")
+                Text("Open Tracks on another device on the same Wi‑Fi.")
             }
         }
     }
@@ -159,32 +150,18 @@ struct DevicesSettingsPage: View {
             }
         } header: {
             Text("Recently Seen")
-        } footer: {
-            Text(awayFooter)
         }
     }
 
     private var bringsQueueSection: some View {
         Section {
-            SettingsSwitch("Bring Up Next", detail: Text(bringsQueueFooter), isOn: $bringsQueue)
-        } footer: {
-            #if os(iOS)
-            Text(bringsQueueFooter)
-            #endif
+            SettingsSwitch("Bring Up Next", isOn: $bringsQueue)
         }
     }
 
     private var handoffSection: some View {
         Section {
-            SettingsSwitch(
-                "Handoff",
-                detail: Text(offersHandoff ? handoffFooter : String(localized: "Your other devices don't offer the song playing here.")),
-                isOn: $offersHandoff
-            )
-        } footer: {
-            #if os(iOS)
-            Text(offersHandoff ? handoffFooter : String(localized: "Your other devices don't offer the song playing here."))
-            #endif
+            SettingsSwitch("Handoff", isOn: $offersHandoff)
         }
     }
 
@@ -207,37 +184,6 @@ struct DevicesSettingsPage: View {
         let seen = KnownNearbyDevices.seen(device.lastSeen)
         guard let song = device.song else { return seen }
         return String(localized: "\(seen) · \(song)")
-    }
-
-    private var aboutFooter: String {
-        String(localized: "Tracks on your iPhone, iPad and Mac find each other on the same Wi‑Fi, to show what each is playing and move the music between them. Only your own devices, signed in to your iCloud, can connect, and everything between them is encrypted.")
-    }
-
-    private var awayFooter: String {
-        switch NearbyDevices.thisKind {
-        case .iPhone: String(localized: "Devices stay here for 30 days after they were last nearby. This list is kept on this iPhone only.")
-        case .iPad: String(localized: "Devices stay here for 30 days after they were last nearby. This list is kept on this iPad only.")
-        default: String(localized: "Devices stay here for 30 days after they were last nearby. This list is kept on this Mac only.")
-        }
-    }
-
-    private var bringsQueueFooter: String {
-        switch (NearbyDevices.thisKind, bringsQueue) {
-        case (.iPhone, true): String(localized: "Music moved to this iPhone brings the album, playlist or mix it's playing from, and what's up next.")
-        case (.iPad, true): String(localized: "Music moved to this iPad brings the album, playlist or mix it's playing from, and what's up next.")
-        case (_, true): String(localized: "Music moved to this Mac brings the album, playlist or mix it's playing from, and what's up next.")
-        case (.iPhone, false): String(localized: "Music moved to this iPhone brings just the song.")
-        case (.iPad, false): String(localized: "Music moved to this iPad brings just the song.")
-        case (_, false): String(localized: "Music moved to this Mac brings just the song.")
-        }
-    }
-
-    private var handoffFooter: String {
-        switch NearbyDevices.thisKind {
-        case .iPhone: String(localized: "Your Mac and iPad offer to pick up the song playing here, from the same moment: in the Dock on a Mac, and in the app switcher on iPad.")
-        case .iPad: String(localized: "Your Mac and iPhone offer to pick up the song playing here, from the same moment: in the Dock on a Mac, and in the app switcher on iPhone.")
-        default: String(localized: "Your iPhone and iPad offer to pick up the song playing here, from the same moment, in their app switcher.")
-        }
     }
 
     private func open(_ url: URL?) {

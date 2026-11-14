@@ -2,10 +2,10 @@ import SwiftUI
 import SwiftData
 import TracksCore
 
-/// Which stations Tracks captures from. Edits the exclusion set ``CapturePolicy`` reads.
+/// Which stations Tracks keeps songs from. Edits the exclusion set ``CapturePolicy`` reads.
 ///
 /// Stations are picked from a list rather than typed, because an exclusion only works if
-/// it matches the name the platform reports exactly.
+/// it matches the station's name exactly.
 struct StationExclusionsSection: View {
     /// Most recently heard first.
     @Query(sort: \Station.lastSeenAt, order: .reverse) private var stations: [Station]
@@ -24,10 +24,7 @@ struct StationExclusionsSection: View {
         } header: {
             Text("Stations")
         } footer: {
-            Text("""
-                Turn a station off to stop keeping what it plays. Songs already kept from it \
-                stay in your history.
-                """)
+            Text("Songs already kept from a station stay when you turn it off.")
         }
         .onChange(of: excluded) { _, names in
             settings.excludedStations = names

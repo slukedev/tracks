@@ -95,7 +95,7 @@ struct WelcomeView: View {
             ContentUnavailableView {
                 Label("No Listening Yet", systemImage: "waveform")
             } description: {
-                Text("Play something in Tracks or Apple Music. Tracks keeps every song you hear, radio included, and turns them into charts and highlights.")
+                Text("Play something in Tracks to see it here.")
             }
             // First run is when the reason for Apple Music access is easiest to see.
             MusicAccessCard()
@@ -104,10 +104,10 @@ struct WelcomeView: View {
     }
 }
 
-/// Explains Apple Music access and asks for it, or says how to turn it back on.
+/// Asks for Apple Music access, or says how to turn it back on.
 ///
-/// Tracks doesn't ask at launch: a prompt with no context is easy to refuse, and capture
-/// works without access. Shows nothing once access is granted, or with sample data.
+/// Tracks doesn't ask at launch: a prompt with no context is easy to refuse, and your own
+/// music plays without access. Shows nothing once access is granted, or with sample data.
 struct MusicAccessCard: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
@@ -124,10 +124,12 @@ struct MusicAccessCard: View {
                         Image(systemName: model.musicAuthorization == .notDetermined ? "music.note" : "exclamationmark.triangle.fill")
                             .foregroundStyle(model.musicAuthorization == .notDetermined ? AnyShapeStyle(.tint) : AnyShapeStyle(.orange))
                     }
-                    Text(message)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let message {
+                        Text(message)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     action
                 }
             }
@@ -139,18 +141,19 @@ struct MusicAccessCard: View {
         switch model.musicAuthorization {
         case .denied: "Apple Music Access Is Off"
         case .restricted: "Apple Music Access Is Restricted"
-        default: "Let Tracks Use Apple Music"
+        default: "Play Apple Music in Tracks"
         }
     }
 
-    private var message: LocalizedStringKey {
+    /// Only where access is off: the title and the button say the rest.
+    private var message: LocalizedStringKey? {
         switch model.musicAuthorization {
         case .denied:
-            "Tracks still keeps what you play here, but it can't fill in songs from Recently Played, find artwork, or add radio songs to your playlist. Turn on access for Tracks in \(Self.settingsName)."
+            "Turn on access for Tracks in \(Self.settingsName)."
         case .restricted:
-            "This device limits access to Apple Music, for example with Screen Time. Tracks still keeps what you play, but can't fill in songs from Recently Played, find artwork, or add radio songs to your playlist."
+            "Screen Time or a device profile doesn’t allow Apple Music access."
         default:
-            "Tracks already keeps what you play. With access it can also fill in songs you played while it was closed, find artwork, and add radio songs to your playlist."
+            nil
         }
     }
 

@@ -6,8 +6,6 @@ import TracksCore
 struct HistorySettingsPage: View {
     @AppStorage(CaptureSettings.capturesOnDemandKey, store: CaptureSettings.sharedDefaults)
     private var keepsOnDemand = true
-    @AppStorage(CaptureSettings.importsRecentlyPlayedKey, store: CaptureSettings.sharedDefaults)
-    private var recoversRecentlyPlayed = true
     @AppStorage(CaptureSettings.minimumListenShareKey, store: CaptureSettings.sharedDefaults)
     private var minimumListenShare = CaptureSettings.defaultMinimumListenShare
     @AppStorage(CaptureSettings.dedupeWindowKey, store: CaptureSettings.sharedDefaults)
@@ -26,7 +24,7 @@ struct HistorySettingsPage: View {
         Form {
             SettingsHero(
                 "History",
-                subtitle: Text(HistorySettingsWords.status(keepsOnDemand: keepsOnDemand, minimumListenShare: minimumListenShare)),
+                subtitle: Text(HistorySettingsWords.status(keepsOnDemand: keepsOnDemand, isPaused: isPaused)),
                 systemImage: "clock.fill",
                 tint: .teal
             )
@@ -35,11 +33,8 @@ struct HistorySettingsPage: View {
             countingSection
             statisticsSection
             ArtworkRepairSection()
-            if MotifImport.isAvailable {
-                MotifImportSection()
-            }
         }
-        .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: recoversRecentlyPlayed)
+        .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: isPaused)
         .onChange(of: isPaused) { _, paused in
             guard let capture, paused != capture.isPaused else { return }
             if paused { capture.pause() } else { Task { await capture.resume() } }
@@ -59,16 +54,11 @@ struct HistorySettingsPage: View {
 
     private var pauseSection: some View {
         Section {
-            SettingsSwitch(
-                "Pause History",
-                detail: isPaused
-                    ? Text("Nothing you play is kept until you turn this off.")
-                    : Text("Stop keeping what you play for a while."),
-                isOn: $isPaused
-            )
+            SettingsSwitch("Pause History", isOn: $isPaused)
         } footer: {
+            // Easy to forget it's on, and what plays meanwhile is gone for good.
             if isPaused {
-                Text("Songs you play now won’t be kept, counted toward your stats or scrobbled, and your music server isn’t told about them. When you resume, Tracks won’t fill them in from Recently Played. Your history so far stays as it is.")
+                Text("Songs you play aren’t kept or scrobbled until you turn this off.")
                     .contentTransition(.opacity)
             }
         }
@@ -78,49 +68,9 @@ struct HistorySettingsPage: View {
 
     private var keptSection: some View {
         Section {
-            SettingsSwitch(
-                "Keep Songs Played on Demand",
-                detail: keepsOnDemand
-                    ? Text("Songs you choose are kept alongside radio.")
-                    : Text("Only radio is kept. Songs you choose yourself aren’t."),
-                isOn: $keepsOnDemand
-            )
-            SettingsSwitch(
-                "Recover from Recently Played",
-                detail: recoversRecentlyPlayed
-                    ? Text("When Tracks starts, it fills in what you played while it was closed.")
-                    : Text("Songs played while Tracks was closed aren’t kept."),
-                isOn: $recoversRecentlyPlayed
-            )
-            #if os(iOS)
-            if recoversRecentlyPlayed {
-                BackgroundRefreshNotice()
-            }
-            #endif
-        } header: {
-            Text("What Tracks Keeps")
-        } footer: {
-            #if os(iOS)
-            Text(keptFooter)
-                .contentTransition(.opacity)
-            #endif
+            SettingsSwitch("Keep On-Demand Songs", isOn: $keepsOnDemand)
         }
     }
-
-    #if os(iOS)
-    private var keptFooter: LocalizedStringKey {
-        switch (keepsOnDemand, recoversRecentlyPlayed) {
-        case (true, true):
-            "Tracks keeps radio and the songs you choose. It only sees music while it’s open, so it fills in the rest from Apple Music’s Recently Played, which doesn’t say exactly when you played them."
-        case (false, true):
-            "Tracks keeps radio only. It fills in radio it missed from Apple Music’s Recently Played, which doesn’t say exactly when you played them."
-        case (true, false):
-            "Tracks keeps radio and the songs you choose, but only while it’s open."
-        case (false, false):
-            "Tracks keeps radio only, and only while it’s open."
-        }
-    }
-    #endif
 
     // MARK: - Counting plays
 
@@ -136,7 +86,7 @@ struct HistorySettingsPage: View {
                 describe: HistorySettingsWords.countsAfterValue
             )
             SettingsSliderRow(
-                title: "Same Song Again Within",
+                title: "Same Song Within",
                 value: dedupeMinutes,
                 range: 1...60,
                 step: 1,
@@ -147,44 +97,23 @@ struct HistorySettingsPage: View {
         } header: {
             Text("Counting Plays")
         } footer: {
-            Text("\(HistorySettingsWords.countsAfterFooter(minimumListenShare)) \(HistorySettingsWords.windowFooter(minutes: dedupeMinutes.wrappedValue))")
+            Text(HistorySettingsWords.countingFooter(share: minimumListenShare, windowMinutes: dedupeMinutes.wrappedValue))
                 .contentTransition(.opacity)
         }
     }
 
     // MARK: - Statistics
 
-    private var hasYourMusic: Bool {
-        model?.library.history.hasYourMusic ?? false
-    }
-
+    @ViewBuilder
     private var statisticsSection: some View {
-        Section {
-            SettingsSwitch(
-                "Separate Apple Music and Your Music",
-                detail: Text(statisticsWords),
-                isOn: $separatesSources
-            )
-            // Nothing to tell apart until something plays from Your Music. Left on, it can
-            // still be turned off.
-            .disabled(!hasYourMusic && !separatesSources)
-        } header: {
-            Text("Statistics")
-        } footer: {
-            #if os(iOS)
-            Text(statisticsWords)
-                .contentTransition(.opacity)
-            #endif
-        }
-    }
-
-    private var statisticsWords: LocalizedStringKey {
-        if !hasYourMusic {
-            "Once you play songs from Your Music, Summary, History and Charts can show them apart from Apple Music."
-        } else if separatesSources {
-            "Summary, History and Charts can show all your music, or Apple Music or Your Music alone."
-        } else {
-            "Everything you play counts together."
+        // Nothing to tell apart until something plays from Your Music. Left on, it stays, so
+        // it can still be turned off.
+        if model?.library.history.hasYourMusic == true || separatesSources {
+            Section {
+                SettingsSwitch("Separate Your Music", isOn: $separatesSources)
+            } header: {
+                Text("Statistics")
+            }
         }
     }
 

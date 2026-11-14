@@ -12,7 +12,7 @@ public enum LastFMSettingsStatus: Sendable, Equatable {
     public var line: String {
         switch self {
         case .notSetUp:
-            String(localized: "Scrobble every song Tracks keeps to your Last.fm profile.")
+            String(localized: "Scrobble what you play in Tracks.")
         case .connecting:
             String(localized: "Approve Tracks on Last.fm, then come back here.")
         case .connected(let username, true):
