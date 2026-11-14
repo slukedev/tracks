@@ -205,7 +205,7 @@ fun InsightBarChart(
             }
             point.label?.let { label ->
                 val text = measurer.measure(label, labelStyle)
-                val x = (cx - text.size.width / 2f).coerceIn(0f, plotWidth - text.size.width)
+                val x = (cx - text.size.width / 2f).coerceIn(0f, (plotWidth - text.size.width).coerceAtLeast(0f))
                 drawText(text, topLeft = Offset(x, chartBottom + 6.dp.toPx()))
             }
         }
@@ -232,7 +232,7 @@ private fun DrawScope.drawTip(measurer: TextMeasurer, style: TextStyle, text: St
     val padY = 4.dp.toPx()
     val w = measured.size.width + padX * 2
     val h = measured.size.height + padY * 2
-    val left = (cx - w / 2f).coerceIn(0f, width - w)
+    val left = (cx - w / 2f).coerceIn(0f, (width - w).coerceAtLeast(0f))
     drawRoundRect(color, Offset(left, 0f), Size(w, h), CornerRadius(h / 2f))
     drawText(measured, topLeft = Offset(left + padX, padY))
 }

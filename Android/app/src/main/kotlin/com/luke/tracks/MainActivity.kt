@@ -38,7 +38,13 @@ class MainActivity : ComponentActivity() {
                 ThemeChoice.Light -> false
                 ThemeChoice.Dark -> true
             }
-            TracksTheme(dark = dark, dynamic = settings.colors != ColorChoice.Tracks) {
+            TracksTheme(
+                dark = dark,
+                seed = if (settings.colors == ColorChoice.Custom) androidx.compose.ui.graphics.Color(settings.seedColor) else null,
+                style = settings.paletteStyle,
+                pureBlack = settings.pureBlack,
+                animate = true,
+            ) {
                 com.luke.tracks.ui.onboarding.OnboardingGate { AppShell(remember { navigator }) }
             }
         }

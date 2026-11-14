@@ -1,6 +1,18 @@
 package com.luke.tracks.ui.settings
 
 import android.os.Build
+import android.app.WallpaperManager
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.icons.rounded.Contrast
+import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.contentDescription
+import com.luke.tracks.data.PaletteChoice
+import com.luke.tracks.data.TRACKS_RED
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -72,39 +84,213 @@ fun AppearancePage() {
     val haptics = LocalHapticFeedback.current
     val settings by graph.settings.settings.collectAsStateWithLifecycle(AppSettings())
     val dark = LocalDarkTheme.current
+    val wallpaperSeeds = remember(context) { wallpaperSeeds(context) }
+    fun save(transform: (AppSettings) -> AppSettings) {
+        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+        scope.launch { graph.settings.update(transform) }
+    }
 
     SettingsScaffold(title = "Appearance") {
         group("Theme", key = "theme") {
-            custom {
-                ThemeButtons(settings.theme) { choice ->
-                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                    scope.launch { graph.settings.update { it.copy(theme = choice) } }
-                }
-            }
+            custom { ThemeButtons(settings.theme) { choice -> save { it.copy(theme = choice) } } }
         }
         group("Colors", key = "colors") {
             custom {
                 val wallpaper = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
                 } else seededScheme(TracksBrand, dark)
-                val tracks = seededScheme(TracksBrand, dark)
+                val custom = seededScheme(Color(settings.seedColor), dark, settings.paletteStyle)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ColorCard(
-                        "Wallpaper", wallpaper, selected = settings.colors != ColorChoice.Tracks, modifier = Modifier.weight(1f),
-                    ) {
-                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                        scope.launch { graph.settings.update { it.copy(colors = ColorChoice.Wallpaper) } }
-                    }
+                        "Wallpaper", wallpaper, selected = settings.colors == ColorChoice.Wallpaper, modifier = Modifier.weight(1f),
+                    ) { save { it.copy(colors = ColorChoice.Wallpaper) } }
                     ColorCard(
-                        "Tracks red", tracks, selected = settings.colors == ColorChoice.Tracks, modifier = Modifier.weight(1f),
-                    ) {
-                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                        scope.launch { graph.settings.update { it.copy(colors = ColorChoice.Tracks) } }
+                        "Custom", custom, selected = settings.colors == ColorChoice.Custom, modifier = Modifier.weight(1f),
+                    ) { save { it.copy(colors = ColorChoice.Custom) } }
+                }
+                Reveal(visible = settings.colors == ColorChoice.Custom) {
+                    Column(Modifier.padding(top = 24.dp)) {
+                        if (wallpaperSeeds.isNotEmpty()) {
+                            SwatchLabel("From your wallpaper")
+                            SwatchRow(wallpaperSeeds.map { NamedColor("Wallpaper color", it) }, settings, dark) { color ->
+                                save { it.copy(colors = ColorChoice.Custom, seedColor = color) }
+                            }
+                            Spacer(Modifier.height(20.dp))
+                        }
+                        SwatchLabel("Colors")
+                        SwatchRow(PresetColors, settings, dark) { color ->
+                            save { it.copy(colors = ColorChoice.Custom, seedColor = color) }
+                        }
+                        Spacer(Modifier.height(20.dp))
+                        SwatchLabel("Style")
+                        StyleButtons(settings.paletteStyle) { style -> save { it.copy(paletteStyle = style) } }
                     }
                 }
             }
         }
-        footnote("Wallpaper colors match your phone's wallpaper.", key = "note")
+        footnote(
+            if (settings.colors == ColorChoice.Wallpaper) "Tracks uses your phone's colors, and changes with your wallpaper."
+            else "Exact uses the color as picked. Tonal, Vibrant and Muted build a palette around it.",
+            key = "note",
+        )
+        group("Dark theme", key = "dark") {
+            toggle(
+                "Pure black",
+                checked = settings.pureBlack,
+                summary = "Black backgrounds in the dark theme",
+                icon = Icons.Rounded.Contrast,
+            ) { on -> scope.launch { graph.settings.update { it.copy(pureBlack = on) } } }
+        }
+        footnote("Colors also follow the contrast level in Android's accessibility settings.", key = "contrast")
+    }
+}
+
+/** A color with the name Settings shows for it. */
+data class NamedColor(val name: String, val argb: Int)
+
+/** Colors to pick from, spread around the wheel, Tracks red first. */
+val PresetColors = listOf(
+    NamedColor("Tracks red", TRACKS_RED),
+    NamedColor("Tangerine", 0xFFF2711C.toInt()),
+    NamedColor("Gold", 0xFFE0A100.toInt()),
+    NamedColor("Lime", 0xFF7CB342.toInt()),
+    NamedColor("Green", 0xFF2E9E5B.toInt()),
+    NamedColor("Teal", 0xFF00897B.toInt()),
+    NamedColor("Sky", 0xFF0288D1.toInt()),
+    NamedColor("Blue", 0xFF3F6FD8.toInt()),
+    NamedColor("Indigo", 0xFF5C4FC4.toInt()),
+    NamedColor("Violet", 0xFF8E44AD.toInt()),
+    NamedColor("Pink", 0xFFD63384.toInt()),
+    NamedColor("Slate", 0xFF5F7A89.toInt()),
+)
+
+fun colorName(argb: Int): String = PresetColors.firstOrNull { it.argb == argb }?.name ?: "Your wallpaper's color"
+
+fun styleName(style: PaletteChoice): String = when (style) {
+    PaletteChoice.TonalSpot -> "Tonal"
+    PaletteChoice.Vibrant -> "Vibrant"
+    PaletteChoice.Fidelity -> "Exact"
+    PaletteChoice.Neutral -> "Muted"
+}
+
+/** The wallpaper's own main colors, as Android offers them under Wallpaper and style. */
+private fun wallpaperSeeds(context: android.content.Context): List<Int> = runCatching {
+    val colors = WallpaperManager.getInstance(context).getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
+        ?: return@runCatching emptyList<Int>()
+    listOfNotNull(colors.primaryColor, colors.secondaryColor, colors.tertiaryColor)
+        .map { it.toArgb() }
+        .distinct()
+}.getOrDefault(emptyList())
+
+@Composable
+private fun SwatchLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 12.dp),
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SwatchRow(colors: List<NamedColor>, settings: AppSettings, dark: Boolean, onPick: (Int) -> Unit) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        maxItemsInEachRow = 6,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        colors.forEach { color ->
+            Swatch(
+                color = color,
+                style = settings.paletteStyle,
+                dark = dark,
+                selected = settings.colors == ColorChoice.Custom && settings.seedColor == color.argb,
+                modifier = Modifier.weight(1f),
+            ) { onPick(color.argb) }
+        }
+    }
+}
+
+/**
+ * A color as Android's wallpaper picker draws it: a circle split into the palette's primary,
+ * secondary and tertiary. The chosen one turns into a rounded square with a check.
+ */
+@Composable
+private fun Swatch(
+    color: NamedColor,
+    style: PaletteChoice,
+    dark: Boolean,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val scheme = seededScheme(Color(color.argb), dark, style)
+    val motion = MaterialTheme.motionScheme
+    val corner by animateFloatAsState(if (selected) 30f else 50f, motion.defaultSpatialSpec(), label = "corner")
+    val check by animateFloatAsState(if (selected) 1f else 0f, motion.fastSpatialSpec(), label = "check")
+    val ring by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, motion.defaultEffectsSpec(), label = "ring",
+    )
+    Box(
+        modifier
+            .aspectRatio(1f)
+            .border(BorderStroke(2.5.dp, ring), RoundedCornerShape(percent = corner.toInt()))
+            .padding(4.dp)
+            .clip(RoundedCornerShape(percent = corner.toInt()))
+            .clickable(onClickLabel = color.name, onClick = onClick)
+            .semantics { role = Role.RadioButton; this.selected = selected; contentDescription = color.name },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawRect(Color(color.argb), size = Size(size.width, size.height / 2))
+            drawRect(scheme.secondary, topLeft = Offset(0f, size.height / 2), size = Size(size.width / 2, size.height / 2))
+            drawRect(scheme.tertiary, topLeft = Offset(size.width / 2, size.height / 2), size = Size(size.width / 2, size.height / 2))
+        }
+        Box(
+            Modifier
+                .size(26.dp)
+                .scale(check)
+                .background(scheme.primaryContainer, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.Check, contentDescription = null, tint = scheme.onPrimaryContainer, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+private val styleOptions = listOf(PaletteChoice.TonalSpot, PaletteChoice.Vibrant, PaletteChoice.Fidelity, PaletteChoice.Neutral)
+
+/** How the picked color spreads into a palette, as a connected button group. */
+@Composable
+private fun StyleButtons(current: PaletteChoice, onChoose: (PaletteChoice) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+    ) {
+        styleOptions.forEachIndexed { index, style ->
+            val checked = current == style
+            ToggleButton(
+                checked = checked,
+                onCheckedChange = { if (!checked) onChoose(style) },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+                    .semantics { role = Role.RadioButton; selected = checked },
+                colors = ToggleButtonDefaults.colors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                shapes = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    styleOptions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+            ) {
+                Text(styleName(style), maxLines = 1, style = MaterialTheme.typography.labelMedium)
+            }
+        }
     }
 }
 

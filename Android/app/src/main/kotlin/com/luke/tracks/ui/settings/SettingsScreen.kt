@@ -219,7 +219,7 @@ fun appearanceSummary(settings: AppSettings): String {
         ThemeChoice.Light -> "Light"
         ThemeChoice.Dark -> "Dark"
     }
-    val colors = if (settings.colors == ColorChoice.Tracks) "Tracks red" else "wallpaper colors"
+    val colors = if (settings.colors == ColorChoice.Custom) "your color" else "wallpaper colors"
     return "$theme, $colors"
 }
 

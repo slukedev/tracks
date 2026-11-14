@@ -197,8 +197,11 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ### Settings and the rest
 
-- Settings in Android 16's grouped style: capture, apps, Last.fm, servers, appearance (theme
-  and wallpaper or Tracks colors), Tracks Radio, Hear less of, privacy, about, licenses,
+- Colors follow the system (Material You, from the wallpaper) by default. Appearance offers
+  a custom color instead: the wallpaper's own colors or twelve presets, in Tonal, Vibrant,
+  Exact or Muted style, plus pure black for dark mode. Colors follow Android's contrast
+  setting and cross-fade when changed.
+- Settings in Android 16's grouped style: capture, apps, Last.fm, servers, appearance, Tracks Radio, Hear less of, privacy, about, licenses,
   app language and sample data.
 - Onboarding: welcome, notification access, permissions, Last.fm, and try with sample data.
 - Press and hold on every song, album, artist, mix and history row.

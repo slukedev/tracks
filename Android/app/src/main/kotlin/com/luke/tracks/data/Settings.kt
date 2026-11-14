@@ -15,12 +15,33 @@ private val Context.settingsStore by preferencesDataStore(name = "settings")
 
 enum class ThemeChoice { System, Light, Dark }
 
-/** Where the app's colors come from. */
-enum class ColorChoice { Wallpaper, Tracks, NowPlaying }
+/** Where the app's colors come from: the system's (from the wallpaper), or a color you pick. */
+enum class ColorChoice {
+    Wallpaper, Custom;
+
+    companion object {
+        /** Reads stored values, including the older "Tracks" for Tracks red. */
+        fun parse(value: String?): ColorChoice = when (value) {
+            null, "Wallpaper" -> Wallpaper
+            else -> Custom
+        }
+    }
+}
+
+/** How a picked color becomes a palette, as Android's own wallpaper styles do. */
+enum class PaletteChoice { TonalSpot, Vibrant, Fidelity, Neutral }
+
+/** Tracks red, from the icon. */
+const val TRACKS_RED: Int = 0xFFE83A5F.toInt()
 
 data class AppSettings(
     val theme: ThemeChoice = ThemeChoice.System,
     val colors: ColorChoice = ColorChoice.Wallpaper,
+    /** The color the palette is made from when [colors] is Custom, as ARGB. */
+    val seedColor: Int = TRACKS_RED,
+    val paletteStyle: PaletteChoice = PaletteChoice.Vibrant,
+    /** True black backgrounds in the dark theme. */
+    val pureBlack: Boolean = false,
     /** Keep songs played in other apps (needs notification access). */
     val captureOtherApps: Boolean = true,
     /** Apps whose plays are not kept, by package. */
@@ -42,6 +63,9 @@ class SettingsRepository(private val context: Context) {
     private object Keys {
         val theme = stringPreferencesKey("theme")
         val colors = stringPreferencesKey("colors")
+        val seed = androidx.datastore.preferences.core.intPreferencesKey("seedColor")
+        val style = stringPreferencesKey("paletteStyle")
+        val pureBlack = booleanPreferencesKey("pureBlack")
         val capture = booleanPreferencesKey("captureOtherApps")
         val excluded = stringSetPreferencesKey("excludedApps")
         val hidden = stringSetPreferencesKey("hiddenSongs")
@@ -58,7 +82,10 @@ class SettingsRepository(private val context: Context) {
 
     private fun Preferences.toSettings() = AppSettings(
         theme = this[Keys.theme]?.let { runCatching { ThemeChoice.valueOf(it) }.getOrNull() } ?: ThemeChoice.System,
-        colors = this[Keys.colors]?.let { runCatching { ColorChoice.valueOf(it) }.getOrNull() } ?: ColorChoice.Wallpaper,
+        colors = ColorChoice.parse(this[Keys.colors]),
+        seedColor = this[Keys.seed] ?: TRACKS_RED,
+        paletteStyle = this[Keys.style]?.let { runCatching { PaletteChoice.valueOf(it) }.getOrNull() } ?: PaletteChoice.Vibrant,
+        pureBlack = this[Keys.pureBlack] ?: false,
         captureOtherApps = this[Keys.capture] ?: true,
         excludedApps = this[Keys.excluded] ?: emptySet(),
         hiddenSongs = this[Keys.hidden] ?: emptySet(),
@@ -76,6 +103,9 @@ class SettingsRepository(private val context: Context) {
             val new = transform(p.toSettings())
             p[Keys.theme] = new.theme.name
             p[Keys.colors] = new.colors.name
+            p[Keys.seed] = new.seedColor
+            p[Keys.style] = new.paletteStyle.name
+            p[Keys.pureBlack] = new.pureBlack
             p[Keys.capture] = new.captureOtherApps
             p[Keys.excluded] = new.excludedApps
             p[Keys.hidden] = new.hiddenSongs
