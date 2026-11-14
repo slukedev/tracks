@@ -110,7 +110,7 @@ struct ArtistPage: View {
     }
 
     private func row(_ song: Song, in songs: [Song], context: PlayContext) -> some View {
-        let identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+        let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
         return AvailabilityGate(title: song.title, artist: song.artistName, album: song.albumTitle) {
             player.play(.songs(songs, startingAt: songs.firstIndex(of: song) ?? 0), from: context)
         } label: {

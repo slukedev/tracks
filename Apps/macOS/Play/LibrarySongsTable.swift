@@ -186,7 +186,7 @@ struct LibrarySongsTablePage: View {
             }
         }
         .loads(pager, query: query, order: order, key: "\(feed.builtRevision ?? 0)") { [facts = feed.facts] song in
-            LibrarySortKeys(song: song, plays: facts[HistoryImport.key(title: song.title, artistName: song.artistName)]?.plays ?? 0)
+            LibrarySortKeys(song: song, plays: facts[SongIdentity.key(title: song.title, artistName: song.artistName)]?.plays ?? 0)
         }
         .task(id: "\(pager.revision)\u{1F}\(allowsExplicit)\u{1F}\(feed.builtRevision ?? 0)") {
             let made = await Self.rows(of: pager.items, facts: feed.facts, allowsExplicit: allowsExplicit)
@@ -200,7 +200,7 @@ struct LibrarySongsTablePage: View {
     private nonisolated static func rows(of songs: [Song], facts: [String: SongFacts], allowsExplicit: Bool) async -> [LibrarySongRow] {
         songs.compactMap { song in
             guard allowsExplicit || !song.isExplicit else { return nil }
-            return LibrarySongRow(song: song, plays: facts[HistoryImport.key(title: song.title, artistName: song.artistName)]?.plays ?? 0)
+            return LibrarySongRow(song: song, plays: facts[SongIdentity.key(title: song.title, artistName: song.artistName)]?.plays ?? 0)
         }
     }
 

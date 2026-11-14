@@ -299,7 +299,7 @@ struct PlaylistPage: View {
 
     private var history: CollectionHistory? {
         CollectionHistory.summary(
-            songIdentities: tracks.map { HistoryImport.key(title: $0.title, artistName: $0.artistName) },
+            songIdentities: tracks.map { SongIdentity.key(title: $0.title, artistName: $0.artistName) },
             facts: feed.facts
         )
     }
@@ -502,12 +502,12 @@ nonisolated enum PlaylistArrangement {
                 title: entry.track.title,
                 artist: entry.track.artistName,
                 album: entry.track.albumTitle ?? "",
-                plays: facts[HistoryImport.key(title: entry.track.title, artistName: entry.track.artistName)]?.plays ?? 0
+                plays: facts[SongIdentity.key(title: entry.track.title, artistName: entry.track.artistName)]?.plays ?? 0
             )
         }
         let rows = ordered
             .filter { allowsExplicit || $0.track.contentRating != .explicit }
-            .map { Row(index: $0.index, track: $0.track, identity: HistoryImport.key(title: $0.track.title, artistName: $0.track.artistName)) }
+            .map { Row(index: $0.index, track: $0.track, identity: SongIdentity.key(title: $0.track.title, artistName: $0.track.artistName)) }
         return Result(ordered: ordered, rows: rows)
     }
 }

@@ -174,7 +174,7 @@ final class PlaylistMerge {
     private func merge(_ id: UUID, with partner: Playlist, in music: YourMusic, finds: inout Int, adds: inout Int) async throws -> Int {
         let songs = try await tracks(of: partner).map { track in
             AppleSong(
-                identity: HistoryImport.key(title: track.title, artistName: track.artistName),
+                identity: SongIdentity.key(title: track.title, artistName: track.artistName),
                 title: track.title,
                 artist: track.artistName,
                 album: track.albumTitle,
@@ -296,7 +296,7 @@ final class PlaylistMerge {
         #else
         try await MusicKitPlaylistWriter().addSongs(ids: [song.id.rawValue], toPlaylist: partner.id.rawValue)
         #endif
-        return HistoryImport.key(title: candidate.title, artistName: candidate.artistName)
+        return SongIdentity.key(title: candidate.title, artistName: candidate.artistName)
     }
 
     /// A new Apple Music playlist to merge with. MusicKit makes it on iPhone; on the Mac, which

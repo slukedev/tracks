@@ -27,7 +27,7 @@ nonisolated struct PlayerTrack: Identifiable, Equatable, Codable, Sendable {
     var local: LocalTrack? = nil
 
     /// The key Tracks’ history groups plays by, so a song's count can be found.
-    var songIdentity: String { HistoryImport.key(title: title, artistName: artistName) }
+    var songIdentity: String { SongIdentity.key(title: title, artistName: artistName) }
 }
 
 extension MixSong {

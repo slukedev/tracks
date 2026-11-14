@@ -215,7 +215,7 @@ extension SongActions {
         showsArtist: Bool = true,
         showsSuggestLess: Bool = true
     ) -> SongActions {
-        let identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+        let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
         var actions = SongActions(
             play: play,
             playNext: { player.enqueue(.songs([song]), next: true, title: song.title) },

@@ -44,7 +44,7 @@ extension LibrarySongRow {
             added: song.libraryAddedDate ?? LibraryDemo.added(song.id) ?? .distantPast,
             cover: song.artwork.map(CoverArt.artwork) ?? .url(nil, seed: song.albumTitle ?? song.title),
             isExplicit: song.isExplicit,
-            identity: HistoryImport.key(title: song.title, artistName: song.artistName)
+            identity: SongIdentity.key(title: song.title, artistName: song.artistName)
         )
     }
 
@@ -198,7 +198,7 @@ struct LibrarySongsList: View {
             Button {
                 player.play(.songs(songs, startingAt: songs.firstIndex(of: song) ?? 0), from: context)
             } label: {
-                CurrentSongReader(identity: HistoryImport.key(title: song.title, artistName: song.artistName)) { isCurrent in
+                CurrentSongReader(identity: SongIdentity.key(title: song.title, artistName: song.artistName)) { isCurrent in
                     TrackRow(
                         title: song.title,
                         subtitle: song.artistName,

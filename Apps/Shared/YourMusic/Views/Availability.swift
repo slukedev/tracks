@@ -53,7 +53,7 @@ struct AvailabilityAccessory: View {
         case .comingFromLidarr:
             note("Coming from Lidarr", symbol: "clock")
         case .unavailable:
-            let identity = HistoryImport.key(title: title, artistName: artist)
+            let identity = SongIdentity.key(title: title, artistName: artist)
             if music.getMore.ability.lidarr, let album {
                 // No server has it, but Lidarr can get its album.
                 GetButton(state: music.getMore.state(ofSong: identity), subject: title) {
@@ -141,7 +141,7 @@ struct YourMusicSongMenu: View {
         if let go = openPlayRoute.ifPushes {
             actions.goToAlbum = { Task { if let album = await SongLinks.album(of: song) { go(.album(album)) } } }
             actions.goToArtist = { Task { if let artist = await SongLinks.artist(of: song) { go(.artist(artist)) } } }
-            actions.stats = { go(.stats(.song(HistoryImport.key(title: song.title, artistName: song.artistName)))) }
+            actions.stats = { go(.stats(.song(SongIdentity.key(title: song.title, artistName: song.artistName)))) }
         }
         return actions
     }
@@ -194,7 +194,7 @@ struct AvailabilityGate<Label: View>: View {
                     AvailabilityAccessory(availability: availability, title: title, artist: artist, album: album)
                 }
             }
-            .task(id: "\(HistoryImport.key(title: title, artistName: artist)).\(music.availabilityGeneration)") {
+            .task(id: "\(SongIdentity.key(title: title, artistName: artist)).\(music.availabilityGeneration)") {
                 await music.check(title: title, artist: artist, album: album)
             }
         } else {

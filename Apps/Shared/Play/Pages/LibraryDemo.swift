@@ -86,7 +86,7 @@ nonisolated extension LibraryDemo {
                 albumOrder.append(albumKey)
                 albumPlays[albumKey] = (play.albumTitle, play.artistName, play.capturedAt, play.capturedAt)
             }
-            let songKey = HistoryImport.key(title: play.title, artistName: play.artistName)
+            let songKey = SongIdentity.key(title: play.title, artistName: play.artistName)
             if let known = songPlays[songKey] {
                 songPlays[songKey] = (known.play, known.first, play.capturedAt)
             } else {

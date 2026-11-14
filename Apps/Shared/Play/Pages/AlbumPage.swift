@@ -193,7 +193,7 @@ struct AlbumPage: View {
                 plays: plays(of: track) ?? 0,
                 duration: track.duration ?? 0,
                 isExplicit: track.contentRating == .explicit,
-                songIdentity: HistoryImport.key(title: track.title, artistName: track.artistName),
+                songIdentity: SongIdentity.key(title: track.title, artistName: track.artistName),
                 isPlayable: availability.map { $0 == .checking || $0.track != nil } ?? true,
                 status: availability.flatMap(Self.status),
                 drag: SongDrag.Song(appleMusicID: track.id.rawValue, title: track.title, artistName: track.artistName, albumTitle: album.title)
@@ -269,7 +269,7 @@ struct AlbumPage: View {
     private var history: CollectionHistory? {
         guard hasLoaded || !tracks.isEmpty else { return nil }
         return CollectionHistory.summary(
-            songIdentities: tracks.map { HistoryImport.key(title: $0.title, artistName: $0.artistName) },
+            songIdentities: tracks.map { SongIdentity.key(title: $0.title, artistName: $0.artistName) },
             facts: feed.facts
         )
     }
@@ -277,7 +277,7 @@ struct AlbumPage: View {
     #if os(macOS)
     /// Your plays, for the Mac table's Plays column.
     private func plays(of track: Track) -> Int? {
-        feed.facts[HistoryImport.key(title: track.title, artistName: track.artistName)]?.plays
+        feed.facts[SongIdentity.key(title: track.title, artistName: track.artistName)]?.plays
     }
     #endif
 
@@ -381,7 +381,7 @@ struct AlbumPage: View {
 
     private func isCurrent(_ track: Track) -> Bool {
         guard let current = player.current else { return false }
-        return current.songIdentity == HistoryImport.key(title: track.title, artistName: track.artistName)
+        return current.songIdentity == SongIdentity.key(title: track.title, artistName: track.artistName)
     }
 }
 

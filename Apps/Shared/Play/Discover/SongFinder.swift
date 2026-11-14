@@ -253,7 +253,7 @@ struct SongFinder: View {
     private func fresh(_ songs: [Song], lens: SongLens, reason: (Song) -> SuggestionReason) -> [Suggestion] {
         var seen = Set<String>()
         let unheard = PlayPreferences.versions(of: songs).filter { song in
-            let identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+            let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
             return feed.facts[identity] == nil && !player.signals.excludes(identity, now: .now) && seen.insert(identity).inserted
         }
         return FreshShuffle.order(

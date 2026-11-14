@@ -36,7 +36,7 @@ struct Handpick: Hashable, Identifiable {
     var id: String { identity }
 
     init(song: Song) {
-        identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+        identity = SongIdentity.key(title: song.title, artistName: song.artistName)
         songID = song.id.rawValue
         title = song.title
         artistName = song.artistName

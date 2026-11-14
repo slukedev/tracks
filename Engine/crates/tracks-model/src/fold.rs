@@ -85,7 +85,7 @@ fn strip_diacritics(chars: impl Iterator<Item = char>) -> impl Iterator<Item = c
     })
 }
 
-/// The identity of a song: folded title and folded artist, as `HistoryImport.key` builds it.
+/// The identity of a song: folded title and folded artist, as `SongIdentity.key` builds it.
 ///
 /// ```
 /// assert_eq!(tracks_model::song_key("Halo", "Beyoncé"), "halo\u{1F}beyonce");

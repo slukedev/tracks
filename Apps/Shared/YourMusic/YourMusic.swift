@@ -232,7 +232,7 @@ final class YourMusic {
         // Played from here, by its own id: found without working out its name again, which is
         // slow to do for every song a mix could pick.
         if let exact = index.track(id: song.songID), isPlayable(exact) { return exact }
-        let identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+        let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
         guard let track = index.track(forSongID: song.songID, identity: identity) else {
             // Found on a server by searching, when it was suggested.
             return foundOnServers[identity].flatMap { isPlayable($0) ? $0 : nil }
@@ -247,7 +247,7 @@ final class YourMusic {
     /// What's known so far of a song suggested from Apple Music's catalog: in your music, in
     /// Lidarr, or not to be had. ``check(title:artist:album:)`` finds out.
     func availability(title: String, artist: String) -> SongAvailability {
-        let identity = HistoryImport.key(title: title, artistName: artist)
+        let identity = SongIdentity.key(title: title, artistName: artist)
         if let track = track(for: HistorySong(songID: "", title: title, artistName: artist)) { return .playable(track) }
         guard let stored = answer(for: identity).state else { return .checking }
         // Found to play once, but not now: offline, or its server out of reach.
@@ -296,7 +296,7 @@ final class YourMusic {
 
     /// Looks for a song: in your music, then on each server, then in Lidarr.
     func check(title: String, artist: String, album: String?) async {
-        let identity = HistoryImport.key(title: title, artistName: artist)
+        let identity = SongIdentity.key(title: title, artistName: artist)
         let generation = availabilityGeneration
         guard answer(for: identity).generation != generation else { return }
         #if DEBUG
@@ -412,7 +412,7 @@ final class YourMusic {
             await servers.sync(server.id)
         }
         await rebuild()
-        let identity = HistoryImport.key(title: title, artistName: artist)
+        let identity = SongIdentity.key(title: title, artistName: artist)
         guard let track = track(for: HistorySong(songID: "", title: title, artistName: artist)) else {
             // Still in Lidarr, still to be downloaded: the row keeps its button to try again.
             return String(localized: "Your Server Doesn't Have It Yet")
@@ -815,7 +815,7 @@ extension YourMusic: RadioDownloads {
     }
 
     func finishedPlaying(_ song: HistorySong) -> Bool {
-        let identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+        let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
         guard PlayPreferences.radioDeletesAfterPlaying, radioOnly.contains(identity) else { return false }
         // One you've put in a playlist since is one you want.
         guard !playlists.all.contains(where: { $0.identities.contains(identity) }) else {
@@ -829,7 +829,7 @@ extension YourMusic: RadioDownloads {
     }
 
     func keep(_ song: HistorySong) {
-        let identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+        let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
         radioOnly.remove(identity)
         saveRadioOnly()
         guard let track = track(for: song).map(resolved), track.isFromServer else { return }
@@ -856,7 +856,7 @@ extension YourMusic: RadioDownloads {
     }
 
     func decline(_ song: HistorySong) {
-        let identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+        let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
         readyingForRadio.remove(identity)
         let copies = index.tracks(withIdentity: identity).map(\.id)
         let downloading = copies.filter(downloads.isDownloading)

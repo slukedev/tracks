@@ -32,7 +32,7 @@ enum KeepStatus: Equatable {
     @MainActor
     static func isKept(_ track: PlayerTrack, player: PlayerModel, capture: CaptureService) -> Bool {
         guard let last = capture.lastCapture,
-              HistoryImport.key(title: last.title, artistName: last.artistName) == track.songIdentity,
+              SongIdentity.key(title: last.title, artistName: last.artistName) == track.songIdentity,
               let started = player.trackStartedAt
         else { return false }
         // With no minimum, the capture can land a moment before the player reports the song.
@@ -47,7 +47,7 @@ enum KeepStatus: Equatable {
     static func isPassedOver(_ track: PlayerTrack, player: PlayerModel, capture: CaptureService) -> Bool {
         guard !isKept(track, player: player, capture: capture),
               let heard = capture.nowPlaying,
-              HistoryImport.key(title: heard.title, artistName: heard.artistName) == track.songIdentity,
+              SongIdentity.key(title: heard.title, artistName: heard.artistName) == track.songIdentity,
               case .ignore(let reason) = capture.lastDecision
         else { return false }
         switch reason {

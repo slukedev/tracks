@@ -133,7 +133,7 @@ extension MixSong {
     /// A song from Apple Music as a live mix's new find: never played, so no count.
     nonisolated init(catalog song: Song) {
         self.init(
-            songIdentity: HistoryImport.key(title: song.title, artistName: song.artistName),
+            songIdentity: SongIdentity.key(title: song.title, artistName: song.artistName),
             songID: song.id.rawValue,
             title: song.title,
             artistName: song.artistName,

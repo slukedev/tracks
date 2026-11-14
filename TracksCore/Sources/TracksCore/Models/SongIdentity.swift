@@ -14,7 +14,3 @@ public enum SongIdentity {
         return "\(normalise(title))\u{1F}\(normalise(artistName))"
     }
 }
-
-/// The old name, kept until the callers in Your Music and Play have moved to ``SongIdentity``.
-@available(*, deprecated, renamed: "SongIdentity")
-public typealias HistoryImport = SongIdentity

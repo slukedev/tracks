@@ -106,7 +106,7 @@ final class PlayFeed {
         builtRevision = revision
         rebuilds += 1
         // A Discover song leaves once it's been played: it isn't new any more.
-        discover.removeAll { facts[HistoryImport.key(title: $0.title, artistName: $0.artistName)] != nil || blocked.blocks(songBy: $0.artistName) }
+        discover.removeAll { facts[SongIdentity.key(title: $0.title, artistName: $0.artistName)] != nil || blocked.blocks(songBy: $0.artistName) }
         newReleases.removeAll { $0.subtitle.map(blocked.blocks(songBy:)) ?? false }
         if artistLookups.contains(where: { blocked.contains(artist: $0.name) }) {
             artistLookups.removeAll { blocked.contains(artist: $0.name) }
@@ -301,7 +301,7 @@ final class PlayFeed {
         var seenSongs = Set<MusicItemID>()
         let unheard = lookups.flatMap { lookup in
             lookup.topSongs
-                .filter { !heard.contains(HistoryImport.key(title: $0.title, artistName: $0.artistName)) }
+                .filter { !heard.contains(SongIdentity.key(title: $0.title, artistName: $0.artistName)) }
                 .prefix(4)
         }
         .filter { seenSongs.insert($0.id).inserted }

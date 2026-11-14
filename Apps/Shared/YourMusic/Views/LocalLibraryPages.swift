@@ -195,7 +195,7 @@ struct LocalArtistPage: View {
         // Only the ones in your music, as yours.
         let yours = top.compactMap { song in
             music.index.track(id: LocalTrack.id(for: .server(serverID: serverID, songID: song.id)))
-                ?? music.index.tracks(withIdentity: HistoryImport.key(title: song.title, artistName: song.artist ?? artist.name)).first
+                ?? music.index.tracks(withIdentity: SongIdentity.key(title: song.title, artistName: song.artist ?? artist.name)).first
         }
         var seen = Set<String>()
         let others = (await similar ?? []).compactMap { other -> SimilarArtist? in

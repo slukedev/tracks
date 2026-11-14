@@ -8,8 +8,8 @@ public enum ServerSongMatcher {
     /// The first result that's the same song: named exactly the same if one is, else the
     /// first whose title matches and that shares an artist.
     public static func bestMatch(title: String, artist: String, in candidates: [SubsonicSong]) -> SubsonicSong? {
-        let identity = HistoryImport.key(title: title, artistName: artist)
-        if let exact = candidates.first(where: { HistoryImport.key(title: $0.title, artistName: $0.artist ?? "") == identity }) {
+        let identity = SongIdentity.key(title: title, artistName: artist)
+        if let exact = candidates.first(where: { SongIdentity.key(title: $0.title, artistName: $0.artist ?? "") == identity }) {
             return exact
         }
         let wantedTitle = self.title(title)

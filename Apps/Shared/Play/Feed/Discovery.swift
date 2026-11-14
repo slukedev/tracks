@@ -42,7 +42,7 @@ struct Suggestion: Identifiable, Equatable {
     let reason: SuggestionReason
 
     var id: MusicItemID { song.id }
-    var identity: String { HistoryImport.key(title: song.title, artistName: song.artistName) }
+    var identity: String { SongIdentity.key(title: song.title, artistName: song.artistName) }
 }
 
 /// An artist you've never played, and which of yours they're like.
@@ -144,7 +144,7 @@ final class Discovery {
     var newFindReasons: [String: LiveMix.Reason] {
         var reasons: [String: LiveMix.Reason] = [:]
         for suggestion in songs + fromYourArtists {
-            let identity = HistoryImport.key(title: suggestion.song.title, artistName: suggestion.song.artistName)
+            let identity = SongIdentity.key(title: suggestion.song.title, artistName: suggestion.song.artistName)
             guard reasons[identity] == nil else { continue }
             switch suggestion.reason {
             case .moreFrom, .newRelease: reasons[identity] = .newFromYourArtist
@@ -324,7 +324,7 @@ final class Discovery {
     /// asked to hear less of, and not already suggested.
     private func fresh(_ candidates: [Song]) -> [Song] {
         PlayPreferences.versions(of: candidates).filter { song in
-            let identity = HistoryImport.key(title: song.title, artistName: song.artistName)
+            let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
             return feed.facts[identity] == nil
                 && !player.signals.excludes(identity, now: .now)
                 && !hiddenArtists.contains(StatsCalculator.folded(song.artistName))

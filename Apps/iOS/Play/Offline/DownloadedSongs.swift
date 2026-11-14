@@ -34,7 +34,7 @@ nonisolated struct OfflineSong: Identifiable, Hashable, Sendable {
         self.isExplicit = isExplicit
         self.dateAdded = dateAdded
         self.song = song
-        identity = HistoryImport.key(title: title, artistName: artistName)
+        identity = SongIdentity.key(title: title, artistName: artistName)
     }
 }
 
@@ -184,7 +184,7 @@ final class DownloadedSongs {
             .map { item in
                 OnDevice(
                     id: MusicItemID(String(item.persistentID)),
-                    key: HistoryImport.key(title: item.title ?? "", artistName: item.artist ?? ""),
+                    key: SongIdentity.key(title: item.title ?? "", artistName: item.artist ?? ""),
                     dateAdded: item.dateAdded
                 )
             }
@@ -207,7 +207,7 @@ final class DownloadedSongs {
             guard let response = try? await request.response() else { continue }
             for song in response.items {
                 byID[song.id] = song
-                foundKeys.insert(HistoryImport.key(title: song.title, artistName: song.artistName))
+                foundKeys.insert(SongIdentity.key(title: song.title, artistName: song.artistName))
             }
         }
 
@@ -219,7 +219,7 @@ final class DownloadedSongs {
         var remaining = missing
         while let current = batch, !remaining.isEmpty {
             for song in current {
-                let key = HistoryImport.key(title: song.title, artistName: song.artistName)
+                let key = SongIdentity.key(title: song.title, artistName: song.artistName)
                 if remaining.remove(key) != nil { byKey[key] = song }
             }
             batch = current.hasNextBatch ? try? await current.nextBatch() : nil

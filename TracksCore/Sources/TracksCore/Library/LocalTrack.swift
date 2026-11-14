@@ -76,7 +76,7 @@ public struct LocalTrack: Codable, Sendable, Hashable, Identifiable {
 
     /// The key Tracks’ history groups plays by, so a local song and the same song heard in
     /// Apple Music count together.
-    public var identity: String { HistoryImport.key(title: title, artistName: artist) }
+    public var identity: String { SongIdentity.key(title: title, artistName: artist) }
 
     /// Who the album is by: its album artist, or the song's without anyone featured on it, so
     /// "Umbra feat. Yuki Tanabe" stays on Umbra's album when the tags don't say whose it is.

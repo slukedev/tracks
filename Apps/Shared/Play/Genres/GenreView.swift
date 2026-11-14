@@ -318,7 +318,7 @@ struct GenreView: View {
     /// The genre's chart songs you've never played.
     private var freshCharts: [Suggestion] {
         charts.songs
-            .filter { feed.facts[HistoryImport.key(title: $0.title, artistName: $0.artistName)] == nil }
+            .filter { feed.facts[SongIdentity.key(title: $0.title, artistName: $0.artistName)] == nil }
             .map { Suggestion(song: $0, reason: .popular) }
     }
 

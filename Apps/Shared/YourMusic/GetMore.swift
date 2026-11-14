@@ -88,8 +88,8 @@ final class GetMore {
         let number: Int?
         /// The copy a server that finds songs has, to get on its own.
         let found: LocalTrack?
-        var id: String { HistoryImport.key(title: title, artistName: artist) + "\u{1F}\(number ?? 0)" }
-        var identity: String { HistoryImport.key(title: title, artistName: artist) }
+        var id: String { SongIdentity.key(title: title, artistName: artist) + "\u{1F}\(number ?? 0)" }
+        var identity: String { SongIdentity.key(title: title, artistName: artist) }
     }
 
     /// Something asked for and not settled.
@@ -370,7 +370,7 @@ final class GetMore {
     /// or else its album from Lidarr.
     @discardableResult
     func get(songTitled title: String, artist: String, album: String?) async -> String? {
-        let identity = HistoryImport.key(title: title, artistName: artist)
+        let identity = SongIdentity.key(title: title, artistName: artist)
         let key = Self.songKey(identity)
         requests[key] = Request(route: .server, songs: [identity], title: title, artist: artist, isAlbum: false, status: .asking)
         await music.check(title: title, artist: artist, album: album)
