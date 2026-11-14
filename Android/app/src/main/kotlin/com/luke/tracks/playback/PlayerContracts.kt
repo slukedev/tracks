@@ -20,6 +20,18 @@ data class PlayableSong(
     val genre: String? = null,
 )
 
+/** The title to show: files without tags (ringtones, voice notes) can come with none. */
+val PlayableSong.titleLabel: String get() = title.ifBlank { "Untitled" }
+
+/** What the library calls a file's artist when its tags don't say. */
+const val UNKNOWN_ARTIST = "Unknown artist"
+
+/** Whether the artist is really known: MediaStore says unknown as "<unknown>", the library as [UNKNOWN_ARTIST]. */
+val PlayableSong.hasArtist: Boolean get() = artistName.isNotBlank() && artistName != "<unknown>" && artistName != UNKNOWN_ARTIST
+
+/** The artist to show. */
+val PlayableSong.artistLabel: String get() = if (hasArtist) artistName else UNKNOWN_ARTIST
+
 enum class RepeatChoice { Off, All, One }
 
 /** Why the queue is playing, for the Now Playing header ("Playing from On Repeat"). */
@@ -45,6 +57,9 @@ data class PlayerState(
     val sleepAtMs: Long? = null,
 ) {
     val upNext: List<PlayableSong> get() = queue.drop(index + 1)
+
+    /** The current song's length as far as it's known: the player's word, else the library's. */
+    val lengthMs: Long? get() = ListenCounter.knownLength(durationMs) ?: ListenCounter.knownLength(current?.durationMs)
 }
 
 /** Tracks' own player, as the UI drives it. Backed by Media3 in [PlaybackService]. */
