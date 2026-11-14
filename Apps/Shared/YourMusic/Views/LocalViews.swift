@@ -285,14 +285,16 @@ extension SongActions {
 }
 
 extension SongMenuButton {
-    /// Asks a song's server to keep it, for a song found on a server that doesn't have it yet;
+    /// Get, for a song found on a server that doesn't have it yet, as its row's button does;
     /// once asked, says it's waiting.
     static func addToYourMusic(_ track: LocalTrack, music: YourMusic, player: PlayerModel) -> SongMenuButton {
         if music.servers.isWaitingToKeep(track) {
             return SongMenuButton(title: "Waiting for Your Server", systemImage: "clock", isDisabled: true) {}
         }
-        return SongMenuButton(title: "Add to Your Music", systemImage: "plus.circle") {
-            Task { player.confirm(await music.keep(track)) }
+        return SongMenuButton(title: "Get", systemImage: "arrow.down.circle") {
+            Task {
+                if let problem = await music.getMore.get(track) { player.confirm(problem) }
+            }
         }
     }
 }

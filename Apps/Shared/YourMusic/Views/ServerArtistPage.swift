@@ -42,7 +42,12 @@ struct ServerArtistPage: View {
                         ) { EmptyView() }
                     }
                     Shelf(title: String(localized: "Albums"), items: albums) { album in
-                        ServerAlbumShelfTile(album: album)
+                        // With a server that finds songs, each says what you own of it and gets the rest.
+                        if canGet, let candidate = GetMore.Album(album) {
+                            GetAlbumTile(held: GetMore.HeldAlbum(album: candidate, state: music.getMore.state(ofAlbum: candidate)), subtitle: candidate.year.map(String.init))
+                        } else {
+                            ServerAlbumShelfTile(album: album)
+                        }
                     }
                 }
             } else if failed {
@@ -74,23 +79,31 @@ struct ServerArtistPage: View {
     }
 
     private func row(_ track: LocalTrack) -> some View {
-        Button {
-            player.play(.local(songs, startingAt: songs.firstIndex(of: track) ?? 0), from: context)
-        } label: {
-            ArtistSongLabel(
-                title: track.title,
-                subtitle: track.album,
-                cover: .url(music.artworkURL(track.artwork)?.absoluteString, seed: track.album ?? track.title),
-                plays: feed.facts[track.identity]?.plays,
-                isCurrent: player.current?.local?.id == track.id,
-                isPlayable: music.isPlayable(track)
-            )
+        HStack(spacing: 4) {
+            Button {
+                player.play(.local(songs, startingAt: songs.firstIndex(of: track) ?? 0), from: context)
+            } label: {
+                ArtistSongLabel(
+                    title: track.title,
+                    subtitle: track.album,
+                    cover: .url(music.artworkURL(track.artwork)?.absoluteString, seed: track.album ?? track.title),
+                    plays: feed.facts[track.identity]?.plays,
+                    isCurrent: player.current?.local?.id == track.id,
+                    isPlayable: music.isPlayable(track)
+                )
+            }
+            .buttonStyle(.plain)
+            if canGet {
+                AddFoundSongButton(track: track)
+            }
         }
-        .buttonStyle(.plain)
         .contextMenu { LocalTrackMenu(track: track) }
     }
 
     private var context: PlayContext { PlayContext(kind: .artist, title: artist.name) }
+
+    /// Their server finds songs, so what it has of theirs can be got.
+    private var canGet: Bool { music.getMore.canGet && music.getMore.finds(on: artist.serverID) }
 
     private var serverName: String {
         music.servers.servers.first { $0.id == artist.serverID }?.name ?? String(localized: "Your server")

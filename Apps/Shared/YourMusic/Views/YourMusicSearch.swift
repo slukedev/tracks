@@ -129,8 +129,15 @@ struct YourMusicSearchResults: View {
             Shelf(title: String(localized: "Albums"), items: albums) { album in
                 Group {
                     switch album {
-                    case .yours(let album): LocalAlbumTile(album: album)
-                    case .server(let album): ServerAlbumTile(album: album)
+                    case .yours(let album):
+                        LocalAlbumTile(album: album)
+                    case .server(let album):
+                        // Found by a server that can fetch it: Get, under the cover.
+                        if music.getMore.canGet, let candidate = GetMore.Album(album), music.getMore.finds(on: candidate.serverID) {
+                            GetAlbumTile(held: GetMore.HeldAlbum(album: candidate, state: music.getMore.state(ofAlbum: candidate)))
+                        } else {
+                            ServerAlbumTile(album: album)
+                        }
                     }
                 }
                 .simultaneousGesture(TapGesture().onEnded { remember() })
@@ -557,35 +564,24 @@ private struct SearchArtistTile: View {
     }
 }
 
-/// Adds a song a server found for you to your music, at the end of its row. Once asked, the
-/// row's own ring shows the server getting it, and the button's place stays, so nothing moves.
+/// Get, for a song a server found for you, at the end of its row. Once asked, the row's own
+/// ring shows the server getting it, and the button's place stays, so nothing moves.
 struct AddFoundSongButton: View {
     let track: LocalTrack
     @Environment(YourMusic.self) private var music
     @Environment(PlayerModel.self) private var player
-    @State private var adds = 0
 
     var body: some View {
-        ZStack {
-            if track.isFromServer, !music.isInYourMusic(track), !music.servers.isWaitingToKeep(track) {
-                Button {
-                    adds += 1
-                    Task { player.confirm(await music.keep(track)) }
-                } label: {
-                    Image(systemName: "plus.circle")
-                        .font(.title3)
-                        .foregroundStyle(.tint)
-                        .frame(width: 44, height: 44)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Add to Your Music")
-                .transition(.opacity.combined(with: .scale(scale: 0.6)))
+        let isFound = track.isFromServer && !music.isInYourMusic(track)
+        GetButton(
+            state: isFound ? music.getMore.state(ofSong: track.identity, track: track) : .owned,
+            subject: track.title,
+            showsProgress: false
+        ) {
+            Task {
+                if let problem = await music.getMore.get(track) { player.confirm(problem) }
             }
         }
-        .frame(width: 44)
-        .sensoryFeedback(.success, trigger: adds)
-        .animation(.snappy, value: music.servers.isWaitingToKeep(track))
     }
 }
 

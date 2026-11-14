@@ -131,10 +131,13 @@ struct ServerForYouSection: View {
             let toAdd = songs.filter { $0.isFromServer && !music.isInYourMusic($0) && !music.servers.isWaitingToKeep($0) }
             if !toAdd.isEmpty {
                 Divider()
-                Button("Add All to Your Music", systemImage: "plus.circle") {
+                Button("Get All", systemImage: "arrow.down.circle") {
                     Task {
-                        for track in toAdd { _ = await music.keep(track) }
-                        player.confirm(String(AttributedString(localized: "Adding ^[\(toAdd.count) song](inflect: true) to Your Music").characters))
+                        var problem: String?
+                        for track in toAdd {
+                            if let failed = await music.getMore.get(track) { problem = failed }
+                        }
+                        if let problem { player.confirm(problem) }
                     }
                 }
             }

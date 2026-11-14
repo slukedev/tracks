@@ -124,7 +124,7 @@ struct SuggestionRow: View {
                     .frame(width: 44, height: 44)
                     .accessibilityLabel("Finding This Song")
             } else if let availability {
-                AvailabilityAccessory(availability: availability, title: song.title, artist: song.artistName)
+                AvailabilityAccessory(availability: availability, title: song.title, artist: song.artistName, album: song.albumTitle)
             } else {
                 FavoriteButton(song: song)
             }

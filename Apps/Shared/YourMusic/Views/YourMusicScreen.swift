@@ -133,6 +133,24 @@ struct YourMusicScreen: View {
             guard !Task.isCancelled else { return }
             shelves = made
         }
+        // Get More's picks, found once something can fetch, and ranked again as your servers
+        // find songs and what's yours changes.
+        .task(id: GetMoreKey(
+            canGet: music.getMore.canGet,
+            artists: feed.favoriteArtists.map(\.id),
+            finds: music.discover.forYou.values.reduce(0) { $0 + $1.songs.count + $1.suggested.count },
+            library: music.indexRevision
+        )) {
+            guard music.getMore.canGet else { return }
+            await music.getMore.loadSuggestions(taste: feed.favoriteArtists.map { GetMoreRanking.Taste(name: $0.name, plays: $0.plays) })
+        }
+    }
+
+    private struct GetMoreKey: Equatable {
+        let canGet: Bool
+        let artists: [String]
+        let finds: Int
+        let library: Int
     }
 
     /// The crate for your own music: Tracks Radio in the middle, starting in front, with this
@@ -266,9 +284,14 @@ struct YourMusicScreen: View {
             ServerProblemCard(server: server, signIn: { signingIn = server })
                 .padding(.horizontal, PlayMetrics.margin)
         }
-        ForEach(layout.visible.filter { $0.isOffered(for: .yourMusic) }) { section in
+        let sections = layout.visible.filter { $0.isOffered(for: .yourMusic) }
+        ForEach(sections) { section in
             self.section(section)
                 .id(section.rawValue)
+            // Get More follows whatever leads the page, where it's seen without scrolling.
+            if section == sections.first {
+                GetMoreSection()
+            }
         }
         // One endless list at the bottom: what you have and haven't played, and more your
         // servers find for you, as Apple Music's Play ends with Keep Exploring.

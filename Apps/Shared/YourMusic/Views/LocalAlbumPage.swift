@@ -99,6 +99,8 @@ struct LocalAlbumContent: View {
     @Environment(PlayFeed.self) private var feed
     @Environment(\.openPlayRoute) private var openPlayRoute
     @State private var deleting: LocalTrack?
+    /// Its songs you don't have, where you own part of it and something can fetch the rest.
+    @State private var gaps: GetMore.AlbumGaps?
 
     #if os(iOS)
     private func row(_ track: LocalTrack, position: Int, playable: [LocalTrack], context: PlayContext) -> some View {
@@ -152,13 +154,39 @@ struct LocalAlbumContent: View {
                     }
                 }
             }
+
+            if let gaps, music.getMore.canGet, !gaps.missing.isEmpty {
+                Section {
+                    ForEach(gaps.missing) { song in
+                        MissingSongRow(song: song, album: gaps.album)
+                            .collectionRowInsets(hasCover: false)
+                            .swipeActions {
+                                if let found = song.found {
+                                    Button("Get", systemImage: "arrow.down.circle") {
+                                        Task {
+                                            if let problem = await music.getMore.get(found) { player.confirm(problem) }
+                                        }
+                                    }
+                                    .tint(.accentColor)
+                                }
+                            }
+                    }
+                } header: {
+                    MissingSongsHeader(gaps: gaps)
+                        .listRowInsets(EdgeInsets(top: 16, leading: PlayMetrics.margin, bottom: 6, trailing: PlayMetrics.margin))
+                }
+            }
         }
         .collectionPage(title: album.displayTitle)
+        .task(id: gapsKey) { await loadGaps() }
         #if DEBUG
         // Screenshots reach a playlist through an album of yours, which a launch can open.
         .task { CollectionDemo.seedPlaylists(music: music, isDemo: model.isDemoLaunch, open: openPlayRoute) }
         #endif
         .toolbar {
+            if let found = foundAlbum {
+                ToolbarItem(placement: .primaryAction) { getAlbumButton(found) }
+            }
             if album.tracks.contains(where: \.isFromServer) {
                 ToolbarItem(placement: .primaryAction) {
                     AlbumDownloadButton(tracks: album.tracks.filter(\.isFromServer))
@@ -216,13 +244,41 @@ struct LocalAlbumContent: View {
                         .padding(.horizontal, PlayMetrics.margin)
                         .padding(.vertical, 8)
                 }
+                if let gaps, music.getMore.canGet, !gaps.missing.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        MissingSongsHeader(gaps: gaps)
+                            .padding(.bottom, 4)
+                        ForEach(gaps.missing) { song in
+                            MissingSongRow(song: song, album: gaps.album)
+                                .contextMenu {
+                                    if let found = song.found {
+                                        Button("Get", systemImage: "arrow.down.circle") {
+                                            Task {
+                                                if let problem = await music.getMore.get(found) { player.confirm(problem) }
+                                            }
+                                        }
+                                    }
+                                }
+                            if song.id != gaps.missing.last?.id {
+                                Divider().padding(.leading, 36)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.top, 20)
+                    .transition(.opacity)
+                }
             }
         }
         .navigationTitle(album.title)
+        .task(id: gapsKey) { await loadGaps() }
         #if DEBUG
         .task { CollectionDemo.seedPlaylists(music: music, isDemo: model.isDemoLaunch, open: openPlayRoute) }
         #endif
         .toolbar {
+            if let found = foundAlbum {
+                ToolbarItem(placement: .primaryAction) { getAlbumButton(found) }
+            }
             if album.tracks.contains(where: \.isFromServer) {
                 ToolbarItem(placement: .primaryAction) {
                     AlbumDownloadButton(tracks: album.tracks.filter(\.isFromServer))
@@ -276,6 +332,41 @@ struct LocalAlbumContent: View {
         Button("Go to Artist", systemImage: "music.microphone") {
             openPlayRoute(.localArtist(StatsCalculator.folded(album.artist)))
         }
+    }
+
+    // MARK: Getting
+
+    /// Asked again when what can fetch, or what's yours, changes.
+    private var gapsKey: String {
+        "\(album.id).\(album.tracks.count).\(music.getMore.canGet).\(music.indexRevision)"
+    }
+
+    private func loadGaps() async {
+        guard music.getMore.canGet, foundAlbum == nil else {
+            gaps = nil
+            return
+        }
+        let found = await music.getMore.gaps(in: album)
+        guard !Task.isCancelled else { return }
+        withAnimation(PlayMotion.panel) { gaps = found }
+    }
+
+    /// An album a server found for you rather than one in your music: its songs, to get.
+    private var foundAlbum: (album: GetMore.Album, songs: [LocalTrack])? {
+        let getMore = music.getMore
+        guard getMore.canGet else { return nil }
+        let found = album.tracks.filter { $0.isFromServer && !music.isInYourMusic($0) && getMore.finds(on: $0.serverID) }
+        guard let serverID = found.first?.serverID, !found.isEmpty else { return nil }
+        return (GetMore.Album(title: album.title, artist: album.artist, serverID: serverID, artwork: album.artwork, songCount: album.tracks.count, year: album.year), found)
+    }
+
+    private func getAlbumButton(_ found: (album: GetMore.Album, songs: [LocalTrack])) -> some View {
+        GetButton(state: music.getMore.state(of: found.album), title: found.songs.count < album.tracks.count ? "Get the Rest" : "Get", subject: album.title) {
+            Task {
+                if let problem = await music.getMore.get(found.album, only: found.songs) { player.confirm(problem) }
+            }
+        }
+        .fixedSize()
     }
 
     private func play(_ track: LocalTrack, in playable: [LocalTrack], context: PlayContext) {

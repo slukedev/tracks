@@ -9,6 +9,8 @@ struct AvailabilityAccessory: View {
     let availability: SongAvailability
     let title: String
     let artist: String
+    /// Its album, for Lidarr, which gets whole albums.
+    var album: String?
     @Environment(YourMusic.self) private var music
     @Environment(PlayerModel.self) private var player
     @State private var isGetting = false
@@ -19,22 +21,11 @@ struct AvailabilityAccessory: View {
             EmptyView()
         case .playable(let track):
             if track.isFromServer, !music.isInYourMusic(track) {
-                // Found on a server that doesn't have it yet: it plays, and can be asked for.
-                if music.servers.isWaitingToKeep(track) {
-                    DownloadStateIcon(track: track)
-                        .frame(minWidth: 24)
-                } else {
-                    Button {
-                        Task { player.confirm(await music.keep(track)) }
-                    } label: {
-                        Image(systemName: "plus.circle")
-                            .font(.title3)
-                            .foregroundStyle(.tint)
-                            .frame(width: 44, height: 44)
-                            .contentShape(.rect)
+                // Found on a server that doesn't have it yet: it plays, and can be got.
+                GetButton(state: music.getMore.state(ofSong: track.identity, track: track), subject: title) {
+                    Task {
+                        if let problem = await music.getMore.get(track) { player.confirm(problem) }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Add to Your Music")
                 }
             } else if track.isFromServer, !music.downloads.isDownloaded(track.id), !music.downloads.isDownloading(track.id) {
                 downloadButton { music.downloads.download([track]) }
@@ -62,7 +53,19 @@ struct AvailabilityAccessory: View {
         case .comingFromLidarr:
             note("Coming from Lidarr", symbol: "clock")
         case .unavailable:
-            note("Not Available", symbol: nil)
+            let identity = HistoryImport.key(title: title, artistName: artist)
+            if music.getMore.ability.lidarr, let album {
+                // No server has it, but Lidarr can get its album.
+                GetButton(state: music.getMore.state(ofSong: identity), subject: title) {
+                    Task {
+                        if let problem = await music.getMore.get(songTitled: title, artist: artist, album: album) {
+                            player.confirm(problem)
+                        }
+                    }
+                }
+            } else {
+                note("Not Available", symbol: nil)
+            }
         }
     }
 
@@ -188,7 +191,7 @@ struct AvailabilityGate<Label: View>: View {
                         .frame(width: 44, height: 44)
                         .accessibilityLabel("Finding This Song")
                 } else {
-                    AvailabilityAccessory(availability: availability, title: title, artist: artist)
+                    AvailabilityAccessory(availability: availability, title: title, artist: artist, album: album)
                 }
             }
             .task(id: "\(HistoryImport.key(title: title, artistName: artist)).\(music.availabilityGeneration)") {

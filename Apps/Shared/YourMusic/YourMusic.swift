@@ -590,17 +590,6 @@ final class YourMusic {
     /// Called with a song's identity once it's downloaded. Set by the player, for Tracks Radio.
     @ObservationIgnored var onReady: ((String) -> Void)?
 
-    /// Asks a song's server to keep it, for a song found by searching. Returns what to tell
-    /// the person.
-    func keep(_ track: LocalTrack) async -> String {
-        do {
-            try await servers.keep(track)
-            return String(localized: "Adding \u{201C}\(track.title)\u{201D} to Your Music")
-        } catch {
-            return String(localized: "Couldn't Reach Your Server")
-        }
-    }
-
     /// Forgets what couldn't be found, to look again: after a sync, or a change in Lidarr.
     func forgetUnavailable() {
         availabilityGeneration += 1

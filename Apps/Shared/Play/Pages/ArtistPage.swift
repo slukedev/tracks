@@ -11,6 +11,8 @@ struct ArtistPage: View {
     @Environment(PlayerModel.self) private var player
     @State private var loaded: Artist?
     @State private var loadFailed = false
+    /// Their music you don't own yet on your own server, where it can fetch.
+    @State private var gets: GetMore.ArtistGets?
     @AppStorage(PlayPreferences.allowsExplicitKey) private var allowsExplicit = true
 
     var body: some View {
@@ -70,6 +72,7 @@ struct ArtistPage: View {
                         ArtistAlbumTile(album: album)
                     }
                 }
+                ArtistGetSection(artist: artist.name, gets: gets)
                 let appearsOn = PlayPreferences.versions(of: Array(artist.appearsOnAlbums ?? []), allowsExplicit: allowsExplicit)
                 if !appearsOn.isEmpty {
                     Shelf(title: String(localized: "Appears On"), items: appearsOn) { album in
@@ -92,6 +95,7 @@ struct ArtistPage: View {
             guard loaded?.id != artist.id else { return }
             await load()
         }
+        .loadsGets(forArtist: artist.name, into: $gets)
     }
 
     private func songs(_ songs: [Song], artist: String, context: PlayContext) -> some View {

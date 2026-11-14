@@ -17,6 +17,7 @@ struct DownloadsPage: View {
 #if os(iOS)
 private struct DownloadsList: View {
     @Environment(YourMusic.self) private var music
+    @Environment(Lidarr.self) private var lidarr
     @Environment(PlayFeed.self) private var feed
     @Environment(PlayerModel.self) private var player
     @AppStorage(Downloads.cellularKey) private var allowsCellular = true
@@ -37,11 +38,21 @@ private struct DownloadsList: View {
         let unplayed = DownloadReport.unplayed(songs, facts: feed.facts)
         let active = downloads.downloading
         let failed = downloads.failures.keys.sorted().compactMap { id in music.index.track(id: id).map { ($0, downloads.failures[id] ?? "") } }
+        let incoming = music.getMore.incoming
         List {
             // What's under way first: it's what you come to check. Its own view, so each step
             // of a download redraws only its row, not the whole page.
             if !active.isEmpty {
                 DownloadingSection(ids: active.sorted())
+            }
+
+            // What your server or Lidarr is fetching, before it comes down.
+            if !incoming.isEmpty {
+                Section("Requested") {
+                    ForEach(incoming) { item in
+                        IncomingRow(item: item)
+                    }
+                }
             }
 
             if !failed.isEmpty {
@@ -161,7 +172,7 @@ private struct DownloadsList: View {
         .animation(.snappy, value: showsSongs)
         .animation(.snappy, value: order)
         .overlay {
-            if songs.isEmpty, active.isEmpty, failed.isEmpty {
+            if songs.isEmpty, active.isEmpty, failed.isEmpty, incoming.isEmpty {
                 ContentUnavailableView(
                     "Nothing Downloaded",
                     systemImage: "arrow.down.circle",
@@ -174,6 +185,8 @@ private struct DownloadsList: View {
         .navigationTitle("Downloads")
         .onChange(of: allowsCellular) { music.downloads.cellularSettingChanged() }
         .task(id: downloads.items.count) { freeBytes = await Self.freeSpace() }
+        // What Lidarr is fetching, as of now.
+        .task { if lidarr.isSetUp { await lidarr.refreshActivity() } }
         .confirmationDialog("Remove All Downloads?", isPresented: $confirmsRemoveAll, titleVisibility: .visible) {
             Button("Remove All", role: .destructive) { downloads.removeAll() }
         } message: {

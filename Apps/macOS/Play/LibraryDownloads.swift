@@ -6,6 +6,7 @@ import TracksCore
 /// that sorts, plays on a double-click, and removes with Delete.
 struct LibraryDownloadsPage: View {
     @Environment(YourMusic.self) private var music
+    @Environment(Lidarr.self) private var lidarr
     @Environment(PlayFeed.self) private var feed
     @Environment(PlayerModel.self) private var player
     @AppStorage(AutomaticDownloads.storageKey) private var automaticDownloads = true
@@ -36,7 +37,7 @@ struct LibraryDownloadsPage: View {
             // Which songs are coming, not how far along: the page isn't redrawn at every step.
             if made == nil, !downloads.items.isEmpty {
                 LibraryTablePlaceholder()
-            } else if songs.isEmpty, downloads.downloading.isEmpty, downloads.failures.isEmpty {
+            } else if songs.isEmpty, downloads.downloading.isEmpty, downloads.failures.isEmpty, music.getMore.incoming.isEmpty {
                 emptyState
             } else {
                 summary(stats: stats, unplayed: unplayed)
@@ -63,6 +64,8 @@ struct LibraryDownloadsPage: View {
             }
         }
         .task(id: downloads.items.count) { freeBytes = await Self.freeSpace() }
+        // What Lidarr is fetching, as of now.
+        .task { if lidarr.isSetUp { await lidarr.refreshActivity() } }
         // The rows, stats and table order, made off the main actor whenever the downloads,
         // your plays or the order change.
         .task(id: sortOrder) {
@@ -262,8 +265,21 @@ private struct DownloadActivity: View {
         let downloads = music.downloads
         let active = downloads.progress.keys.sorted().compactMap { id in music.index.track(id: id).map { ($0, downloads.progress[id] ?? 0) } }
         let failed = downloads.failures.keys.sorted().compactMap { id in music.index.track(id: id).map { ($0, downloads.failures[id] ?? "") } }
-        if !active.isEmpty || !failed.isEmpty {
+        let incoming = music.getMore.incoming
+        if !active.isEmpty || !failed.isEmpty || !incoming.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
+                if !incoming.isEmpty {
+                    // What your server or Lidarr is fetching, before it comes down.
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Requested")
+                            .font(.callout.weight(.semibold))
+                        ForEach(incoming.prefix(8)) { item in
+                            IncomingRow(item: item)
+                                .frame(maxWidth: 520, alignment: .leading)
+                        }
+                    }
+                    .padding(.bottom, 4)
+                }
                 if !active.isEmpty {
                     let progress = active.map(\.1).reduce(0, +) / Double(active.count)
                     HStack(spacing: 10) {

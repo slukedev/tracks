@@ -15,6 +15,8 @@ struct LocalArtistPage: View {
     @State private var fromServer = FromServer()
     /// Albums by others they're on, worked out when the library changes.
     @State private var appearsOn: [LocalAlbum] = []
+    /// Their music you don't own yet, where something can fetch it.
+    @State private var gets: GetMore.ArtistGets?
 
     struct FromServer {
         /// Their songs of yours in the order the server ranks them, most popular first.
@@ -71,6 +73,7 @@ struct LocalArtistPage: View {
                         LocalAlbumShelfTile(album: album, showsYear: true)
                     }
                 }
+                ArtistGetSection(artist: artist.name, gets: gets)
                 if !appearsOn.isEmpty {
                     Shelf(title: String(localized: "Appears On"), items: appearsOn) { album in
                         LocalAlbumShelfTile(album: album)
@@ -89,6 +92,7 @@ struct LocalArtistPage: View {
             .task(id: "\(artist.id).\(music.servers.onlineServers.count)") {
                 await loadFromServer(artist)
             }
+            .loadsGets(forArtist: artist.name, into: $gets)
         } else {
             ScrollView {
                 ArtistPageMessage(

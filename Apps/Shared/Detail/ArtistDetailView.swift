@@ -12,6 +12,8 @@ struct ArtistDetailView: View {
     @State private var loadedID: String?
     @State private var showsAllSongs = false
     @State private var showsAllFeatures = false
+    /// Their music you don't own yet on your own server, where it can fetch.
+    @State private var gets: GetMore.ArtistGets?
 
     var body: some View {
         ScrollView {
@@ -124,10 +126,13 @@ struct ArtistDetailView: View {
                 }
             }
 
+            ArtistGetCard(artist: profile.artist.name, gets: gets)
+
             if profile.artist.count >= 10 {
                 Card { ListeningClockCard(hourly: profile.hourly) }
             }
         }
+        .loadsGets(forArtist: profile.artist.name, into: $gets)
     }
 
     /// "Alternative · 1971–1994": their main genre, and when the songs you played came out.
