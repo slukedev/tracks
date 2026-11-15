@@ -505,8 +505,11 @@ enum MediaRequestResolver {
         guard MusicAuthorization.currentStatus == .authorized else { return [] }
         let both = [name, artist].filter { !$0.isEmpty }.joined(separator: " ")
         async let owned = libraryItems(term: both, playlistName: name, kind: kind)
-        let online = AppModel.shared.yourMusic.network.isOnline
-        let catalog = online && !(await cannotPlayCatalog()) ? await catalogItems(term: both, name: name, artist: artist, kind: kind) : []
+        var catalog: [ResolvedMedia] = []
+        if AppModel.shared.yourMusic.network.isOnline {
+            let unplayable = await cannotPlayCatalog()
+            if !unplayable { catalog = await catalogItems(term: both, name: name, artist: artist, kind: kind) }
+        }
         return await owned + catalog
     }
 
