@@ -38,16 +38,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.graph
-import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.library.LibraryAlbum
-import com.luke.tracks.library.LibraryIndex
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.ui.components.Artwork
 import com.luke.tracks.ui.navigation.LibraryArtistRoute
 import com.luke.tracks.ui.navigation.Route
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.sharedElement
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
 /** An album in Your Music, by its library id. */
@@ -55,7 +52,7 @@ import kotlinx.coroutines.flow.map
 fun LibraryAlbumScreen(albumId: String) {
     val context = LocalContext.current
     val graph = context.graph
-    val index by remember { (graph.library as? CombinedLibrary)?.index ?: MutableStateFlow(LibraryIndex.Empty) }.collectAsStateWithLifecycle()
+    val index = com.luke.tracks.ui.play.components.rememberLibraryIndex()
     val current by remember { graph.player.state.map { it.current?.mediaId } }.collectAsStateWithLifecycle(null)
     val album = index.album(albumId)
     if (album == null) {

@@ -403,7 +403,7 @@ private fun AlbumShelf(title: String, albums: List<ServerAlbum>, action: (@Compo
                     Modifier
                         .animateItem()
                         .width(148.dp)
-                        .goToActions(GoTo(artist = index.artistIdOf(album.artist)?.let(::LibraryArtistRoute)), navigator)
+                        .goToActions(remember(album, index) { GoTo(artist = index.artistIdOf(album.artist)?.let(::LibraryArtistRoute)) }, navigator)
                         .pressable(
                             onClick = { navigator.open(LibraryAlbumRoute(album.libraryId)) },
                             onLongClick = {

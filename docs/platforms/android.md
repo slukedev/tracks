@@ -183,6 +183,13 @@ See [README.md](README.md) for the legend and how to keep this current.
   music), Waiting to be heard (your songs you've never played, in a fresh order each day).
 - Mix pages with Play and Shuffle; songs you can't play here are dimmed and offer "Open in"
   another app.
+- Press and hold any song on Play (every shelf, Keep exploring, Waiting to be heard, a mix's
+  songs) for one sheet in the iPhone's order: Play, Play next, Add to queue; Add to your music
+  where the server fetches; Go to album, Go to artist, Your stats; Open in another app; Share;
+  Hear less of this. Go to album and Go to artist are TalkBack actions on each song, album and
+  artist too. Songs you have open your music's pages; songs a server found that you don't
+  open that server's album and artist pages (`getSong`, `getAlbum`, `getArtist`,
+  `getTopSongs`, with a search by name for Octo's); the rest open your history's.
 - Pin a mix to the home screen.
 - Hear less of, with Undo: the song leaves every mix and the radio.
 - Tracks Radio: the engine's `RadioStation` over your library, weighted by how much and how

@@ -264,7 +264,7 @@ private fun RecentlyPlayed(albums: List<LibraryAlbum>, modifier: Modifier) {
                     Modifier
                         .animateItem()
                         .width(148.dp)
-                        .goToActions(GoTo(artist = index.artistIdOf(album.artistName)?.let(::LibraryArtistRoute)), navigator)
+                        .goToActions(remember(album, index) { GoTo(artist = index.artistIdOf(album.artistName)?.let(::LibraryArtistRoute)) }, navigator)
                         .pressable(onClick = { navigator.open(LibraryAlbumRoute(album.id)) }, onLongClick = { actions.open(LibraryTarget.Album(album)) }),
                 ) {
                     Artwork(album.artworkUri, album.title + album.artistName, Modifier.fillMaxWidth().sharedElement("cover:album:${album.id}"), shape = RoundedCornerShape(20.dp))

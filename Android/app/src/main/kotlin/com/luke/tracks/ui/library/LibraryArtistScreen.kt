@@ -36,9 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.graph
-import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.library.LibraryArtist
-import com.luke.tracks.library.LibraryIndex
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.ui.navigation.LibraryAlbumRoute
@@ -46,14 +44,13 @@ import com.luke.tracks.library.LibraryAlbum
 import com.luke.tracks.ui.navigation.Route
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.sharedElement
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
 /** An artist in Your Music, by library id. */
 @Composable
 fun LibraryArtistScreen(artistId: String) {
     val graph = LocalContext.current.graph
-    val index by remember { (graph.library as? CombinedLibrary)?.index ?: MutableStateFlow(LibraryIndex.Empty) }.collectAsStateWithLifecycle()
+    val index = com.luke.tracks.ui.play.components.rememberLibraryIndex()
     val current by remember { graph.player.state.map { it.current?.mediaId } }.collectAsStateWithLifecycle(null)
     val artist = index.artist(artistId)
     if (artist == null) {
