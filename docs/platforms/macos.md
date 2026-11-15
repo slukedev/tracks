@@ -110,6 +110,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   discovery.
 - Get More, with a server that finds or gets songs, or Lidarr, as on iPhone: on Your Music, artist and album pages, search
   and Downloads, with right-click menus, help tags on Get, and the shelf's paging arrows.
+- Download for Apple Music and Your Music together (Settings, off by default): in song and album menus, the album header beside Shuffle. Apple Music adds to the library and opens Music to download, since MusicKit can't download.
 - Downloads with a sortable table: space used, what you play, what's coming down or failed.
 - Streaming quality and download quality (one setting for every network).
 - Tracks Radio's Downloaded Songs First and Delete After Playing.

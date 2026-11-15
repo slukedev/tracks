@@ -19,6 +19,7 @@ struct AlbumPage: View {
     /// True once the full track list has come back, even an empty one.
     @State private var hasLoaded = false
     @AppStorage(PlayPreferences.allowsExplicitKey) private var allowsExplicit = true
+    @AppStorage(DownloadChoice.isOnKey) private var downloadIsOn = false
 
     var body: some View {
         let album = loaded ?? album
@@ -50,6 +51,9 @@ struct AlbumPage: View {
                         )
                     }
                     .trackMenu { songMenu(track) }
+                    .swipeActions(edge: .trailing) {
+                        if case .song(let song) = track { DownloadSwipeAction(subject: .song(song)) }
+                    }
                     .collectionRowInsets(hasCover: false)
                 }
             } footer: {
@@ -67,6 +71,11 @@ struct AlbumPage: View {
         }
         .collectionPage(title: CollectionKind.of(album).title)
         .toolbar {
+            if downloadIsOn {
+                ToolbarItem(placement: .primaryAction) {
+                    DownloadControl(subject: .album(album))
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Menu("More", systemImage: "ellipsis") { moreItems(album) }
             }
@@ -96,6 +105,7 @@ struct AlbumPage: View {
             facts: factsLine(album, kind: kind),
             tintCover: cover(album),
             canPlay: !(hasLoaded && tracks.isEmpty),
+            download: .album(album),
             play: { playAlbum(album, context: context, shuffled: false) },
             shuffle: { playAlbum(album, context: context, shuffled: true) }
         ) {
@@ -118,8 +128,12 @@ struct AlbumPage: View {
             player.enqueue(.album(album), next: false, title: album.title)
         }
         Divider()
-        Button("Add to Library", systemImage: "plus") { player.addToLibrary(album) }
-        GetWithLidarrButton(album: album.title, artist: album.artistName)
+        if downloadIsOn {
+            DownloadMenuItems(subject: .album(album))
+        } else {
+            Button("Add to Library", systemImage: "plus") { player.addToLibrary(album) }
+            GetWithLidarrButton(album: album.title, artist: album.artistName)
+        }
         if let artist = album.artists?.first {
             Button("Go to Artist", systemImage: "music.microphone") { openPlayRoute(.artist(artist)) }
         }

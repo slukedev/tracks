@@ -1025,9 +1025,12 @@ struct AddToLidarrButton: View {
     let artistName: String
     @Environment(Lidarr.self) private var lidarr
     @Environment(PlayerModel.self) private var player
+    @AppStorage(DownloadChoice.isOnKey) private var downloadIsOn = false
 
     var body: some View {
-        if lidarr.isSetUp {
+        if downloadIsOn {
+            DownloadMenuItems(subject: .artist(artistName))
+        } else if lidarr.isSetUp {
             if lidarr.artist(named: artistName) != nil {
                 Button("Lidarr Follows \(artistName)", systemImage: "checkmark.circle") {}
                     .disabled(true)

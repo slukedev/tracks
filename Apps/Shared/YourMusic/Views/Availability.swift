@@ -104,6 +104,7 @@ struct YourMusicSongMenu: View {
     @Environment(Lidarr.self) private var lidarr
     @Environment(PlayerModel.self) private var player
     @Environment(\.openPlayRoute) private var openPlayRoute
+    @AppStorage(DownloadChoice.isOnKey) private var downloadIsOn = false
 
     var body: some View {
         SongMenuItems(actions)
@@ -111,12 +112,12 @@ struct YourMusicSongMenu: View {
 
     private var actions: SongActions {
         let availability = music.availability(title: song.title, artist: song.artistName)
-        var actions = SongActions(block: showsBlock ? song.artistName : nil)
+        var actions = SongActions(download: .song(song), block: showsBlock ? song.artistName : nil)
         if let track = availability.track {
             actions.playNext = { player.enqueue(.local([track]), next: true, title: track.title) }
             actions.playLast = { player.enqueue(.local([track]), next: false, title: track.title) }
             if track.isFromServer, !music.isInYourMusic(track) {
-                if music.getMore.offersGet(track) { actions.keep.append(.addToYourMusic(track, music: music, player: player)) }
+                if !downloadIsOn, music.getMore.offersGet(track) { actions.keep.append(.addToYourMusic(track, music: music, player: player)) }
             } else if track.isFromServer, !music.downloads.isDownloaded(track.id) {
                 actions.keep.append(SongMenuButton(title: "Download", systemImage: "arrow.down.circle") { music.downloads.download([track]) })
             }
@@ -124,7 +125,7 @@ struct YourMusicSongMenu: View {
         if lidarr.isSetUp {
             switch availability {
             case .unavailable, .comingFromLidarr, .checking:
-                if let album = song.albumTitle {
+                if !downloadIsOn, let album = song.albumTitle {
                     actions.keep.append(SongMenuButton(title: "Ask Lidarr for This Album", systemImage: "tray.and.arrow.down") {
                         Task { player.confirm(await lidarr.request(album: album, by: song.artistName)) }
                     })

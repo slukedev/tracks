@@ -49,6 +49,9 @@ struct CollectionHeader<Cover: View, More: View>: View {
     /// The cover the field takes its colour from.
     let tintCover: CoverArt?
     var canPlay = true
+    /// An Apple Music album, for Download on the Mac, where Settings turns it on. iPhone keeps
+    /// it in the toolbar.
+    var download: DownloadSubject?
     /// Still loading: the cover is a placeholder, the words wait, and Play waits too.
     var isLoading = false
     let play: () -> Void
@@ -312,6 +315,14 @@ struct CollectionHeader<Cover: View, More: View>: View {
             }
             .buttonStyle(.glass)
             .help("Shuffle")
+            if let download {
+                DownloadControl(subject: download)
+                    .font(.body.weight(.semibold))
+                    .menuStyle(.button)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .fixedSize()
+            }
             Menu {
                 more
             } label: {

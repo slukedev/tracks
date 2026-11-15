@@ -225,6 +225,7 @@ struct LibrarySongsList: View {
                     player.enqueue(.songs([song]), next: false, title: song.title)
                 }
                 .tint(.orange)
+                DownloadSwipeAction(subject: .song(song))
             }
         }
         // The next page, as the end comes into view. A row of its own, since with explicit

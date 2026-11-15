@@ -51,6 +51,31 @@ struct ServersSection: View {
         .sheet(isPresented: $addsServer) {
             ServerForm()
         }
+        DownloadChoiceSection()
+    }
+}
+
+/// Download for Apple Music and Your Music together, and which one it uses without asking.
+/// Off by default.
+struct DownloadChoiceSection: View {
+    @AppStorage(DownloadChoice.isOnKey) private var isOn = false
+    @AppStorage(DownloadChoice.defaultKey) private var preferred = DownloadDefault.ask
+
+    var body: some View {
+        Section {
+            Toggle("Download to Apple Music or Your Music", isOn: $isOn.animation())
+            if isOn {
+                Picker("Always Use", selection: $preferred) {
+                    ForEach(DownloadDefault.allCases, id: \.self) { choice in
+                        Text(DownloadWords.name(of: choice)).tag(choice)
+                    }
+                }
+            }
+        } header: {
+            Text("Download")
+        } footer: {
+            Text("Albums and songs get one Download button that adds them to your Apple Music library or gets them on your server.")
+        }
     }
 }
 

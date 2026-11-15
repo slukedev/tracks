@@ -150,6 +150,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   and ones like them, with Get, a ring while they come in, and a tick when they're here. Also
   on artist pages (Your Music, server, Apple Music and history), album pages (Missing, Get
   All), search and Downloads (Requested). None of it shows without one of them.
+- Download for Apple Music and Your Music together (Settings, off by default): in song and album menus, the album's toolbar and a song's swipe. Apple Music adds to the library and opens Music to download, since MusicKit can't download (downloaded state read from the media library).
 - Picked for You, discovery, newest, most played, random albums and Keep Exploring per server.
 - Tracks Radio, mixes, moods and "Waiting to Be Heard" from your own music.
 - Downloads from your servers, as original files, in the background; cellular optional.

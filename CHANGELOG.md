@@ -233,6 +233,11 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
 - Lidarr: add artists and ask for albums from anywhere in Tracks, see what's downloading,
   wanted and coming soon, and download anything in your Lidarr collection through your
   server
+- One Download for Apple Music and Your Music, off until you turn it on in Settings: albums,
+  songs and artists offer Download on Apple Music, which adds to your library and opens Music
+  to download, and Get on Your Music, from your server or Lidarr. It leads with the last one
+  you chose, or always uses the one you pick, and shows what each already has: in your
+  library, downloaded (iPhone), on your server, coming in, or Try Again
 
 ### Everywhere Else
 

@@ -11,6 +11,9 @@ struct SongActions {
     var playLast: (() -> Void)?
     var createStation: (() -> Void)?
     var addToLibrary: (() -> Void)?
+    /// The song for Download, which stands in for Add to Library where Settings turns on
+    /// Download for Apple Music and Your Music together.
+    var download: DownloadSubject?
     /// Your music's own ways of keeping a song, beside Add to Library: Download, Keep on This
     /// Mac, Ask Lidarr.
     var keep: [SongMenuButton] = []
@@ -100,13 +103,15 @@ enum SongShare {
 struct SongMenuItems: View {
     let actions: SongActions
     @Environment(\.showSongInfo) private var showSongInfo
+    @AppStorage(DownloadChoice.isOnKey) private var downloadIsOn = false
 
     init(_ actions: SongActions) {
         self.actions = actions
     }
 
     private var hasPlay: Bool { actions.play != nil || actions.playNext != nil || actions.playLast != nil }
-    private var hasLibrary: Bool { actions.addToLibrary != nil || !actions.keep.isEmpty || !actions.playlistTracks.isEmpty || actions.favorite != nil }
+    private var download: DownloadSubject? { downloadIsOn ? actions.download : nil }
+    private var hasLibrary: Bool { actions.addToLibrary != nil || download != nil || !actions.keep.isEmpty || !actions.playlistTracks.isEmpty || actions.favorite != nil }
     private var hasGo: Bool { actions.goToAlbum != nil || actions.goToArtist != nil || !actions.artistLinks.isEmpty || actions.stats != nil || getInfo != nil || !actions.reveal.isEmpty }
 
     /// Only where something can show it.
@@ -136,7 +141,9 @@ struct SongMenuItems: View {
 
         if hasLibrary {
             if groups[..<2].contains(true) { Divider() }
-            if let addToLibrary = actions.addToLibrary {
+            if let download {
+                DownloadMenuItems(subject: download)
+            } else if let addToLibrary = actions.addToLibrary {
                 Button("Add to Library", systemImage: "plus", action: addToLibrary)
             }
             buttons(actions.keep)
@@ -222,6 +229,7 @@ extension SongActions {
             playLast: { player.enqueue(.songs([song]), next: false, title: song.title) },
             createStation: { player.playStation(from: song) },
             addToLibrary: { player.addToLibrary(song) },
+            download: .song(song),
             favorite: song,
             info: SongInfoSubject(song),
             share: song.url.map(SongShare.url)
