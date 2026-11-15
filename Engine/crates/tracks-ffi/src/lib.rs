@@ -18,6 +18,7 @@ mod catalog;
 mod demo;
 mod lastfm;
 mod mixes;
+mod radio;
 mod server;
 
 /// Something the engine couldn't do.
