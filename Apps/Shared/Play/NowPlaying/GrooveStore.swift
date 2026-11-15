@@ -9,7 +9,8 @@ import os
 /// The groove of the song playing (see ``Groove``), for the drawing that moves with music
 /// Tracks can't hear.
 ///
-/// Apple Music plays in a process of its own, so Tracks never hears the song itself. Each
+/// Apple Music plays in a process of its own, so on iPhone Tracks never hears the song
+/// itself, and on the Mac only once it's allowed (see ``MusicHearing``). Each
 /// catalog song has a half-minute preview, though, plain sound anyone may fetch. Tracks
 /// fetches it once, listens to it for the song's tempo, its drums, its shape and how loud it
 /// is, keeps what it learned, with a sketch of its sound band by band (about fifteen kilobytes),

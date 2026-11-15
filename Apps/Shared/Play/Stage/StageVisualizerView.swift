@@ -6,9 +6,10 @@ import TracksCore
 /// cover on each beat, or a waveform of the last few seconds passing by. See ``BarsVisual``,
 /// ``GlowVisual``, ``HaloVisual`` and ``WaveformVisual``.
 ///
-/// It hears your own music. Apple Music plays where Tracks can't hear it, so for it the drawing
-/// follows each song's beat, feel and loudness, learned from its preview (see
-/// ``GrooveStore``): a quiet ballad moves gently, a loud dance track hits hard.
+/// It hears your own music, and on the Mac, once it's allowed, Apple Music too (see
+/// ``MusicHearing``). Otherwise the drawing follows each song's beat, feel and loudness,
+/// learned from its preview (see ``GrooveStore``): a quiet ballad moves gently, a loud dance
+/// track hits hard.
 ///
 /// Paused, it settles and stops drawing, and off screen it doesn't draw at all. Under Reduce
 /// Motion it's still.

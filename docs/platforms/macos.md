@@ -94,8 +94,10 @@ See [README.md](README.md) for the legend and how to keep this current.
   remove, double-click to play.
 - Mini Player: the cover in a small window that stays in front, controls on hover (⇧⌘M to
   switch, ⌥⌘M alongside).
-- Stage window for a second display or a TV, with a visualizer that follows the Mac's own
-  sound through a Core Audio tap (⌥⌘P).
+- Stage window for a second display or a TV, with a visualizer that hears Apple Music through
+  a Core Audio tap of MediaPlayer's RemotePlayerService, the helper MusicKit plays in, and
+  only that (⌥⌘P). Opt-in: asked the first time, then Settings › Play › Now Playing › Hear the
+  Music; the song's preview groove when it's off or macOS refuses. Code in `Apps/macOS/Audio/`.
 - Backgrounds: Full Cover, artwork, Living Colour, Pulse.
 - Play count and keep ring, sleep timer, favorite star, audio quality badge.
 - Pick Up Where You Left Off.

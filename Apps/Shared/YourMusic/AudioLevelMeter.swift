@@ -17,9 +17,10 @@ import os
 /// The gain rides each song so a loud master and a quiet one fill the same height, and a gentle
 /// stretch after it spreads bars that keep to a narrow part of it (see ``LevelContrast``).
 ///
-/// Apple Music plays in a process Tracks can't tap. On the Mac, the Mac's own sound is heard
-/// instead, once it's allowed (see ``SystemAudioListener``); on iPhone, or until then, there
-/// are no levels, and the visualizer plays back each song's groove (see ``GrooveStore``).
+/// Apple Music plays in a process of its own, which Tracks can't tap this way. On the Mac,
+/// once it's allowed, that process is heard as it plays (see ``AppleMusicListener``); on
+/// iPhone, or until then, there are no levels, and the visualizer plays back each song's
+/// groove (see ``GrooveStore``).
 nonisolated final class AudioLevelMeter: @unchecked Sendable {
     static let shared = AudioLevelMeter()
     static let bandCount = 24
@@ -34,14 +35,14 @@ nonisolated final class AudioLevelMeter: @unchecked Sendable {
     func startListening() {
         let (_, now) = listeners.add(1, ordering: .relaxed)
         #if os(macOS)
-        if now == 1 { SystemAudioListener.shared.start() }
+        if now == 1 { AppleMusicListener.shared.setWanted(true) }
         #endif
     }
 
     func stopListening() {
         let (_, now) = listeners.subtract(1, ordering: .relaxed)
         #if os(macOS)
-        if now == 0 { SystemAudioListener.shared.stop() }
+        if now == 0 { AppleMusicListener.shared.setWanted(false) }
         #endif
     }
 
@@ -263,15 +264,14 @@ nonisolated final class LevelAnalysis: @unchecked Sendable {
             heardAt = now - (time.seconds - centre)
         }
         #if os(macOS)
-        // Apple Music, or anything else playing on the Mac, heard as it goes to the speakers.
-        let mac = SystemAudioListener.shared
-        if total == nil, mac.isHearing {
-            let time = SystemAudioListener.now()
-            if let (decibels, centre) = measure(mac.sound, at: time) {
+        // Apple Music, heard as it goes to the speakers.
+        if total == nil, let music = AppleMusicListener.shared.heard {
+            let time = AppleMusicListener.now()
+            if let (decibels, centre) = measure(music, at: time) {
                 total = decibels
                 heardAt = now - (time - centre)
             }
-            heard = ObjectIdentifier(mac.sound)
+            heard = ObjectIdentifier(music)
         }
         #endif
         guard let total, let heard else { return nil }
@@ -342,139 +342,9 @@ nonisolated final class LevelAnalysis: @unchecked Sendable {
     #endif
 }
 
-/// One song's sound, or the Mac's: the last few seconds of it, both channels mixed to one, and where in the
-/// song they are. Written on the audio thread, without allocating; read when a frame's drawn.
-nonisolated final class HeardSound: @unchecked Sendable {
-    private struct Ring {
-        var samples: [Float] = []
-        var sampleRate: Double = 0
-        var channels = 1
-        var isInterleaved = false
-        var isFloat = false
-        /// Samples written, all told; the newest is at `written - 1`.
-        var written = 0
-        /// The song's time just after the newest sample.
-        var end: Double = 0
-        /// The first sample of the current run: before it, the song was somewhere else.
-        var runStart = 0
-    }
-
-    private let ring = OSAllocatedUnfairLock(initialState: Ring())
-
-    var sampleRate: Double? {
-        ring.withLock { $0.sampleRate > 0 && !$0.samples.isEmpty ? $0.sampleRate : nil }
-    }
-
-    /// Sets aside about three seconds: enough for what AVFoundation hands over ahead of the
-    /// speakers, and AirPlay's longer wait.
-    func prepare(_ format: AudioStreamBasicDescription) {
-        let rate = format.mSampleRate > 0 ? format.mSampleRate : 44_100
-        var capacity = 1 << 16
-        while Double(capacity) < rate * 3 { capacity <<= 1 }
-        ring.withLockUnchecked { ring in
-            ring = Ring()
-            ring.samples = [Float](repeating: 0, count: capacity)
-            ring.sampleRate = rate
-            ring.channels = max(1, Int(format.mChannelsPerFrame))
-            ring.isInterleaved = format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
-            ring.isFloat = format.mFormatFlags & kAudioFormatFlagIsFloat != 0 && format.mBitsPerChannel == 32
-        }
-    }
-
-    /// Copies a moment of sound in, its channels mixed to one. On the audio thread.
+extension HeardSound {
+    /// Copies a moment of a song in, timed by the song's own clock. On the audio thread.
     func hear(_ buffers: UnsafeMutablePointer<AudioBufferList>, frames: Int, at start: CMTime) {
-        guard frames > 0 else { return }
-        let list = UnsafeMutableAudioBufferListPointer(buffers)
-        ring.withLockUnchecked { ring in
-            guard ring.isFloat, !ring.samples.isEmpty else { return }
-            let time = start.isNumeric ? start.seconds : ring.end
-            // A seek, or the first sound after a while unheard: a new run.
-            if abs(time - ring.end) * ring.sampleRate > 2 {
-                ring.runStart = ring.written
-            }
-            let capacity = ring.samples.count
-            let mask = capacity - 1
-            let channels = ring.channels
-            let isInterleaved = ring.isInterleaved
-            let written = ring.written
-            // Plain loops over pointers: this runs for every buffer of sound, even in a Debug
-            // build, where a range's iterator costs more than the copying.
-            ring.samples.withUnsafeMutableBufferPointer { out in
-                guard let out = out.baseAddress else { return }
-                if isInterleaved, let data = list.first?.mData {
-                    let input = data.assumingMemoryBound(to: Float.self)
-                    let share = 1 / Float(channels)
-                    var frame = 0
-                    while frame < frames {
-                        var sum: Float = 0
-                        var channel = 0
-                        while channel < channels {
-                            sum += input[frame * channels + channel]
-                            channel += 1
-                        }
-                        out[(written + frame) & mask] = sum * share
-                        frame += 1
-                    }
-                } else {
-                    let present = list.reduce(0) { $0 + ($1.mData == nil ? 0 : 1) }
-                    let share = 1 / Float(max(1, present))
-                    var isFirst = true
-                    for buffer in list {
-                        guard let data = buffer.mData else { continue }
-                        let input = data.assumingMemoryBound(to: Float.self)
-                        var frame = 0
-                        while frame < frames {
-                            let index = (written + frame) & mask
-                            out[index] = (isFirst ? 0 : out[index]) + input[frame] * share
-                            frame += 1
-                        }
-                        isFirst = false
-                    }
-                    if isFirst {
-                        var frame = 0
-                        while frame < frames {
-                            out[(written + frame) & mask] = 0
-                            frame += 1
-                        }
-                    }
-                }
-            }
-            ring.written += frames
-            ring.end = time + Double(frames) / ring.sampleRate
-        }
-    }
-
-    /// Fills `window` with the sound around `time` in the song, and says the song's time at
-    /// its centre. Nil if that moment isn't here: not yet handed over, long gone, or from
-    /// before a seek.
-    func copy(around time: Double, into window: inout [Float]) -> Double? {
-        ring.withLockUnchecked { ring -> Double? in
-            guard ring.sampleRate > 0, ring.written > 0 else { return nil }
-            let size = window.count
-            let capacity = ring.samples.count
-            let oldest = max(ring.runStart, ring.written - capacity)
-            // The sample being heard, then the window around it, slid back to what's arrived.
-            let heard = ring.written - Int(((ring.end - time) * ring.sampleRate).rounded())
-            var first = min(heard - size / 2, ring.written - size)
-            if first < oldest {
-                // Over a quarter of a second off, it's not this moment any more.
-                guard oldest - first < Int(ring.sampleRate / 4), ring.written - oldest >= size else { return nil }
-                first = oldest
-            }
-            guard heard > oldest - Int(ring.sampleRate / 4), heard < ring.written + Int(ring.sampleRate / 4) else { return nil }
-            let mask = capacity - 1
-            // In at most two runs, as the ring wraps: copied whole, since this is asked for
-            // every frame something moves with the music.
-            let start = first & mask
-            let head = min(size, capacity - start)
-            ring.samples.withUnsafeBufferPointer { samples in
-                window.withUnsafeMutableBufferPointer { out in
-                    guard let from = samples.baseAddress, let to = out.baseAddress else { return }
-                    to.update(from: from + start, count: head)
-                    if head < size { (to + head).update(from: from, count: size - head) }
-                }
-            }
-            return ring.end - Double(ring.written - (first + size / 2)) / ring.sampleRate
-        }
+        hear(buffers, frames: frames, at: start.isNumeric ? start.seconds : nil)
     }
 }

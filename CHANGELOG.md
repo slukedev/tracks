@@ -92,6 +92,9 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   pauses Music
 - Your Music plays FLAC and other files on the Mac: import songs or folders, or drop them in
   Tracks’ Music folder, which Add Music shows in Finder
+- Stage and moving backgrounds hear the Apple Music song itself and move with every beat,
+  not its preview. Tracks asks the first time, hears only Apple Music's own player, and
+  records nothing. Settings › Play › Now Playing › Hear the Music turns it on or off
 
 ### Play
 

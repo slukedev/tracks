@@ -465,8 +465,8 @@ private struct BackdropMiniature: View {
     }
 }
 
-/// Settings ▸ Play ▸ Now Playing: the background, how the background changes between songs, and whether the player shows the quality you're
-/// hearing.
+/// Settings ▸ Play ▸ Now Playing: the background, how the background changes between songs, whether the player shows the quality you're
+/// hearing, and on the Mac whether what moves with the music hears Apple Music.
 struct NowPlayingBackdropSection: View {
     @AppStorage(NowPlayingBackground.storageKey) private var chosen = NowPlayingBackground.defaultValue
     @AppStorage(BackdropChange.storageKey) private var change = BackdropChange.crossfade
@@ -497,6 +497,9 @@ struct NowPlayingBackdropSection: View {
                 detail: Text(PlaySettingsWords.audioQualityDetail(isShown: showsQuality)),
                 isOn: $showsQuality
             )
+            #if os(macOS)
+            MusicHearingSettings()
+            #endif
         } header: {
             Text("Now Playing")
         } footer: {

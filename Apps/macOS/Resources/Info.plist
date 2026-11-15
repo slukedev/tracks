@@ -56,7 +56,7 @@
     <!-- Stage's visualizer and the backgrounds that move with the music hear what the Mac
          plays, Apple Music included, through a private Core Audio tap. -->
     <key>NSAudioCaptureUsageDescription</key>
-    <string>Tracks listens to the music your Mac is playing so Stage and the backgrounds that move with the music follow every beat. Nothing is recorded or kept.</string>
+    <string>Tracks listens only to the Apple Music songs it plays, so Stage and moving backgrounds follow every beat. Nothing is recorded or kept.</string>
 
     <!-- Identify Song hears the room through the microphone, for Shazam. -->
     <key>NSMicrophoneUsageDescription</key>
