@@ -274,8 +274,10 @@ final class PlaylistMerge {
         var asked = false
         for server in servers {
             // Trackside answers from its own index, so only Subsonic servers wait their turn.
-            guard music.servers.isTrackside(server.id) || (try? await budget.wait()) != nil,
-                  let answer = await music.serverSongs(on: server.id, matching: "\(song.title) \(song.artist)")
+            if !music.servers.isTrackside(server.id) {
+                guard (try? await budget.wait()) != nil else { continue }
+            }
+            guard let answer = await music.serverSongs(on: server.id, matching: "\(song.title) \(song.artist)")
             else { continue }
             asked = true
             guard let match = ServerSongMatcher.bestMatch(title: song.title, artist: song.artist, in: answer) else { continue }
