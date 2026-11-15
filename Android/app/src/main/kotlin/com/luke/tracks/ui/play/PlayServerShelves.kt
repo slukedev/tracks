@@ -350,7 +350,7 @@ private fun ServerSongMenu(song: ServerSong, expanded: Boolean, onDismiss: () ->
     }
 }
 
-/** A server's own shelves: what's new on it, what it plays most, and albums at random. */
+/** A server's own shelves: what it plays most and albums at random. */
 @Composable
 fun ServerAlbumShelves(server: SubsonicServer, modifier: Modifier = Modifier) {
     val picks = rememberServerPicks()
@@ -359,7 +359,6 @@ fun ServerAlbumShelves(server: SubsonicServer, modifier: Modifier = Modifier) {
     LaunchedEffect(server.id) { picks.loadAlbums(server.id) }
     val shelves = all[server.id] ?: return
     Column(modifier, verticalArrangement = Arrangement.spacedBy(32.dp)) {
-        if (shelves.newest.isNotEmpty()) AlbumShelf("New on ${server.name}", shelves.newest)
         if (shelves.mostPlayed.isNotEmpty()) AlbumShelf("Most played on ${server.name}", shelves.mostPlayed)
         if (shelves.random.isNotEmpty()) AlbumShelf("Something different", shelves.random) {
             IconButton(onClick = { scope.launch { picks.shuffleRandom(server.id) } }) {

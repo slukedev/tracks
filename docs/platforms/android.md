@@ -167,7 +167,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   Android.
 - Sections in the order of the iPhone's Play with your own music: a card for a server that
   can't be reached, the crate, Suggested songs, Recently played, Your artists, Made from your
-  listening, Waiting to be heard, then for each server Picked for you, New on, Most played on
+  listening, Waiting to be heard, then for each server Picked for you, Most played on
   and Something different, and Keep exploring at the end. Each shows only when it has
   something.
 - Suggested songs, Picked for you and Keep exploring come from each Subsonic server, as on

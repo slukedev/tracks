@@ -56,7 +56,6 @@ data class ServerForYouState(val shelves: ForYouShelves, val isFilling: Boolean 
 
 /** A server's own shelves of albums. */
 data class ServerAlbums(
-    val newest: List<ServerAlbum> = emptyList(),
     val mostPlayed: List<ServerAlbum> = emptyList(),
     val random: List<ServerAlbum> = emptyList(),
     val loadedAt: Long = 0,
@@ -70,7 +69,7 @@ data class ServerSong(val serverId: String, val song: FoundSong)
 
 /**
  * What your music servers find for you, as on iPhone: songs by the artists you play and
- * artists like them (Picked for you, Suggested songs and Keep exploring), each server's newest,
+ * artists like them (Picked for you, Suggested songs and Keep exploring), each server's
  * most played and random albums, and songs you've never played. Needs a Subsonic server;
  * with Octo in front of it, most of what's found can be fetched to keep.
  */
@@ -293,10 +292,9 @@ class ServerPicksService(
         val server = server(serverId) ?: return
         val client = serverLibrary.client(server) ?: return
         coroutineScope {
-            val newest = async { albums(server, client, SubsonicClient.AlbumListType.Newest) }
             val frequent = async { albums(server, client, SubsonicClient.AlbumListType.Frequent) }
             val random = async { albums(server, client, SubsonicClient.AlbumListType.Random) }
-            val made = ServerAlbums(newest.await(), frequent.await(), random.await(), now())
+            val made = ServerAlbums(frequent.await(), random.await(), now())
             _albums.update { it + (serverId to made) }
         }
     }
