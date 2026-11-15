@@ -8,6 +8,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.luke.tracks.ScreenshotTest
 import com.luke.tracks.data.SampleData
+import com.luke.tracks.discover.Discovery
+import com.luke.tracks.discover.FakeDiscovery
+import com.luke.tracks.discover.FetchSources
+import com.luke.tracks.discover.LocalDiscovery
 import com.luke.tracks.library.LibrarySnapshot
 import com.luke.tracks.library.MusicLibrary
 import com.luke.tracks.playback.IdlePlayer
@@ -87,14 +91,32 @@ class PlayScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         }
     }
 
-    /** The whole page, past the fold. */
+    /** The whole page, past the fold, with suggestions and nothing that could get them. */
     @Test
-    @Config(qualifiers = "w412dp-h2400dp-xxhdpi")
-    fun playFull() {
+    @Config(qualifiers = "w412dp-h3200dp-xxhdpi")
+    fun playFull() = suggesting("play-full", FakeDiscovery(FetchSources()))
+
+    /** Suggested songs under the crate: previews and Open in another app, no Get. */
+    @Test fun playSuggested() = suggesting("play-suggested", FakeDiscovery(FetchSources()))
+
+    /** With a server that fetches: Get buttons on the songs it can find. */
+    @Test fun playSuggestedWithServer() = suggesting("play-suggested-server", FakeDiscovery(FetchSources(octo = listOf("Octo at home"))))
+
+    @Test fun playSuggestedLoading() = suggesting("play-suggested-loading", FakeDiscovery(FetchSources(), waitForever = true))
+
+    /** Offline with nothing kept, or nothing found: the sections stay away. */
+    @Test fun playSuggestedOffline() = suggesting("play-suggested-offline", FakeDiscovery(FetchSources(), noSuggestions = true))
+
+    /** Further down: suggested artists, recently played, your artists. */
+    @Test
+    @Config(qualifiers = "w412dp-h1900dp-xxhdpi")
+    fun playSuggestedArtists() = suggesting("play-suggested-artists", FakeDiscovery(FetchSources(lidarr = true)))
+
+    private fun suggesting(name: String, discovery: Discovery) {
         withSampleHistory()
         withLibrary()
-        snap("play-full", settleMs = 3000) {
-            CompositionLocalProvider(LocalNavigator provides Navigator()) { PlayScreen() }
+        snap(name, settleMs = 3000) {
+            CompositionLocalProvider(LocalNavigator provides Navigator(), LocalDiscovery provides discovery) { PlayScreen() }
         }
     }
 

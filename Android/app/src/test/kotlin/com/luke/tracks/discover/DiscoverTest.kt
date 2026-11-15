@@ -65,6 +65,64 @@ class ItunesSourceTest {
     }
 }
 
+class SuggestionSourcesTest {
+    private val dir = kotlin.io.path.createTempDirectory("tracks-cache").toFile()
+
+    @After fun tearDown() { dir.deleteRecursively() }
+
+    @Test fun deezerFindsTheArtistByNameThenTheirRelatedArtists() = runBlocking {
+        val transport = RecordingTransport(
+            "search/artist" to { Fixtures.ok("deezer_search_artist") },
+            "artist/399/related" to { Fixtures.ok("deezer_related") },
+        )
+        val related = DeezerSource(transport).related("Radiohead")
+        assertEquals("Jeff Buckley", related.first().name)
+        assertEquals(2, transport.sent.size)
+        assertTrue("an artist Deezer doesn't know has no one like them", DeezerSource(transport).related("Nobody At All").isEmpty())
+        assertEquals("no related list is asked for without a match", 3, transport.sent.size)
+    }
+
+    @Test fun answersAreKeptForHoursAndStandInWhenOffline() = runBlocking {
+        var now = 1_000_000L
+        var online = true
+        var asked = 0
+        val inner = WebTransport {
+            asked++
+            if (!online) throw java.io.IOException("offline")
+            Fixtures.ok("deezer_related")
+        }
+        val cache = CachedTransport(inner, dir, maxAgeMs = 8 * HOUR, staleMs = 14 * 24 * HOUR, now = { now })
+        val request = uniffi.tracks_engine.deezerRelated(399u, 12u)
+
+        cache.send(request)
+        now += 7 * HOUR
+        cache.send(request)
+        assertEquals("a visit within the hours is answered from disk", 1, asked)
+
+        now += 2 * HOUR
+        online = false
+        val stale = cache.send(request)
+        assertEquals(2, asked)
+        assertEquals("offline, the last answer stands in", 200, stale.status.toInt())
+
+        now += 15 * 24 * HOUR
+        assertTrue("past two weeks it's too old to show", runCatching { cache.send(request) }.isFailure)
+    }
+
+    @Test fun deezerRefusalsAreNeverKept() = runBlocking {
+        var asked = 0
+        val cache = CachedTransport(WebTransport { asked++; Fixtures.ok("deezer_quota") }, dir, maxAgeMs = 8 * HOUR)
+        val request = uniffi.tracks_engine.deezerRelated(399u, 12u)
+        cache.send(request)
+        cache.send(request)
+        assertEquals(2, asked)
+    }
+
+    private companion object {
+        const val HOUR = 3600_000L
+    }
+}
+
 class LidarrServiceTest {
     private val prefs = MemoryPrefs()
 

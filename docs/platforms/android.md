@@ -26,6 +26,11 @@ See [README.md](README.md) for the legend and how to keep this current.
   through Tracks. The notification listener, its onboarding step, the Listening history and
   excluded apps pages, and the Radio filter are gone. Plays it kept earlier stay in the
   history.
+- 2026-11-15: Suggestions of music you don't have live on Play only, and show whether or not
+  a server can get them (previews and Open in another app without one). Your Music shows only
+  your music. Play's old "Suggested songs" (your most played this month) and "Keep exploring"
+  (old favorites) are gone: On Repeat and Rediscover cover them, and those names now mean new
+  music, as on iPhone.
 
 ## Complete features
 
@@ -148,8 +153,6 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Lidarr: connect with an address and API key (sealed in the Keystore), choose what Tracks
   follows, quality, metadata and folder, see what's downloading; ask for an album or follow an
   artist from any song, album or artist.
-- Suggested for you in Your Music: albums and songs by the artists you play most (and artists
-  like them where this build has a Last.fm key) that you don't have, ranked by the engine.
 - More by an artist on both artist pages, with albums marked as yours, partly yours or not, and
   their songs you don't have. Your album pages say how many songs are missing and open the full
   album, which can list just the missing ones.
@@ -161,7 +164,17 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Mixes from the shared engine: time of day, On Repeat, New Finds, All-Time Favorites, Deep
   Cuts, Rediscover, A Year Ago. Radio Finds needs radio plays, so it never appears on
   Android.
-- Your artists lately, suggested songs from your history, Keep exploring.
+- Sections in the iPhone's order: the crate, Suggested songs, Suggested artists, Recently
+  played, Your artists, Made from your listening, New from your artists, then Keep exploring at
+  the end. Each shows only when it has something.
+- Suggested songs, Suggested artists, New from your artists and Keep exploring are music you
+  don't have, from your top artists and artists like them: Deezer's related artists (no key
+  needed), plus Last.fm's similar songs where this build has a key, ranked by the engine, with
+  artists you already play left out. Each song has a 30 second preview (never kept or
+  scrobbled) and Open in another app; with Octo or Lidarr, a Get button too. Not interested
+  on an artist stops suggesting them. Answers are kept on disk, asked again at most every 8
+  hours or when your top artists change, and shown from there when offline.
+- Recently played: the albums of your latest plays, with the album menu on press and hold.
 - Mix pages with Play and Shuffle; songs you can't play here are dimmed and offer "Open in"
   another app.
 - Pin a mix to the home screen.
@@ -273,11 +286,15 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - Save a mix as a playlist.
 - Tune Tracks Radio beyond adventure: genres, old favorites, Through the Day.
 - Learning which songs go together, and Autoplay after an album or playlist.
-- Suggested Songs and Artists, Find Songs, Find Artists, Keep Exploring. Without Apple Music,
-  these need Last.fm similar artists and tracks, or a server with Octo.
+- Find Songs and Find Artists (the "Find More" pages behind Suggested songs and Suggested
+  artists), and shelves that keep growing as you scroll to their end.
+- Discover in the crate, and Tracks Radio's new finds from suggestions.
 - Moods, genres, Handpicked and Party.
-- Your Artists shelf and For You cards.
+- Radio (live stations), Top Charts, Apple Music's picks and the library overview on Play:
+  Apple Music's on iPhone. Android would need its own sources, if any.
+- For You cards.
 - Edit Play's sections; Open To.
+- Pull to refresh Play.
 - Block an artist.
 - Driving: Tracks Radio for the road, from Activity Recognition or an Android Auto
   connection.

@@ -1,5 +1,5 @@
 //! Music you don't have yet, for every platform: searching Apple's free iTunes catalog,
-//! asking Lidarr for albums, telling whether something is already yours, and ranking what to
+//! finding artists like yours on Deezer, asking Lidarr for albums, telling whether something is already yours, and ranking what to
 //! suggest.
 //!
 //! Sans-IO like `tracks-lastfm`: each client builds a [`Request`] that the host sends with
@@ -16,6 +16,7 @@
 //! assert!(tracks_catalog::parse_catalog(&response).expect("readable").albums.is_empty());
 //! ```
 
+pub mod deezer;
 mod error;
 mod itunes;
 pub mod lidarr;

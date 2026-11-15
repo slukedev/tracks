@@ -112,6 +112,8 @@ pub struct CatalogAlbum {
     pub year: Option<u32>,
     pub genre: Option<String>,
     pub kind: CatalogAlbumKind,
+    /// The day it came out, or comes out, as "2016-05-08".
+    pub released: Option<String>,
     pub store_url: Option<String>,
 }
 
@@ -171,6 +173,7 @@ impl From<tracks_catalog::CatalogAlbum> for CatalogAlbum {
                 K::Ep => CatalogAlbumKind::Ep,
                 K::Compilation => CatalogAlbumKind::Compilation,
             },
+            released: a.released,
             store_url: a.store_url,
         }
     }
@@ -327,6 +330,107 @@ pub fn suggestions_rank(
         .into_iter()
         .map(|i| i as u32)
         .collect()
+}
+
+/// What one artist's listeners play alongside them, closest first.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RelatedArtists {
+    pub from: String,
+    pub names: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct SimilarArtist {
+    pub name: String,
+    /// Your artists they're like, the closest first.
+    pub like: Vec<String>,
+    /// To rank their songs by, below every artist of yours.
+    pub weight: f64,
+}
+
+/// Artists like yours, best first, leaving out yours and `excluded`.
+#[uniffi::export]
+pub fn suggestions_similar_artists(
+    seeds: Vec<SuggestionSeed>,
+    related: Vec<RelatedArtists>,
+    excluded: Vec<String>,
+    limit: u32,
+) -> Vec<SimilarArtist> {
+    let seeds: Vec<core_suggest::Seed> = seeds
+        .into_iter()
+        .map(|s| core_suggest::Seed {
+            artist: s.artist,
+            weight: s.weight,
+        })
+        .collect();
+    let related: Vec<core_suggest::Related> = related
+        .into_iter()
+        .map(|r| core_suggest::Related {
+            from: r.from,
+            names: r.names,
+        })
+        .collect();
+    core_suggest::similar_artists(&seeds, &related, &excluded, limit as usize)
+        .into_iter()
+        .map(|a| SimilarArtist {
+            name: a.name,
+            like: a.like,
+            weight: a.weight,
+        })
+        .collect()
+}
+
+// MARK: - Deezer
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DeezerArtist {
+    pub id: u64,
+    pub name: String,
+    pub picture_url: Option<String>,
+    pub fans: Option<u64>,
+}
+
+impl From<&DeezerArtist> for tracks_catalog::deezer::DeezerArtist {
+    fn from(a: &DeezerArtist) -> Self {
+        Self {
+            id: a.id,
+            name: a.name.clone(),
+            picture_url: a.picture_url.clone(),
+            fans: a.fans,
+        }
+    }
+}
+
+/// Requests for Deezer's public API, which needs no key.
+#[uniffi::export]
+pub fn deezer_search_artists(name: String, limit: u32) -> WebRequest {
+    tracks_catalog::deezer::Deezer.search_artists(&name, limit).into()
+}
+
+#[uniffi::export]
+pub fn deezer_related(artist_id: u64, limit: u32) -> WebRequest {
+    tracks_catalog::deezer::Deezer.related(artist_id, limit).into()
+}
+
+/// Reads a search or a related list; "no data" is an empty list.
+#[uniffi::export]
+pub fn deezer_parse_artists(response: HttpResponse) -> Result<Vec<DeezerArtist>> {
+    Ok(tracks_catalog::deezer::parse_artists(&self::response(response))?
+        .into_iter()
+        .map(|a| DeezerArtist {
+            id: a.id,
+            name: a.name,
+            picture_url: a.picture_url,
+            fans: a.fans,
+        })
+        .collect())
+}
+
+/// The search result that is this very artist, by position.
+#[uniffi::export]
+pub fn deezer_artist_match(name: String, results: Vec<DeezerArtist>) -> Option<u32> {
+    let results: Vec<tracks_catalog::deezer::DeezerArtist> = results.iter().map(Into::into).collect();
+    tracks_catalog::deezer::artist_match(&name, &results).map(|i| i as u32)
 }
 
 /// How much of an album you have, from how many of its songs are yours.

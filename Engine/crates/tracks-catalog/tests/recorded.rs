@@ -1,6 +1,8 @@
 //! Requests and answers on recorded traffic. The iTunes answers were recorded from the live
-//! API; the Lidarr ones follow its v1 API's shapes, trimmed.
+//! API; the Lidarr ones follow its v1 API's shapes, trimmed. Deezer's search and related
+//! artists were recorded live; its two failures are the shapes its docs give.
 
+use tracks_catalog::deezer::{self, Deezer};
 use tracks_catalog::lidarr::{
     self, AddOptions, Lidarr, Monitor, SongState, album_match, followed_artist, lookup_match,
     song_state,
@@ -54,6 +56,30 @@ fn itunes_artists_and_failures() {
     assert_eq!(parse_catalog(&Response::new(200, "<html>")), Err(CatalogError::WrongService));
     let album = parse_catalog(&fixture("itunes_album")).expect("readable").albums;
     assert_eq!(album[0].kind, AlbumKind::Album);
+    let albums = parse_catalog(&fixture("itunes_artist_albums")).expect("readable").albums;
+    assert_eq!(albums[0].released.as_deref(), Some("2016-05-08"));
+}
+
+#[test]
+fn deezer_finds_an_artist_and_the_artists_like_them() {
+    let search = deezer::parse_artists(&fixture("deezer_search_artist")).expect("readable");
+    let index = deezer::artist_match("radiohead", &search).expect("an exact name");
+    assert_eq!(search[index].id, 399);
+    assert_eq!(Deezer.related(search[index].id, 12).url, "https://api.deezer.com/artist/399/related?limit=12");
+
+    let related = deezer::parse_artists(&fixture("deezer_related")).expect("readable");
+    assert_eq!(related.len(), 12);
+    assert_eq!(related[0].name, "Jeff Buckley");
+    assert!(related.iter().any(|a| a.name == "Björk"));
+    assert!(related[0].picture_url.as_deref().is_some_and(|u| u.contains("500x500")));
+}
+
+#[test]
+fn deezer_says_no_data_and_slow_down_in_its_own_way() {
+    assert_eq!(deezer::parse_artists(&fixture("deezer_no_data")), Ok(Vec::new()));
+    let quota = deezer::parse_artists(&fixture("deezer_quota")).expect_err("rate limited");
+    assert!(quota.is_retryable());
+    assert_eq!(deezer::parse_artists(&Response::new(200, "<html>")), Err(CatalogError::WrongService));
 }
 
 #[test]

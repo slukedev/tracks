@@ -38,6 +38,7 @@ import uniffi.tracks_engine.LidarrQueueItem
 import uniffi.tracks_engine.LidarrRootFolder
 import uniffi.tracks_engine.albumOwnership
 import uniffi.tracks_engine.catalogParse
+import uniffi.tracks_engine.deezerParseArtists
 import uniffi.tracks_engine.foldedName
 import uniffi.tracks_engine.songIdentity
 
@@ -66,6 +67,8 @@ class FakeDiscovery(
     fetch: FetchSources,
     private val failSearch: Boolean = false,
     private val waitForever: Boolean = false,
+    /** Offline, or nothing found: suggestions come back empty. */
+    private val noSuggestions: Boolean = false,
 ) : Discovery {
     /** Without covers, so screenshots never reach the network: stand-in covers show instead. */
     private fun parse(name: String) = catalogParse(Fixtures.ok(name)).let { r ->
@@ -94,14 +97,24 @@ class FakeDiscovery(
 
     override suspend fun findAlbum(title: String, artist: String): CatalogAlbum? = albums.firstOrNull { foldedName(it.title) == foldedName(title) }
 
-    override suspend fun suggestions(force: Boolean): Suggestions {
-        if (waitForever) awaitCancellation()
-        return Suggestions(
-            albums = albums.map { SuggestedAlbum(it, holding(it)) }.filter { it.holding.ownership != AlbumOwnership.OWNED },
-            songs = songs.filter { owned(it) == null }.distinctBy { it.identity },
-            from = listOf("Radiohead", "Björk", "Portishead"),
+    /** What Play suggests: the recorded songs you don't have, Deezer's artists like Radiohead, and its albums as new. */
+    val suggested: Suggestions by lazy {
+        Suggestions(
+            // Live takes of the same songs fill the list past the shelf, for Keep exploring.
+            songs = (songs + songs.map { it.copy(id = it.id + 1_000_000u, title = it.title + " (Live)", identity = it.identity + " live") })
+                .filter { owned(it) == null }.distinctBy { it.identity },
+            artists = deezerParseArtists(Fixtures.ok("deezer_related")).map { SuggestedArtist(it.name, null, listOf("Radiohead")) },
+            releases = albums.map { SuggestedAlbum(it, holding(it)) }.filter { it.holding.ownership != AlbumOwnership.OWNED },
         )
     }
+
+    override suspend fun suggestions(force: Boolean): Suggestions {
+        if (waitForever) awaitCancellation()
+        return if (noSuggestions) Suggestions() else suggested
+    }
+
+    override val lastSuggestions: Suggestions? = null
+    override suspend fun notInterested(artist: String) = Unit
 
     override fun owned(song: CatalogSong): PlayableSong? = Owned.index.find(song.identity)
 
@@ -172,14 +185,9 @@ class DiscoverScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         }
     }
 
-    @Test fun suggestedForYou() = snap("discover-suggested", settleMs = 2500) {
+    /** Your albums and nothing else, even where a server could get more: suggestions are Play's. */
+    @Test fun yourAlbumsOnly() = snap("discover-library-albums", settleMs = 2500) {
         Frame(FakeDiscovery(octo)) {
-            LibraryContent(Owned.index.snapshot, { Owned.index }, emptyList(), null, {}, initialTab = LibraryTab.Albums)
-        }
-    }
-
-    @Test fun suggestedLoading() = snap("discover-suggested-loading") {
-        Frame(FakeDiscovery(octo, waitForever = true)) {
             LibraryContent(Owned.index.snapshot, { Owned.index }, emptyList(), null, {}, initialTab = LibraryTab.Albums)
         }
     }

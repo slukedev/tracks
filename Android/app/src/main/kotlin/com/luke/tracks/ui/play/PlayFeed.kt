@@ -11,22 +11,25 @@ import com.luke.tracks.AppGraph
 import com.luke.tracks.engine.Engine
 import com.luke.tracks.graph
 import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.ui.insights.Identities
 import uniffi.tracks_engine.ArtistStats
 import uniffi.tracks_engine.Mix
 import uniffi.tracks_engine.MixSet
 import uniffi.tracks_engine.Period
-import uniffi.tracks_engine.SongStats
 import uniffi.tracks_engine.SourceFilter
 
-/** Everything the Play tab shows, read from the engine in one go. */
+/** An album you played lately, for Recently played. */
+@Immutable
+data class RecentAlbum(val identity: String, val title: String, val artistName: String, val artworkUrl: String?)
+
+/** Everything the Play tab shows from your history, read from the engine in one go. */
 @Immutable
 data class PlayFeed(
     val mixes: MixSet,
-    /** Songs you can play here, by identity, for everything on the page. */
+    /** Songs you can play here, by identity, for the mixes on the page. */
     val playable: Map<String, PlayableSong>,
+    val recentlyPlayed: List<RecentAlbum>,
     val topArtists: List<ArtistStats>,
-    val suggested: List<SongStats>,
-    val explore: List<SongStats>,
     val hasHistory: Boolean,
 ) {
     /** The crate: this hour's mix first, then the rest of today. */
@@ -63,24 +66,22 @@ suspend fun loadFeed(graph: AppGraph, hidden: Set<String>, nowMs: Long = System.
         val recent = Period(nowMs - 90 * DAY, null)
         val artists = artistChart(recent, null, SourceFilter.ALL, 12u).rows.map { it.artist }
             .ifEmpty { artistChart(Engine.allTime, null, SourceFilter.ALL, 12u).rows.map { it.artist } }
-        val suggested = songChart(Period(nowMs - 30 * DAY, null), null, SourceFilter.ALL, 24u).rows
-            .map { it.song }.filter { it.identity !in hidden }
-        // Songs you loved once and haven't come back to: a reason to keep scrolling.
-        val explore = songChart(Engine.allTime, null, SourceFilter.ALL, 160u).rows.map { it.song }
-            .filter { it.identity !in hidden && it.lastPlayedMs < nowMs - 45 * DAY }
-            .take(12)
+        // The albums of the latest plays, newest first, each once.
+        val albums = LinkedHashMap<String, RecentAlbum>()
+        for (play in recentPlays(null, 400u)) {
+            if (albums.size == 12) break
+            val identity = Identities.album(play.albumTitle, play.artistName, play.title) ?: continue
+            if (identity !in albums) albums[identity] = RecentAlbum(identity, play.albumTitle!!, play.artistName, play.artworkUrl)
+        }
         val identities = HashSet<String>()
         (listOfNotNull(set.rightNow) + set.otherTimes + set.mixes).forEach { mix -> mix.songs.forEach { identities += it.identity } }
-        suggested.forEach { identities += it.identity }
-        explore.forEach { identities += it.identity }
         val playable = HashMap<String, PlayableSong>()
         for (identity in identities) graph.library.find(identity)?.let { playable[identity] = it }
         PlayFeed(
             mixes = set,
             playable = playable,
+            recentlyPlayed = albums.values.toList(),
             topArtists = artists,
-            suggested = suggested,
-            explore = explore,
             hasHistory = playCount() > 0u,
         )
     }

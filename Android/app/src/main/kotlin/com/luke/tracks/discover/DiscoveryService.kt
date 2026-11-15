@@ -31,10 +31,12 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import uniffi.tracks_engine.AlbumOwnership
 import uniffi.tracks_engine.CatalogAlbum
-import uniffi.tracks_engine.CatalogAlbumKind
 import uniffi.tracks_engine.CatalogResults
 import uniffi.tracks_engine.CatalogSong
 import uniffi.tracks_engine.LastFmClient
+import uniffi.tracks_engine.RelatedArtists
+import uniffi.tracks_engine.suggestionsRank
+import uniffi.tracks_engine.suggestionsSimilarArtists
 import uniffi.tracks_engine.LidarrSongState
 import uniffi.tracks_engine.Period
 import uniffi.tracks_engine.SongName
@@ -216,16 +218,38 @@ class DiscoveryService(
 
     // MARK: - Suggestions
 
-    private var suggested: Pair<Long, Suggestions>? = null
+    /** Answers for suggestions, kept on disk: asked again a few times a day, used offline. */
+    private val suggestionWeb = CachedTransport(transport, java.io.File(context.cacheDir, "suggestions"), maxAgeMs = SUGGESTIONS_KEEP_MS)
+    private val suggestionCatalog = ItunesSource(suggestionWeb)
+    private val deezer = DeezerSource(suggestionWeb)
+    private val notInterestedIn = context.getSharedPreferences("suggestions", Context.MODE_PRIVATE)
+
+    private data class Made(val at: Long, val seeds: Set<String>, val value: Suggestions)
+
+    @Volatile private var made: Made? = null
     private val suggesting = Mutex()
+
+    override val lastSuggestions: Suggestions? get() = made?.value
 
     override suspend fun suggestions(force: Boolean): Suggestions = suggesting.withLock {
         val now = System.currentTimeMillis()
-        suggested?.let { (at, value) -> if (!force && now - at < 30 * 60_000L && !value.isEmpty) return value }
-        val made = runCatching { makeSuggestions() }.onFailure { Log.w("Tracks", "Suggestions failed", it) }.getOrNull() ?: return Suggestions()
-        suggested = now to made
-        made
+        val seeds = runCatching { topArtists(SEEDS) }.getOrDefault(emptyList())
+        val key = seeds.map { foldedName(it.artist) }.toSet()
+        made?.let { if (!force && it.seeds == key && now - it.at < SUGGESTIONS_KEEP_MS && !it.value.isEmpty) return it.value }
+        val value = runCatching { makeSuggestions(seeds) }.onFailure { Log.w("Tracks", "Suggestions failed", it) }.getOrNull()
+            ?: return made?.value ?: Suggestions()
+        // An empty answer is likely the network: kept only until the next visit.
+        if (!value.isEmpty) made = Made(now, key, value)
+        value
     }
+
+    override suspend fun notInterested(artist: String) {
+        val hidden = hiddenArtists() + foldedName(artist)
+        notInterestedIn.edit().putStringSet(HIDDEN, hidden).apply()
+        suggesting.withLock { made = made?.let { it.copy(value = it.value.without(artist)) } }
+    }
+
+    private fun hiddenArtists(): Set<String> = notInterestedIn.getStringSet(HIDDEN, emptySet()).orEmpty()
 
     private suspend fun topArtists(limit: Int): List<SuggestionSeed> {
         val now = System.currentTimeMillis()
@@ -238,60 +262,86 @@ class DiscoveryService(
         return index.snapshot.artists.sortedByDescending { it.songCount }.take(limit).map { SuggestionSeed(it.name, it.songCount.toDouble()) }
     }
 
-    private suspend fun makeSuggestions(): Suggestions = coroutineScope {
-        val seeds = topArtists(8).toMutableList()
+    /**
+     * Your top artists and the artists like them (Deezer, and Last.fm where this build has a
+     * key), then each one's catalog page: their songs and new albums you don't have, ranked by
+     * the engine.
+     */
+    private suspend fun makeSuggestions(seeds: List<SuggestionSeed>): Suggestions = coroutineScope {
         if (seeds.isEmpty()) return@coroutineScope Suggestions()
-        similarArtists(seeds.take(3)).forEach { seeds += it }
         val gate = Semaphore(4)
-        val pages = seeds.map { seed ->
-            async { gate.withPermit { runCatching { artist(seed.artist) }.getOrNull() } }
-        }.awaitAll().filterNotNull()
+        // Your artists' pages don't wait on who's like them.
+        val mine = seeds.map { seed -> async { gate.withPermit { runCatching { pageOf(seed.artist) }.getOrNull() } } }
+        val asked = seeds.take(RELATED_FROM)
+        val fromDeezer = asked.map { seed ->
+            async { gate.withPermit { seed.artist to runCatching { deezer.related(seed.artist) }.getOrDefault(emptyList()) } }
+        }
+        val fromLastFm = async { runCatching { lastFmSimilar(asked) }.getOrDefault(emptyList()) }
+        val deezerLists = fromDeezer.awaitAll()
+        val pictures = deezerLists.flatMap { it.second }.associate { foldedName(it.name) to it.pictureUrl }
+        val related = deezerLists.map { (from, artists) -> RelatedArtists(from, artists.map { it.name }) } + fromLastFm.await()
+        val excluded = playedArtists() + hiddenArtists()
+        val similar = suggestionsSimilarArtists(seeds, related, excluded.toList(), SIMILAR.toUInt())
 
-        val albums = pages.flatMap { page -> page.albums.mapIndexed { rank, album -> Triple(album, rank, holding(album)) } }
-        val albumOrder = uniffi.tracks_engine.suggestionsRank(
-            seeds,
-            albums.map { (album, rank, holding) ->
-                SuggestionCandidate(
-                    key = catalogAlbumKey(album.title) + "\u001F" + foldedName(album.artistName),
-                    artist = album.artistName,
-                    rank = rank.toUInt(),
-                    owned = holding.ownership == AlbumOwnership.OWNED,
-                    isMinor = album.kind != CatalogAlbumKind.ALBUM,
-                )
-            },
-            2u, 12u,
-        )
+        val theirs = similar.take(SIMILAR_PAGES).map { artist -> async { gate.withPermit { runCatching { pageOf(artist.name) }.getOrNull() } } }
+        val myPages = mine.awaitAll().filterNotNull()
+        val pages = myPages + theirs.awaitAll().filterNotNull()
+        if (pages.isEmpty() && similar.isEmpty()) error("Nothing answered")
+
+        val ranking = seeds + similar.map { SuggestionSeed(it.name, it.weight) }
         val songs = pages.flatMap { page -> page.songs.mapIndexed { rank, song -> song to rank } }
-        val songOrder = uniffi.tracks_engine.suggestionsRank(
-            seeds,
+        val songOrder = suggestionsRank(
+            ranking,
             songs.map { (song, rank) -> SuggestionCandidate(song.identity, song.artistName, rank.toUInt(), owned(song) != null, false) },
-            3u, 20u,
+            3u, SONGS.toUInt(),
         )
+        val since = java.time.LocalDate.now().minusMonths(6).toString()
+        val releases = myPages.flatMap { it.albums }
+            .filter { (it.released ?: "") >= since }
+            .distinctBy { catalogAlbumKey(it.title) + "\u001F" + foldedName(it.artistName) }
+            .map { SuggestedAlbum(it, holding(it)) }
+            .filter { it.holding.ownership != AlbumOwnership.OWNED }
+            .sortedByDescending { it.album.released }
+            .take(12)
         Suggestions(
-            albums = albumOrder.map { albums[it.toInt()].let { (album, _, holding) -> SuggestedAlbum(album, holding) } },
             songs = songOrder.map { songs[it.toInt()].first },
-            from = seeds.take(3).map { it.artist },
+            artists = similar.map { SuggestedArtist(it.name, pictures[foldedName(it.name)], it.like) },
+            releases = releases,
         )
     }
 
-    /** Artists like your top ones, from Last.fm's similar songs, when this build has a key. */
-    private suspend fun similarArtists(seeds: List<SuggestionSeed>): List<SuggestionSeed> {
+    /** An artist's catalog page, through the suggestions' own cache. */
+    private suspend fun pageOf(name: String): ArtistCatalog? = suggestionCatalog.artistNamed(name)?.let { suggestionCatalog.artist(it) }
+
+    /** Everyone you've played: suggested artists are ones you haven't. */
+    private suspend fun playedArtists(): Set<String> =
+        graph.engine.read { artistChart(Engine.allTime, null, SourceFilter.ALL, 400u).rows.map { foldedName(it.artist.name) } }.toSet()
+
+    /** Artists of Last.fm's songs like your top ones, as a list per artist, when this build has a key. */
+    private suspend fun lastFmSimilar(seeds: List<SuggestionSeed>): List<RelatedArtists> {
         if (BuildConfig.LASTFM_API_KEY.isBlank()) return emptyList()
         val client = LastFmClient(BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET, OkHttpWebTransport.USER_AGENT)
-        val known = seeds.map { foldedName(it.artist) }.toSet()
         val now = System.currentTimeMillis()
         val chart = graph.engine.read { songChart(Period(now - 365 * DAY, null), null, SourceFilter.ALL, 60u).rows.map { it.song } }
-        val tops = seeds.mapNotNull { seed -> chart.firstOrNull { foldedName(it.artistName) == foldedName(seed.artist) } }
-        return tops.flatMap { song ->
-            runCatching { lastfmParseSimilarTracks(LastFm.send(client.similarTracks(song.title, song.artistName, 20u))) }.getOrDefault(emptyList())
-        }.groupingBy { it.artistName }.eachCount()
-            .filterKeys { foldedName(it) !in known }
-            .entries.sortedByDescending { it.value }.take(3)
-            .map { SuggestionSeed(it.key, seeds.minOf { s -> s.weight } * 0.5) }
+        return seeds.mapNotNull { seed ->
+            val top = chart.firstOrNull { foldedName(it.artistName) == foldedName(seed.artist) } ?: return@mapNotNull null
+            val similar = runCatching { lastfmParseSimilarTracks(LastFm.send(client.similarTracks(top.title, top.artistName, 20u))) }.getOrDefault(emptyList())
+            RelatedArtists(seed.artist, similar.map { it.artistName }.distinctBy(::foldedName))
+        }
     }
 
     private companion object {
         const val DAY = 24 * 3600_000L
+        /** Suggestions are worked out again at most this often, unless your top artists change. */
+        const val SUGGESTIONS_KEEP_MS = 8 * 3600_000L
+        const val SEEDS = 8
+        /** Of your top artists, how many to look up artists like. */
+        const val RELATED_FROM = 4
+        const val SIMILAR = 12
+        /** Of the artists like yours, how many to suggest songs by. */
+        const val SIMILAR_PAGES = 6
+        const val SONGS = 40
+        const val HIDDEN = "notInterested"
     }
 }
 

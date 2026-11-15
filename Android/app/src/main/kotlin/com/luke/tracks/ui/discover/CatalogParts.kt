@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -382,7 +383,13 @@ fun CatalogAlbumMenu(album: CatalogAlbum, expanded: Boolean, onDismiss: () -> Un
 
 /** An artist's menu, with following them in Lidarr where there is one. */
 @Composable
-fun CatalogArtistMenu(artist: CatalogArtist, expanded: Boolean, onDismiss: () -> Unit) {
+fun CatalogArtistMenu(
+    artist: CatalogArtist,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    /** Where the artist is a suggestion: stop suggesting them. */
+    onNotInterested: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val navigator = LocalNavigator.current
     val discovery = rememberDiscovery()
@@ -399,6 +406,7 @@ fun CatalogArtistMenu(artist: CatalogArtist, expanded: Boolean, onDismiss: () ->
             }
         }
         MenuEntry("Share", Icons.Rounded.Share) { act { share(context, artist.name) } }
+        onNotInterested?.let { MenuEntry("Not interested", Icons.Rounded.ThumbDown) { act(it) } }
     }
 }
 
