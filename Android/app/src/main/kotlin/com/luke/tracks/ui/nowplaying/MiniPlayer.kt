@@ -11,10 +11,11 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -50,6 +51,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -71,15 +75,12 @@ import kotlin.math.abs
 /** The play button's size, and the toolbar's: Material's floating toolbar height. */
 private val FabSize = 64.dp
 
-/** Everything in the toolbar but the titles, plus the margins and the gap to the button. */
-private val FixedWidth = 8.dp + 44.dp + 12.dp + 48.dp + 4.dp + 12.dp + FabSize + 16.dp + 12.dp
-
 /**
- * The mini player, in Material 3 Expressive's floating toolbar with a FAB: a small toolbar
- * for the song (cover, title, next) beside a round play button whose edge fills with the
- * song's progress, the pair floating at the bottom end above the navigation bar and tinted
- * from the cover. Tap or swipe up on the toolbar to open the full player, swipe sideways to
- * skip, press and hold for the queue. Hidden while nothing is playing.
+ * The mini player, in Material 3 Expressive's floating toolbar with a FAB: a toolbar for the
+ * song (cover, title, next) stretching across the screen beside a round play button whose
+ * edge fills with the song's progress, floating above the navigation bar and tinted from the
+ * cover. Tap or swipe up on the toolbar to open the full player, swipe sideways to skip,
+ * press and hold for the queue. Hidden while nothing is playing.
  */
 @Composable
 fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
@@ -95,7 +96,7 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
 
     AnimatedVisibility(
         visible = song != null,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier,
         enter = slideInVertically(motion.defaultSpatialSpec()) { it } + fadeIn(motion.defaultEffectsSpec()),
         exit = slideOutVertically(motion.fastSpatialSpec()) { it } + fadeOut(motion.fastEffectsSpec()),
     ) {
@@ -108,111 +109,121 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
         // Tinted from the cover like Now Playing, so the toolbar matches the screen it opens.
         val seed = rememberCoverSeed(current.artworkUri, current.albumTitle ?: current.title)
         TracksTheme(dark = LocalDarkTheme.current, seed = seed, animate = true) {
-            BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomEnd) {
-                // The titles take what's left, so the pair always fits, even at 360dp.
-                val titlesWidth = (maxWidth - FixedWidth).coerceIn(72.dp, 200.dp)
-                val scheme = MaterialTheme.colorScheme
-                HorizontalFloatingToolbar(
-                    expanded = true,
-                    floatingActionButton = {
-                        MorphPlayButton(
-                            playing = state.isPlaying,
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                                graph.player.playPause()
+            val scheme = MaterialTheme.colorScheme
+            Row(
+                Modifier
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)
+                    .widthIn(max = 640.dp)
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        translationX = drag.x * 0.5f
+                        translationY = (drag.y * 0.4f).coerceAtMost(0f)
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragEnd = {
+                                val (x, y) = drag
+                                when {
+                                    y < -60f && abs(y) > abs(x) -> onExpand()
+                                    x < -120f -> graph.player.next().also { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
+                                    x > 120f -> graph.player.previous().also { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
+                                }
+                                drag = Offset.Zero
                             },
-                            size = FabSize,
-                            restShape = MaterialShapes.Circle,
-                            playingShape = MaterialShapes.Circle,
-                            pressedShape = MaterialShapes.Square,
-                            shadowElevation = 6.dp,
-                        ) {
-                            state.lengthMs?.let { ProgressEdge(graph.player.position, it, scheme.onPrimary, Modifier.matchParentSize()) }
+                            onDragCancel = { drag = Offset.Zero },
+                        ) { change, amount ->
+                            change.consume()
+                            drag += amount
                         }
                     },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HorizontalFloatingToolbar(
+                    expanded = true,
                     colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
                     contentPadding = PaddingValues(start = 8.dp, end = 4.dp),
                     modifier = Modifier
-                        .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)
+                        .weight(1f)
                         .height(FabSize)
-                        .graphicsLayer {
-                            translationX = drag.x * 0.5f
-                            translationY = (drag.y * 0.4f).coerceAtMost(0f)
-                        }
-                        .pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragEnd = {
-                                    val (x, y) = drag
-                                    when {
-                                        y < -60f && abs(y) > abs(x) -> onExpand()
-                                        x < -120f -> graph.player.next().also { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
-                                        x > 120f -> graph.player.previous().also { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
-                                    }
-                                    drag = Offset.Zero
-                                },
-                                onDragCancel = { drag = Offset.Zero },
-                            ) { change, amount ->
-                                change.consume()
-                                drag += amount
-                            }
-                        }
                         .pressable(
                             onClick = onExpand,
                             onLongClick = { queueOpen = true },
                             pressedScale = 0.98f,
                             onClickLabel = "Open player",
-                        ),
-                ) {
-                    // Hides while the full player is open, so the cover can fly up into it.
-                    Box(Modifier.size(44.dp)) {
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = !navigator.nowPlayingOpen,
-                            enter = fadeIn(),
-                            exit = fadeOut(),
-                        ) {
-                            Artwork(
-                                current.artworkUri,
-                                current.albumTitle ?: current.title,
-                                Modifier.size(44.dp).sharedElement("cover:nowplaying", this),
-                                shape = CircleShape,
-                                showInitials = false,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    AnimatedContent(
-                        targetState = current,
-                        contentKey = { it.mediaId },
-                        transitionSpec = {
-                            (slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 } + fadeIn(motion.defaultEffectsSpec()))
-                                .togetherWith(slideOutHorizontally(motion.fastSpatialSpec()) { -it / 4 } + fadeOut(motion.fastEffectsSpec()))
+                        )
+                        .semantics {
+                            customActions = listOf(CustomAccessibilityAction("Show queue") { queueOpen = true; true })
                         },
-                        modifier = Modifier.widthIn(max = titlesWidth),
-                        label = "song",
-                    ) { s ->
-                        Column {
-                            Text(s.titleLabel, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (s.hasArtist) {
-                                Text(
-                                    s.artistName,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = scheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                ) {
+                    // The toolbar lines its content up at the top once it's stretched; center it.
+                    Row(Modifier.weight(1f).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+                        // Hides while the full player is open, so the cover can fly up into it.
+                        Box(Modifier.size(44.dp)) {
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = !navigator.nowPlayingOpen,
+                                enter = fadeIn(),
+                                exit = fadeOut(),
+                            ) {
+                                Artwork(
+                                    current.artworkUri,
+                                    current.albumTitle ?: current.title,
+                                    Modifier.size(44.dp).sharedElement("cover:nowplaying", this),
+                                    shape = CircleShape,
+                                    showInitials = false,
                                 )
                             }
                         }
+                        Spacer(Modifier.width(12.dp))
+                        AnimatedContent(
+                            targetState = current,
+                            contentKey = { it.mediaId },
+                            transitionSpec = {
+                                (slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 } + fadeIn(motion.defaultEffectsSpec()))
+                                    .togetherWith(slideOutHorizontally(motion.fastSpatialSpec()) { -it / 4 } + fadeOut(motion.fastEffectsSpec()))
+                            },
+                            modifier = Modifier.weight(1f),
+                            label = "song",
+                        ) { s ->
+                            Column {
+                                Text(s.titleLabel, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (s.hasArtist) {
+                                    Text(
+                                        s.artistName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = scheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                            graph.player.next()
+                        }) {
+                            Icon(Icons.Rounded.SkipNext, contentDescription = "Next")
+                        }
                     }
-                    IconButton(onClick = {
+                }
+                Spacer(Modifier.width(8.dp))
+                MorphPlayButton(
+                    playing = state.isPlaying,
+                    onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                        graph.player.next()
-                    }) {
-                        Icon(Icons.Rounded.SkipNext, contentDescription = "Next")
-                    }
+                        graph.player.playPause()
+                    },
+                    size = FabSize,
+                    restShape = MaterialShapes.Circle,
+                    playingShape = MaterialShapes.Circle,
+                    pressedShape = MaterialShapes.Square,
+                    shadowElevation = 6.dp,
+                ) {
+                    state.lengthMs?.let { ProgressEdge(graph.player.position, it, scheme.onPrimary, Modifier.matchParentSize()) }
                 }
             }
         }
     }
+
 
     if (queueOpen) QueueSheet(state, graph.player, onDismiss = { queueOpen = false })
 }
