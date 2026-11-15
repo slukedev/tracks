@@ -86,10 +86,11 @@ class NowPlayingOddSongsTest {
 
     @Test fun ringtone() {
         show(song("Over the Horizon", "<unknown>", 3_000), durationMs = 3_000, positionMs = 1_400)
-        // Never kept, so no ring counting toward it; the unknown artist reads as such, twice
-        // (the full player and the mini player).
+        // Never kept, so no ring counting toward it; the full player says the artist is unknown,
+        // while the mini player just shows the title alone.
         compose.onNodeWithContentDescription("Counting toward your history").assertDoesNotExist()
-        assertTrue(compose.onAllNodesWithText("Unknown artist").fetchSemanticsNodes().size == 2)
+        assertTrue(compose.onAllNodesWithText("Unknown artist").fetchSemanticsNodes().size == 1)
+        assertTrue(compose.onAllNodesWithText("Over the Horizon").fetchSemanticsNodes().size == 2)
         compose.onNodeWithContentDescription("Seek").performTouchInput { swipeRight() }
         settle()
     }

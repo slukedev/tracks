@@ -154,18 +154,6 @@ class PlayScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         snap("shell-miniplayer", settleMs = 3000) { AppShell(Navigator()) }
     }
 
-    @Test
-    fun miniPlayer() {
-        withSampleHistory()
-        val library = withLibrary()
-        graph.player = IdlePlayer(playing(library, isPlaying = false))
-        snap("miniplayer") {
-            CompositionLocalProvider(LocalNavigator provides Navigator()) {
-                Box(Modifier.fillMaxSize()) { MiniPlayer(onExpand = {}, modifier = Modifier.align(Alignment.BottomCenter)) }
-            }
-        }
-    }
-
     /** The whole mix page, past the fold. */
     @Test
     @Config(qualifiers = "w412dp-h3400dp-xxhdpi")

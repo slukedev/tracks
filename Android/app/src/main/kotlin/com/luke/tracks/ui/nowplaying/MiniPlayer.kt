@@ -2,6 +2,7 @@ package com.luke.tracks.ui.nowplaying
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -23,12 +24,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,34 +39,38 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.graph
 import com.luke.tracks.playback.PlayableSong
-import com.luke.tracks.playback.artistLabel
+import com.luke.tracks.playback.hasArtist
 import com.luke.tracks.playback.titleLabel
 import com.luke.tracks.ui.components.Artwork
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.sharedElement
 import com.luke.tracks.ui.play.components.MorphPlayButton
 import com.luke.tracks.ui.play.components.pressable
+import com.luke.tracks.ui.theme.LocalDarkTheme
+import com.luke.tracks.ui.theme.TracksTheme
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.abs
 
 /**
- * The mini player: a floating card above the navigation bar, as Google's own apps float theirs.
- * Tap or swipe up to open the full player, swipe sideways to skip, press and hold for the
- * queue. Hidden while nothing is playing.
+ * The mini player: a floating card above the navigation bar, as Google's own apps float theirs,
+ * tinted from the cover, with the song's progress as a ring around the play button. Tap or
+ * swipe up to open the full player, swipe sideways to skip, press and hold for the queue.
+ * Hidden while nothing is playing.
  */
 @Composable
 fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
@@ -89,46 +96,47 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
         val current = shown.value ?: return@AnimatedVisibility
         var drag by remember { mutableStateOf(Offset.Zero) }
 
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shadowElevation = 6.dp,
-            tonalElevation = 2.dp,
-            modifier = Modifier
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-                .widthIn(max = 640.dp)
-                .fillMaxWidth()
-                .graphicsLayer {
-                    translationX = drag.x * 0.5f
-                    translationY = (drag.y * 0.4f).coerceAtMost(0f)
-                }
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragEnd = {
-                            val (x, y) = drag
-                            when {
-                                y < -60f && abs(y) > abs(x) -> onExpand()
-                                x < -120f -> graph.player.next().also { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
-                                x > 120f -> graph.player.previous().also { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
-                            }
-                            drag = Offset.Zero
-                        },
-                        onDragCancel = { drag = Offset.Zero },
-                    ) { change, amount ->
-                        change.consume()
-                        drag += amount
+        // Tinted from the cover like Now Playing, quietly, so the card it grows into matches.
+        val seed = rememberCoverSeed(current.artworkUri, current.albumTitle ?: current.title)
+        TracksTheme(dark = LocalDarkTheme.current, seed = seed, animate = true) {
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shadowElevation = 6.dp,
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .widthIn(max = 640.dp)
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        translationX = drag.x * 0.5f
+                        translationY = (drag.y * 0.4f).coerceAtMost(0f)
                     }
-                }
-                .pressable(
-                    onClick = onExpand,
-                    onLongClick = { queueOpen = true },
-                    pressedScale = 0.98f,
-                    onClickLabel = "Open player",
-                ),
-        ) {
-            Box {
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragEnd = {
+                                val (x, y) = drag
+                                when {
+                                    y < -60f && abs(y) > abs(x) -> onExpand()
+                                    x < -120f -> graph.player.next().also { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
+                                    x > 120f -> graph.player.previous().also { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
+                                }
+                                drag = Offset.Zero
+                            },
+                            onDragCancel = { drag = Offset.Zero },
+                        ) { change, amount ->
+                            change.consume()
+                            drag += amount
+                        }
+                    }
+                    .pressable(
+                        onClick = onExpand,
+                        onLongClick = { queueOpen = true },
+                        pressedScale = 0.98f,
+                        onClickLabel = "Open player",
+                    ),
+            ) {
                 Row(
-                    Modifier.fillMaxWidth().height(68.dp).padding(start = 10.dp, end = 6.dp),
+                    Modifier.fillMaxWidth().height(64.dp).padding(start = 8.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // Hides while the full player is open, so the cover can fly up into it.
@@ -142,7 +150,8 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
                                 current.artworkUri,
                                 current.albumTitle ?: current.title,
                                 Modifier.size(48.dp).sharedElement("cover:nowplaying", this),
-                                shape = RoundedCornerShape(14.dp),
+                                // Concentric with the card: its 28dp corner less the 8dp inset.
+                                shape = RoundedCornerShape(20.dp),
                                 showInitials = false,
                             )
                         }
@@ -160,25 +169,31 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
                     ) { s ->
                         Column {
                             Text(s.titleLabel, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                s.artistLabel,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            if (s.hasArtist) {
+                                Text(
+                                    s.artistName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
-                    MorphPlayButton(
-                        playing = state.isPlaying,
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                            graph.player.playPause()
-                        },
-                        size = 48.dp,
-                        restShape = MaterialShapes.Cookie6Sided,
-                        playingShape = MaterialShapes.Square,
-                    )
+                    Spacer(Modifier.width(4.dp))
+                    Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+                        state.lengthMs?.let { ProgressRing(graph.player.position, it, state.isPlaying, Modifier.matchParentSize()) }
+                        MorphPlayButton(
+                            playing = state.isPlaying,
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                graph.player.playPause()
+                            },
+                            size = 38.dp,
+                            restShape = MaterialShapes.Cookie6Sided,
+                            playingShape = MaterialShapes.Circle,
+                        )
+                    }
                     IconButton(onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         graph.player.next()
@@ -186,11 +201,6 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
                         Icon(Icons.Rounded.SkipNext, contentDescription = "Next")
                     }
                 }
-                MiniProgress(
-                    graph.player.position,
-                    state.lengthMs ?: 0,
-                    Modifier.align(Alignment.BottomCenter).padding(start = 24.dp, end = 24.dp, bottom = 6.dp).fillMaxWidth().height(3.dp),
-                )
             }
         }
     }
@@ -198,18 +208,27 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
     if (queueOpen) QueueSheet(state, graph.player, onDismiss = { queueOpen = false })
 }
 
-/** A hairline of progress along the card's foot; the only part that reads the live position. */
+/**
+ * Where the song is, as a ring around the play button: wavy while it plays, flat when paused.
+ * The only part that reads the live position, and only while drawing, so a tick redraws the
+ * ring and nothing else. The wave holds still (no wave speed) so nothing runs between ticks.
+ */
 @Composable
-private fun MiniProgress(position: StateFlow<Long>, durationMs: Long, modifier: Modifier) {
+private fun ProgressRing(position: StateFlow<Long>, lengthMs: Long, playing: Boolean, modifier: Modifier) {
     val live by position.collectAsStateWithLifecycle()
-    val fraction = if (durationMs > 0) (live.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-    val active = MaterialTheme.colorScheme.primary
-    val track = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-    Box(
-        modifier.drawBehind {
-            val r = CornerRadius(size.height / 2)
-            drawRoundRect(track, Offset.Zero, size, r)
-            drawRoundRect(active, Offset.Zero, Size(size.width * fraction, size.height), r)
-        },
+    val wave by animateFloatAsState(if (playing) 1f else 0f, MaterialTheme.motionScheme.slowEffectsSpec(), label = "wave")
+    val density = LocalDensity.current
+    val stroke = remember(density) { with(density) { Stroke(3.dp.toPx(), cap = StrokeCap.Round) } }
+    val primary = MaterialTheme.colorScheme.primary
+    CircularWavyProgressIndicator(
+        progress = { (live.toFloat() / lengthMs).coerceIn(0f, 1f) },
+        modifier = modifier.clearAndSetSemantics {},
+        color = primary,
+        trackColor = primary.copy(alpha = 0.18f),
+        stroke = stroke,
+        trackStroke = stroke,
+        amplitude = { wave * WavyProgressIndicatorDefaults.indicatorAmplitude(it) },
+        wavelength = 12.dp,
+        waveSpeed = 0.dp,
     )
 }

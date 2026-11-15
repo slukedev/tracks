@@ -179,7 +179,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Shuffle and repeat, expressive button group transport.
 - Output switcher, sleep timer with a fade, Up Next with drag to reorder and swipe to remove,
   Share.
-- Floating mini player: tap or swipe up to expand, swipe to skip, press and hold for the
+- Floating mini player, tinted from the cover, with the song's progress as a wavy ring
+  around the play button: tap or swipe up to expand, swipe to skip, press and hold for the
   queue.
 
 ### Your Music

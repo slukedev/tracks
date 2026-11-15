@@ -75,7 +75,7 @@ private const val HideAfterPx = 48f
 private const val ShowAfterPx = 24f
 
 /** The floating mini player's height with its margins, plus a little air. */
-private val MiniPlayerRoom = 104.dp
+private val MiniPlayerRoom = 100.dp
 
 private data class TabItem(val tab: Tab, val label: String, val selected: ImageVector, val unselected: ImageVector)
 
