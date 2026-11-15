@@ -13,6 +13,7 @@ same everywhere.
 | `tracks-store` | The history index: SQLite with running totals, and every chart, total, timeline, activity, streak and search read from it. |
 | `tracks-lastfm` | Last.fm requests, signing and response parsing, the scrobble queue rules and backoff. Sans-IO: the host sends the request with its own HTTP stack. |
 | `tracks-catalog` | Music you don't have: iTunes catalog search and lookups, the Lidarr v1 client, matching catalog and server names to what you own, and ranking suggestions. Sans-IO like `tracks-lastfm`. |
+| `tracks-mixes` | The Play tab's mixes, the artist-spread shuffle, what a music server finds for you, and Tracks Radio over Your Music. Sans-IO. |
 | `tracks-demo` | The invented sample library (artists, albums, songs, collaborations) and a seeded, believable listening history over it, the same on every platform. Pure, no I/O. |
 | `tracks-ffi` | The surface the apps see, generated with [UniFFI](https://mozilla.github.io/uniffi-rs/) (Swift today, Kotlin for Android later). |
 | `uniffi-bindgen` | The bindings generator. |
@@ -86,7 +87,10 @@ calculator row for row.
 ## Status
 
 Moved to the engine so far: name folding, artist credits, the history index and its charts,
-totals, activity, streaks and search; Last.fm request building, signing and parsing. In the app,
+totals, activity, streaks and search; Last.fm request building, signing and parsing; Tracks
+Radio over Your Music (`tracks_mixes::radio`, a port of `LiveMix` with its steering, opening
+probe, habits and taste graph), which Android plays. Tracks Radio over Apple Music stays in
+Swift with the MusicKit catalog; iOS and the Mac may adopt the engine's for Your Music. In the app,
 Charts (songs, artists, albums) reads from the engine. Still in Swift, to move next: Summary and
 the profiles, search with its "remembered" phrases, mixes and Tracks Radio, the scrobble service
 (switching it to the Rust request builder), widgets reading the shared index, and replacing the

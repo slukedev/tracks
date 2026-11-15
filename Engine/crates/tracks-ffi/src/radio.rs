@@ -1,5 +1,7 @@
-//! Tracks Radio: the station, built from the index's plays and the host's library, and what it
-//! keeps between listens (habits and skips, as JSON the host stores).
+//! Tracks Radio over Your Music (device files and Subsonic or Octo servers): the station, built
+//! from the index's plays and the host's library, and what it keeps between listens (habits and
+//! skips, as JSON the host stores). Android plays it; iOS and the Mac keep their Swift
+//! `LiveMix` for Apple Music and may adopt this for Your Music stations.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 

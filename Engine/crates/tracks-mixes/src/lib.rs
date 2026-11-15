@@ -1,8 +1,9 @@
 //! Mixes built from the listening history, the shuffle that keeps artists apart, Tracks Radio,
 //! and what a music server finds for you.
 //!
-//! A port of the Swift app's `MixBuilder`, `FreshShuffle` and `LiveMix`, so every platform
-//! offers the same mixes and the same radio from the same history. Pure and synchronous: the
+//! A port of the Swift app's `MixBuilder`, `FreshShuffle` and `LiveMix` (Tracks Radio over Your
+//! Music; Apple Music's radio stays in Swift), so every platform offers the same mixes and the
+//! same Your Music radio from the same history. Pure and synchronous: the
 //! host hands in plays (usually straight from the index) and the current time, and gets mixes
 //! back.
 //!

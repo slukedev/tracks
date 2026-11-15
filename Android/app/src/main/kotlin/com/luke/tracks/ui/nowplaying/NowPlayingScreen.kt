@@ -54,6 +54,15 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.SpeakerGroup
 import androidx.compose.material.icons.rounded.TimerOff
+import androidx.compose.material.icons.rounded.ThumbUp
+import androidx.compose.material.icons.rounded.ThumbUpOffAlt
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.DropdownMenuItem
+import com.luke.tracks.playback.QueueOrigin
+import com.luke.tracks.playback.RadioState
+import com.luke.tracks.ui.navigation.LocalNavigator
+import com.luke.tracks.ui.navigation.SettingsPageRoute
+import uniffi.tracks_engine.RadioReason
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupScope
@@ -153,6 +162,15 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
     val actions = rememberPlayActions()
     var queueOpen by remember { mutableStateOf(false) }
     var dragDown by remember { mutableStateOf(0f) }
+    val navigator = LocalNavigator.current
+    val radioState by LocalContext.current.graph.radio.state.collectAsStateWithLifecycle()
+    // Tracks Radio's own song on now, which can steer what it plays next.
+    val radio = radioState.takeIf { state.origin?.kind == QueueOrigin.Kind.Radio }
+    val tuneRadio = {
+        queueOpen = false
+        onClose()
+        navigator.open(SettingsPageRoute("radio"))
+    }
 
     Box(
         Modifier
@@ -184,11 +202,11 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
                 .graphicsLayer { translationY = dragDown * 0.5f },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            TopRow(state, song, actions, onClose)
+            TopRow(state, song, actions, onClose, radio, player, tuneRadio)
             Spacer(Modifier.weight(0.6f))
             Cover(state, song, player)
             Spacer(Modifier.weight(0.6f))
-            TitleBlock(state, song, actions)
+            TitleBlock(state, song, actions, radio?.reason(song))
             Spacer(Modifier.height(16.dp))
             WavySeekBar(
                 position = player.position,
@@ -198,18 +216,26 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
                 modifier = Modifier.widthIn(max = 560.dp),
             )
             Spacer(Modifier.height(12.dp))
-            Transport(state, player)
+            Transport(state, player, isStation = radio != null)
             Spacer(Modifier.weight(0.4f))
             BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) })
             Spacer(Modifier.height(8.dp))
         }
     }
 
-    if (queueOpen) QueueSheet(state, player, onDismiss = { queueOpen = false })
+    if (queueOpen) QueueSheet(state, player, onDismiss = { queueOpen = false }, onTuneRadio = tuneRadio)
 }
 
 @Composable
-private fun TopRow(state: PlayerState, song: PlayableSong, actions: PlayActions, onClose: () -> Unit) {
+private fun TopRow(
+    state: PlayerState,
+    song: PlayableSong,
+    actions: PlayActions,
+    onClose: () -> Unit,
+    radio: RadioState?,
+    player: PlayerController,
+    onTuneRadio: () -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onClose) {
@@ -234,6 +260,23 @@ private fun TopRow(state: PlayerState, song: PlayableSong, actions: PlayActions,
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = "More") }
             DropdownMenu(menu, { menu = false }, shape = MaterialTheme.shapes.large) {
+                // Steering what Tracks Radio plays next, for its own song on now.
+                if (radio != null && radio.isPick(song)) {
+                    val asked = song.identity in radio.askedMoreLike
+                    DropdownMenuItem(
+                        text = { Text(if (asked) "Asked for more like this" else "Play more like this") },
+                        leadingIcon = { Icon(if (asked) Icons.Rounded.ThumbUp else Icons.Rounded.ThumbUpOffAlt, contentDescription = null) },
+                        enabled = !asked,
+                        onClick = {
+                            menu = false
+                            player.playMoreLikeThis()
+                        },
+                    )
+                    MenuItem(Icons.Rounded.Tune, "Tune Tracks Radio") {
+                        menu = false
+                        onTuneRadio()
+                    }
+                }
                 if (song.hasArtist) {
                     MenuItem(Icons.Rounded.Person, "Go to artist") {
                         menu = false
@@ -326,7 +369,7 @@ private fun Cover(state: PlayerState, song: PlayableSong, player: PlayerControll
 }
 
 @Composable
-private fun TitleBlock(state: PlayerState, song: PlayableSong, actions: PlayActions) {
+private fun TitleBlock(state: PlayerState, song: PlayableSong, actions: PlayActions, reason: RadioReason?) {
     val graph = LocalContext.current.graph
     val revision by graph.engine.revision.collectAsStateWithLifecycle()
     val plays by produceState<Long?>(null, song.identity, revision) {
@@ -350,6 +393,16 @@ private fun TitleBlock(state: PlayerState, song: PlayableSong, actions: PlayActi
                     Modifier.clickable(onClickLabel = "Go to artist") { actions.goToArtist(song.artistName) }
                 } else Modifier,
             )
+            // Why Tracks Radio picked it.
+            val enter = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+            val exit = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+            AnimatedContent(
+                targetState = reason,
+                transitionSpec = { fadeIn(enter) togetherWith fadeOut(exit) },
+                label = "reason",
+            ) { shown ->
+                if (shown != null) PickReasonLabel(shown, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.padding(top = 4.dp))
+            }
         }
         Spacer(Modifier.width(12.dp))
         // A song of 30 seconds or less (a ringtone, a jingle) is never kept: no ring to fill.
@@ -423,7 +476,7 @@ internal data class TransportFit(val side: IconButtonDefaults.IconButtonWidthOpt
  * their default display size) can't fit the largest.
  */
 @Composable
-private fun Transport(state: PlayerState, player: PlayerController) {
+private fun Transport(state: PlayerState, player: PlayerController, isStation: Boolean) {
     val haptics = LocalHapticFeedback.current
     BoxWithConstraints(Modifier.fillMaxWidth().widthIn(max = 560.dp)) {
         // Each toggle takes 48dp to touch, and the group keeps 8dp from each.
@@ -433,7 +486,9 @@ private fun Transport(state: PlayerState, player: PlayerController) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            FilledTonalIconToggleButton(
+            // A station picks as it goes: there's no order to shuffle or end to repeat, so the
+            // toggles leave their room empty and the transport stays centered.
+            if (isStation) Spacer(Modifier.size(48.dp)) else FilledTonalIconToggleButton(
                 checked = state.shuffle,
                 onCheckedChange = {
                     haptics.performHapticFeedback(if (it) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
@@ -492,7 +547,7 @@ private fun Transport(state: PlayerState, player: PlayerController) {
                 }
             }
 
-            FilledTonalIconToggleButton(
+            if (isStation) Spacer(Modifier.size(48.dp)) else FilledTonalIconToggleButton(
                 checked = state.repeat != RepeatChoice.Off,
                 onCheckedChange = {
                     val next = when (state.repeat) {

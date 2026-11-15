@@ -16,6 +16,7 @@ fun SettingsPageScreen(page: String) {
         "lidarr" -> com.luke.tracks.ui.library.servers.LidarrSettingsPage()
         "appearance" -> AppearancePage()
         "radio" -> RadioPage()
+        "radio-genres" -> RadioGenresPage()
         "hidden" -> HiddenSongsPage()
         "privacy" -> PrivacyPage()
         "about" -> AboutPage()

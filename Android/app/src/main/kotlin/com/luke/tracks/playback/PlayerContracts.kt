@@ -2,6 +2,9 @@ package com.luke.tracks.playback
 
 import android.net.Uri
 import kotlinx.coroutines.flow.StateFlow
+import uniffi.tracks_engine.Listen
+import uniffi.tracks_engine.RadioReason
+import uniffi.tracks_engine.RadioSteering
 
 /** Something the player can play: a file on the phone or a song on your server. */
 data class PlayableSong(
@@ -85,22 +88,62 @@ interface PlayerController {
 
     /** Starts Tracks Radio: endless, picked a song at a time from the history and library. */
     fun startRadio()
+
+    /** Tracks Radio plays more like the song on now, from the next song. */
+    fun playMoreLikeThis()
 }
 
-/** How a song the radio chose went, for it to learn from. */
-enum class RadioListen { Skipped, MovedOn, Finished }
+/** What Tracks Radio is doing, for the player's screens. */
+data class RadioState(
+    /** Songs the station put in the queue, by media id, with why each came up. */
+    val picks: Map<String, RadioReason?> = emptyMap(),
+    /** What it last changed course for, after a run of skips or a song let play. */
+    val steering: RadioSteering? = null,
+    /** Songs asked for more like this listen, by identity, so asking shows as done. */
+    val askedMoreLike: Set<String> = emptySet(),
+) {
+    fun isPick(song: PlayableSong) = song.mediaId in picks
+    fun reason(song: PlayableSong): RadioReason? = picks[song.mediaId]
+}
 
 /**
- * Tracks Radio's songs: picked a few at a time from the history and the library by the
- * engine's `RadioStation`. The player asks for more as the queue runs low and reports how
- * each radio song went.
+ * Tracks Radio's songs, picked one at a time by the engine's `RadioStation` as the song before
+ * starts, so every pick follows what was just skipped, let play or loved. The player asks for
+ * the next song as each one starts and says how each went.
  */
 interface RadioSource {
-    /** The first songs of a fresh station; empty when there's nothing playable. */
-    suspend fun start(): List<PlayableSong>
+    val state: StateFlow<RadioState>
 
-    /** The next [count] songs. */
-    suspend fun more(count: Int = 5): List<PlayableSong>
+    /** The first two songs of a fresh station, opening on [startingWith] when given. Empty when there's nothing to play. */
+    suspend fun start(startingWith: PlayableSong? = null): List<PlayableSong>
 
-    fun note(song: PlayableSong, listen: RadioListen)
+    /** The song after the ones queued. */
+    suspend fun next(): PlayableSong?
+
+    /** Whether the song is one of the station's own, so what's said about it can steer. */
+    fun knows(song: PlayableSong): Boolean
+
+    /** How a song gave way: skipped, moved on from or let play. */
+    fun note(song: PlayableSong, listen: Listen)
+
+    /** Liked while it played. */
+    fun loved(song: PlayableSong)
+
+    /** Asked for more like it: as a like, without liking it. */
+    fun moreLikeThis(song: PlayableSong)
+
+    /** Gone back to from well into it. */
+    fun replayed(song: PlayableSong)
+
+    /** Taken out of Up Next: heard as a skip. */
+    fun removed(song: PlayableSong)
+
+    /** Asked to hear less of: heard as a skip, and left out from now on. */
+    fun heardLess(identity: String)
+
+    /** A pick that never played, made way for another. */
+    fun release(song: PlayableSong)
+
+    /** Remembers a song skipped anywhere in Tracks, so the radio plays it less. */
+    fun recordSkip(song: PlayableSong)
 }

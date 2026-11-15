@@ -44,7 +44,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import uniffi.tracks_engine.Listen
+import uniffi.tracks_engine.radioListen
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -56,9 +59,10 @@ object TracksCommands {
     const val REPEAT = "tracks.repeat"
     const val SLEEP = "tracks.sleep"
     const val RADIO = "tracks.radio"
+    const val MORE_LIKE_THIS = "tracks.moreLikeThis"
     const val MINUTES = "minutes"
 
-    val all = listOf(LIKE, SHUFFLE, REPEAT, SLEEP, RADIO).map { SessionCommand(it, Bundle.EMPTY) }
+    val all = listOf(LIKE, SHUFFLE, REPEAT, SLEEP, RADIO, MORE_LIKE_THIS).map { SessionCommand(it, Bundle.EMPTY) }
     fun command(action: String) = SessionCommand(action, Bundle.EMPTY)
 }
 
@@ -89,8 +93,9 @@ class PlaybackService : MediaLibraryService() {
     private var lastTick = 0L
 
     // Tracks Radio.
-    private val radioIds = HashSet<String>()
     private var fetchingRadio = false
+    /** Where in the queue the song playing sat, to tell going back from moving on. */
+    private var playingIndex = 0
 
     private var sleepJob: Job? = null
     private var failuresInARow = 0
@@ -98,7 +103,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
         memory = QueueMemory(this)
-        tree = BrowseTree(graph)
+        tree = BrowseTree(graph) { ::player.isInitialized && player.isPlaying }
         exo = ExoPlayer.Builder(this)
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
@@ -130,6 +135,8 @@ class PlaybackService : MediaLibraryService() {
                 }
             }
         }
+        // Shuffle and repeat have no place on a station without an end.
+        scope.launch { PlaybackBridge.origin.collect { refreshButtons() } }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
@@ -154,12 +161,30 @@ class PlaybackService : MediaLibraryService() {
 
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            noteRadio(reason)
+            noteLeaving(reason)
             finishPlay()
             startPlay(mediaItem)
+            playingIndex = player.currentMediaItemIndex
             topUpRadio()
             refreshButtons()
             remember()
+        }
+
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+            // A pick taken out of Up next: another takes its place.
+            if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) {
+                playingIndex = player.currentMediaItemIndex
+                topUpRadio()
+            }
+        }
+
+        override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
+            // Previous well into a station's song starts it over: wanting to hear it again.
+            if (reason == Player.DISCONTINUITY_REASON_SEEK && old.mediaItemIndex == new.mediaItemIndex &&
+                old.positionMs >= RESTARTS_AFTER_MS && new.positionMs < 1_000 && isRadio()
+            ) {
+                player.currentMediaItem?.toPlayableSong()?.let(graph.radio::replayed)
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) = skipUnplayable(error)
@@ -271,7 +296,7 @@ class PlaybackService : MediaLibraryService() {
             source = PlaySourceValue.YourMusic,
             appPackage = packageName,
             appName = "Tracks",
-            stationName = if (item.mediaId in radioIds) "Tracks Radio" else null,
+            stationName = if (isRadio() && graph.radio.state.value.picks.containsKey(item.mediaId)) "Tracks Radio" else null,
             mediaId = song.mediaId,
         )
     }
@@ -285,45 +310,87 @@ class PlaybackService : MediaLibraryService() {
 
     // MARK: Tracks Radio
 
-    private fun noteRadio(reason: Int) {
+    /**
+     * How the song that just gave way went, told by how long it played: a skip is remembered
+     * against the song wherever it played, and Tracks Radio hears about its own songs. Going
+     * back a song, and a new queue replacing this one, say nothing.
+     */
+    private fun noteLeaving(reason: Int) {
         val item = counterItem ?: return
-        if (item.mediaId !in radioIds) return
-        val listened = counter?.listenedMs ?: 0
+        val song = item.toPlayableSong()
         val listen = when (reason) {
-            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO, Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> RadioListen.Finished
-            Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> if (listened < 30_000) RadioListen.Skipped else RadioListen.MovedOn
-            else -> RadioListen.MovedOn
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO, Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> Listen.FINISHED
+            Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> {
+                if (player.currentMediaItemIndex < playingIndex) return
+                val length = ListenCounter.knownLength(counter?.durationMs) ?: ListenCounter.knownLength(song.durationMs)
+                radioListen(counter?.listenedMs ?: 0, length)
+            }
+            else -> return
         }
-        runCatching { graph.radio.note(item.toPlayableSong(), listen) }
+        if (listen == Listen.SKIPPED) graph.radio.recordSkip(song)
+        if (isRadio()) graph.radio.note(song, listen)
     }
 
     private fun isRadio() = PlaybackBridge.origin.value?.kind == QueueOrigin.Kind.Radio
 
+    /** Whether one of the station's songs is waiting in Up next, after any you've queued. */
+    private fun radioPickWaiting(): Int? {
+        val picks = graph.radio.state.value.picks
+        return (player.mediaItemCount - 1 downTo player.currentMediaItemIndex + 1)
+            .firstOrNull { player.getMediaItemAt(it).mediaId in picks }
+    }
+
+    /**
+     * Picks the next song once there's none of the station's waiting after this one. Only one
+     * is queued ahead, so every pick knows how the song before it went.
+     */
     private fun topUpRadio() {
-        if (!isRadio() || fetchingRadio) return
-        val left = player.mediaItemCount - player.currentMediaItemIndex - 1
-        if (left >= 3) return
+        if (!isRadio() || fetchingRadio || player.mediaItemCount == 0 || radioPickWaiting() != null) return
         fetchingRadio = true
         scope.launch {
             try {
-                val more = runCatching { graph.radio.more(5) }.getOrDefault(emptyList())
-                if (isRadio() && more.isNotEmpty()) {
-                    radioIds += more.map { it.mediaId }
-                    player.addMediaItems(more.map { it.toMediaItem() })
-                }
+                val next = runCatching { graph.radio.next() }.getOrNull()
+                if (isRadio() && next != null && radioPickWaiting() == null) player.addMediaItem(next.toMediaItem())
             } finally {
                 fetchingRadio = false
             }
         }
     }
 
-    private suspend fun radioSongs(): List<PlayableSong> {
-        val songs = runCatching { graph.radio.start() }.getOrDefault(emptyList())
-        if (songs.isEmpty()) return songs
+    /**
+     * The station's song waiting next was picked before what was just said: it makes way, so
+     * the answer is heard next rather than a song later. Kept when it's already by the artist
+     * asked for, and never a song you queued.
+     */
+    private fun repickNext(unlessBy: String) {
+        val index = radioPickWaiting() ?: return
+        val waiting = player.getMediaItemAt(index).toPlayableSong()
+        if (waiting.artistName == unlessBy) return
+        graph.radio.release(waiting)
+        player.removeMediaItem(index)
+    }
+
+    /** More like the song on now, from the very next song. */
+    private fun moreLikeThis() {
+        val current = player.currentMediaItem?.toPlayableSong() ?: return
+        if (!isRadio() || !graph.radio.knows(current)) return
+        graph.radio.moreLikeThis(current)
+        repickNext(current.artistName)
+    }
+
+    /** Tracks Radio's first songs, opening on [startingWith] when given, set as what plays. */
+    private suspend fun radioSongs(startingWith: PlayableSong? = null): List<PlayableSong> {
+        val songs = runCatching { graph.radio.start(startingWith) }
+            .onFailure { Log.w("Tracks", "Tracks Radio didn't start", it) }
+            .getOrDefault(emptyList())
+        if (songs.isEmpty()) {
+            say("Add some music, and Tracks Radio will have something to play.")
+            return songs
+        }
         PlaybackBridge.origin.value = QueueOrigin("Tracks Radio", QueueOrigin.Kind.Radio)
-        radioIds.clear()
-        radioIds += songs.map { it.mediaId }
+        // A station has no order to shuffle and no end to repeat.
         if (player.shuffleModeEnabled) player.shuffleModeEnabled = false
+        if (player.repeatMode != Player.REPEAT_MODE_OFF) player.repeatMode = Player.REPEAT_MODE_OFF
         return songs
     }
 
@@ -335,6 +402,21 @@ class PlaybackService : MediaLibraryService() {
             player.prepare()
             player.play()
         }
+    }
+
+    /** Tracks Radio picked up where it is if it's what's on, or started. */
+    private suspend fun radioQueue(): MediaSession.MediaItemsWithStartPosition {
+        if (isRadio() && player.mediaItemCount > 0) {
+            val items = List(player.mediaItemCount) { player.getMediaItemAt(it) }
+            return MediaSession.MediaItemsWithStartPosition(items, player.currentMediaItemIndex, player.currentPosition)
+        }
+        if (!graph.settings.settings.first().showTracksRadio) {
+            tree.hourMix()?.let { (songs, start, origin) ->
+                PlaybackBridge.origin.value = origin
+                return MediaSession.MediaItemsWithStartPosition(songs.map { it.toMediaItem() }, start, 0)
+            }
+        }
+        return MediaSession.MediaItemsWithStartPosition(radioSongs().map { it.toMediaItem() }, 0, 0)
     }
 
     // MARK: Sleep timer
@@ -373,12 +455,15 @@ class PlaybackService : MediaLibraryService() {
         val isLiked = currentIdentity()?.let { it in liked } == true
         val shuffle = if (::player.isInitialized) player.shuffleModeEnabled else false
         val repeat = if (::player.isInitialized) player.repeatMode else Player.REPEAT_MODE_OFF
+        val like = CommandButton.Builder(if (isLiked) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED)
+            .setDisplayName(if (isLiked) "Unlike" else "Like")
+            .setSessionCommand(TracksCommands.command(TracksCommands.LIKE))
+            .setSlots(CommandButton.SLOT_BACK_SECONDARY, CommandButton.SLOT_OVERFLOW)
+            .build()
+        // A station picks as it goes: there's no order to shuffle, or end to repeat.
+        if (isRadio()) return listOf(like)
         return listOf(
-            CommandButton.Builder(if (isLiked) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED)
-                .setDisplayName(if (isLiked) "Unlike" else "Like")
-                .setSessionCommand(TracksCommands.command(TracksCommands.LIKE))
-                .setSlots(CommandButton.SLOT_BACK_SECONDARY, CommandButton.SLOT_OVERFLOW)
-                .build(),
+            like,
             CommandButton.Builder(if (shuffle) CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF)
                 .setDisplayName(if (shuffle) "Turn shuffle off" else "Shuffle")
                 .setSessionCommand(TracksCommands.command(TracksCommands.SHUFFLE))
@@ -414,6 +499,12 @@ class PlaybackService : MediaLibraryService() {
         val on = identity !in liked
         liked = if (on) liked + identity else liked - identity
         refreshButtons()
+        // Liking the song on tells Tracks Radio to play more like it, from the next song.
+        val current = player.currentMediaItem?.toPlayableSong()
+        if (on && current != null && isRadio() && graph.radio.knows(current)) {
+            graph.radio.loved(current)
+            repickNext(current.artistName)
+        }
         graph.scope.launch {
             graph.settings.update { it.copy(likedSongs = if (on) it.likedSongs + identity else it.likedSongs - identity) }
             (graph.library as? CombinedLibrary)?.servers?.star(mediaId, on)
@@ -467,6 +558,7 @@ class PlaybackService : MediaLibraryService() {
                 }
                 TracksCommands.SLEEP -> setSleep(args.getInt(TracksCommands.MINUTES, 0))
                 TracksCommands.RADIO -> startRadio()
+                TracksCommands.MORE_LIKE_THIS -> moreLikeThis()
                 else -> return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -510,10 +602,7 @@ class PlaybackService : MediaLibraryService() {
                 val query = single.requestMetadata.searchQuery
                 when {
                     // "Play music on Tracks": nothing named, so Tracks Radio.
-                    single.mediaId == BrowseTree.RADIO || (query != null && query.isBlank()) -> {
-                        val songs = radioSongs()
-                        return@future MediaSession.MediaItemsWithStartPosition(songs.map { it.toMediaItem() }, 0, 0)
-                    }
+                    single.mediaId == BrowseTree.RADIO || (query != null && query.isBlank()) -> return@future radioQueue()
                     query != null -> {
                         val songs = tree.search(query)
                         if (songs.isNotEmpty()) PlaybackBridge.origin.value = QueueOrigin(query, QueueOrigin.Kind.Search)
@@ -532,6 +621,12 @@ class PlaybackService : MediaLibraryService() {
         override fun onPlaybackResumption(mediaSession: MediaSession, controller: MediaSession.ControllerInfo, isForPlayback: Boolean): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
             future {
                 val saved = memory.restore()
+                val paused = saved?.songs?.getOrNull(saved.index)
+                if (saved?.origin?.kind == QueueOrigin.Kind.Radio && paused != null) {
+                    // Tracks Radio starts again from the song it was on, and picks on from there.
+                    val songs = radioSongs(startingWith = paused)
+                    if (songs.isNotEmpty()) return@future MediaSession.MediaItemsWithStartPosition(songs.map { it.toMediaItem() }, 0, saved.positionMs)
+                }
                 if (saved != null) {
                     PlaybackBridge.origin.value = saved.origin
                     MediaSession.MediaItemsWithStartPosition(saved.songs.map { it.toMediaItem() }, saved.index, saved.positionMs)
@@ -545,6 +640,8 @@ class PlaybackService : MediaLibraryService() {
 
     private companion object {
         const val FADE_MS = 10_000L
+        /** How far into a song Previous starts it over, as Media3 has it. */
+        const val RESTARTS_AFTER_MS = 3_000L
 
         fun List<MediaItem>.page(page: Int, size: Int): ImmutableList<MediaItem> {
             if (size <= 0 || size == Int.MAX_VALUE) return ImmutableList.copyOf(this)

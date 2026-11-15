@@ -32,6 +32,12 @@ See [README.md](README.md) for the legend and how to keep this current.
   Play's old "Suggested songs" (your most played this month) and "Keep exploring" (old
   favorites) are gone: On Repeat and Rediscover cover them, and those names now mean new
   music, as on iPhone.
+- 2026-11-15: Tracks Radio works as the iPhone's does with Your Music, apart from following the
+  time of day and noticing driving. Its decisions moved into the engine
+  (`tracks_mixes::radio`, a port of `LiveMix`), which Android plays. That engine radio is for
+  Your Music only: on iPhone and Mac, Tracks Radio over Apple Music keeps its Swift `LiveMix`
+  with the MusicKit catalog, and they may adopt the engine's for Your Music stations. The old
+  five-step adventure slider became the iPhone's Familiar, Balanced and Adventurous.
 
 ## Complete features
 
@@ -64,7 +70,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - Stored with DataStore: theme (system, light, dark), colors (wallpaper, Tracks, Now
   Playing), hidden songs, scrobbling on or off,
-  Last.fm user, Tracks Radio adventure, sample data, onboarded, Subsonic servers.
+  Last.fm user, Tracks Radio's tuning (discovery, genres, old favorites) and whether it shows,
+  sample data, onboarded, Subsonic servers.
 
 ### System integration
 
@@ -81,16 +88,17 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - `PlayerController`: play, Play Next, add to queue, remove, move, skip to, seek, shuffle,
   repeat, sleep timer, start Tracks Radio; state with keep progress and kept flag.
-- `RadioSource`: Tracks Radio's songs from the engine's `RadioStation`, a few at a time, with
-  how each went (skipped, moved on, finished).
+- `RadioSource`: Tracks Radio's songs from the engine's `RadioStation`, one pick at a time, with
+  how each went (skipped, moved on, finished), likes, more like this, replays, removals, hear
+  less, and its state (each pick's reason, its steering) for the screens.
 - `MusicLibrary`: device files and servers merged, lookup from a history identity to
   something playable, search.
 
 ### Engine
 
 - Uses the engine for the history index, charts, totals, timeline, activity, streaks, search,
-  song, artist and album stats, name folding, credits, mixes, fresh shuffle, Tracks Radio's
-  picker, Last.fm requests and parsing, and sample data.
+  song, artist and album stats, name folding, credits, mixes, fresh shuffle, Tracks Radio
+  over Your Music (picking, steering, probe, habits, skip memory, genres to tune to), Last.fm requests and parsing, and sample data.
 
 ### Testing
 
@@ -185,9 +193,12 @@ See [README.md](README.md) for the legend and how to keep this current.
   another app.
 - Pin a mix to the home screen.
 - Hear less of, with Undo: the song leaves every mix and the radio.
-- Tracks Radio: the engine's `RadioStation` over your library, weighted by how much and how
-  recently you play each song, with never-played songs as new finds. Learns from skips.
-- Tracks Radio adventure setting.
+- Tracks Radio, as on iPhone with Your Music (see the parity table below): your songs weighted
+  by plays and recency, never-played songs and your servers' Picked for you finds as new finds,
+  picked one song ahead as the one before starts, steered by skips, songs let play, likes,
+  More like this and replays, with why each song came up on Now Playing and in Up next.
+- Tune Tracks Radio: Show Tracks Radio, Familiar, Balanced or Adventurous, genres to lean
+  into, Bring back old favorites, Reset to Balanced.
 
 ### Now Playing
 
@@ -253,6 +264,42 @@ See [README.md](README.md) for the legend and how to keep this current.
   and reject, toggles.
 - Expressive spring motion, shared element transitions, animated list items, count-ups.
 
+## Tracks Radio parity
+
+iPhone with Your Music against Android. Time of day and driving are left out on purpose. The
+engine and its wiring are tested on the JVM; the player, notification and Android Auto parts
+are *(untested on a device)*.
+
+| iPhone | Android |
+| --- | --- |
+| Songs: every song in Your Music, played ones by plays (log) and recency, a song heard lately giving way, songs heard in the last 6 hours resting, never-played ones as new finds | Same, in the engine (`tracks_radio`) |
+| New finds from your servers' Picked for you (picks, suggested, further) not in your music | Same, from `ServerPicks` |
+| Hear less of and songs skipped twice in 60 days left out; one recent skip weighs a song down | Same: hidden songs and the engine's skip memory, kept in `radio-skips.json` |
+| Share of new finds from Familiar, Balanced, Adventurous (8%, 25%, 50%), more for a small history | Same |
+| Genres to lean into (4x, the rest 0.2x), Bring back old favorites (2.5x after 90 days) | Same; genres offered are the ones you play most, by your music's tags |
+| Each artist balanced by the square root of their songs; artists kept apart and spaced | Same |
+| Opens on one of your strongest songs; from nothing, a probe of a few genre families, decades and new finds, which extends when all are skipped and settles on what landed | Same |
+| Habits by moment (genres, decades, new finds), fading over 45 days, steering the next listen | Same, kept in `radio-habits.json`, always the "anytime" band |
+| Taste graph: songs played together lift each other, and say "Because you played" | Same |
+| Steering: runs of skips in a genre, decade, new finds or your songs turn away; the song let play after is homed in on; turns away said at once | Same; said in a toast while Tracks is on screen |
+| Skip, moved on or finished from how long it played | Same rule (`radio_listen`) |
+| Like (heart) and Play More Like This: more of the artist, the waiting pick makes way | Same, from the notification's heart and Now Playing's menu |
+| Previous well into a song: heard as wanting it again | Same |
+| Taking a pick out of Up next is a skip, and another is picked | Same |
+| Songs you add play before the station's next pick | Same |
+| One pick queued ahead; picks forever, going round again when all have played | Same |
+| Retuning applies from the next pick, keeping what the listen learned | Same |
+| Pick reasons in Up next, and for the song on | Up next, and on Now Playing under the artist |
+| Steering line, or "picks each song as the one before starts", under Up next | Same |
+| No shuffle, repeat or Autoplay on a station | Shuffle and repeat hidden in Now Playing and the media notification |
+| Tune Tracks Radio from the station's menu, Up next and Now Playing | From the crate's long press, Up next and Now Playing's menu, and Settings |
+| Show Tracks Radio; hidden, Siri plays the hour's mix | Same; hidden, Assistant plays the hour's mix and Android Auto leaves it out |
+| Paused Tracks Radio resumed after a restart starts again from that song | Same, through Media3's playback resumption |
+| CarPlay row: Now Playing, Paused or Made from your listening; a tap resumes rather than restarts | Android Auto's Tracks Radio item, the same |
+| Downloaded Songs First, Delete After Playing, Played and Removed | Not on Android: it has no downloads yet |
+| Blocked artists | Not on Android yet (no Block an artist) |
+| Through the Day, Driving | Left out on purpose |
+
 ## Missing for parity
 
 Known issue shared with iPhone and Mac: the engine's credit splitting reads a band name
@@ -290,13 +337,13 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 ### Play
 
 - Save a mix as a playlist.
-- Tune Tracks Radio beyond adventure: genres, old favorites, Through the Day.
+- Tracks Radio following the time of day (Through the Day).
 - Learning which songs go together, and Autoplay after an album or playlist.
 - Choose Artists for Picked for you (iPhone's SeedArtistPicker), and its start card when
   there's nothing to start from.
 - The server's slower second search for an artist (iPhone shows the quick one first and adds
   the slower one's songs later); Android does one search.
-- Your servers' songs in the crate, and Tracks Radio's new finds from them.
+- Your servers' songs in the crate.
 - Moods, genres, Handpicked and Party.
 - From Your Downloads (Android has no downloads yet) and the library list on Play.
 - For You cards.

@@ -46,7 +46,14 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.luke.tracks.data.AppSettings
+import com.luke.tracks.graph
 import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.playback.QueueOrigin
+import com.luke.tracks.playback.radio.RadioWords
+import uniffi.tracks_engine.RadioReason
 import com.luke.tracks.playback.artistLabel
 import com.luke.tracks.playback.titleLabel
 import com.luke.tracks.playback.PlayerController
@@ -62,21 +69,29 @@ private val RowHeight = 68.dp
  * swipe it away to take it out, tap to jump to it.
  */
 @Composable
-fun QueueSheet(state: PlayerState, player: PlayerController, onDismiss: () -> Unit) {
+fun QueueSheet(state: PlayerState, player: PlayerController, onDismiss: () -> Unit, onTuneRadio: (() -> Unit)? = null) {
     val sheet = rememberModalBottomSheetState()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
-        QueueContent(state, player)
+        QueueContent(state, player, onTuneRadio = onTuneRadio)
     }
 }
 
+/**
+ * On Tracks Radio, each song the station picked says why under it, Up next holds just its
+ * next pick (after any you've queued), and a line says what it's doing about your skips.
+ */
 @Composable
-fun QueueContent(state: PlayerState, player: PlayerController, modifier: Modifier = Modifier) {
+fun QueueContent(state: PlayerState, player: PlayerController, modifier: Modifier = Modifier, onTuneRadio: (() -> Unit)? = null) {
     val haptics = LocalHapticFeedback.current
     val rowPx = with(LocalDensity.current) { RowHeight.toPx() }
     val upNext = state.upNext
     val base = state.index + 1
     var dragging by remember { mutableStateOf<Int?>(null) }
     var offset by remember { mutableFloatStateOf(0f) }
+    val graph = LocalContext.current.graph
+    val radioState by graph.radio.state.collectAsStateWithLifecycle()
+    val radio = radioState.takeIf { state.origin?.kind == QueueOrigin.Kind.Radio }
+    val settings by graph.settings.settings.collectAsStateWithLifecycle(AppSettings())
 
     Column(modifier.fillMaxWidth().navigationBarsPadding()) {
         Text(
@@ -94,10 +109,10 @@ fun QueueContent(state: PlayerState, player: PlayerController, modifier: Modifie
             )
         }
         Spacer(Modifier.height(12.dp))
-        state.current?.let { NowRow(it) }
+        state.current?.let { NowRow(it, radio?.reason(it)) }
         if (upNext.isEmpty()) {
             Text(
-                "Nothing after this song",
+                if (radio != null) "Picking the next song…" else "Nothing after this song",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(24.dp),
@@ -133,6 +148,7 @@ fun QueueContent(state: PlayerState, player: PlayerController, modifier: Modifie
                     Surface(tonalElevation = lift, shadowElevation = lift, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         QueueRow(
                             song = song,
+                            reason = radio?.reason(song),
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                                 player.skipTo(base + i)
@@ -170,12 +186,26 @@ fun QueueContent(state: PlayerState, player: PlayerController, modifier: Modifie
                     }
                 }
             }
+            if (radio != null) {
+                item(key = "steering") {
+                    SteeringNote(radio.steering, Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 12.dp).animateItem())
+                }
+                if (onTuneRadio != null) {
+                    item(key = "tune") {
+                        TuneRadioCard(
+                            RadioWords.shortSummary(settings.radioDiscovery, settings.radioGenres),
+                            onClick = onTuneRadio,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).animateItem(),
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun NowRow(song: PlayableSong) {
+private fun NowRow(song: PlayableSong, reason: RadioReason?) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -191,13 +221,16 @@ private fun NowRow(song: PlayableSong) {
                 color = MaterialTheme.colorScheme.onSecondaryContainer)
             Text(song.artistLabel, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f))
+            if (reason != null) {
+                PickReasonLabel(reason, MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f), Modifier.padding(top = 2.dp), maxLines = 2)
+            }
         }
         Icon(Icons.Rounded.GraphicEq, "Now playing", tint = MaterialTheme.colorScheme.onSecondaryContainer)
     }
 }
 
 @Composable
-private fun QueueRow(song: PlayableSong, onClick: () -> Unit, handle: Modifier) {
+private fun QueueRow(song: PlayableSong, reason: RadioReason?, onClick: () -> Unit, handle: Modifier) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -212,6 +245,7 @@ private fun QueueRow(song: PlayableSong, onClick: () -> Unit, handle: Modifier) 
             Text(song.titleLabel, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(song.artistLabel, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (reason != null) PickReasonLabel(reason, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.padding(top = 2.dp))
         }
         Box(handle.size(48.dp), contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.DragHandle, "Move", tint = MaterialTheme.colorScheme.onSurfaceVariant)

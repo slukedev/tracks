@@ -105,6 +105,7 @@ fun PlayScreen() {
     val navigator = LocalNavigator.current
     val feed by rememberPlayFeed()
     val player by graph.player.state.collectAsStateWithLifecycle()
+    val settings by graph.settings.settings.collectAsStateWithLifecycle(null)
     val actions = rememberPlayActions()
     val picks = rememberServerPicks()
     val servers by picks.servers.collectAsState()
@@ -158,9 +159,10 @@ fun PlayScreen() {
                 ) {
                     // A server that can't be reached says so first, since it's why its shelves are gone.
                     item(key = "problems", contentType = "problems") { ServerProblems() }
-                    item(key = "crate", contentType = "crate") {
+                    val crate = crateItems(current, settings?.showTracksRadio != false)
+                    if (crate.isNotEmpty()) item(key = "crate", contentType = "crate") {
                         Crate(
-                            items = remember(current) { crateItems(current) },
+                            items = crate,
                             feed = current,
                             player = player,
                             actions = actions,

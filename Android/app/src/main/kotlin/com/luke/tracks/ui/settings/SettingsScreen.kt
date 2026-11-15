@@ -35,6 +35,7 @@ import com.luke.tracks.data.ColorChoice
 import com.luke.tracks.data.SampleData
 import com.luke.tracks.data.ThemeChoice
 import com.luke.tracks.graph
+import com.luke.tracks.playback.radio.RadioWords
 import com.luke.tracks.lastfm.LastFm
 import com.luke.tracks.lastfm.lastFm
 import com.luke.tracks.ui.navigation.SettingsPageRoute
@@ -67,7 +68,8 @@ fun SettingsScreen() {
             }
         }
         group("Play") {
-            link("Tracks Radio", summary = RadioLevels.at(settings.radioAdventure).name, icon = Icons.Rounded.Radio, tone = Tone.Tertiary) {
+            val radio = if (settings.showTracksRadio) RadioWords.shortSummary(settings.radioDiscovery, settings.radioGenres) else "Hidden"
+            link("Tracks Radio", summary = radio, icon = Icons.Rounded.Radio, tone = Tone.Tertiary) {
                 open("radio")
             }
             link(

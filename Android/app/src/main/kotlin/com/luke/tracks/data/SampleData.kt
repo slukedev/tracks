@@ -12,9 +12,12 @@ import java.util.TimeZone
  * screenshots use), kept in its own database so the real history is never touched.
  */
 object SampleData {
+    /** The generator's seed, the same as the Apple apps'. */
+    const val SEED = 2026uL
+
     /** Ten months of plays ending now. */
     fun plays(nowMs: Long = System.currentTimeMillis(), days: Int = 300): List<PlayEntity> =
-        demoPlays(nowMs, TimeZone.getDefault().id, days.toUInt(), 2026uL).mapIndexed { index, play ->
+        demoPlays(nowMs, TimeZone.getDefault().id, days.toUInt(), SEED).mapIndexed { index, play ->
             PlayEntity(
                 id = "sample-$index",
                 title = play.title,
