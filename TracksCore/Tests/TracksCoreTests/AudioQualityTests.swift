@@ -73,17 +73,17 @@ struct AudioQualityTests {
     @Test("the original stream on Wi-Fi shows the song's format straight away")
     func originalOnWiFi() throws {
         let quality = try #require(AudioQuality(LocalPlayback(
-            route: .stream(server: "Octo", network: .wifi, requestedBitRate: nil), original: flac
+            route: .stream(server: "Home", network: .wifi, requestedBitRate: nil), original: flac
         )))
         #expect(quality.label == "Lossless")
-        #expect(quality.source == .streaming(server: "Octo"))
-        #expect(quality.factsLine == "Streaming from Octo · FLAC 16-bit/44.1 kHz")
+        #expect(quality.source == .streaming(server: "Home"))
+        #expect(quality.factsLine == "Streaming from Home · FLAC 16-bit/44.1 kHz")
         #expect(quality.reasonLine == "Your Wi-Fi setting streams the original file.")
     }
 
     @Test("a stream converted on cellular is the copy's format, once heard")
     func convertedOnCellular() throws {
-        let playback = LocalPlayback(route: .stream(server: "Octo", network: .cellular, requestedBitRate: 320), original: hiRes)
+        let playback = LocalPlayback(route: .stream(server: "Home", network: .cellular, requestedBitRate: 320), original: hiRes)
         #expect(AudioQuality(playback) == nil, "not known until the player has heard it")
 
         var heard = playback
@@ -91,14 +91,14 @@ struct AudioQualityTests {
         let quality = try #require(AudioQuality(heard))
         #expect(quality.label == "MP3 · 320 kbps")
         #expect(quality.spokenLabel == "MP3, 320 kilobits a second")
-        #expect(quality.factsLine == "Streaming from Octo")
+        #expect(quality.factsLine == "Streaming from Home")
         #expect(quality.reasonLine == "Your cellular setting streams at 320 kbps.")
     }
 
     @Test("a server that won't stream a copy bigger than its source shows the rate it sent")
     func cappedCopy() throws {
         let quality = try #require(AudioQuality(LocalPlayback(
-            route: .stream(server: "Octo", network: .cellular, requestedBitRate: 320),
+            route: .stream(server: "Home", network: .cellular, requestedBitRate: 320),
             original: AudioFormat(codec: "AAC", bitRate: 256),
             actual: AudioFormat(codec: "MP3", sampleRate: 44_100, bitRate: 256)
         )))
@@ -108,7 +108,7 @@ struct AudioQualityTests {
     @Test("a server that can't convert streams the original, and the badge never claims the copy")
     func streamServerSentOriginal() throws {
         let quality = try #require(AudioQuality(LocalPlayback(
-            route: .stream(server: "Octo", network: .cellular, requestedBitRate: 128),
+            route: .stream(server: "Home", network: .cellular, requestedBitRate: 128),
             original: flac,
             actual: AudioFormat(codec: "FLAC", sampleRate: 44_100)
         )))
@@ -119,7 +119,7 @@ struct AudioQualityTests {
     @Test("an MP3 already under the setting streams as it is")
     func alreadySmaller() throws {
         let quality = try #require(AudioQuality(LocalPlayback(
-            route: .stream(server: "Octo", network: .wifi, requestedBitRate: 320), original: mp3At192, actual: mp3At192
+            route: .stream(server: "Home", network: .wifi, requestedBitRate: 320), original: mp3At192, actual: mp3At192
         )))
         #expect(quality.label == "MP3 · 192 kbps")
         #expect(quality.reason == .alreadySmaller(.stream(.wifi), bitRate: 320))
@@ -128,7 +128,7 @@ struct AudioQualityTests {
     @Test("an MP3 bigger than the setting, shrunk to it, is converted")
     func mp3MadeSmaller() throws {
         let quality = try #require(AudioQuality(LocalPlayback(
-            route: .stream(server: "Octo", network: .cellular, requestedBitRate: 128), original: mp3At320, actual: mp3At128
+            route: .stream(server: "Home", network: .cellular, requestedBitRate: 128), original: mp3At320, actual: mp3At128
         )))
         #expect(quality.label == "MP3 · 128 kbps")
         #expect(quality.reason == .converted(.stream(.cellular), bitRate: 128))
@@ -177,5 +177,40 @@ struct AudioQualityTests {
         #expect(AudioFormat.settled(actual: heard, original: tagged) == AudioFormat(codec: "FLAC", sampleRate: 96_000, bitDepth: 24))
         #expect(AudioFormat.settled(actual: mp3At128, original: flac) == mp3At128)
         #expect(AudioFormat.settled(actual: nil, original: flac) == flac)
+    }
+
+    // MARK: - Servers that say what they send
+
+    @Test("a stream Trackside says is a copy shows the copy before the audio is heard")
+    func deliveredCopy() throws {
+        let aac = AudioFormat(codec: "AAC", sampleRate: 44_100, bitRate: 256)
+        let quality = try #require(AudioQuality(LocalPlayback(
+            route: .stream(server: "Home", network: .cellular, requestedBitRate: 256), original: flac, delivered: aac
+        )))
+        #expect(quality.label == "AAC · 256 kbps")
+        #expect(quality.reason == .converted(.stream(.cellular), bitRate: 256))
+        #expect(quality.reasonLine == "Your cellular setting streams at 256 kbps.")
+    }
+
+    @Test("what's heard wins over what the server said it would send")
+    func heardWins() throws {
+        let quality = try #require(AudioQuality(LocalPlayback(
+            route: .stream(server: "Home", network: .wifi, requestedBitRate: 256), original: flac,
+            actual: AudioFormat(codec: "FLAC", sampleRate: 44_100), delivered: AudioFormat(codec: "AAC", bitRate: 256)
+        )))
+        #expect(quality.reason == .serverSentOriginal(.stream(.wifi), bitRate: 256))
+    }
+
+    @Test("an original Trackside sends as it is, under the limit, says it's already small enough")
+    func deliveredOriginal() throws {
+        let quality = try #require(AudioQuality(LocalPlayback(
+            route: .stream(server: "Home", network: .cellular, requestedBitRate: 256), original: mp3At192, delivered: mp3At192
+        )))
+        #expect(quality.reason == .alreadySmaller(.stream(.cellular), bitRate: 256))
+    }
+
+    @Test("a Subsonic stream asked to shrink still waits to be heard: it says nothing of what it sends")
+    func subsonicStillWaits() {
+        #expect(AudioQuality(LocalPlayback(route: .stream(server: "Home", network: .cellular, requestedBitRate: 128), original: flac)) == nil)
     }
 }

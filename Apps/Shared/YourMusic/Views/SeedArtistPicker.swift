@@ -100,8 +100,8 @@ struct SeedArtistPicker: View {
         }
     }
 
-    /// Asks every connected server for artists by that name. Octo finds artists it doesn't
-    /// have too, with no Last.fm key needed.
+    /// Asks every connected server for artists by that name. Some servers find artists they
+    /// don't have too, with no Last.fm key needed.
     private func searchArtists() async {
         guard !term.isEmpty else {
             found = []
@@ -114,7 +114,7 @@ struct SeedArtistPicker: View {
         let term = term
         let names = await withTaskGroup(of: [String].self) { group in
             for client in clients {
-                group.addTask { (try? await client.search(term, artists: 10, albums: 0, songs: 0).artists.map(\.name)) ?? [] }
+                group.addTask { (try? await client.search(term, artists: 10, albums: 0, songs: 0, after: nil).artists.map(\.name)) ?? [] }
             }
             var names: [String] = []
             for await found in group { names += found }

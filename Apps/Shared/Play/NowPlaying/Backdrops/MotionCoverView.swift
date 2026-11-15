@@ -3,9 +3,10 @@ import AVFoundation
 import TracksCore
 
 /// Albums' animated covers, the square loops Apple Music plays in place of a cover, from a
-/// music server that finds them (Octo does, by album name, for any album). Asked of the song's
-/// own server first, then the others; a server that can't answer isn't asked again this
-/// session. What each album has is kept, none included, so a song coming round again is free.
+/// music server that finds them (some Subsonic servers do, by album name, for any album). Asked
+/// of the song's own server first, then the others; a server that can't answer isn't asked
+/// again this session. What each album has is kept, none included, so a song coming round again
+/// is free.
 @MainActor
 enum MotionCovers {
     /// Whether Full Cover plays a moving cover where there is one. On by default, as Music's
@@ -26,7 +27,8 @@ enum MotionCovers {
         let key = "\(StatsCalculator.folded(artist))|\(StatsCalculator.folded(album))"
         if let known = found[key] { return known }
         if let task = asking[key] { return await task.value }
-        var clients = servers.servers.compactMap { server in servers.client(for: server.id).map { (server.id, $0) } }
+        // Only Subsonic servers: some find them; Trackside's capabilities say it has none.
+        var clients = servers.servers.compactMap { server in servers.subsonicClient(for: server.id).map { (server.id, $0) } }
             .filter { !unable.contains($0.0) }
         if case .server(let own, _) = track.local?.origin, let index = clients.firstIndex(where: { $0.0 == own }) {
             clients.insert(clients.remove(at: index), at: 0)

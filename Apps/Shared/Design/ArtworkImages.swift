@@ -72,8 +72,8 @@ nonisolated final class ArtworkImages: Sendable {
     }
 
     /// Fetches covers before they're shown, so the first rows' covers are on disk by the time
-    /// they ask: from a server like Octo, which takes seconds to find each, they'd otherwise
-    /// arrive one by one as the rows come in. In order, two at a time.
+    /// they ask: from a server that looks covers up elsewhere, taking seconds over each, they'd
+    /// otherwise arrive one by one as the rows come in. In order, two at a time.
     @concurrent
     func warm(_ urls: [URL]) async {
         var seen = Set<URL>()
@@ -116,18 +116,22 @@ nonisolated final class ArtworkImages: Sendable {
     /// A cover's file. The shared session's URL cache keeps it, so it isn't downloaded again
     /// after it falls out of memory. A music server's cover can't go there, as its address
     /// carries a sign-in token that mustn't be written to disk, so it's kept in a folder of its
-    /// own under a name made from the address without it: a server like Octo takes seconds to
-    /// find each cover, and without this found every one again on every launch.
+    /// own under a name made from the address without it: a server that looks covers up
+    /// elsewhere takes seconds to find each, and without this found every one again on every
+    /// launch. Trackside's are kept under a name without the address it was reached at, so a
+    /// cover fetched at home is there away from it.
     private static func data(for url: URL) async -> Data? {
-        guard url.path(percentEncoded: false).hasSuffix("/rest/getCoverArt") else {
+        guard ServerCoverAddress.isServerCover(url) else {
             return await download(url, with: .shared)
         }
+        let isTrackside = ServerCoverAddress.isTracksideArt(url)
         let name = savedName(for: url)
         let saved = serverCovers.appending(path: name)
         if await misses.isRecent(name) { return nil }
         if let data = try? Data(contentsOf: saved) {
-            // Kept before stand-ins were told apart: let it go, and look again.
-            guard await standIns.isStandIn(data, from: url) else {
+            // Kept before stand-ins were told apart: let it go, and look again. Trackside
+            // never sends one: a cover it hasn't got is a 404.
+            guard !isTrackside, await standIns.isStandIn(data, from: url) else {
                 // Marked as used, so it's among the last let go.
                 try? FileManager.default.setAttributes([.modificationDate: Date.now], ofItemAtPath: saved.path(percentEncoded: false))
                 return data
@@ -136,10 +140,15 @@ nonisolated final class ArtworkImages: Sendable {
         }
         // Fetched ahead and asked for by a row at once: one download.
         return await downloads.load(url) {
-            // One at a time: a server like Octo finds each cover on iTunes, Deezer or Last.fm,
-            // and asked for many at once, they turn it away and it finds none.
-            guard let data = (try? await serverDownloads.run { await download(url, with: privateSession) }) ?? nil else { return nil }
-            if await standIns.isStandIn(data, from: url) {
+            // One at a time from Subsonic: some servers find each cover on iTunes, Deezer or
+            // Last.fm, and asked for many at once, they turn it away and it finds none.
+            // Trackside has its covers already, so several come at once.
+            let limiter = isTrackside ? tracksideDownloads : serverDownloads
+            guard let data = (try? await limiter.run { await download(url, with: privateSession) }) ?? nil else {
+                if isTrackside { await misses.note(name) }
+                return nil
+            }
+            if !isTrackside, await standIns.isStandIn(data, from: url) {
                 await misses.note(name)
                 return nil
             }
@@ -182,19 +191,20 @@ nonisolated final class ArtworkImages: Sendable {
         }
     }
     private static let serverDownloads = AsyncLimiter(limit: 1)
+    private static let tracksideDownloads = AsyncLimiter(limit: 6)
     private static let standIns = StandIns()
     private static let misses = Misses()
 
-    /// Whether a cover that didn't come is worth asking for again later: a server's, which
-    /// may have been turned away by the services it finds covers on.
+    /// Whether a cover that didn't come is worth asking for again later: a Subsonic server's,
+    /// which may have been turned away by the services it finds covers on.
     static func mayArriveLater(_ url: URL) -> Bool {
-        url.path(percentEncoded: false).hasSuffix("/rest/getCoverArt")
+        ServerCoverAddress.isSubsonicCover(url)
     }
 
-    /// What a server sends in place of a cover it hasn't got. Octo sends its own picture, with
-    /// a 200, for a cover it couldn't find, often only because the services it asked were busy;
-    /// kept as the cover, it would stay forever. Found by asking each server once for covers
-    /// that can't exist, and remembering what comes back.
+    /// What a server sends in place of a cover it hasn't got. Some Subsonic servers send a
+    /// placeholder picture, with a 200, for a cover they couldn't find, often only because the
+    /// services they asked were busy; kept as the cover, it would stay forever. Found by asking
+    /// each server once for covers that can't exist, and remembering what comes back.
     private actor StandIns {
         private var known: [String: Set<String>] = [:]
         private var asking: [String: Task<Set<String>, Never>] = [:]
@@ -215,8 +225,9 @@ nonisolated final class ArtworkImages: Sendable {
             return pictures
         }
 
-        /// Octo's picture for a cover it can't place, and for one its library hasn't got,
-        /// which it may send unbranded; a plain server's own "no cover" picture, if it has one.
+        /// The placeholder such a server sends for a cover it can't place (an `ext-` id is one
+        /// it found elsewhere), and for one its library hasn't got, which may differ; a plain
+        /// server's own "no cover" picture, if it has one.
         private static func ask(like url: URL) async -> Set<String> {
             var pictures = Set<String>()
             for id in ["ext-album-tracks-no-such-cover", "tracks-no-such-cover"] {
@@ -229,8 +240,8 @@ nonisolated final class ArtworkImages: Sendable {
         }
     }
 
-    /// Covers a server hadn't got, and when: asked again once Octo would look again, five
-    /// minutes on, rather than every time a row appears.
+    /// Covers a server hadn't got, and when: asked again once a server that looks covers up
+    /// elsewhere would look again, five minutes on, rather than every time a row appears.
     private actor Misses {
         private var at: [String: Date] = [:]
 
@@ -260,15 +271,9 @@ nonisolated final class ArtworkImages: Sendable {
     private static let serverCovers = URL.cachesDirectory.appending(path: "ServerCovers", directoryHint: .isDirectory)
 
     /// A server cover's file name: the address without the sign-in (username, token, salt,
-    /// password), hashed, so nothing that signs in is written down.
+    /// password, media token), hashed, so nothing that signs in is written down.
     static func savedName(for url: URL) -> String {
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        let kept = components?.queryItems?
-            .filter { !["u", "t", "s", "p"].contains($0.name) }
-            .sorted { $0.name < $1.name }
-        components?.queryItems = kept
-        let stable = components?.url?.absoluteString ?? url.path()
-        return SHA256.hash(data: Data(stable.utf8)).map { String(format: "%02x", $0) }.joined()
+        ServerCoverAddress.savedName(for: url)
     }
 
     /// Loads in progress, so a cover on screen in ten rows is fetched once.

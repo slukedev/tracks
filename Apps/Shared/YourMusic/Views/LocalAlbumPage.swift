@@ -161,10 +161,10 @@ struct LocalAlbumContent: View {
                         MissingSongRow(song: song, album: gaps.album)
                             .collectionRowInsets(hasCover: false)
                             .swipeActions {
-                                if let found = song.found {
+                                if song.canGet {
                                     Button("Get", systemImage: "arrow.down.circle") {
                                         Task {
-                                            if let problem = await music.getMore.get(found) { player.confirm(problem) }
+                                            if let problem = await music.getMore.get(song) { player.confirm(problem) }
                                         }
                                     }
                                     .tint(.accentColor)
@@ -251,10 +251,10 @@ struct LocalAlbumContent: View {
                         ForEach(gaps.missing) { song in
                             MissingSongRow(song: song, album: gaps.album)
                                 .contextMenu {
-                                    if let found = song.found {
+                                    if song.canGet {
                                         Button("Get", systemImage: "arrow.down.circle") {
                                             Task {
-                                                if let problem = await music.getMore.get(found) { player.confirm(problem) }
+                                                if let problem = await music.getMore.get(song) { player.confirm(problem) }
                                             }
                                         }
                                     }
@@ -402,7 +402,7 @@ struct LocalAlbumContent: View {
         [TrackListFooter.summary(count: album.tracks.count, seconds: album.duration), whereFrom].compactMap(\.self)
     }
 
-    /// "On Octo" or "Downloaded from Octo", for an album on a server.
+    /// "On Home" or "Downloaded from Home", for an album on a server.
     private var whereFrom: String? {
         let server = album.tracks.filter(\.isFromServer)
         guard !server.isEmpty else { return nil }

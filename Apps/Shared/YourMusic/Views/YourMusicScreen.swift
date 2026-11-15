@@ -44,8 +44,8 @@ struct YourMusicScreen: View {
                     }
                     .padding(.horizontal, PlayMetrics.margin)
                 } else if !music.servers.onlineServers.isEmpty {
-                    // A server that answered with no songs, Octo's often: what it picks for you
-                    // leads, to play and add.
+                    // A server that answered with no songs, as one that finds songs elsewhere
+                    // often does: what it picks for you leads, to play and add.
                     content
                 } else {
                     YourMusicWelcome(
@@ -432,7 +432,7 @@ private struct ServerProblemCard: View {
             }
             Spacer(minLength: 8)
             if case .wrongPassword = problem {
-                Button("Sign In", action: signIn)
+                Button(server.isTrackside ? "Pair Again" : "Sign In", action: signIn)
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
             } else if isRetrying {
@@ -456,12 +456,13 @@ private struct ServerProblemCard: View {
     }
 
     private func symbol(_ problem: ServerProblem?) -> String {
-        if case .wrongPassword = problem { return "key" }
+        if case .wrongPassword = problem { return server.isTrackside ? "qrcode" : "key" }
         return "wifi.exclamationmark"
     }
 
     private func title(_ problem: ServerProblem?) -> String {
         switch problem {
+        case .wrongPassword where server.isTrackside: String(localized: "\(server.name) Needs Pairing Again")
         case .wrongPassword: String(localized: "\(server.name) Needs Signing In Again")
         default: String(localized: "Can't Reach \(server.name)")
         }
@@ -469,6 +470,7 @@ private struct ServerProblemCard: View {
 
     private func message(_ problem: ServerProblem?) -> String {
         switch problem {
+        case .wrongPassword where server.isTrackside: String(localized: "This device was signed out of it. Songs you've downloaded still play.")
         case .wrongPassword: String(localized: "Its password has changed. Songs you've downloaded still play.")
         case .failed(let reason): String(localized: "\(reason) Songs you've downloaded still play.")
         default: String(localized: "Songs you've downloaded still play.")

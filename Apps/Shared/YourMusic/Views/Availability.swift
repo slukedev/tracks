@@ -3,7 +3,7 @@ import MusicKit
 import TracksCore
 
 /// What can be done with a suggested song in Your Music, at the end of its row: download it
-/// from your server or your Lidarr collection, add one a server like Octo found to your music,
+/// from your server or your Lidarr collection, add one a server found elsewhere to your music,
 /// watch it come down, or read why it can't play.
 struct AvailabilityAccessory: View {
     let availability: SongAvailability
@@ -54,8 +54,8 @@ struct AvailabilityAccessory: View {
             note("Coming from Lidarr", symbol: "clock")
         case .unavailable:
             let identity = SongIdentity.key(title: title, artistName: artist)
-            if music.getMore.ability.lidarr, let album {
-                // No server has it, but Lidarr can get its album.
+            if music.getMore.requestingServerOnline != nil || (music.getMore.ability.lidarr && album != nil) {
+                // No server has it, but Trackside can get it, or Lidarr its album.
                 GetButton(state: music.getMore.state(ofSong: identity), subject: title) {
                     Task {
                         if let problem = await music.getMore.get(songTitled: title, artist: artist, album: album) {

@@ -5,7 +5,7 @@ import Foundation
 @Suite("Picked for you from a server")
 struct ServerMixTests {
     func song(_ title: String, by artist: String) -> LocalTrack {
-        LocalTrack(origin: .server(serverID: "octo", songID: "\(artist)-\(title)"), title: title, artist: artist)
+        LocalTrack(origin: .server(serverID: "home", songID: "\(artist)-\(title)"), title: title, artist: artist)
     }
 
     @Test("what you play leads, the artists you picked fill in, then your library's")

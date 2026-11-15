@@ -317,6 +317,64 @@ struct GetSongRow: View {
     }
 }
 
+/// A song a Trackside server could get for you: it can't play until it's got, so the row is
+/// only what it is, and Get.
+struct GetOfferRow: View {
+    let offer: GetMore.Offer
+    var showsAlbum = false
+    /// Its quality as well, where a search shows more than one copy of a song.
+    var showsQuality = false
+
+    @Environment(YourMusic.self) private var music
+    @Environment(PlayerModel.self) private var player
+
+    var body: some View {
+        let candidate = offer.candidate
+        HStack(spacing: 4) {
+            TrackRow(
+                title: candidate.title,
+                subtitle: subtitle,
+                cover: .url(nil, seed: candidate.album ?? candidate.title)
+            )
+            .accessibilityElement(children: .combine)
+            GetButton(state: music.getMore.state(of: offer), subject: candidate.title) {
+                Task {
+                    if let problem = await music.getMore.get(offer) { player.confirm(problem) }
+                }
+            }
+        }
+    }
+
+    /// "Artist · Album · Lossless", as much of it as the row is for.
+    private var subtitle: String {
+        let candidate = offer.candidate
+        let quality: String? = switch candidate.quality {
+        case .lossless: String(localized: "Lossless")
+        case .high: String(localized: "High Quality")
+        case .standard, .unknown, nil: nil
+        }
+        let parts: [String?] = [
+            showsAlbum && candidate.album != nil ? nil : candidate.artist,
+            showsAlbum || showsQuality ? candidate.album : nil,
+            showsQuality ? quality : nil,
+        ]
+        return parts.compactMap(\.self).joined(separator: " · ")
+    }
+}
+
+/// A song in a Get More list: one a server found and plays, or one it could get.
+enum GetSongItem: Identifiable {
+    case found(LocalTrack)
+    case offer(GetMore.Offer)
+
+    var id: String {
+        switch self {
+        case .found(let track): track.id
+        case .offer(let offer): offer.id
+        }
+    }
+}
+
 // MARK: - Downloads
 
 /// Downloads, from wherever music is got: a turning ring beside it while anything's on its way.
@@ -388,6 +446,8 @@ struct IncomingRow: View {
 struct GetMoreBlock: View {
     let albums: [GetMore.HeldAlbum]
     let songs: [LocalTrack]
+    /// Songs a Trackside server could get, after the ones that play.
+    var offers: [GetMore.Offer] = []
     let context: PlayContext
     var songLayout: SongLayout = .columns
     /// The first suggestions are still being found: the songs' places are held.
@@ -410,7 +470,7 @@ struct GetMoreBlock: View {
                     GetAlbumTile(held: held)
                 }
             }
-            if !songs.isEmpty {
+            if !items.isEmpty {
                 switch songLayout {
                 case .columns: songColumns
                 case .list: songList
@@ -419,18 +479,30 @@ struct GetMoreBlock: View {
                 loadingColumns
             }
         }
-        .animation(reduceMotion ? nil : PlayMotion.row, value: albums.map(\.id) + songs.map(\.id))
+        .animation(reduceMotion ? nil : PlayMotion.row, value: albums.map(\.id) + items.map(\.id))
+    }
+
+    private var items: [GetSongItem] {
+        songs.map(GetSongItem.found) + offers.map(GetSongItem.offer)
+    }
+
+    @ViewBuilder
+    private func row(_ item: GetSongItem, showsAlbum: Bool = false) -> some View {
+        switch item {
+        case .found(let track): GetSongRow(track: track, queue: songs, context: context, showsAlbum: showsAlbum)
+        case .offer(let offer): GetOfferRow(offer: offer, showsAlbum: showsAlbum)
+        }
     }
 
     private var songColumns: some View {
         ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: PlayMetrics.shelfSpacing) {
-                ForEach(SuggestionShelfPaging.columns(of: songs, goesOn: false)) { column in
+                ForEach(SuggestionShelfPaging.columns(of: items, goesOn: false)) { column in
                     VStack(spacing: 0) {
-                        ForEach(column.items) { track in
-                            GetSongRow(track: track, queue: songs, context: context)
+                        ForEach(column.items) { item in
+                            row(item)
                                 .frame(height: rowHeight)
-                            if track.id != column.items.last?.id {
+                            if item.id != column.items.last?.id {
                                 Divider().padding(.leading, 60)
                             }
                         }
@@ -448,11 +520,11 @@ struct GetMoreBlock: View {
     }
 
     private var songList: some View {
-        let shown = Array(songs.prefix(ArtistSongsSection<EmptyView, EmptyView>.visibleRows))
+        let shown = Array(items.prefix(ArtistSongsSection<EmptyView, EmptyView>.visibleRows))
         return VStack(spacing: 0) {
-            ForEach(shown) { track in
-                GetSongRow(track: track, queue: songs, context: context, showsAlbum: true)
-                if track.id != shown.last?.id {
+            ForEach(shown) { item in
+                row(item, showsAlbum: true)
+                if item.id != shown.last?.id {
                     Divider().padding(.leading, 60)
                 }
             }
@@ -502,12 +574,18 @@ struct GetMoreSection: View {
                 if case .song(let track) = pick.item { return track }
                 return nil
             }
-            if !albums.isEmpty || !songs.isEmpty || getMore.isLoadingSuggestions {
+            let offers = picks.compactMap { pick -> GetMore.Offer? in
+                if case .offer(let offer) = pick.item { return offer }
+                return nil
+            }
+            let isEmpty = albums.isEmpty && songs.isEmpty && offers.isEmpty
+            if !isEmpty || getMore.isLoadingSuggestions {
                 GetMoreBlock(
                     albums: albums,
                     songs: songs,
+                    offers: offers,
                     context: .songs(String(localized: "Get More")),
-                    isLoading: getMore.isLoadingSuggestions && albums.isEmpty && songs.isEmpty
+                    isLoading: getMore.isLoadingSuggestions && isEmpty
                 )
                 .transition(.opacity)
             }
@@ -528,6 +606,7 @@ struct ArtistGetSection: View {
             GetMoreBlock(
                 albums: gets.albums,
                 songs: gets.songs,
+                offers: gets.offers,
                 context: PlayContext(kind: .artist, title: artist),
                 songLayout: .list
             )
@@ -546,6 +625,7 @@ struct ArtistGetCard: View {
     var body: some View {
         if music.getMore.canGet, let gets, !gets.isEmpty {
             let songs = Array(gets.songs.prefix(5))
+            let offers = Array(gets.offers.prefix(5 - songs.count))
             let albums = Array(gets.albums.prefix(6))
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "Get More") { DownloadsLink() }
@@ -553,13 +633,19 @@ struct ArtistGetCard: View {
                     VStack(spacing: 0) {
                         ForEach(albums) { held in
                             GetAlbumRow(held: held)
-                            if held.id != albums.last?.id || !songs.isEmpty {
+                            if held.id != albums.last?.id || !songs.isEmpty || !offers.isEmpty {
                                 Divider().padding(.leading, 56)
                             }
                         }
                         ForEach(songs) { track in
                             GetSongRow(track: track, queue: gets.songs, context: PlayContext(kind: .artist, title: artist), showsAlbum: true)
-                            if track.id != songs.last?.id {
+                            if track.id != songs.last?.id || !offers.isEmpty {
+                                Divider().padding(.leading, 60)
+                            }
+                        }
+                        ForEach(offers) { offer in
+                            GetOfferRow(offer: offer, showsAlbum: true)
+                            if offer.id != offers.last?.id {
                                 Divider().padding(.leading, 60)
                             }
                         }
@@ -658,8 +744,9 @@ struct MissingSongsHeader: View {
             Spacer(minLength: 8)
             GetButton(state: music.getMore.state(of: gaps.album), title: "Get All", subject: gaps.album.title) {
                 let found = gaps.missing.compactMap(\.found)
+                let offers = gaps.missing.compactMap(\.offer)
                 Task {
-                    if let problem = await music.getMore.get(gaps.album, only: found.isEmpty ? nil : found) {
+                    if let problem = await music.getMore.get(gaps.album, only: found.isEmpty ? nil : found, offers: offers) {
                         player.confirm(problem)
                     }
                 }
@@ -670,7 +757,7 @@ struct MissingSongsHeader: View {
 }
 
 /// One song of an album you own part of that you don't have: dimmed, as Music dims what
-/// isn't in your library, with Get where a server found it.
+/// isn't in your library, with Get where a server found it or could get it.
 struct MissingSongRow: View {
     let song: GetMore.MissingSong
     let album: GetMore.Album
@@ -688,10 +775,10 @@ struct MissingSongRow: View {
             )
             .accessibilityElement(children: .combine)
             .accessibilityValue(Text(OwnershipBadge.spoken(.missing)))
-            if let found = song.found {
-                GetButton(state: music.getMore.state(ofSong: song.identity, track: found), subject: song.title) {
+            if song.canGet {
+                GetButton(state: music.getMore.state(of: song), subject: song.title) {
                     Task {
-                        if let problem = await music.getMore.get(found) { player.confirm(problem) }
+                        if let problem = await music.getMore.get(song) { player.confirm(problem) }
                     }
                 }
             }

@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import CryptoKit
 @testable import TracksCore
 
 /// A FLAC file's head, built by hand: STREAMINFO, then whatever blocks are given.
@@ -171,10 +172,10 @@ struct SubsonicTests {
         #expect(found?.absoluteString == "https://mvod.itunes.apple.com/itunes-assets/x/P123_default.m3u8")
 
         var relayed = server
-        relayed.url = URL(string: "https://music.example.com/octo")!
+        relayed.url = URL(string: "https://music.example.com/music")!
         let relay = #"{"subsonic-response":{"status":"ok","animatedArt":{"square":{"video":"animated/tok3n/square.m3u8"}}}}"#
         let viaServer = try await SubsonicClient(server: relayed, password: "x", transport: StubTransport(body: relay)).animatedCover(artist: "SZA", album: "SOS")
-        #expect(viaServer?.absoluteString == "https://music.example.com/octo/animated/tok3n/square.m3u8")
+        #expect(viaServer?.absoluteString == "https://music.example.com/music/animated/tok3n/square.m3u8")
 
         // Only a tall loop, or none at all: nothing to play in a square.
         let tallOnly = #"{"subsonic-response":{"status":"ok","animatedArt":{"tall":{"video":"https://a/t.m3u8"}}}}"#
@@ -286,10 +287,11 @@ struct SubsonicTests {
         #expect(result.albums.isEmpty)
     }
 
-    @Test("reads a song Octo found for a search as one to play from that server")
-    func octoFind() async throws {
-        // As Octo sends a song it found rather than one in the library: an id shaped like
-        // Navidrome's, estimated size and bit rate, and the song's own id as its cover.
+    @Test("reads a song a server found elsewhere for a search as one to play from that server")
+    func foundElsewhere() async throws {
+        // As a server that finds songs elsewhere sends a song it found rather than one in its
+        // library: an id shaped like Navidrome's, estimated size and bit rate, and the song's own
+        // id as its cover.
         let result = try await SubsonicClient(server: server, password: "x", transport: StubTransport(body: """
         {"subsonic-response":{"status":"ok","version":"1.16.1","type":"navidrome","openSubsonic":true,"searchResult3":{"song":[
         {"id":"4hT9xQbZ2mLr8VnC1kPw0a","parent":"7gH2kL9mN4pQ6rS8tU0vWx","isDir":false,"title":"Night Drive","album":"Night Drive",
@@ -563,5 +565,281 @@ struct LocalLibraryArrangementTests {
     func unknownLengths() {
         let index = LocalLibraryIndex(tracks: [track("One", duration: nil)])
         #expect(index.albums[0].kind == .album)
+    }
+}
+
+@Suite("Server kinds")
+struct ServerKindTests {
+    typealias T = TracksideTesting
+
+    @Test("an entry saved before Trackside reads as a Subsonic server, unchanged")
+    func olderEntries() throws {
+        let saved = #"[{"id":"home","name":"Home","url":"https://music.example.com","username":"luke","salt":"c19b2d"}]"#
+        let servers = try JSONDecoder().decode([SubsonicServer].self, from: Data(saved.utf8))
+        let server = try #require(servers.first)
+        #expect(server.kind == .subsonic)
+        #expect(!server.isTrackside)
+        #expect(server.serverUUID == nil && server.candidateURLs == nil && server.deviceID == nil)
+        #expect(server.salt == "c19b2d")
+    }
+
+    @Test("a Trackside entry keeps its id, addresses and device through saving")
+    func tracksideRoundTrip() throws {
+        let urls = [TracksideServerURL(url: T.home, kind: .lan, tls: false), TracksideServerURL(url: URL(string: "https://music.example.com")!, kind: .public, tls: true)]
+        let server = SubsonicServer(id: "home", name: "Home", url: T.home, username: "luke", kind: .trackside, serverUUID: T.serverUUID, candidateURLs: urls, deviceID: "d2c4", deviceName: "Luke's iPhone")
+        let read = try JSONDecoder().decode(SubsonicServer.self, from: JSONEncoder().encode(server))
+        #expect(read == server)
+        #expect(read.isTrackside)
+    }
+
+    @Test("Trackside is told apart by its capabilities, whatever else answers is asked as Subsonic", arguments: [
+        (200, APIExamples.capabilities, true),
+        (404, #"{"error":{"code":"not_found","message":"Not found."}}"#, false),
+        (404, "<html>Not Found</html>", false),
+        (200, #"{"product":"navidrome"}"#, false),
+        (200, "<!doctype html><title>Navidrome</title>", false),
+        (401, #"{"subsonic-response":{"status":"failed"}}"#, false),
+    ])
+    func detection(status: Int, body: String, isTrackside: Bool) async throws {
+        let stub = StubTracksideTransport(status: status, body: body)
+        let found = try await MusicServerDetection.detect(at: T.home, transport: stub)
+        if isTrackside {
+            guard case .trackside(let capabilities) = found else {
+                Issue.record("Expected Trackside, found \(found)")
+                return
+            }
+            #expect(capabilities.serverID == T.serverUUID)
+        } else {
+            #expect(found == .subsonic)
+        }
+        // Asked without signing in, at the capabilities address.
+        let request = try #require(stub.requests.first)
+        #expect(request.url?.path() == "/api/v1/capabilities")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+
+    @Test("an address where nothing answers is said to be out of reach, not taken for Subsonic")
+    func unreachable() async {
+        let stub = StubTracksideTransport { _ in throw URLError(.cannotConnectToHost) }
+        await #expect(throws: URLError.self) { try await MusicServerDetection.detect(at: T.home, transport: stub) }
+    }
+
+    @Test("an entry's secret is kept under its own id, whichever kind of server it is")
+    func keychainAccount() {
+        var server = SubsonicServer(id: "8F1C-entry", name: "Home", url: T.home, username: "luke")
+        #expect(ServerCredential.account(for: server) == "8F1C-entry")
+        server.kind = .trackside
+        server.serverUUID = T.serverUUID
+        #expect(ServerCredential.account(for: server) == "8F1C-entry")
+        #expect(ServerCredential.mediaTokenAccount(for: server) != ServerCredential.account(for: server))
+    }
+}
+
+@Suite("Server cover names")
+struct ServerCoverNameTests {
+    /// How names were made before Trackside, so covers already on disk are still found.
+    private func legacyName(_ url: URL) -> String {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let kept = components?.queryItems?.filter { !["u", "t", "s", "p"].contains($0.name) }.sorted { $0.name < $1.name }
+        components?.queryItems = kept
+        let stable = components?.url?.absoluteString ?? url.path()
+        return SHA256.hash(data: Data(stable.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    @Test("a Subsonic cover keeps the name it had, and no sign-in goes into it")
+    func subsonicUnchanged() {
+        let server = SubsonicServer(id: "home", name: "Home", url: URL(string: "https://music.example.com")!, username: "luke", salt: "c19b2d")
+        let url = SubsonicClient(server: server, password: "sesame").coverArtURL(id: "al-1", size: 600)
+        #expect(ServerCoverAddress.isSubsonicCover(url))
+        #expect(ServerCoverAddress.savedName(for: url) == legacyName(url))
+        var other = server
+        other.username = "someone"
+        #expect(ServerCoverAddress.savedName(for: SubsonicClient(server: other, password: "other").coverArtURL(id: "al-1", size: 600)) == ServerCoverAddress.savedName(for: url))
+    }
+
+    @Test("a Trackside cover has one name at home and away, whatever its media token")
+    func tracksideAcrossAddresses() {
+        let home = URL(string: "http://192.168.1.20:4747/api/v1/art/a1b2?size=600&mt=first")!
+        let away = URL(string: "https://music.example.com/api/v1/art/a1b2?mt=second&size=600")!
+        let underBase = URL(string: "https://box.example.ts.net/music/api/v1/art/a1b2?size=600&mt=third")!
+        #expect(ServerCoverAddress.isTracksideArt(home))
+        #expect(!ServerCoverAddress.isSubsonicCover(home))
+        #expect(ServerCoverAddress.savedName(for: home) == ServerCoverAddress.savedName(for: away))
+        #expect(ServerCoverAddress.savedName(for: home) == ServerCoverAddress.savedName(for: underBase))
+        #expect(ServerCoverAddress.savedName(for: home) != ServerCoverAddress.savedName(for: URL(string: "http://192.168.1.20:4747/api/v1/art/a1b2?size=300&mt=first")!))
+        #expect(ServerCoverAddress.savedName(for: home) != ServerCoverAddress.savedName(for: URL(string: "http://192.168.1.20:4747/api/v1/art/c3d4?size=600&mt=first")!))
+    }
+
+    @Test("other addresses aren't server covers")
+    func notServerCovers() {
+        #expect(!ServerCoverAddress.isServerCover(URL(string: "https://is1-ssl.mzstatic.com/image/thumb/a/600x600bb.jpg")!))
+        #expect(!ServerCoverAddress.isServerCover(URL(string: "http://192.168.1.20:4747/api/v1/songs/s1/stream?mt=x")!))
+    }
+}
+
+@Suite("Moving an entry to Trackside")
+struct ServerSongMatchingTests {
+    private func track(_ server: String, _ id: String, _ title: String, by artist: String = "Mara Solis", album: String? = "Night Drive", duration: TimeInterval? = 200) -> LocalTrack {
+        LocalTrack(origin: .server(serverID: server, songID: id), title: title, artist: artist, album: album, duration: duration)
+    }
+
+    @Test("a kept song finds its copy by name, album and length, and its id moves to it")
+    func matches() {
+        let old = [track("home", "nv-1", "Night Drive", duration: 201), track("home", "nv-2", "Coastlines")]
+        let mirror = [track("home", "s1", "Night Drive", duration: 200), track("home", "s2", "Coastlines", duration: 199), track("home", "s3", "Other")]
+        let result = ServerSongMatching.match(old, against: mirror, serverID: "home")
+        #expect(result.matched["server:home:nv-1"]?.id == "server:home:s1")
+        #expect(result.matched["server:home:nv-2"]?.id == "server:home:s2")
+        #expect(result.unmatched.isEmpty)
+    }
+
+    @Test("only a sure match is taken: a different length, or two copies on other albums, stay as they were")
+    func doubtsStay() {
+        let old = [
+            track("home", "nv-1", "Night Drive", duration: 240),
+            track("home", "nv-2", "Coastlines", album: "Coastlines"),
+            track("home", "nv-3", "Gone"),
+        ]
+        let mirror = [
+            track("home", "s1", "Night Drive", duration: 200),
+            track("home", "s2", "Coastlines", album: "Live at Home", duration: 200),
+            track("home", "s3", "Coastlines", album: "Best Of", duration: 200),
+        ]
+        let result = ServerSongMatching.match(old, against: mirror, serverID: "home")
+        #expect(result.matched.isEmpty)
+        #expect(Set(result.unmatched.map(\.id)) == ["server:home:nv-1", "server:home:nv-2", "server:home:nv-3"])
+    }
+
+    @Test("a single copy on another album at the same length is taken, as is the album's own without a length")
+    func lenientWhereSure() {
+        let old = [track("home", "nv-1", "Night Drive", album: "Night Drive (Deluxe)"), track("home", "nv-2", "Coastlines", duration: nil)]
+        let mirror = [track("home", "s1", "Night Drive", duration: 201), track("home", "s2", "Coastlines", duration: 180)]
+        let result = ServerSongMatching.match(old, against: mirror, serverID: "home")
+        #expect(result.matched["server:home:nv-1"]?.id == "server:home:s1")
+        #expect(result.matched["server:home:nv-2"]?.id == "server:home:s2")
+    }
+
+    @Test("songs from other servers, files, ones already on the server and repeats are left out")
+    func scope() {
+        let mirror = [track("home", "s1", "Night Drive")]
+        let old = [
+            track("other", "nv-1", "Night Drive"),
+            LocalTrack(origin: .file(path: "Mara Solis/Night Drive.flac"), title: "Night Drive", artist: "Mara Solis"),
+            track("home", "s1", "Night Drive"),
+            track("home", "nv-2", "Night Drive"),
+            track("home", "nv-2", "Night Drive"),
+        ]
+        let result = ServerSongMatching.match(old, against: mirror, serverID: "home")
+        #expect(Array(result.matched.keys) == ["server:home:nv-2"])
+        #expect(result.unmatched.isEmpty)
+    }
+}
+
+@Suite("Songs a server could get")
+struct SongRequestBoardTests {
+    typealias T = TracksideTesting
+
+    @Test("without the feature in /me nothing shows, whatever arrives")
+    func hiddenWithoutFeature() throws {
+        let me = try T.decode(TracksideMe.self, APIExamples.meWithoutAcquisition)
+        var board = SongRequestBoard(features: me.features)
+        #expect(!board.isOffered)
+        board.show(try T.decode(TracksideAcquisitionSearch.self, APIExamples.acquisitionSearch.replacingOccurrences(of: #""in_library": [\#(APIExamples.song)],"#, with: "")), for: "halo")
+        let acquisition = try T.decode(TracksideAcquisition.self, APIExamples.acquisition)
+        board.requested(acquisition, for: "x3n8b2v6c1m9q4w7e0r5t8y2")
+        board.update(acquisition)
+        #expect(board.shown.isEmpty)
+        #expect(board.query.isEmpty)
+        #expect(board.request(for: "x3n8b2v6c1m9q4w7e0r5t8y2") == nil)
+        #expect(!SongRequestBoard(features: nil).isOffered)
+    }
+
+    @Test("with it, candidates show except ones the library has, and a request follows its events to the song")
+    func offered() throws {
+        let me = try T.decode(TracksideMe.self, APIExamples.me)
+        var board = SongRequestBoard(features: me.features)
+        #expect(board.isOffered)
+        // The example search's only candidate is in the library already.
+        board.show(try T.decode(TracksideAcquisitionSearch.self, APIExamples.acquisitionSearch), for: "halo")
+        #expect(board.shown.isEmpty)
+        let withoutOwned = APIExamples.acquisitionSearch.replacingOccurrences(of: #""in_library": [\#(APIExamples.song)],"#, with: "")
+        board.show(try T.decode(TracksideAcquisitionSearch.self, withoutOwned), for: "halo")
+        #expect(board.shown.map(\.token) == ["x3n8b2v6c1m9q4w7e0r5t8y2"])
+        #expect(board.query == "halo")
+        #expect(SongRequestBoard.offered(try T.decode(TracksideAcquisitionSearch.self, withoutOwned)) == board.shown)
+
+        var acquisition = try T.decode(TracksideAcquisition.self, APIExamples.acquisition)
+        board.requested(acquisition, for: "x3n8b2v6c1m9q4w7e0r5t8y2")
+        #expect(board.request(for: "x3n8b2v6c1m9q4w7e0r5t8y2")?.phase == .getting(12.0 / 33.0))
+        acquisition.state = .done
+        acquisition.songID = "s7m2k4q9x1v8b3n6c0de"
+        acquisition.updatedAt = acquisition.updatedAt?.addingTimeInterval(30)
+        board.update(acquisition)
+        #expect(board.request(for: "x3n8b2v6c1m9q4w7e0r5t8y2")?.songID == "s7m2k4q9x1v8b3n6c0de")
+        #expect(board.request(for: "x3n8b2v6c1m9q4w7e0r5t8y2")?.phase == .added)
+        board.clear()
+        #expect(board.shown.isEmpty)
+        #expect(board.request(for: "x3n8b2v6c1m9q4w7e0r5t8y2") != nil)
+
+        // Asked for by name, with no candidate: followed by the request's own id.
+        var byName = acquisition
+        byName.id = "acq-by-name"
+        byName.state = .searching
+        board.requested(byName, for: byName.id)
+        #expect(board.status(of: "acq-by-name")?.phase == .searching)
+        #expect(board.status(of: "unknown") == nil)
+    }
+
+    @Test("each step reads in a word or two, and a failure says why plainly")
+    func words() {
+        #expect(AcquisitionWords.status(.waiting) == "Waiting…")
+        #expect(AcquisitionWords.status(.getting(0.42)) == "Getting It · 42%")
+        #expect(AcquisitionWords.status(.getting(nil)) == "Getting It…")
+        #expect(AcquisitionWords.status(.added) == "Added")
+        #expect(AcquisitionWords.status(.couldNotGet(.insufficientSpace)) == "Your Server Is Out of Space")
+        #expect(AcquisitionWords.status(.couldNotGet(.providerUnavailable)) == "Couldn’t Get It")
+    }
+}
+
+/// Where songs come from when a server gets them is the server's business: the app never
+/// names a service, a tool or a network it could get them from.
+@Suite("No provider names in the app")
+struct ProviderNameTests {
+    static let forbidden = ["youtube", "soulseek", "yt-dlp", "ytdlp", "slskd"]
+
+    /// The repository's apps, found from this file, or from `TRACKS_REPO` when the tests
+    /// run from a copy.
+    static let appFolders: [URL] = {
+        var folder = ProcessInfo.processInfo.environment["TRACKS_REPO"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while folder.pathComponents.count > 1 {
+            let apps = folder.appending(path: "Apps", directoryHint: .isDirectory)
+            if FileManager.default.fileExists(atPath: apps.appending(path: "Shared").path) {
+                return [apps, folder.appending(path: "Widgets", directoryHint: .isDirectory)]
+            }
+            folder = folder.deletingLastPathComponent()
+        }
+        return []
+    }()
+
+    @Test("no string, comment or setting in the apps names a provider")
+    func noProviderNames() throws {
+        try #require(!Self.appFolders.isEmpty, "The Apps folder wasn't found next to the tests")
+        let kinds: Set<String> = ["swift", "xcstrings", "strings", "stringsdict", "plist", "entitlements", "json"]
+        var scanned = 0
+        var found: [String] = []
+        for folder in Self.appFolders {
+            guard let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil) else { continue }
+            for case let file as URL in files where kinds.contains(file.pathExtension.lowercased()) {
+                guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+                scanned += 1
+                let lowered = text.lowercased()
+                for name in Self.forbidden where lowered.contains(name) {
+                    found.append("\(file.lastPathComponent): \(name)")
+                }
+            }
+        }
+        #expect(scanned > 100)
+        #expect(found.isEmpty, "Provider names in the apps: \(found)")
     }
 }

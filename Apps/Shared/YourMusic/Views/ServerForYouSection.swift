@@ -2,12 +2,13 @@ import SwiftUI
 import TracksCore
 
 /// One of the shelves a server fills for you, in columns of four as Music lays out songs:
-/// Picked for You, songs by the artists you play and ones like them, yours and new together;
-/// or Suggested Songs, songs by artists new to you, led by Tracks Radio. Both go on for as long
-/// as they're scrolled: the last column coming into view asks for more, as fast as the
-/// server's budget allows. With Octo in front of the server most are songs it finds: they play straight away,
-/// and Add to Your Music has Octo fetch the file. Needs no Apple Music, no listening history and
-/// no library, only artists to start from, which Picked for You asks for when there are none.
+/// Picked for You, songs by the artists you play and ones like them, yours and new together; or
+/// Suggested Songs, songs by artists new to you, led by Tracks Radio. Both go on for as long as
+/// they're scrolled: the last column coming into view asks for more, as fast as the server's
+/// budget allows. From a server that finds songs elsewhere most are songs it finds: they play
+/// straight away, and Add to Your Music has the server fetch the file. Needs no Apple Music, no
+/// listening history and no library, only artists to start from, which Picked for You asks for
+/// when there are none.
 struct ServerForYouSection: View {
     let server: SubsonicServer
     var shelf: ServerDiscovery.Shelf = .picks
@@ -109,7 +110,10 @@ struct ServerForYouSection: View {
     }
 
     private var emptyNote: String {
-        String(localized: "\(server.name) didn't find anything to suggest. If it's Octo, it needs a Last.fm API key, set on its admin page.")
+        if server.isTrackside {
+            return String(localized: "\(server.name) didn't find anything to suggest.")
+        }
+        return String(localized: "\(server.name) didn't find anything to suggest. Some servers need a Last.fm API key for this, set on their admin page.")
     }
 
     private func load(force: Bool) async {

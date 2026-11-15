@@ -9,19 +9,19 @@ struct AboutSection: View {
                 title: "Report a Problem",
                 systemImage: "exclamationmark.bubble.fill",
                 tint: .blue,
-                destination: URL(string: "https://github.com/reallukedev/tracks/issues")!
+                destination: URL(string: "https://github.com/slukedev/tracks/issues")!
             )
             SettingsLinkRow(
                 title: "Privacy Policy",
                 systemImage: "hand.raised.fill",
                 tint: .blue,
-                destination: URL(string: "https://github.com/reallukedev/tracks/blob/main/PRIVACY.md")!
+                destination: URL(string: "https://github.com/slukedev/tracks/blob/main/PRIVACY.md")!
             )
             SettingsLinkRow(
                 title: "Source Code",
                 systemImage: "chevron.left.forwardslash.chevron.right",
                 tint: .gray,
-                destination: URL(string: "https://github.com/reallukedev/tracks")!
+                destination: URL(string: "https://github.com/slukedev/tracks")!
             )
         } header: {
             Text("About")

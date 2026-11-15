@@ -147,21 +147,34 @@ final class Downloads {
 
     /// Downloads songs, as asked already: again after a change of setting, or a retry.
     private func start(_ tracks: [LocalTrack]) {
+        let wanted = tracks.filter { track in
+            guard case .server = track.origin, items[track.id] == nil, progress[track.id] == nil else { return false }
+            // Claimed now, so a second call before the requests are ready doesn't start it twice.
+            progress[track.id] = 0
+            return true
+        }
+        guard !wanted.isEmpty else { return }
+        Task { await start(claimed: wanted) }
+    }
+
+    private func start(claimed tracks: [LocalTrack]) async {
         let allowsCellular = Self.allowsCellular
         let bitRate = StreamQuality.download.maxBitRate
         for track in tracks {
             guard case .server(let serverID, let songID) = track.origin,
-                  items[track.id] == nil, progress[track.id] == nil,
-                  let client = servers.client(for: serverID)
-            else { continue }
-            let url = bitRate.map { client.streamURL(songID: songID, maxBitRate: $0) } ?? client.downloadURL(songID: songID)
-            var request = URLRequest(url: url)
+                  var request = await servers.downloadRequest(serverID: serverID, songID: songID, maxBitRate: bitRate)
+            else {
+                progress[track.id] = nil
+                continue
+            }
             request.allowsCellularAccess = allowsCellular
             request.allowsExpensiveNetworkAccess = allowsCellular
             let attempt = UUID().uuidString
             let task = session.downloadTask(with: request)
             task.taskDescription = Self.describe(trackID: track.id, attempt: attempt)
-            pending[track.id] = Pending(track: track, attempt: attempt, requestedBitRate: bitRate)
+            // Trackside makes its copies in AAC at its own rates, so that's what was asked for.
+            let requested = servers.isTrackside(serverID) ? MusicServers.tracksideBitRate(for: bitRate) : bitRate
+            pending[track.id] = Pending(track: track, attempt: attempt, requestedBitRate: requested)
             progress[track.id] = 0
             started.remove(track.id)
             sizeUnknown.remove(track.id)
@@ -216,6 +229,20 @@ final class Downloads {
             failures[id] = nil
         }
         Self.save(items, to: Self.recordURL)
+    }
+
+    /// Files downloaded songs under their new copies, after their server entry moved to
+    /// another server: the files stay as they are, and play as the new songs.
+    func replace(_ matched: [String: LocalTrack]) {
+        var changed = false
+        for (oldID, track) in matched {
+            guard let item = items[oldID], items[track.id] == nil else { continue }
+            items[oldID] = nil
+            items[track.id] = Item(track: track, fileName: item.fileName, bytes: item.bytes, downloadedAt: item.downloadedAt, requestedBitRate: item.requestedBitRate, format: item.format)
+            if let failure = failures.removeValue(forKey: oldID) { failures[track.id] = failure }
+            changed = true
+        }
+        if changed { Self.save(items, to: Self.recordURL) }
     }
 
     func removeAll() {

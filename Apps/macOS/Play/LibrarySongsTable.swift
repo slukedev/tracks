@@ -507,7 +507,7 @@ private nonisolated struct YourSongsRows: Equatable, Sendable {
         order: LibraryOrder,
         facts: [String: SongFacts],
         playability: Playability,
-        clients: [String: SubsonicClient]
+        clients: [String: any MusicServerClient]
     ) async -> YourSongsRows {
         let tracks = query.isEmpty ? index.tracks : index.search(query, limit: 1_000).tracks
         var covers: [LocalTrack.Artwork: String] = [:]
@@ -516,7 +516,7 @@ private nonisolated struct YourSongsRows: Equatable, Sendable {
             if let known = covers[artwork] { return known }
             let url: URL? = switch artwork {
             case .file(let name): LibraryFolders.artwork.appending(path: name)
-            case .server(let serverID, let coverID): clients[serverID]?.coverArtURL(id: coverID, size: 600)
+            case .server(let serverID, let coverID): clients[serverID]?.artworkURL(id: coverID, size: 600)
             }
             let address = url?.absoluteString
             if let address { covers[artwork] = address }

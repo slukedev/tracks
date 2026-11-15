@@ -1,7 +1,7 @@
 //! Your own music measured against what you could get: which of an album's songs you own,
 //! what to get next from your listening, and whether a server can fetch at all.
 //!
-//! Pure and synchronous, with no I/O. The host talks to its servers (Subsonic, Octo, Lidarr)
+//! Pure and synchronous, with no I/O. The host talks to its servers (Subsonic, Trackside, Lidarr)
 //! with its own HTTP stack and hands the answers in; every platform then shows the same
 //! ownership marks and the same "Get More" picks for the same library and history.
 //!

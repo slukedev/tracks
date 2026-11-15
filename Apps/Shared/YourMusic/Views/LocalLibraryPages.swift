@@ -191,7 +191,7 @@ struct LocalArtistPage: View {
         guard let (serverID, artistID) = music.serverArtist(named: artist.name),
               let client = music.servers.client(for: serverID) else { return }
         async let similar = try? await client.similarArtists(to: artistID, count: 15)
-        let top = (try? await client.topSongs(artist: artist.name, count: 20)) ?? []
+        let top = (try? await client.topSongs(artist: artist.name, artistID: artistID, count: 20)) ?? []
         // Only the ones in your music, as yours.
         let yours = top.compactMap { song in
             music.index.track(id: LocalTrack.id(for: .server(serverID: serverID, songID: song.id)))

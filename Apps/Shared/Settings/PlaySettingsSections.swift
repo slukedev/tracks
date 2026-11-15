@@ -8,7 +8,7 @@ extension PlaySettingsWords.Standing {
         let servers = music.servers
         let troubled = servers.servers.lazy.compactMap { server -> PlaySettingsWords.TroubledServer? in
             switch servers.status[server.id] {
-            case .wrongPassword: PlaySettingsWords.TroubledServer(name: server.name, needsPassword: true)
+            case .wrongPassword: PlaySettingsWords.TroubledServer(name: server.name, needsPassword: true, isTrackside: server.isTrackside)
             case .offline, .failed: PlaySettingsWords.TroubledServer(name: server.name, needsPassword: false)
             case .online, .connecting, nil: nil
             }

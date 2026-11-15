@@ -25,6 +25,8 @@ enum PlaySettingsWords {
     struct TroubledServer: Equatable {
         var name: String
         var needsPassword: Bool
+        /// A Trackside server that signed this device out: it's paired again, not given a password.
+        var isTrackside = false
     }
 
     static func status(_ standing: Standing) -> (line: String, tone: SettingsTone) {
@@ -44,9 +46,12 @@ enum PlaySettingsWords {
         case .yourMusic:
             if let server = standing.troubledServer {
                 let name = quoted(server.name)
-                return server.needsPassword
-                    ? (String(localized: "\(name) needs its password"), .attention)
-                    : (String(localized: "\(name) can’t be reached"), .attention)
+                if server.needsPassword {
+                    return server.isTrackside
+                        ? (String(localized: "\(name) needs pairing again"), .attention)
+                        : (String(localized: "\(name) needs its password"), .attention)
+                }
+                return (String(localized: "\(name) can’t be reached"), .attention)
             }
             guard standing.songs > 0 || standing.servers > 0 else {
                 return (String(localized: "Add songs or connect a server to start."), .attention)

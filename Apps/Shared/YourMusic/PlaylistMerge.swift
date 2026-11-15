@@ -7,9 +7,10 @@ import TracksMusic
 /// Keeps your Tracks playlists and your Apple Music playlists together, when you choose to.
 /// Playlists with the same name are merged, and each side gets the other's that it doesn't
 /// have. Each time Tracks opens: songs added in Apple Music are found in your music, or on your
-/// server, which a server like Octo fetches, and are downloaded; songs added in Tracks are added
-/// in Apple Music; songs taken out in Apple Music come out here too. Apple Music doesn't let
-/// apps take songs out, so ones taken out here stay there, and aren't brought back.
+/// server, which a server that fetches songs on request gets, and are downloaded; songs added
+/// in Tracks are added in Apple Music; songs taken out in Apple Music come out here too. Apple
+/// Music doesn't let apps take songs out, so ones taken out here stay there, and aren't brought
+/// back.
 @MainActor
 @Observable
 final class PlaylistMerge {
@@ -262,7 +263,8 @@ final class PlaylistMerge {
     }
 
     /// A song from Apple Music in your music, or on a server: one a server found for you is
-    /// kept there, which a server like Octo takes as "get me this", and downloaded once it's in.
+    /// kept there, which a server that fetches songs on request takes as "get me this", and
+    /// downloaded once it's in.
     private func find(_ song: AppleSong, in music: YourMusic, finds: inout Int) async -> Finding {
         let yours = music.index.tracks(withIdentity: song.identity)
         if let track = yours.first(where: music.isPlayable) ?? yours.first { return .found(track) }
@@ -271,7 +273,8 @@ final class PlaylistMerge {
         finds -= 1
         var asked = false
         for server in servers {
-            guard (try? await budget.wait()) != nil,
+            // Trackside answers from its own index, so only Subsonic servers wait their turn.
+            guard music.servers.isTrackside(server.id) || (try? await budget.wait()) != nil,
                   let answer = await music.serverSongs(on: server.id, matching: "\(song.title) \(song.artist)")
             else { continue }
             asked = true

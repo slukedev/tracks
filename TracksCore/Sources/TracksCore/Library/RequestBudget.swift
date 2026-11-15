@@ -1,8 +1,8 @@
 import Foundation
 
 /// How often a server may be asked for more: a few at once, then one every so often, however
-/// fast someone scrolls. Each ask a server like Octo answers by looking songs up on Last.fm,
-/// Deezer, iTunes and YouTube, and asked too often, those services turn it away and it slows
+/// fast someone scrolls. Each ask a server that finds songs elsewhere may answer by looking
+/// songs up on other services, and asked too often, those services turn it away and it slows
 /// for everyone.
 ///
 /// A token bucket: ``capacity`` asks are there to start with, and one comes back every

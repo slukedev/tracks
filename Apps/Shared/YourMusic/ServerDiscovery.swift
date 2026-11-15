@@ -25,7 +25,7 @@ final class ServerDiscovery {
 
     /// What one server finds for you, endlessly: songs you haven't heard, by the artists you
     /// play and ones like them, found an artist at a time as the shelves are scrolled. From a
-    /// server like Octo, most are songs it finds for you to play and keep.
+    /// server that finds songs elsewhere, most are songs it finds for you to play and keep.
     nonisolated struct ForYou: Codable, Sendable {
         /// Picked for You: songs by artists you play or picked, yours and new ones together.
         var songs: [LocalTrack] = []
@@ -129,9 +129,9 @@ final class ServerDiscovery {
             #endif
             return
         }
-        async let newest = try? client.albums(.newest, size: 15)
-        async let frequent = try? client.albums(.frequent, size: 15)
-        async let random = try? client.albums(.random, size: 15)
+        async let newest = try? client.albumList(.newest, count: 15)
+        async let frequent = try? client.albumList(.frequent, count: 15)
+        async let random = try? client.albumList(.random, count: 15)
         var result = Shelves()
         result.newest = (await newest ?? []).map { album(from: $0, serverID: serverID) }
         result.mostPlayed = (await frequent ?? []).map { album(from: $0, serverID: serverID) }
@@ -364,9 +364,13 @@ final class ServerDiscovery {
         feed.waitingOthers += FreshShuffle.order(discovered, artist: \.artistKey, seed: FreshShuffle.dailySeed(for: .now, salt: "for-you-\(artist)"))
     }
 
+    /// A Subsonic server's few asks every few seconds. Trackside answers from its own index,
+    /// so it isn't held back: its budget is far more than scrolling could spend.
     private func budget(for serverID: String) -> RequestBudget {
         if let budget = budgets[serverID] { return budget }
-        let budget = RequestBudget(capacity: 3, interval: 8)
+        let budget = music.servers.isTrackside(serverID)
+            ? RequestBudget(capacity: 1_000, interval: 0.01)
+            : RequestBudget(capacity: 3, interval: 8)
         budgets[serverID] = budget
         return budget
     }
@@ -374,9 +378,10 @@ final class ServerDiscovery {
     /// How long picks stand before they're made again on their own.
     private static let picksLast: TimeInterval = 6 * 60 * 60
 
-    /// Whether a song has a cover to show. A server like Octo sends a stand-in for one it
-    /// couldn't find, and a song shown with it looks unfinished: those are left out. A song
-    /// from this iPhone always has one, its own or a generated one.
+    /// Whether a song has a cover to show. Some Subsonic servers send a stand-in for one they
+    /// couldn't find, and a song shown with it looks unfinished: those are left out, as are
+    /// Trackside's songs without one. A song from this iPhone always has one, its own or a
+    /// generated one.
     private func hasCover(_ song: LocalTrack) async -> Bool {
         guard case .server = song.artwork, let url = music.artworkURL(song.artwork) else { return !song.isFromServer }
         return await ArtworkImages.shared.hasCover(url)
@@ -405,17 +410,16 @@ final class ServerDiscovery {
         Task(priority: .utility) { await ArtworkImages.shared.warm(urls) }
     }
 
-    /// A few of an artist's own songs, then songs like the first: the server's search finds
-    /// the artist, and its similar songs, which a server like Octo gets from Last.fm, go on
-    /// from there.
+    /// A few of an artist's own songs, then songs like the first: the server's search finds the
+    /// artist, and its similar songs, which some servers get from Last.fm, go on from there.
     /// - Parameter from: the artists the picks started from, so songs found after this returns
     ///   go to the picks they were found for.
-    private func songs(startingFrom artist: String, for from: [String], serverID: String, client: SubsonicClient) async -> [SubsonicSong] {
+    private func songs(startingFrom artist: String, for from: [String], serverID: String, client: any MusicServerClient) async -> [SubsonicSong] {
         let key = StatsCalculator.folded(artist)
         let isTheirs = { (song: SubsonicSong) in StatsCalculator.folded(song.artist ?? "") == key }
-        // The library's matches first, which Octo answers at once; asked for more, it spends
-        // seconds finding songs elsewhere. With the artist in the library, that search goes on
-        // while these show, and its songs follow them; without, it's waited for.
+        // The library's matches first, which come at once; asked for more, a server that finds
+        // songs elsewhere spends seconds on it. With the artist in the library, that search
+        // goes on while these show, and its songs follow them; without, it's waited for.
         var found = await music.serverSongs(on: serverID, matching: artist, count: MusicServers.quickSearchSize) ?? []
         if found.contains(where: isTheirs) {
             let id = UUID()
@@ -433,7 +437,7 @@ final class ServerDiscovery {
         }
         let theirs = found.filter(isTheirs)
         guard let start = theirs.first ?? found.first else { return [] }
-        let like = (try? await music.servers.lookups.run { try await client.similarSongs(to: start.id, count: 15) }) ?? []
+        let like = (try? await music.servers.lookups(for: serverID).run { try await client.similarSongs(to: start.id, count: 15) }) ?? []
         return Array(theirs.prefix(4)) + like
     }
 
@@ -448,7 +452,7 @@ final class ServerDiscovery {
 
     /// Songs for each mood from your servers, and when they were found: songs like ones that
     /// suit it, by way of the server's similar songs. Your music's songs have genres to go by,
-    /// but a server like Octo's finds often don't, so they're found by likeness instead.
+    /// but songs a server finds elsewhere often don't, so they're found by likeness instead.
     private(set) var moodFinds: [Mood: (at: Date, songs: [LocalTrack])] = [:]
 
     /// Finds songs for a mood on your first server that answers, unless it was done in the
@@ -458,15 +462,15 @@ final class ServerDiscovery {
     func loadFinds(for mood: Mood, seeds: [(title: String, artist: String)], heard: (String) -> Bool) async {
         if let known = moodFinds[mood], Date.now.timeIntervalSince(known.at) < Self.picksLast { return }
         guard let server = music.servers.onlineServers.first, let client = music.servers.client(for: server.id) else { return }
-        let budget = budgets[server.id] ?? RequestBudget(capacity: 3, interval: 8)
-        budgets[server.id] = budget
+        let budget = budget(for: server.id)
+        let lookups = music.servers.lookups(for: server.id)
         var found: [LocalTrack] = []
         for seed in seeds.prefix(2) {
             guard !Task.isCancelled, (try? await budget.wait()) != nil else { break }
             guard let answer = await music.serverSongs(on: server.id, matching: "\(seed.title) \(seed.artist)"),
                   let match = ServerSongMatcher.bestMatch(title: seed.title, artist: seed.artist, in: answer)
             else { continue }
-            let like = (try? await music.servers.lookups.run { try await client.similarSongs(to: match.id, count: 15) }) ?? []
+            let like = (try? await lookups.run { try await client.similarSongs(to: match.id, count: 15) }) ?? []
             found += like.map { music.track($0, on: server.id) }
         }
         var seen = Set<String>()
@@ -492,7 +496,7 @@ final class ServerDiscovery {
     /// New albums picked at random, for the shelf's refresh button.
     func shuffleRandom(for serverID: String) async {
         guard let client = music.servers.client(for: serverID),
-              let albums = try? await client.albums(.random, size: 15)
+              let albums = try? await client.albumList(.random, count: 15)
         else { return }
         shelves[serverID, default: Shelves()].random = albums.map { album(from: $0, serverID: serverID) }
     }
@@ -509,8 +513,8 @@ final class ServerDiscovery {
     /// seconds, so the station doesn't keep you waiting.
     func similar(to picks: [LocalTrack]) async -> [LocalTrack] {
         guard let server = music.servers.onlineServers.first, let client = music.servers.client(for: server.id) else { return [] }
-        let budget = budgets[server.id] ?? RequestBudget(capacity: 3, interval: 8)
-        budgets[server.id] = budget
+        let budget = budget(for: server.id)
+        let lookups = music.servers.lookups(for: server.id)
         let search = Task { @MainActor [music] () -> [LocalTrack] in
             var found: [LocalTrack] = []
             for pick in picks.prefix(4) {
@@ -522,7 +526,7 @@ final class ServerDiscovery {
                         .flatMap { ServerSongMatcher.bestMatch(title: pick.title, artist: pick.artist, in: $0) }?.id
                 }
                 guard let id else { continue }
-                let like = (try? await music.servers.lookups.run { try await client.similarSongs(to: id, count: 20) }) ?? []
+                let like = (try? await lookups.run { try await client.similarSongs(to: id, count: 20) }) ?? []
                 found += like.map { music.track($0, on: server.id) }
             }
             return found
@@ -562,7 +566,7 @@ final class ServerDiscovery {
         // Each pass counts, so the row asking for more asks again; passes that find nothing
         // new, or nothing at all, count toward giving up, so a small library doesn't ask forever.
         defer { explorations += 1 }
-        guard let songs = try? await client.randomSongs(count: 40) else {
+        guard let songs = try? await client.randomSongs(count: 40, genre: nil) else {
             failuresInARow += 1
             return
         }
@@ -622,8 +626,8 @@ extension ServerDiscovery.Album {
     }
 }
 
-/// An artist on a server, found by searching it: from its library, or one a server like Octo
-/// finds elsewhere.
+/// An artist on a server, found by searching it: from its library, or one the server finds
+/// elsewhere.
 struct ServerArtist: Identifiable, Hashable {
     let serverID: String
     let artistID: String

@@ -70,7 +70,7 @@ struct LibraryDownloadsPage: View {
         // your plays or the order change.
         .task(id: sortOrder) {
             for await (items, _) in Observations({ (music.downloads.items, feed.builtRevision) }) {
-                let clients = music.servers.servers.reduce(into: [String: SubsonicClient]()) { clients, server in
+                let clients = music.servers.servers.reduce(into: [String: any MusicServerClient]()) { clients, server in
                     clients[server.id] = music.servers.client(for: server.id)
                 }
                 let next = await DownloadsPageRows.make(items: Array(items.values), facts: feed.facts, clients: clients, order: sortOrder)
@@ -321,7 +321,7 @@ private nonisolated struct DownloadsPageRows: Sendable {
     static func make(
         items: [Downloads.Item],
         facts: [String: SongFacts],
-        clients: [String: SubsonicClient],
+        clients: [String: any MusicServerClient],
         order: [KeyPathComparator<LibraryDownloadRow>]
     ) async -> DownloadsPageRows {
         let songs = items.map { item in
@@ -336,7 +336,7 @@ private nonisolated struct DownloadsPageRows: Sendable {
             if let known = covers[artwork] { return known }
             let url: URL? = switch artwork {
             case .file(let name): LibraryFolders.artwork.appending(path: name)
-            case .server(let serverID, let coverID): clients[serverID]?.coverArtURL(id: coverID, size: 600)
+            case .server(let serverID, let coverID): clients[serverID]?.artworkURL(id: coverID, size: 600)
             }
             let address = url?.absoluteString
             if let address { covers[artwork] = address }

@@ -21,11 +21,15 @@ public struct LocalPlayback: Sendable, Hashable {
     /// What the audio turned out to be: the downloaded file's, or what the player found in the
     /// stream once it loaded. This is what settles whether a server made a smaller copy.
     public var actual: AudioFormat?
+    /// What the server said it would send, where it says: Trackside does, Subsonic servers
+    /// don't. Stands for ``actual`` until the audio has been heard.
+    public var delivered: AudioFormat?
 
-    public init(route: Route, original: AudioFormat?, actual: AudioFormat? = nil) {
+    public init(route: Route, original: AudioFormat?, actual: AudioFormat? = nil, delivered: AudioFormat? = nil) {
         self.route = route
         self.original = original
         self.actual = actual
+        self.delivered = delivered
     }
 }
 
@@ -131,7 +135,7 @@ public struct AudioQuality: Sendable, Hashable {
             guard let (format, reason) = Self.settle(via: .download, requested: requested, original: playback.original, actual: playback.actual) else { return nil }
             self.init(format: format, source: .downloaded, reason: reason)
         case .stream(let server, let network, let requested):
-            guard let (format, reason) = Self.settle(via: .stream(network), requested: requested, original: playback.original, actual: playback.actual) else { return nil }
+            guard let (format, reason) = Self.settle(via: .stream(network), requested: requested, original: playback.original, actual: playback.actual ?? playback.delivered) else { return nil }
             self.init(format: format, source: .streaming(server: server), reason: reason)
         }
     }
@@ -217,7 +221,7 @@ public struct AudioQuality: Sendable, Hashable {
         }
     }
 
-    /// Where it's coming from: "Streaming from Octo", "Downloaded", "On This iPhone".
+    /// Where it's coming from: "Streaming from Home", "Downloaded", "On This iPhone".
     public var sourceLine: String {
         switch source {
         case .appleMusic: String(localized: "Apple Music")
@@ -232,7 +236,7 @@ public struct AudioQuality: Sendable, Hashable {
         }
     }
 
-    /// Where it's from and the format in full, joined: "Streaming from Octo · FLAC 16-bit/44.1 kHz".
+    /// Where it's from and the format in full, joined: "Streaming from Home · FLAC 16-bit/44.1 kHz".
     public var factsLine: String {
         [sourceLine, formatDetail].compactMap(\.self).joined(separator: " · ")
     }

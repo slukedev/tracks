@@ -1,8 +1,8 @@
 import Foundation
 
-/// Runs at most so many operations at once; the rest wait their turn, first come first
-/// served. For a server that slows down, or has what it asks of others refused, when it's
-/// asked too much at once, as Octo does when its lookups on Deezer are rate limited.
+/// Runs at most so many operations at once; the rest wait their turn, first come first served.
+/// For a server that slows down, or has what it asks of others refused, when it's asked too
+/// much at once, as one does when the services it looks songs up on rate limit it.
 public actor AsyncLimiter {
     public let limit: Int
     private var running = 0

@@ -136,9 +136,9 @@ final class YourMusic {
         index.track(id: LocalTrack.id(for: .server(serverID: serverID, songID: song.id))) ?? song.track(on: serverID)
     }
 
-    /// Whether a song is in your music, rather than found on a server that doesn't have it
-    /// yet: a server like Octo plays those, but can't hand over their files until it's kept
-    /// them.
+    /// Whether a song is in your music, rather than found on a server that doesn't have it yet:
+    /// a server that finds songs elsewhere plays those, but can't hand over their files until
+    /// it's kept them.
     func isInYourMusic(_ track: LocalTrack) -> Bool {
         index.track(id: resolved(track).id) != nil
     }
@@ -152,7 +152,9 @@ final class YourMusic {
     }
 
     /// Where to play a song from, and how it reaches the player: the file, the download, or
-    /// the server's stream at the quality set for the network it's on.
+    /// the server's stream at the quality set for the network it's on. Nil when it can't play
+    /// now, and for a Trackside stream, which the server decides: ``needsDecision(_:)`` says
+    /// so, and ``decidedPlayback(for:)`` asks it.
     func playback(for track: LocalTrack) -> (url: URL, playback: LocalPlayback)? {
         let track = resolved(track)
         switch track.origin {
@@ -162,13 +164,55 @@ final class YourMusic {
             if let file = downloads.fileURL(for: track.id), let playback = downloads.playback(for: track.id) {
                 return (file, playback)
             }
-            guard network.isOnline, let client = servers.client(for: serverID) else { return nil }
+            guard network.isOnline, let client = servers.subsonicClient(for: serverID) else { return nil }
             let setting = StreamQuality.streaming(onExpensiveNetwork: network.isExpensive)
             let playback = LocalPlayback(
                 route: .stream(server: servers.server(serverID)?.name ?? "", network: setting.network, requestedBitRate: setting.quality.maxBitRate),
                 original: track.format
             )
             return (client.streamURL(songID: songID, maxBitRate: setting.quality.maxBitRate), playback)
+        }
+    }
+
+    /// Whether a song streams from a Trackside server that isn't downloaded: its address comes
+    /// from asking the server what to send for this device and network.
+    func needsDecision(_ track: LocalTrack) -> Bool {
+        let track = resolved(track)
+        guard case .server(let serverID, _) = track.origin, !downloads.isDownloaded(track.id) else { return false }
+        return network.isOnline && servers.isTrackside(serverID)
+    }
+
+    /// A Trackside song's stream: the original where this device plays it as it is and it's
+    /// under the quality setting's bit rate, otherwise a copy the server made or is making.
+    /// The server says what it sends, so the quality badge knows before the audio arrives.
+    func decidedPlayback(for track: LocalTrack) async -> (url: URL, playback: LocalPlayback)? {
+        let track = resolved(track)
+        guard case .server(let serverID, let songID) = track.origin, let client = servers.tracksideClient(for: serverID) else {
+            return playback(for: track)
+        }
+        let setting = StreamQuality.streaming(onExpensiveNetwork: network.isExpensive)
+        let maxBitRate = setting.quality.maxBitRate
+        let connection: MusicNetwork = network.isExpensive ? .cellular : .wifi
+        guard let stream = try? await client.stream(songID: songID, maxBitRate: maxBitRate, network: connection) else { return nil }
+        let playback = LocalPlayback(
+            route: .stream(server: servers.server(serverID)?.name ?? "", network: setting.network, requestedBitRate: MusicServers.tracksideBitRate(for: maxBitRate)),
+            original: track.format,
+            delivered: stream.delivered
+        )
+        return (stream.url, playback)
+    }
+
+    /// Asks the servers of songs about to play to have them ready, so the next one starts at
+    /// once and runs on from this one without a gap. Only Trackside makes copies ahead.
+    func prepareUpcoming(_ tracks: [LocalTrack]) {
+        let setting = StreamQuality.streaming(onExpensiveNetwork: network.isExpensive)
+        let streamed = tracks.map(resolved).filter { !downloads.isDownloaded($0.id) }
+        let byServer = Dictionary(grouping: streamed.compactMap { track -> (String, String)? in
+            guard case .server(let serverID, let songID) = track.origin, servers.isTrackside(serverID) else { return nil }
+            return (serverID, songID)
+        }, by: { $0.0 })
+        for (serverID, songs) in byServer {
+            servers.prepare(songs.map { $0.1 }, on: serverID, maxBitRate: setting.quality.maxBitRate)
         }
     }
 
@@ -191,12 +235,12 @@ final class YourMusic {
     #endif
 
     /// A cover's address: a saved picture, or the server's. A server's is always asked for at
-    /// one size, drawn smaller where it's small: one download for every place it's shown, and
-    /// a server like Octo, which looks each cover up elsewhere, asked once rather than per size.
+    /// one size, drawn smaller where it's small: one download for every place it's shown, and a
+    /// server that looks each cover up elsewhere asked once rather than per size.
     func artworkURL(_ artwork: LocalTrack.Artwork?) -> URL? {
         switch artwork {
         case .file(let name): LibraryFolders.artwork.appending(path: name)
-        case .server(let serverID, let coverID): servers.client(for: serverID)?.coverArtURL(id: coverID, size: 600)
+        case .server(let serverID, let coverID): servers.client(for: serverID)?.artworkURL(id: coverID, size: 600)
         case nil: nil
         }
     }
@@ -217,7 +261,7 @@ final class YourMusic {
         let key = StatsCalculator.folded(name)
         for server in servers.servers {
             guard let cover = servers.artists[server.id]?[key]?.cover,
-                  let url = servers.client(for: server.id)?.coverArtURL(id: cover, size: 600) else { continue }
+                  let url = servers.client(for: server.id)?.artworkURL(id: cover, size: 600) else { continue }
             return .url(url.absoluteString, seed: name)
         }
         return nil
@@ -368,34 +412,41 @@ final class YourMusic {
     /// How long a server's answer stands. A song it gets later is found anyway: it's in your
     /// music once a sync brings it in, and that's looked at first.
     private static let answersLast: TimeInterval = 12 * 60 * 60
+    /// Trackside answers from its own index at once, and says when it changes.
+    private static let tracksideAnswersLast: TimeInterval = 15 * 60
 
-    /// A server's songs for a search: what it said in the last twelve hours, or what it says now,
-    /// asked a few at a time. Nil when it couldn't answer or the look was given up on.
+    private func answersLast(for serverID: String) -> TimeInterval {
+        servers.isTrackside(serverID) ? Self.tracksideAnswersLast : Self.answersLast
+    }
+
+    /// A server's songs for a search: what it said lately, or what it says now, asked a few at
+    /// a time. Nil when it couldn't answer or the look was given up on.
     ///
     /// Remembered because songs are looked for again after every sync and download, and a
-    /// server like Octo takes seconds to answer each, looking every song up on Last.fm,
-    /// Deezer and YouTube; asked for dozens at once, it's turned away by Deezer and slows to
-    /// a crawl.
-    /// Songs asked for when searching by an artist: enough that a server like Octo, which keeps
-    /// the first twelve for what the library has, hands back dozens of the artist's songs.
+    /// server that finds songs elsewhere takes seconds to answer each, looking every song up on
+    /// services elsewhere; asked for dozens at once, it's turned away by them and slows to a
+    /// crawl. Songs asked for when searching by an artist: enough that a server that finds
+    /// songs elsewhere, which keeps the first twelve for what the library has, hands back
+    /// dozens of the artist's songs.
     static let artistSongCount = 50
 
     func serverSongs(on serverID: String, matching query: String, count: Int = 20) async -> [SubsonicSong]? {
         let key = "\(serverID)\u{1F}\(count)\u{1F}\(query)"
-        if let answer = serverAnswers[key], Date.now.timeIntervalSince(answer.at) < Self.answersLast {
+        if let answer = serverAnswers[key], Date.now.timeIntervalSince(answer.at) < answersLast(for: serverID) {
             return answer.songs
         }
         // Already being asked: a row that looks again, as every row does when a server
         // connects or a sync ends, waits for that answer rather than asking afresh.
         if let asking = serverQuestions[key] { return await asking.value }
         guard let client = servers.client(for: serverID) else { return nil }
-        let lookups = servers.lookups
-        // Its own task, so a row that stops looking doesn't take the answer with it: Octo
+        let lookups = servers.lookups(for: serverID)
+        // Its own task, so a row that stops looking doesn't take the answer with it: the server
         // would have done the work for nothing, and the next look would ask again.
         let asking = Task { () -> [SubsonicSong]? in
-            // At least twenty, so a server like Octo has room beside the library's matches for
-            // songs it can find: it keeps the first twelve for what the library has.
-            try? await lookups.run { try await client.search(query, artists: 0, albums: 0, songs: count).songs }
+            // At least twenty, so a server that finds songs elsewhere has room beside the
+            // library's matches for songs it can find: it keeps the first twelve for what the
+            // library has.
+            try? await lookups.run { try await client.search(query, artists: 0, albums: 0, songs: count, after: nil).songs }
         }
         serverQuestions[key] = asking
         let found = await asking.value
@@ -460,8 +511,9 @@ final class YourMusic {
     }
 
     /// Songs your servers have for a search that aren't in your music yet: ones newer than the
-    /// last sync, and, from a full search of a server like Octo, ones it can find and play for
-    /// you. Full answers are kept for ten minutes, so going back to a search doesn't ask again.
+    /// last sync, and, from a full search of a server that finds songs elsewhere, ones it can
+    /// find and play for you. Full answers are kept for ten minutes, so going back to a search
+    /// doesn't ask again.
     func searchServers(_ query: String, isFull: Bool) async -> ServerSearchPage {
         let key = StatsCalculator.folded(query.trimmingCharacters(in: .whitespaces))
         if isFull, let answer = fullSearchAnswers[key], answer.at.timeIntervalSinceNow > -10 * 60 {
@@ -598,6 +650,33 @@ final class YourMusic {
     /// Forgets what couldn't be found, to look again: after a sync, or a change in Lidarr.
     func forgetUnavailable() {
         availabilityGeneration += 1
+    }
+
+    // MARK: - A server that's moved to Trackside
+
+    /// Downloads and playlist songs from a server entry that still name its old server's
+    /// songs: ones the entry's Trackside server doesn't know by that id.
+    func songsToMatch(on serverID: String) -> [LocalTrack] {
+        let current = Set((servers.catalogs[serverID] ?? []).map(\.id))
+        var seen = Set<String>()
+        let kept = downloads.items.values.map(\.track) + playlists.all.flatMap { $0.entries.map(\.track) }
+        return kept.filter { $0.serverID == serverID && !current.contains($0.id) && seen.insert($0.id).inserted }
+    }
+
+    /// Points downloads and playlists at the Trackside server's copies of the songs they
+    /// had from the old server. Downloaded files stay as they are; songs without a sure match
+    /// are left alone and listed.
+    func matchMovedSongs(on serverID: String) async -> ServerSongMatching.Result {
+        let result = await Self.match(songsToMatch(on: serverID), against: servers.catalogs[serverID] ?? [], serverID: serverID)
+        downloads.replace(result.matched)
+        playlists.replace(result.matched)
+        servers.finishedMatching(serverID)
+        return result
+    }
+
+    @concurrent
+    nonisolated private static func match(_ old: [LocalTrack], against mirror: [LocalTrack], serverID: String) async -> ServerSongMatching.Result {
+        ServerSongMatching.match(old, against: mirror, serverID: serverID)
     }
 
     // MARK: - Files

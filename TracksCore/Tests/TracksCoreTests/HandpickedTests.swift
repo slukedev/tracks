@@ -113,7 +113,7 @@ struct HandpickedTests {
     // MARK: - Your own music
 
     func track(_ title: String, _ artist: String, genre: String? = nil, server: Bool = false) -> LocalTrack {
-        let origin: LocalTrack.Origin = server ? .server(serverID: "octo", songID: "\(artist)-\(title)") : .file(path: "\(artist)/\(title).flac")
+        let origin: LocalTrack.Origin = server ? .server(serverID: "home", songID: "\(artist)-\(title)") : .file(path: "\(artist)/\(title).flac")
         return LocalTrack(origin: origin, title: title, artist: artist, genre: genre)
     }
 

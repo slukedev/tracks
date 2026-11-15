@@ -164,8 +164,8 @@ public enum GetMoreRanking {
     }
 }
 
-/// How music you don't own can be got: from a server that finds songs it doesn't have (Octo
-/// does), or from Lidarr. With neither, nothing offers to get anything.
+/// How music you don't own can be got: from a server that finds or gets songs it doesn't
+/// have, or from Lidarr. With neither, nothing offers to get anything.
 public struct FetchAbility: Sendable, Equatable {
     /// A server you can reach that finds songs it doesn't have.
     public var serverFinds: Bool

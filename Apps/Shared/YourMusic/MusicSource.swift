@@ -96,12 +96,14 @@ enum StreamQuality: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Under each choice in its menu.
-    var subtitle: LocalizedStringKey {
-        switch self {
-        case .original: "As it is on your server"
-        case .high: "MP3 at 320 kbps"
-        case .dataSaver: "MP3 at 128 kbps, the smallest"
+    /// Under each choice in its menu. Trackside makes its copies in AAC, at 256 and 128 kbps.
+    func subtitle(onlyTrackside: Bool = false) -> LocalizedStringKey {
+        switch (self, onlyTrackside) {
+        case (.original, _): "As it is on your server"
+        case (.high, false): "MP3 at 320 kbps"
+        case (.high, true): "AAC at 256 kbps"
+        case (.dataSaver, false): "MP3 at 128 kbps, the smallest"
+        case (.dataSaver, true): "AAC at 128 kbps, the smallest"
         }
     }
 
@@ -120,13 +122,16 @@ enum StreamQuality: String, CaseIterable, Identifiable {
 struct StreamQualityPicker: View {
     let title: LocalizedStringKey
     @Binding var selection: StreamQuality
+    @Environment(YourMusic.self) private var music: YourMusic?
 
     var body: some View {
+        let servers = music?.servers.servers ?? []
+        let onlyTrackside = !servers.isEmpty && servers.allSatisfy(\.isTrackside)
         Picker(title, selection: $selection) {
             ForEach(StreamQuality.allCases) { quality in
                 VStack(alignment: .leading) {
                     Text(quality.title)
-                    Text(quality.subtitle)
+                    Text(quality.subtitle(onlyTrackside: onlyTrackside))
                 }
                 .tag(quality)
             }

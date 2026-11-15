@@ -166,7 +166,7 @@ private struct QualityTitleLabelStyle: LabelStyle {
     VStack(spacing: 20) {
         AudioQualityDetails(quality: AudioQuality(appleMusic: .lossless))
         AudioQualityDetails(quality: AudioQuality(LocalPlayback(
-            route: .stream(server: "Octo", network: .cellular, requestedBitRate: 320),
+            route: .stream(server: "Home", network: .cellular, requestedBitRate: 320),
             original: AudioFormat(codec: "FLAC", sampleRate: 96_000, bitDepth: 24),
             actual: AudioFormat(codec: "MP3", sampleRate: 44_100, bitRate: 320)
         ))!)

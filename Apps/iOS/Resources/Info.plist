@@ -48,6 +48,14 @@
 				<string>tracks</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).trackside</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>trackside</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
@@ -84,7 +92,10 @@
 	<array>
 		<string>_tracks._tcp</string>
 		<string>_tracksshareplay._tcp</string>
+		<string>_trackside._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Tracks scans the pairing code your Trackside server shows, to connect to it.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Tracks reaches your own music server on your network, finds Tracks on your other devices nearby to show and control what they're playing, and connects the people with you who scan your SharePlay code.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

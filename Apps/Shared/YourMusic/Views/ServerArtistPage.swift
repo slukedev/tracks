@@ -2,8 +2,9 @@ import SwiftUI
 import TracksCore
 
 /// An artist on one of your servers, looked up there: one found by searching that isn't in your
-/// music, from the server's library or, on a server like Octo, found elsewhere. Their top songs
-/// where the server knows them, their newest album, and every album, each a click from its page.
+/// music, from the server's library or, on a server that finds songs elsewhere, found there.
+/// Their top songs where the server knows them, their newest album, and every album, each a
+/// click from its page.
 struct ServerArtistPage: View {
     let artist: ServerArtist
     @Environment(YourMusic.self) private var music
@@ -109,19 +110,20 @@ struct ServerArtistPage: View {
         music.servers.servers.first { $0.id == artist.serverID }?.name ?? String(localized: "Your server")
     }
 
-    /// Their albums from the server's page for them; one like Octo has none there for an artist
-    /// it found elsewhere, so their albums come from searching it for the name instead. Their top
-    /// songs where it knows them.
+    /// Their albums from the server's page for them; a server that finds songs elsewhere has
+    /// none there for an artist it found elsewhere, so their albums come from searching it for
+    /// the name instead. Their top songs where it knows them.
     private func load() async {
         failed = false
         guard let client = music.servers.client(for: artist.serverID) else {
             failed = true
             return
         }
-        async let top = try? await client.topSongs(artist: artist.name, count: 20)
+        async let top = try? await client.topSongs(artist: artist.name, artistID: artist.artistID, count: 20)
         var found = (try? await client.artist(id: artist.artistID).albums) ?? []
         if found.isEmpty {
-            guard let result = try? await music.servers.lookups.run({ try await client.search(artist.name, artists: 0, albums: 30, songs: 0) }) else {
+            let query = artist.name
+            guard let result = try? await music.servers.lookups(for: artist.serverID).run({ try await client.search(query, artists: 0, albums: 30, songs: 0, after: nil) }) else {
                 failed = true
                 return
             }

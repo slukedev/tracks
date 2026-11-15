@@ -12,8 +12,8 @@ import CoreImage.CIFilterBuiltins
 /// settle into one, deep enough for white type or light enough for dark. Sharp to soft to
 /// colour, with no line anywhere. Still: nothing here moves, so it costs nothing while it plays.
 ///
-/// Where your music server has the album's animated cover (Octo finds Apple Music's), it
-/// plays in the cover's place, looping silently, while the music plays.
+/// Where your music server has the album's animated cover (some find Apple Music's), it plays
+/// in the cover's place, looping silently, while the music plays.
 ///
 /// With nowhere to put the cover (Up Next is up), it's the cover's colour, as Cover Colour
 /// was, so the list reads on it.

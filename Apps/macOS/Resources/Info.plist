@@ -35,6 +35,15 @@
                 <string>tracks</string>
             </array>
         </dict>
+        <!-- trackside://pair links from a Trackside server's dashboard. See ServerSettings.swift. -->
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>$(PRODUCT_BUNDLE_IDENTIFIER).trackside</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>trackside</string>
+            </array>
+        </dict>
     </array>
     <key>LSMinimumSystemVersion</key>
     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
@@ -88,6 +97,7 @@
     <key>NSBonjourServices</key>
     <array>
         <string>_tracks._tcp</string>
+        <string>_trackside._tcp</string>
     </array>
     <!-- Songs dragged inside Tracks, from a list to Up Next (see SongDrag), and a playlist's
          rows dragged to a new place in it (see CollectionRowDrag). -->

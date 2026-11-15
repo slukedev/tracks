@@ -1,26 +1,98 @@
 import Foundation
 import CryptoKit
 
-/// A music server that speaks the Subsonic API, the standard self-hosted music servers share:
-/// Navidrome, Gonic, Airsonic, Ampache, LMS and others. OpenSubsonic, its open extension,
-/// is spoken by most of them today.
+/// What a server entry talks to: a server that speaks the Subsonic API, or Trackside, which
+/// has its own.
+public enum ServerKind: String, Codable, Sendable, Hashable {
+    case subsonic
+    case trackside
+}
+
+/// A music server you've connected. Most speak the Subsonic API, the standard self-hosted
+/// music servers share: Navidrome, Gonic, Airsonic, Ampache, LMS and others. OpenSubsonic,
+/// its open extension, is spoken by most of them today. Trackside speaks its own.
+///
+/// The entry's ``id`` is what its songs are filed under (`server:<id>:<song>`), so it stays
+/// the same when the entry moves to another kind of server.
 public struct SubsonicServer: Codable, Sendable, Hashable, Identifiable {
     public let id: String
     public var name: String
+    /// Where requests go. For Trackside, the address that answered last, used until the next
+    /// race picks one of ``candidateURLs``.
     public var url: URL
     public var username: String
     /// Mixed into the password for the token cover addresses carry, so the password itself
     /// never goes over the wire. Fixed per server, so those addresses stay the same between
     /// launches and their images stay cached. Every other request gets a salt of its own.
     public var salt: String
+    public var kind: ServerKind
+    /// Trackside's own id for itself, the same at every address it has.
+    public var serverUUID: String?
+    /// Every address Trackside can be reached at, as it last said.
+    public var candidateURLs: [TracksideServerURL]?
+    /// This device as Trackside knows it.
+    public var deviceID: String?
+    /// The name Trackside gave this device when it was paired.
+    public var deviceName: String?
 
-    public init(id: String = UUID().uuidString, name: String, url: URL, username: String, salt: String = SubsonicServer.makeSalt()) {
+    public init(
+        id: String = UUID().uuidString,
+        name: String,
+        url: URL,
+        username: String,
+        salt: String = SubsonicServer.makeSalt(),
+        kind: ServerKind = .subsonic,
+        serverUUID: String? = nil,
+        candidateURLs: [TracksideServerURL]? = nil,
+        deviceID: String? = nil,
+        deviceName: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.url = url
         self.username = username
         self.salt = salt
+        self.kind = kind
+        self.serverUUID = serverUUID
+        self.candidateURLs = candidateURLs
+        self.deviceID = deviceID
+        self.deviceName = deviceName
     }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, url, username, salt, kind, serverUUID, candidateURLs, deviceID, deviceName
+    }
+
+    /// Entries saved before there was more than one kind are Subsonic servers.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        url = try container.decode(URL.self, forKey: .url)
+        username = try container.decode(String.self, forKey: .username)
+        salt = try container.decode(String.self, forKey: .salt)
+        kind = try container.decodeIfPresent(ServerKind.self, forKey: .kind) ?? .subsonic
+        serverUUID = try container.decodeIfPresent(String.self, forKey: .serverUUID)
+        candidateURLs = try container.decodeIfPresent([TracksideServerURL].self, forKey: .candidateURLs)
+        deviceID = try container.decodeIfPresent(String.self, forKey: .deviceID)
+        deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(url, forKey: .url)
+        try container.encode(username, forKey: .username)
+        try container.encode(salt, forKey: .salt)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(serverUUID, forKey: .serverUUID)
+        try container.encodeIfPresent(candidateURLs, forKey: .candidateURLs)
+        try container.encodeIfPresent(deviceID, forKey: .deviceID)
+        try container.encodeIfPresent(deviceName, forKey: .deviceName)
+    }
+
+    public var isTrackside: Bool { kind == .trackside }
 
     public static func makeSalt() -> String {
         String((0..<12).map { _ in "abcdefghijklmnopqrstuvwxyz0123456789".randomElement()! })
@@ -224,9 +296,9 @@ public struct SubsonicClient: Sendable {
     }
 
     /// An album's animated cover, the square loop Apple Music plays in place of it, where the
-    /// server can find one: Octo's `getAnimatedArt`, asked by name so it serves any album, not
-    /// only the server's own. Nil when the album has none; throws when the server has no such
-    /// thing, or has it turned off.
+    /// server can find one: the `getAnimatedArt` extension some Subsonic servers have, asked by
+    /// name so it serves any album, not only the server's own. Nil when the album has none;
+    /// throws when the server has no such thing, or has it turned off.
     public func animatedCover(artist: String, album: String) async throws -> URL? {
         let body = try await call("getAnimatedArt", ["artist": artist, "album": album])
         return Self.squareLoop(in: body, server: server.url)
@@ -327,7 +399,7 @@ public struct SubsonicSong: Codable, Sendable, Hashable, Identifiable {
     public var bitDepth: Int?
     /// OpenSubsonic: the album's artist, where the server knows it.
     public var displayAlbumArtist: String?
-    /// Octo: a song it found for you rather than one in the library.
+    /// A song the server found for you elsewhere rather than one in its library.
     public var isExternal: Bool?
     /// When the server added the song, as ISO 8601: "2024-03-01T18:22:10.000Z".
     public var created: String?
@@ -403,7 +475,7 @@ struct SubsonicResponse: Decodable {
         let topSongs: SongList?
         let randomSongs: SongList?
         let artistInfo2: ArtistInfo?
-        /// Octo's, for getAnimatedArt.
+        /// For getAnimatedArt.
         let animatedArt: AnimatedArt?
     }
 

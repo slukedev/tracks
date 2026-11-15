@@ -23,13 +23,13 @@ struct YourMusicSearchResults: View {
     @State private var fromServers: [LocalTrack] = []
     /// The search `fromServers` fully answers, so a newer one shows as still being asked.
     @State private var answeredQuery = ""
-    /// A full search is taking a while, as Octo's do while it finds songs: said so.
+    /// A full search is taking a while, as it can while a server finds songs elsewhere: said so.
     @State private var isSlow = false
     /// Where the next page of the search starts, on the servers that may have more.
     @State private var nextPage = ServerSearchPage()
     /// How many of `fromServers` are shown: a few at first, more as they're scrolled to.
     @State private var shownCount = Self.revealed
-    /// Albums and artists your servers have, or a server like Octo finds, that aren't yours.
+    /// Albums and artists your servers have, or a server finds elsewhere, that aren't yours.
     @State private var serverAlbums: [ServerDiscovery.Album] = []
     @State private var serverArtists: [ServerArtist] = []
     /// The search `serverAlbums` and `serverArtists` answer, so an older one's don't show.
@@ -72,12 +72,16 @@ struct YourMusicSearchResults: View {
             await searchYourMusic()
         }
         // Albums and artists, asked for as a pause in typing gives the songs time to be: quick
-        // even on Octo, so they come well before the songs it finds.
+        // even on a server that finds songs elsewhere, so they come well before the songs it
+        // finds.
         .task(id: query) {
             await searchServerAlbumsAndArtists()
         }
         .task(id: query) {
             await searchServerSongs()
+        }
+        .task(id: query) {
+            await searchSongsToGet()
         }
         .onChange(of: query) { showsAllSongs = false }
     }
@@ -145,6 +149,7 @@ struct YourMusicSearchResults: View {
         }
 
         serverSongs
+        songsToGet
     }
 
     private var songsTitle: some View {
@@ -201,8 +206,8 @@ struct YourMusicSearchResults: View {
 
     // MARK: - From your servers
 
-    /// Songs your servers have for the search that aren't in your music: from a server like
-    /// Octo, songs it finds for you to play and add.
+    /// Songs your servers have for the search that aren't in your music: from a server that
+    /// finds songs elsewhere, songs it finds for you to play and add.
     @ViewBuilder
     private var serverSongs: some View {
         let isAsking = answeredQuery != query && !music.servers.onlineServers.isEmpty
@@ -252,6 +257,45 @@ struct YourMusicSearchResults: View {
             }
             .padding(.horizontal, PlayMetrics.margin)
         }
+    }
+
+    // MARK: - Songs a server could get
+
+    /// Songs a Trackside server that offers it could get for you, in a section of their own
+    /// under everything you have. Only servers that offer it are asked.
+    @ViewBuilder
+    private var songsToGet: some View {
+        ForEach(songOffers) { offer in
+            VStack(alignment: .leading, spacing: 6) {
+                SearchSectionTitle("Not on \(offer.server.name)")
+                    .padding(.bottom, 4)
+                ForEach(offer.offers, id: \.candidate.token) { item in
+                    GetOfferRow(offer: item, showsQuality: true)
+                        .padding(.vertical, 5)
+                }
+            }
+            .padding(.horizontal, PlayMetrics.margin)
+            .transition(.opacity)
+        }
+    }
+
+    private var songOffers: [SongOffer] {
+        music.servers.onlineServers.compactMap { server in
+            guard let board = music.servers.songRequests[server.id], board.query == query, !board.shown.isEmpty else { return nil }
+            return SongOffer(server: server, offers: board.shown.map { GetMore.Offer(serverID: server.id, candidate: $0) })
+        }
+    }
+
+    private func searchSongsToGet() async {
+        let query = query.trimmingCharacters(in: .whitespaces)
+        guard music.servers.canGetSongs, query.count >= 3 else {
+            music.servers.clearSongsToGet()
+            return
+        }
+        // Once typing stops: it's the search you meant that's asked about.
+        try? await Task.sleep(for: .milliseconds(900))
+        guard !Task.isCancelled else { return }
+        await music.servers.findSongsToGet(self.query)
     }
 
     private var serverSectionTitle: LocalizedStringKey {
@@ -355,7 +399,8 @@ struct YourMusicSearchResults: View {
             )
         } else if !isBlank, found.query == query, found.isEmpty, fromServers.isEmpty,
                   serverShelvesQuery != query || (serverAlbums.isEmpty && serverArtists.isEmpty),
-                  answeredQuery == query || music.servers.onlineServers.isEmpty {
+                  answeredQuery == query || music.servers.onlineServers.isEmpty,
+                  songOffers.isEmpty {
             SearchNoResults(query: query)
         }
     }
@@ -424,7 +469,7 @@ struct YourMusicSearchResults: View {
         // A short pause so typing doesn't ask on every letter.
         try? await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else { return }
-        // First the songs your servers have, which even Octo answers at once…
+        // First the songs your servers have, which come at once…
         let quick = await music.searchServers(query, isFull: false)
         guard !Task.isCancelled else { return }
         withAnimation(.snappy) { fromServers = quick.tracks }
@@ -433,8 +478,9 @@ struct YourMusicSearchResults: View {
             answeredQuery = query
             return
         }
-        // …then, once typing stops, the songs they can find for you. Octo takes seconds
-        // to, so it's asked for the search you meant, not every word on the way to it.
+        // …then, once typing stops, the songs they can find for you. A server that finds songs
+        // elsewhere takes seconds to, so it's asked for the search you meant, not every word on
+        // the way to it.
         try? await Task.sleep(for: .milliseconds(600))
         guard !Task.isCancelled else { return }
         let slow = Task {
@@ -562,6 +608,13 @@ private struct SearchArtistTile: View {
         case .server(let artist, _): .serverArtist(artist)
         }
     }
+}
+
+/// The songs one server could get for a search.
+private struct SongOffer: Identifiable {
+    let server: SubsonicServer
+    let offers: [GetMore.Offer]
+    var id: String { server.id }
 }
 
 /// Get, for a song a server found for you, at the end of its row. Once asked, the row's own

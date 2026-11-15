@@ -1,9 +1,9 @@
 import Foundation
 
 /// Songs picked for you from a music server, starting from a few artists: some of each one's
-/// own songs, then songs like them. A server like Octo answers with songs it can find as well
-/// as the ones it has, so a mix works with an empty library and no listening history, as long
-/// as there are artists to start from.
+/// own songs, then songs like them. A server that finds songs elsewhere answers with songs it
+/// can find as well as the ones it has, so a mix works with an empty library and no listening
+/// history, as long as there are artists to start from.
 public enum ServerMix {
     /// How many artists a mix starts from.
     public static let seedCount = 5

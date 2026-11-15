@@ -1,14 +1,15 @@
 //! Whether music you don't own can be got, and which way.
 //!
-//! Two things can fetch: a Subsonic server that finds songs it doesn't have (Octo, in front
-//! of Navidrome, does: it answers a search with songs from elsewhere, and starring one
-//! fetches its file), and Lidarr, which fetches whole albums into the library a server plays.
+//! Two things can fetch: a server that finds or gets songs it doesn't have (a Subsonic server
+//! that answers a search with songs from elsewhere, where starring one fetches its file, or a
+//! Trackside server that gets songs when asked), and Lidarr, which fetches whole albums into
+//! the library a server plays.
 //! A plain Subsonic server only has what's on it, so with nothing else nothing can be got.
 
 /// What can fetch music right now.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FetchSources {
-    /// A server you can reach that finds songs it doesn't have.
+    /// A server you can reach that finds or gets songs it doesn't have.
     pub server_finds: bool,
     /// Lidarr, connected.
     pub lidarr: bool,
@@ -94,7 +95,7 @@ mod tests {
 
     #[test]
     fn a_search_mostly_from_outside_the_library_shows_finds() {
-        // As Octo answers a full search: 12 from the library, 48 found elsewhere.
+        // As such a server answers a full search: 12 from the library, 48 found elsewhere.
         assert!(search_shows_finds(60, 48));
     }
 

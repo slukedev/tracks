@@ -94,6 +94,21 @@ final class Playlists {
         update(id) { $0.add(tracks) }
     }
 
+    /// Puts the new copies of songs in place of the old, in every playlist, after their server
+    /// entry moved to another server. Where they stood and when they were added stay the same.
+    func replace(_ matched: [String: LocalTrack]) {
+        guard !matched.isEmpty else { return }
+        var changed = false
+        for position in all.indices {
+            for entry in all[position].entries.indices {
+                guard let track = matched[all[position].entries[entry].track.id] else { continue }
+                all[position].entries[entry].track = track
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
     func delete(_ id: UUID) {
         // Its Apple Music playlist stays, and isn't made into a Tracks one again.
         if let link = playlist(id: id)?.appleMusic { unmerge([link.playlistID]) }

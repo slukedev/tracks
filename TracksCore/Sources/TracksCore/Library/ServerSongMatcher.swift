@@ -1,9 +1,9 @@
 import Foundation
 
 /// Finds a song among a music server's search results when the two name it differently, as
-/// Apple Music and a server like Octo, which names songs as Last.fm does, often do:
-/// "Havana (feat. Young Thug)" is "Havana", "Yeat & Drake" is "Yeat", and "Song - Remastered
-/// 2011" is "Song". A live, remixed or other different recording still doesn't match.
+/// Apple Music and a server that names songs as Last.fm does often do: "Havana (feat. Young
+/// Thug)" is "Havana", "Yeat & Drake" is "Yeat", and "Song - Remastered 2011" is "Song". A
+/// live, remixed or other different recording still doesn't match.
 public enum ServerSongMatcher {
     /// The first result that's the same song: named exactly the same if one is, else the
     /// first whose title matches and that shares an artist.

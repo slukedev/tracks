@@ -205,11 +205,11 @@ final class SongInfoMemory {
 
 /// Where each part of a song's info comes from.
 enum SongInfoSources {
-    /// "Tracks/1.0 ( https://github.com/reallukedev/tracks )", as MusicBrainz asks a client to
+    /// "Tracks/1.0 ( https://github.com/slukedev/tracks )", as MusicBrainz asks a client to
     /// name itself.
     static let userAgent: String = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
-        return "Tracks/\(version) ( https://github.com/reallukedev/tracks )"
+        return "Tracks/\(version) ( https://github.com/slukedev/tracks )"
     }()
 
     // MARK: Apple Music, or your own file

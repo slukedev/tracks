@@ -64,8 +64,16 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     private var isActive = false
     /// Songs in a row that wouldn't play, so a queue of missing files stops rather than spins.
     private var failuresInARow = 0
-    /// The entry told to the server as playing, and whether its play has been counted.
-    private var serverScrobble: (entryID: String, counted: Bool)?
+    /// The entry told to the server as playing, when it started, and whether its play has
+    /// been counted.
+    private var serverScrobble: (entryID: String, startedAt: Date, counted: Bool)?
+    /// The song whose stream a Trackside server is deciding, before it can go in the player:
+    /// the player shows it loading meanwhile.
+    private var deciding: (entryID: String, task: Task<Void, Never>)?
+    /// The next song, from Trackside, waiting to be asked for until shortly before the one
+    /// playing ends, by when the server has its copy ready and it follows without a gap.
+    private var nextWaiting: String?
+    private var nextDeciding: Task<Void, Never>?
     private var artworkTask: Task<Void, Never>?
     /// Whether the person means it to be playing: set by playing, cleared by pausing. A call or
     /// a stalled stream pauses the player without changing it, so playing carries on after.
@@ -256,6 +264,11 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         guard !entries.isEmpty else { throw PlayerProblem.nothingToPlay }
         ranOut = false
         activate()
+        // Its stream still being decided: it plays once it's in.
+        if let deciding, entries.indices.contains(index), deciding.entryID == entries[index].id {
+            isMeantToPlay = true
+            return
+        }
         // Loaded afresh, which moves on if the song can't be reached now.
         guard player.currentItem != nil else {
             loadItems(startPlaying: true)
@@ -368,6 +381,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         ranOut = false
         isMeantToPlay = startPlaying
         stopRecovering()
+        stopDeciding()
         if retried?.entryID != (entries.indices.contains(index) ? entries[index].id : nil) { retried = nil }
         player.removeAllItems()
         itemEntries = [:]
@@ -377,39 +391,112 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             updateStatus()
             return
         }
-        guard let item = makeItem(entries[index]) else {
-            // Can't be reached right now (a server's song, offline): on to the next that can,
-            // rather than waiting on nothing.
-            onChange?()
-            publish()
-            updateNowPlayingInfo()
-            if startPlaying { skipPastFailure() }
+        let entry = entries[index]
+        withItem(for: entry) { [weak self] item in
+            guard let self else { return }
+            guard let item else {
+                // Can't be reached right now (a server's song, offline): on to the next that can,
+                // rather than waiting on nothing.
+                self.onChange?()
+                self.publish()
+                self.updateNowPlayingInfo()
+                if self.isMeantToPlay { self.skipPastFailure() }
+                return
+            }
+            self.currentItemID = ObjectIdentifier(item)
+            self.player.insert(item, after: nil)
+            self.refreshNext()
+            if self.isMeantToPlay {
+                self.player.play()
+                self.music.didStartPlaying(entry.track)
+            }
+            self.serverScrobble = nil
+            self.onChange?()
+            self.publish()
+            self.updateNowPlayingInfo()
+        }
+    }
+
+    /// Makes the player item for an entry, and hands it to `use`: at once for a file, a
+    /// download or a Subsonic stream, and once the server has decided for a Trackside one,
+    /// if the entry is still the one wanted then. Nil when it can't play now.
+    private func withItem(for entry: Entry, _ use: @escaping @MainActor (AVPlayerItem?) -> Void) {
+        if let (url, playback) = music.playback(for: entry.track) {
+            use(makeItem(entry, url: url, playback: playback))
             return
         }
-        currentItemID = ObjectIdentifier(item)
-        player.insert(item, after: nil)
-        refreshNext()
-        if startPlaying {
-            player.play()
-            music.didStartPlaying(entries[index].track)
+        guard music.needsDecision(entry.track) else {
+            use(nil)
+            return
         }
-        serverScrobble = nil
+        let task = Task { [weak self, music] in
+            let decided = await music.decidedPlayback(for: entry.track)
+            guard let self, !Task.isCancelled, self.deciding?.entryID == entry.id else { return }
+            self.deciding = nil
+            use(decided.map { self.makeItem(entry, url: $0.url, playback: $0.playback) })
+            self.updateStatus()
+        }
+        deciding = (entry.id, task)
+        updateStatus()
         onChange?()
         publish()
-        updateNowPlayingInfo()
+    }
+
+    private func stopDeciding() {
+        deciding?.task.cancel()
+        deciding = nil
     }
 
     /// Replaces whatever is queued behind the current song with the song that comes next.
+    /// A Trackside song is asked to be made ready now, and queued shortly before the current
+    /// one ends.
     private func refreshNext() {
         defer { forgetQualities() }
+        nextWaiting = nil
+        nextDeciding?.cancel()
+        nextDeciding = nil
         for item in player.items().dropFirst() {
             itemEntries[ObjectIdentifier(item)] = nil
             itemObservations[ObjectIdentifier(item)] = nil
             player.remove(item)
         }
-        guard repeatMode != .one, let next = nextIndex(after: index), let item = makeItem(entries[next]) else { return }
+        guard repeatMode != .one, let next = nextIndex(after: index) else { return }
+        let entry = entries[next]
+        if music.needsDecision(entry.track) {
+            let after = nextIndex(after: next).map { [entries[$0].track] } ?? []
+            music.prepareUpcoming([entry.track] + after)
+            nextWaiting = entry.id
+            queueWaitingNextIfDue()
+            return
+        }
+        guard let (url, playback) = music.playback(for: entry.track) else { return }
+        insertNext(makeItem(entry, url: url, playback: playback))
+    }
+
+    private func insertNext(_ item: AVPlayerItem) {
         if player.canInsert(item, after: player.items().last) {
             player.insert(item, after: player.items().last)
+        }
+    }
+
+    /// How long before the current song ends the next Trackside song is asked for.
+    private static let nextLead: TimeInterval = 30
+
+    /// Queues the waiting next song once the current one is near its end, or has no known
+    /// length, so the server has had time to make it ready.
+    private func queueWaitingNextIfDue() {
+        guard let waiting = nextWaiting, nextDeciding == nil, entries.indices.contains(index) else { return }
+        if let duration = entries[index].track.duration, duration - playbackTime > Self.nextLead { return }
+        guard let position = entries.firstIndex(where: { $0.id == waiting }) else { return }
+        let entry = entries[position]
+        nextDeciding = Task { [weak self, music] in
+            let decided = await music.decidedPlayback(for: entry.track)
+            guard let self, !Task.isCancelled, self.nextWaiting == entry.id else { return }
+            self.nextWaiting = nil
+            self.nextDeciding = nil
+            // Only behind the song it was meant to follow, which is all that's queued.
+            guard let decided, self.player.items().count == 1 else { return }
+            self.insertNext(self.makeItem(entry, url: decided.url, playback: decided.playback))
         }
     }
 
@@ -422,8 +509,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         player.volume = level
     }
 
-    private func makeItem(_ entry: Entry) -> AVPlayerItem? {
-        guard let (url, playback) = music.playback(for: entry.track) else { return nil }
+    private func makeItem(_ entry: Entry, url: URL, playback: LocalPlayback) -> AVPlayerItem {
         let asset = AVURLAsset(url: url)
         let item = AVPlayerItem(asset: asset)
         noteQuality(playback, of: asset, for: entry.id)
@@ -479,6 +565,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         index = position
         failuresInARow = 0
         serverScrobble = nil
+        stopDeciding()
         music.didStartPlaying(entries[index].track)
         refreshNext()
         onChange?()
@@ -563,19 +650,27 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     }
 
     /// Loads the current song again and carries on from `time`, playing if it's meant to be.
+    /// A Trackside song is decided afresh, which goes to the address that answers now.
     private func reload(from time: CMTime) {
         recovering = nil
         player.removeAllItems()
         itemEntries = [:]
         itemObservations = [:]
         currentItemID = nil
-        guard let item = makeItem(entries[index]) else {
-            // Still out of reach: on to the next that can play.
-            onChange?()
-            publish()
-            if isMeantToPlay { skipPastFailure() } else { updateStatus() }
-            return
+        withItem(for: entries[index]) { [weak self] item in
+            guard let self else { return }
+            guard let item else {
+                // Still out of reach: on to the next that can play.
+                self.onChange?()
+                self.publish()
+                if self.isMeantToPlay { self.skipPastFailure() } else { self.updateStatus() }
+                return
+            }
+            self.carryOn(item, from: time)
         }
+    }
+
+    private func carryOn(_ item: AVPlayerItem, from time: CMTime) {
         let id = ObjectIdentifier(item)
         currentItemID = id
         player.insert(item, after: nil)
@@ -639,6 +734,8 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             .loading
         } else if let recovering, entries.indices.contains(index), entries[index].id == recovering.entryID {
             .loading
+        } else if let deciding, entries.indices.contains(index), entries[index].id == deciding.entryID {
+            .loading
         } else {
             switch player.timeControlStatus {
             case .playing: .playing
@@ -659,6 +756,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     private func tick() {
         guard status == .playing, entries.indices.contains(index) else { return }
         scrobbleToServerIfDue()
+        queueWaitingNextIfDue()
     }
 
     /// Runs `body` straight away on the main thread, in order, or hops there from any other.
@@ -756,6 +854,10 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     func deactivate() {
         isMeantToPlay = false
         stopRecovering()
+        stopDeciding()
+        nextDeciding?.cancel()
+        nextDeciding = nil
+        nextWaiting = nil
         retried = nil
         player.pause()
         player.removeAllItems()
@@ -818,24 +920,46 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     }
 
     /// Tells a server its song is playing, and once it's played long enough, that it counts.
+    /// A Subsonic server is told there and then; a play for Trackside is kept until it's sent,
+    /// so one heard offline still counts.
     private func scrobbleToServerIfDue() {
         let entry = entries[index]
         guard case .server(let serverID, let songID) = entry.track.origin,
               // History paused: the server isn't told what played either.
               !CaptureService.isHistoryPaused,
-              music.servers.reportsPlays(to: serverID),
-              let client = music.servers.client(for: serverID)
+              music.servers.reportsPlays(to: serverID)
         else { return }
+        let subsonic = music.servers.subsonicClient(for: serverID)
+        let isTrackside = music.servers.isTrackside(serverID)
+        guard subsonic != nil || isTrackside else { return }
         if serverScrobble?.entryID != entry.id {
-            serverScrobble = (entry.id, false)
-            Task.detached { try? await client.scrobble(songID: songID, submission: false) }
+            serverScrobble = (entry.id, Date.now.addingTimeInterval(-playbackTime), false)
+            if let subsonic {
+                Task.detached { try? await subsonic.scrobble(songID: songID, submission: false) }
+            } else {
+                music.servers.nowPlaying(songID: songID, on: serverID)
+            }
         }
         // Counted by Last.fm's rule, which the server passes plays on to, whatever Tracks's own
         // threshold for keeping a song is: Straight Away would otherwise count every skip.
-        guard let needs = ScrobblePolicy().requiredPlayback(forDuration: entry.track.duration) else { return }
-        if serverScrobble?.counted == false, playbackTime >= needs {
-            serverScrobble = (entry.id, true)
-            Task.detached { try? await client.scrobble(songID: songID, submission: true) }
+        guard let needs = ScrobblePolicy().requiredPlayback(forDuration: entry.track.duration),
+              let started = serverScrobble, !started.counted, playbackTime >= needs
+        else { return }
+        serverScrobble = (entry.id, started.startedAt, true)
+        if let subsonic {
+            Task.detached { try? await subsonic.scrobble(songID: songID, submission: true) }
+        } else {
+            let track = entry.track
+            music.servers.recordListen(ServerListen(
+                id: UUID().uuidString,
+                songID: songID,
+                startedAt: started.startedAt,
+                played: playbackTime,
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                duration: track.duration
+            ), on: serverID)
         }
     }
 

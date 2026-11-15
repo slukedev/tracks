@@ -1,8 +1,9 @@
 import Foundation
 
-/// Songs asked of one music server to keep, by song, with when each was asked. Asking stars
-/// the song there, which a server like Octo takes as "get me this" and answers by fetching the
-/// file into its library. Each song is waited for until a sync brings it in, or a day passes.
+/// Songs asked of one music server to keep, by song, with when each was asked. Asking stars the
+/// song there, which a server that fetches songs on request takes as "get me this" and answers
+/// by fetching the file into its library. Each song is waited for until a sync brings it in, or
+/// a day passes.
 public struct ServerKeeps: Codable, Sendable, Equatable {
     /// How long a song is waited for. Past this the server couldn't find it, and a daily sync
     /// will bring it in if it ever does.

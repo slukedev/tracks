@@ -33,6 +33,8 @@ let package = Package(
         .testTarget(
             name: "TracksCoreTests",
             dependencies: ["TracksCore"],
+            // Read by path at test time (TracksideFixtures), not bundled.
+            exclude: ["Trackside/Fixtures"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
