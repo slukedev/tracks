@@ -13,7 +13,7 @@ The full text of the Covenant is the authority; this summary doesn't replace it.
 
 ## Reporting
 
-If you experience or witness unacceptable behaviour, report it privately to the maintainer, either by opening a [private security advisory](https://github.com/reallukedev/tracks/security/advisories/new) or by email via the maintainer's [GitHub profile](https://github.com/reallukedev). Please don't report conduct problems in a public issue.
+If you experience or witness unacceptable behaviour, report it privately to the maintainer, either by opening a [private security advisory](https://github.com/slukedev/tracks/security/advisories/new) or by email via the maintainer's [GitHub profile](https://github.com/slukedev). Please don't report conduct problems in a public issue.
 
 Every report will be reviewed and handled promptly and fairly, and the reporter's privacy will be respected.
 

@@ -106,8 +106,9 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - Play FLAC and other files: import songs or folders, or drop them in Tracks' Music folder
   (Show in Finder, Look for New Songs).
-- Subsonic-compatible servers, Octo, Picked for You and server discovery.
-- Get More, with Octo or Lidarr, as on iPhone: on Your Music, artist and album pages, search
+- Subsonic-compatible servers, servers that find songs, Trackside, Picked for You and server
+  discovery.
+- Get More, with a server that finds or gets songs, or Lidarr, as on iPhone: on Your Music, artist and album pages, search
   and Downloads, with right-click menus, help tags on Get, and the shelf's paging arrows.
 - Downloads with a sortable table: space used, what you play, what's coming down or failed.
 - Streaming quality and download quality (one setting for every network).

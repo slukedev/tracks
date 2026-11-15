@@ -149,8 +149,8 @@ Tracks isn't directed at children and doesn't knowingly collect anything from an
 
 ## Changes to this policy
 
-If the way Tracks handles your data changes, this page will be updated and the effective date above changed. The history of every change is public in the project's [repository](https://github.com/reallukedev/tracks/commits/main/PRIVACY.md).
+If the way Tracks handles your data changes, this page will be updated and the effective date above changed. The history of every change is public in the project's [repository](https://github.com/slukedev/tracks/commits/main/PRIVACY.md).
 
 ## Contact
 
-Questions about privacy, or about anything else in Tracks, are welcome as an issue on GitHub: <https://github.com/reallukedev/tracks/issues>. Please don't include personal information in a public issue; if you need to share something privately, open an issue asking for a private contact and I'll reply there.
+Questions about privacy, or about anything else in Tracks, are welcome as an issue on GitHub: <https://github.com/slukedev/tracks/issues>. Please don't include personal information in a public issue; if you need to share something privately, open an issue asking for a private contact and I'll reply there.

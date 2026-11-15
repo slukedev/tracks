@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions and ideas
-    url: https://github.com/reallukedev/tracks/discussions
+    url: https://github.com/slukedev/tracks/discussions
     about: Ask a question or talk through an idea before opening an issue.
+  - name: Trackside server
+    url: https://github.com/slukedev/tracks-companion/issues
+    about: Problems and ideas for the self-hosted Trackside server go in its own repository.
   - name: Report a security vulnerability
-    url: https://github.com/reallukedev/tracks/security/advisories/new
+    url: https://github.com/slukedev/tracks/security/advisories/new
     about: Please report security problems privately, not in a public issue.

@@ -252,7 +252,7 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - Tune Tracks Radio beyond adventure: genres, old favorites, Through the Day.
 - Learning which songs go together, and Autoplay after an album or playlist.
 - Suggested Songs and Artists, Find Songs, Find Artists, Keep Exploring. Without Apple Music,
-  these need Last.fm similar artists and tracks, or a server with Octo.
+  these need Last.fm similar artists and tracks, or a server that finds songs elsewhere.
 - Moods, genres, Handpicked and Party.
 - Your Artists shelf and For You cards.
 - Edit Play's sections; Open To.
@@ -275,7 +275,7 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 
 ### Your Music
 
-- Octo: find and fetch songs you don't own.
+- Servers that find songs: find and fetch songs you don't own.
 - Get More, ownership marks and missing songs. The rules are in the engine already
   (`tracks-library`, exposed in `tracks-ffi/src/library.rs`), so Android calls the same ones
   the Apple apps do:
@@ -283,7 +283,7 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
     `owns(title, artist)` and `classifyAlbum(tracks)` for owned, partly owned or missing and
     the missing songs' positions; `ownershipOfCounts(owned, total)` where only counts are known.
   - `rankGetMore(candidates, taste, similar, rules)` for Get More's order.
-  - `searchShowsFinds(returned, outsideLibrary)` to learn a server finds songs (Octo), from
+  - `searchShowsFinds(returned, outsideLibrary)` to learn a server finds songs, from
     its own search answers.
   - `canGet(sources)`, `songGetRoute(foundOnServer, hasAlbum, sources)` and
     `albumGetRoute(foundOnServer, sources)` for whether and how to get something. Show none

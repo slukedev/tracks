@@ -7,7 +7,7 @@ Bug reports, fixes, tests and new measurements of how Apple's frameworks behave 
 You need Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen). Anything beyond the simulator also needs an Apple Developer account.
 
 ```sh
-git clone https://github.com/reallukedev/tracks.git
+git clone https://github.com/slukedev/tracks.git
 cd tracks
 brew install xcodegen
 xcodegen generate

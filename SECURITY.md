@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report security problems privately through GitHub's private vulnerability reporting by opening the repository's Security tab and clicking "Report a vulnerability", or by going to [the advisory form](https://github.com/reallukedev/tracks/security/advisories/new).
+Please report security problems privately through GitHub's private vulnerability reporting by opening the repository's Security tab and clicking "Report a vulnerability", or by going to [the advisory form](https://github.com/slukedev/tracks/security/advisories/new).
 
 Do not open a public issue, pull request or discussion for a vulnerability.
 
@@ -19,6 +19,8 @@ Tracks has no account server. What there is to attack is the app, its extensions
 - **Your Devices.** Each device listens on the local network with Bonjour (`_tracks._tcp`), and only accepts TLS with a pre-shared key that the person's devices share through iCloud key-value storage. A way for another device to connect, read what's playing, or send commands without that key is in scope.
 - **SharePlay's relay.** Passengers joining by code exchange messages through a Supabase Realtime channel, sealed with AES-GCM under a key derived from the code. A way to read or forge those messages without the code is in scope. The relay's host and publishable key ship inside the app and can be extracted, so the project relies on Supabase's own limits, not on keeping them secret.
 
+The self-hosted Trackside server has its own section below.
+
 The Last.fm session key never expires and is enough by itself to scrobble as the user, so Tracks stores it in the Keychain and not in `UserDefaults` or the App Group container. Any way of getting at it is in scope, whether through another app, an extension that shouldn't have it, a log or crash report, or a request to anywhere other than Last.fm.
 
 The Last.fm API key and shared secret identify the application. They're read from the gitignored `Config/Secrets.xcconfig`, and the tracked `Config/Tracks.xcconfig` leaves them empty. A commit, workflow or build step that would publish them is in scope. Any Last.fm desktop client has to ship its secret inside the app, where it can be extracted, and that alone is a limitation of Last.fm's authentication that Tracks can't fix.
@@ -28,6 +30,23 @@ Listening history is stored with SwiftData in an App Group container that only t
 Passwords for the person's own music servers and the Lidarr API key are stored in the Keychain. Any way of getting at them, or of sending them anywhere but the server they belong to, is in scope.
 
 The Mac app sends Apple events to Music under scripting-target entitlements limited to specific access groups. A way to make Tracks control another app, or run a script, beyond those groups is in scope.
+
+### The Trackside server
+
+Trackside, the self-hosted music server, lives in [slukedev/tracks-companion](https://github.com/slukedev/tracks-companion). Report problems in the server there, through [its advisory form](https://github.com/slukedev/tracks-companion/security/advisories/new). It is in scope: the `trackside` binary, the container images published at `ghcr.io/slukedev/trackside`, the release binaries and `.deb`, `.rpm` and Homebrew packages, and the systemd unit and NAS templates in its `packaging/` folder. It listens on port 4747 by default, where it serves the web dashboard, the native API for Tracks (`/api/v1`) and the Subsonic API (`/rest`), with optional built-in HTTPS.
+
+In scope, for example:
+
+- Signing in, or using any API, without valid credentials, or claiming a new server without its setup token.
+- One account reading or changing another's listens, playlists or favourites, or reaching a library it wasn't given.
+- A device key, API key, app password or media token reaching the admin API, or outliving its revocation.
+- Tracks sending a device key, password, pairing code or QR secret to an address that hasn't proven it is the server (the `/api/v1/ping` endpoint proof), or over plain HTTP to an address that isn't on the local network or tailnet.
+- Cross-site request forgery, script injection or framing in the dashboard, or a way past its re-authentication for sensitive changes.
+- A request that reads or writes files outside the server's data folder and libraries, or writes to a library that isn't marked writable.
+- Passwords, keys, tokens or the secret key ending up in a log, an error response or a backup someone shouldn't be able to download.
+- An image or package that runs the server as root, or a release that isn't signed as its `docs/ops/install.md` describes.
+
+Out of scope for the server: what an admin can already do with their own server, attacks that need shell access to the host or write access to its data folder, and the security of a reverse proxy or VPN you put in front of it. A proxy has to pass `/api/v1/ping` through with its query string; one that doesn't makes that address unusable, which is expected, not a vulnerability. The server's own threat model is in [its `docs/architecture.md`, section 14](https://github.com/slukedev/tracks-companion/blob/main/docs/architecture.md#14-security-model-and-threat-model).
 
 ### Out of scope
 

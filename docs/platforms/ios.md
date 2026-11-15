@@ -75,7 +75,8 @@ See [README.md](README.md) for the legend and how to keep this current.
   Chill".
 - Scopes: Apple Music, Your Library, History; leads with the best match.
 - Opens on your recent searches and every mood.
-- Asks your music servers as you type, including Octo's finds.
+- Asks your music servers as you type, including songs a server finds elsewhere, and songs
+  Trackside could get.
 - Identify Song: names the song playing nearby with Shazam and finds it in your history.
 
 ### Play, mixes, Tracks Radio, moods and suggestions
@@ -142,12 +143,13 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Tags, covers and folder names are read.
 - Subsonic-compatible servers (Navidrome, Gonic, Airsonic, Ampache, LMS), streamed; passwords
   in the Keychain.
-- Octo in front of Navidrome: find songs you don't own and get them. Tracks learns a server
-  finds songs from its own search answers, and remembers it.
-- Get More, with Octo or Lidarr: songs and albums you don't own, from the artists you play
+- A Subsonic server that finds songs you don't own: play them and get them. Tracks learns a
+  server finds songs from its own search answers, and remembers it. A Trackside server says
+  whether it gets songs for you in its `/me`, so it's never guessed.
+- Get More, with a server that finds or gets songs, or Lidarr: songs and albums you don't own, from the artists you play
   and ones like them, with Get, a ring while they come in, and a tick when they're here. Also
   on artist pages (Your Music, server, Apple Music and history), album pages (Missing, Get
-  All), search and Downloads (Requested). None of it shows without Octo or Lidarr.
+  All), search and Downloads (Requested). None of it shows without one of them.
 - Picked for You, discovery, newest, most played, random albums and Keep Exploring per server.
 - Tracks Radio, mixes, moods and "Waiting to Be Heard" from your own music.
 - Downloads from your servers, as original files, in the background; cellular optional.

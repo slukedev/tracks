@@ -10,3 +10,7 @@
 - Xcode: Tracks.xcodeproj. Build and run it with Tandem's MCP tools (mac_launch, sim_launch) to check your work without windows appearing.
 - The shared Rust engine lives in `Engine/` (see `Engine/README.md`). Run `Engine/build-apple.sh` once after cloning and after any change there, before building the apps; it produces the `TracksEngine` package TracksCore links. Rust tests: `cargo test --workspace` in `Engine/`.
 <!-- END BACKSTAGE -->
+
+## Trackside server
+
+- The self-hosted Trackside server lives in https://github.com/slukedev/tracks-companion. `TracksCore/Tests/TracksCoreTests/Trackside/Fixtures/` is a copy of its wire fixtures; re-copy them when they change there.

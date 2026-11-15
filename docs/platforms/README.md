@@ -160,7 +160,7 @@ As of November 2026, on `feat/android-m3-expressive`.
 | --- | --- | --- | --- | --- |
 | Play your own files (FLAC, ALAC, MP3, AAC, WAV, AIFF) | Yes | Yes | Yes (MediaStore) | Platform |
 | Subsonic servers (Navidrome and others) | Yes | Yes | Yes | Candidate (`SubsonicClient`) |
-| Octo: find and fetch songs you don't own | Yes | Yes | No | Engine (`search_shows_finds`, routes); requests Candidate |
+| Servers that find songs: find and fetch songs you don't own | Yes | Yes | No | Engine (`search_shows_finds`, routes); requests Candidate |
 | Get More: songs and albums you don't own, from what you play | Yes | Yes | No | Engine (`tracks-library` ranking) |
 | Albums marked owned or partly owned, and their missing songs | Yes | Yes | No | Engine (`OwnedLibrary`) |
 | Downloads for offline, Downloads page, Free Up Space | Yes | Yes | No | Platform |

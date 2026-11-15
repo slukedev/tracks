@@ -170,14 +170,25 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   in Files. Tags, covers and folder names are read for you
 - Connect your own music server: Navidrome, Gonic, Airsonic, Ampache, LMS and any other that
   speaks the Subsonic API. Its whole library joins yours, streamed as you play it
-- Search asks your servers as you type, so songs newer than the last sync turn up too. With
-  Octo in front of Navidrome, search finds songs you don't own yet to play straight away, and
-  Add to Your Music has Octo fetch the file, which joins your music a few minutes later. What
-  your server has shows at once; what Octo finds follows once you stop typing
+- Trackside, Tracks' own music server that you run yourself: pair with it by scanning the code
+  in its dashboard on iPhone, typing a code, approving a code Tracks shows, or signing in. Tracks
+  checks that each address really is your server before it sends a key or password, and uses
+  unencrypted addresses only on your own network. Its library syncs to Tracks and keeps
+  up with changes as they happen, and Tracks finds it on your network and picks the fastest way
+  to reach it at home and away
+- With Trackside, songs play as they are, or converted to AAC when you're on cellular, set a
+  quality limit, or the format won't play on Apple devices. Stars, ratings and plays go back to
+  the server, and plays made offline are sent once it can be reached
+- Moving from another server to Trackside: Tracks matches the songs you downloaded or put in
+  playlists to the same songs on Trackside, and the downloaded files stay as they are
+- Search asks your servers as you type, so songs newer than the last sync turn up too. With a
+  music server that adds songs on request, search finds songs you don't own yet to play straight
+  away, and Add to Your Music has the server fetch the file, which joins your music a few
+  minutes later. What your server has shows at once; what it finds follows once you stop typing
 - Picked for You, on each server: songs from artists you pick, play most or have, and artists
-  like them. With Octo it works from an empty library and no listening history: pick a few
-  artists, play what it finds, and add the ones you like, one at a time or all at once.
-  Suggested songs Octo can find play and add the same way
+  like them. With a server that adds songs on request it works from an empty library and no
+  listening history: pick a few artists, play what it finds, and add the ones you like, one at a
+  time or all at once. Suggested songs such a server can find play and add the same way
 - With a server, Your Music needs no Apple Music at all: Suggested Songs (artists new to you),
   Picked for You (artists you play), moods and Keep Exploring all come from your server, go on
   for as long as you scroll, and mix songs you have with new ones. Only Music I Have keeps them
@@ -197,7 +208,7 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
 - Merge with Apple Music, off by default: playlists of the same name in Tracks and Apple Music
   become one. Songs added in Apple Music are found on your server and downloaded each time Tracks
   opens; songs added in Tracks are added in Apple Music
-- Search finds albums and artists on your servers too, with Octo's finds, and each has its page
+- Search finds albums and artists on your servers too, with ones a server finds elsewhere, and each has its page
 - Suggested Songs, Picked for You and Keep Exploring show each song as it's ready, and stop
   asking your server for more once you've scrolled past
 - Tracks Radio's Delete After Playing, off by default: new finds are downloaded, played, and
