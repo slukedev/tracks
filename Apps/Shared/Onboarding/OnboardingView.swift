@@ -3,7 +3,6 @@ import MusicKit
 import AuthenticationServices
 import TracksCore
 
-/// The welcome, then the few things worth setting up. A sheet on both platforms.
 struct OnboardingView: View {
     @Bindable var onboarding: Onboarding
     var cloud: CloudSyncSettings?
@@ -24,7 +23,8 @@ struct OnboardingView: View {
             }
         }
         #if os(macOS)
-        .frame(width: 520, height: 600)
+        .frame(width: 520)
+        .frame(minHeight: 420)
         #endif
     }
 }
@@ -35,37 +35,43 @@ private struct OnboardingWelcome: View {
     var proceed: () -> Void
 
     var body: some View {
+        #if os(macOS)
+        VStack(spacing: 32) {
+            content
+            OnboardingPrimaryButton("Continue", action: proceed)
+        }
+        .padding(.horizontal, 40)
+        .padding(.top, 40)
+        .padding(.bottom, 24)
+        #else
         ScrollView {
-            VStack(spacing: 36) {
-                VStack(spacing: 16) {
-                    SettingsIconTile(systemImage: "music.note", color: .accentColor, baseSide: 72)
-                    Text("Welcome to Tracks")
-                        .font(.largeTitle.bold())
-                        .multilineTextAlignment(.center)
-                }
-                VStack(alignment: .leading, spacing: 24) {
-                    feature("Every Song You Play", detail: "Radio included, kept in your history.", systemImage: "clock.arrow.circlepath")
-                    feature("Mixes and Stations", detail: "Made from what you play, hour by hour.", systemImage: "square.stack")
-                    feature("On All Your Devices", detail: "Your history stays in your private iCloud.", systemImage: "icloud")
-                }
-            }
-            .padding(.horizontal, 32)
-            .padding(.top, topPadding)
-            .padding(.bottom, 24)
-            .frame(maxWidth: .infinity)
+            content
+                .padding(.horizontal, 32)
+                .padding(.top, 56)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
         .safeAreaInset(edge: .bottom) {
             OnboardingPrimaryButton("Continue", action: proceed)
         }
+        #endif
     }
 
-    private var topPadding: CGFloat {
-        #if os(macOS)
-        40
-        #else
-        56
-        #endif
+    private var content: some View {
+        VStack(spacing: 36) {
+            VStack(spacing: 16) {
+                SettingsIconTile(systemImage: "music.note", color: .accentColor, baseSide: 72)
+                Text("Welcome to Tracks")
+                    .font(.largeTitle.bold())
+                    .multilineTextAlignment(.center)
+            }
+            VStack(alignment: .leading, spacing: 24) {
+                feature("Every Song You Play", detail: "Radio included, kept in your history.", systemImage: "clock.arrow.circlepath")
+                feature("Mixes and Stations", detail: "Made from what you play, hour by hour.", systemImage: "square.stack")
+                feature("On All Your Devices", detail: "Your history stays in your private iCloud.", systemImage: "icloud")
+            }
+        }
     }
 
     private func feature(_ title: LocalizedStringKey, detail: LocalizedStringKey, systemImage: String) -> some View {
@@ -123,39 +129,70 @@ private struct OnboardingSetup: View {
 
     private var offersLastFM: Bool { demo != nil || LastFMClient.configured() != nil }
 
+    private var title: some View {
+        Text(OnboardingWords.setupTitle(isReturning: onboarding.isReturning))
+            .font(.largeTitle.bold())
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
+    }
+
     var body: some View {
+        page
+            .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: onboarding.restore)
+            .onAppear(perform: model.refreshMusicAuthorization)
+            .sheet(isPresented: $addsServer) {
+                ServerForm()
+            }
+    }
+
+    #if os(macOS)
+    private var page: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            title
+            OnboardingGroup {
+                appleMusicRow
+                if offersLastFM {
+                    Divider()
+                    lastFMRow
+                }
+                Divider()
+                yourMusicRow
+            }
+            OnboardingGroup {
+                HistoryRestoreRow(restore: onboarding.restore)
+            }
+            OnboardingPrimaryButton("Start Listening", action: onboarding.finish)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+        }
+        .padding(.horizontal, 32)
+        .padding(.top, 32)
+        .padding(.bottom, 20)
+    }
+    #else
+    private var page: some View {
         Form {
+            Section {
+                title
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 24, leading: 4, bottom: 4, trailing: 0))
+            }
             Section {
                 appleMusicRow
                 if offersLastFM { lastFMRow }
                 yourMusicRow
-            } header: {
-                Text(OnboardingWords.setupTitle(isReturning: onboarding.isReturning))
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(.primary)
-                    .textCase(nil)
-                    .padding(.bottom, 12)
-                    .accessibilityAddTraits(.isHeader)
-                    #if os(iOS)
-                    .listRowInsets(EdgeInsets(top: 32, leading: 0, bottom: 0, trailing: 0))
-                    #endif
             }
-            if onboarding.restore != .nothingToRestore {
-                Section {
-                    HistoryRestoreRow(restore: onboarding.restore)
-                }
+            Section {
+                HistoryRestoreRow(restore: onboarding.restore)
             }
         }
         .formStyle(.grouped)
-        .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: onboarding.restore)
         .safeAreaInset(edge: .bottom) {
             OnboardingPrimaryButton("Start Listening", action: onboarding.finish)
         }
-        .onAppear(perform: model.refreshMusicAuthorization)
-        .sheet(isPresented: $addsServer) {
-            ServerForm()
-        }
     }
+    #endif
 
     // MARK: Rows
 
@@ -170,18 +207,19 @@ private struct OnboardingSetup: View {
             switch access {
             case .notAsked:
                 Button("Allow") {
+                    guard demo == nil else { return }
                     isRequestingAccess = true
                     Task {
                         await model.requestMusicAccess()
                         isRequestingAccess = false
                     }
                 }
-                .disabled(isRequestingAccess || demo != nil)
+                .disabled(isRequestingAccess)
             case .denied:
                 Button(openSettingsTitle) {
-                    if let settingsURL { openURL(settingsURL) }
+                    guard demo == nil, let settingsURL else { return }
+                    openURL(settingsURL)
                 }
-                .disabled(demo != nil)
             case .allowed, .restricted:
                 EmptyView()
             }
@@ -207,7 +245,6 @@ private struct OnboardingSetup: View {
                     .controlSize(.small)
             } else {
                 Button(failure == nil ? "Connect" : "Try Again", action: connectLastFM)
-                    .disabled(demo != nil)
             }
         }
     }
@@ -220,14 +257,17 @@ private struct OnboardingSetup: View {
             tint: .indigo,
             isDone: !servers.isEmpty
         ) {
-            Button("Connect") { addsServer = true }
-                .disabled(demo != nil)
+            Button("Connect") {
+                guard demo == nil else { return }
+                addsServer = true
+            }
         }
     }
 
     // MARK: Actions
 
     private func connectLastFM() {
+        guard demo == nil else { return }
         #if os(iOS)
         onboarding.lastFM.connect(waitsForPage: true) { url in
             _ = try? await webAuthentication.authenticate(
@@ -252,7 +292,6 @@ private struct OnboardingSetup: View {
     #endif
 }
 
-/// The history coming down from iCloud: how much, and how far it has got.
 struct HistoryRestoreRow: View {
     var restore: HistoryRestore
 
@@ -287,12 +326,12 @@ struct HistoryRestoreRow: View {
         switch restore {
         case .finished: "checkmark.icloud"
         case .unavailable: "exclamationmark.icloud"
+        case .nothingToRestore: "icloud"
         default: "arrow.down.circle.dotted"
         }
     }
 }
 
-/// One thing to set up: what it is, where it stands, and its one action until it's done.
 private struct OnboardingRow<Action: View>: View {
     var title: LocalizedStringKey
     var detail: String
@@ -318,24 +357,7 @@ private struct OnboardingRow<Action: View>: View {
     }
 
     var body: some View {
-        LabeledContent {
-            if isDone {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(.green)
-                    .transition(.scale.combined(with: .opacity))
-                    .accessibilityLabel("Done")
-            } else {
-                action
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    #if os(macOS)
-                    .controlSize(.regular)
-                    #else
-                    .controlSize(.small)
-                    #endif
-            }
-        } label: {
+        HStack(spacing: 12) {
             Label {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -347,12 +369,49 @@ private struct OnboardingRow<Action: View>: View {
             } icon: {
                 SettingsIconTile(systemImage: systemImage, color: tint)
             }
+            Spacer(minLength: 8)
+            if isDone {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.green)
+                    .transition(.scale.combined(with: .opacity))
+                    .accessibilityLabel("Done")
+            } else {
+                action
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .tint(.accentColor)
+                    #if os(macOS)
+                    .controlSize(.regular)
+                    #else
+                    .controlSize(.small)
+                    #endif
+            }
         }
         .animation(SettingsMotion.value, value: isDone)
     }
 }
 
-/// The page's one way forward, pinned to the foot of the sheet.
+#if os(macOS)
+private struct OnboardingGroup<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            content
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.fill.quinary, in: .rect(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(.separator.opacity(0.6), lineWidth: 0.5)
+        }
+    }
+}
+#endif
+
 private struct OnboardingPrimaryButton: View {
     var title: LocalizedStringKey
     var action: () -> Void

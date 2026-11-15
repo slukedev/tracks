@@ -2,12 +2,6 @@ import SwiftUI
 import MusicKit
 import TracksCore
 
-/// Getting started on this device: the welcome, the few things worth setting up, and the
-/// history coming down from iCloud.
-///
-/// Shown once per device, the first time Tracks opens there, and never to someone who was
-/// using Tracks here before. Nothing on it is required: Start Listening is always there.
-/// The restore keeps being followed after the welcome closes, until the history has arrived.
 @MainActor
 @Observable
 final class Onboarding {
@@ -16,10 +10,8 @@ final class Onboarding {
     var page: Page
     private(set) var isPresented: Bool
     private(set) var restore: HistoryRestore
-    /// The size of the history in iCloud, as another device noted it.
     private(set) var expectedPlays: Int?
     let lastFM: LastFMConnection
-    /// A pretend state for screenshots, in a demo launch only.
     let demo: OnboardingDemo?
 
     @ObservationIgnored private var record: OnboardingRecord
@@ -50,13 +42,11 @@ final class Onboarding {
         self.isPresented = demo != nil || (!isDemoLaunch && model.store != nil && record.needsWelcome)
     }
 
-    /// iCloud already holds a history from another device or an earlier install.
     var isReturning: Bool {
         if let demo { return demo.isReturning }
         return (expectedPlays ?? 0) > 0
     }
 
-    /// Closes the welcome. The restore carries on behind it.
     func finish() {
         isPresented = false
         guard demo == nil else { return }
@@ -66,8 +56,6 @@ final class Onboarding {
 
     // MARK: - Following the restore
 
-    /// Follows the history arriving until there's nothing more to wait for, then notes this
-    /// device's count for the next device to be set up. Safe to call again; one runs at a time.
     func follow(_ model: AppModel, cloud: CloudSyncSettings?) {
         guard demo == nil, !isDemoLaunch, following == nil else { return }
         following = Task { [weak self] in
@@ -81,7 +69,6 @@ final class Onboarding {
         }
     }
 
-    /// The history changed: a capture, a sync, a forgotten song.
     func historyChanged(_ model: AppModel) {
         guard demo == nil, !isDemoLaunch, model.library.isLoaded else { return }
         // Only once iCloud has delivered this launch, so a device still catching up can't
@@ -116,7 +103,6 @@ final class Onboarding {
         if model.syncMonitor?.lastSynced != nil { beacon.note(count) }
     }
 
-    /// Why the history can't come down here, or nil while it can or might.
     static func blockedReason(_ status: CloudSyncStatus) -> String? {
         switch status {
         case .unavailable, .off, .stopsNextLaunch:
@@ -130,8 +116,6 @@ final class Onboarding {
 }
 
 extension View {
-    /// Shows getting started over the window the first time Tracks opens on this device,
-    /// and follows the history arriving from iCloud.
     func onboarding(_ model: AppModel) -> some View {
         modifier(OnboardingPresenter(model: model))
     }

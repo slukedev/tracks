@@ -1,15 +1,6 @@
 import Foundation
 import TracksCore
 
-/// Getting started in a pretend state, for screenshots. Debug builds, with sample data only:
-///
-///     -TracksOnboarding new        the welcome
-///     -TracksOnboarding setup      nothing set up yet, on a new iCloud account
-///     -TracksOnboarding back       a reinstall, with 12,400 plays coming down from iCloud
-///     -TracksOnboarding slow       the same, with nothing arriving for a while
-///     -TracksOnboarding done       a reinstall with everything set up and restored
-///     -TracksOnboarding denied     Apple Music access turned off, and no subscription
-///     -TracksOnboarding noiCloud   signed out of iCloud
 struct OnboardingDemo: Equatable {
     var page: Onboarding.Page
     var restore: HistoryRestore
