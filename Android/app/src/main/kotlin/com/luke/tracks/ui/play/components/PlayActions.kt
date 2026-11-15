@@ -24,6 +24,7 @@ import com.luke.tracks.graph
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.ui.navigation.ArtistRoute
+import com.luke.tracks.ui.navigation.Route
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.Navigator
 import com.luke.tracks.ui.play.title
@@ -124,9 +125,9 @@ class PlayActions(
         scope.launch { graph.settings.update { it.copy(hiddenSongs = it.hiddenSongs - identity) } }
     }
 
-    fun goToArtist(name: String) {
-        navigator.open(ArtistRoute(foldedName(name), name))
-    }
+    fun goToArtist(name: String) = open(ArtistRoute(foldedName(name), name))
+
+    fun open(route: Route) = navigator.open(route)
 
     fun share(song: SongRef) = shareSong(context, song.title, song.artistName)
 

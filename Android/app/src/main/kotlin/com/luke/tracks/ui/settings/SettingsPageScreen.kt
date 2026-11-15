@@ -12,8 +12,11 @@ fun SettingsPageScreen(page: String) {
     when (page) {
         "lastfm" -> LastFmPage()
         "servers" -> ServersSettingsPage()
+        "getmusic" -> com.luke.tracks.ui.library.servers.GetMusicSettingsPage()
+        "lidarr" -> com.luke.tracks.ui.library.servers.LidarrSettingsPage()
         "appearance" -> AppearancePage()
         "radio" -> RadioPage()
+        "radio-genres" -> RadioGenresPage()
         "hidden" -> HiddenSongsPage()
         "privacy" -> PrivacyPage()
         "about" -> AboutPage()

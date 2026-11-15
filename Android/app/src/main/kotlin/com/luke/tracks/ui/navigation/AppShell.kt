@@ -74,8 +74,11 @@ import com.luke.tracks.ui.summary.SummaryScreen
 private const val HideAfterPx = 48f
 private const val ShowAfterPx = 24f
 
-/** The floating mini player's height with its margins, plus a little air. */
-private val MiniPlayerRoom = 104.dp
+/**
+ * The floating mini player's height with its margins, plus a little air. It only spans the
+ * bottom end, but a row's trailing buttons live there, so pages still leave the full height.
+ */
+private val MiniPlayerRoom = 96.dp
 
 private data class TabItem(val tab: Tab, val label: String, val selected: ImageVector, val unselected: ImageVector)
 
@@ -175,6 +178,10 @@ fun AppShell(navigator: Navigator) {
                             entry<SettingsPageRoute> { SettingsPageScreen(it.page) }
                             entry<LibraryAlbumRoute> { LibraryAlbumScreen(it.albumId) }
                             entry<LibraryArtistRoute> { LibraryArtistScreen(it.artistId) }
+                            entry<ServerAlbumRoute> { com.luke.tracks.ui.library.servers.ServerAlbumScreen(it) }
+                            entry<ServerArtistRoute> { com.luke.tracks.ui.library.servers.ServerArtistScreen(it) }
+                            entry<CatalogArtistRoute> { com.luke.tracks.ui.discover.CatalogArtistScreen(it.name, it.catalogId) }
+                            entry<CatalogAlbumRoute> { com.luke.tracks.ui.discover.CatalogAlbumScreen(it.catalogId, it.title, it.artistName) }
                         },
                     )
                     }

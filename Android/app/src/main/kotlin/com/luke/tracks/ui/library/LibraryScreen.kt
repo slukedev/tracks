@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -92,6 +91,10 @@ import com.luke.tracks.library.ServerEntry
 import com.luke.tracks.library.musicPermission
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
+import com.luke.tracks.ui.discover.Remote
+import com.luke.tracks.ui.discover.catalogSearchItems
+import com.luke.tracks.ui.discover.rememberCatalogSearch
+import androidx.compose.runtime.mutableIntStateOf
 import com.luke.tracks.ui.library.servers.ServerList
 import com.luke.tracks.ui.library.servers.rememberServerEditing
 import com.luke.tracks.ui.navigation.LibraryAlbumRoute
@@ -340,7 +343,7 @@ private fun SearchTopBar(query: String, onQueryChange: (String) -> Unit, onClose
                 onSearch = {},
                 expanded = false,
                 onExpandedChange = {},
-                placeholder = { Text("Search your music") },
+                placeholder = { Text("Songs, albums and artists") },
                 leadingIcon = {
                     IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
                 },
@@ -366,15 +369,21 @@ private fun SearchResults(query: String, index: () -> LibraryIndex, currentMedia
             Found(lookups.search(query), lookups.searchAlbums(query), lookups.searchArtists(query, 5))
         }
     }
+    var retry by remember { mutableIntStateOf(0) }
+    val catalog = rememberCatalogSearch(query, retry)
     if (query.isBlank()) {
-        Message(Icons.Rounded.Search, "Search your songs, albums and artists", "On this phone and your servers.")
+        Message(Icons.Rounded.Search, "Search for music", "Yours first, then everything else.")
         return
     }
-    if (found.songs.isEmpty() && found.albums.isEmpty() && found.artists.isEmpty()) {
+    val nothingHere = found.songs.isEmpty() && found.albums.isEmpty() && found.artists.isEmpty()
+    if (nothingHere && (catalog is Remote.Idle || (catalog is Remote.Loaded && catalog.value.isEmpty))) {
         Message(Icons.Rounded.Search, "Nothing matches “$query”", "Try fewer words, or another spelling.")
         return
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = MiniPlayerClearance)) {
+        if (!nothingHere) item(key = "yours-h") {
+            com.luke.tracks.ui.discover.GroupHeading("In your music", Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp))
+        }
         if (found.artists.isNotEmpty()) {
             item(key = "artists-h") { SectionHeader("Artists") }
             items(found.artists, key = { "artist-" + it.id }) { artist ->
@@ -410,6 +419,7 @@ private fun SearchResults(query: String, index: () -> LibraryIndex, currentMedia
                 )
             }
         }
+        catalogSearchItems(catalog, edge = 20.dp, onRetry = { retry++ })
     }
 }
 

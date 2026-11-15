@@ -5,7 +5,9 @@ import com.luke.tracks.engine.Engine
 import com.luke.tracks.playback.PlayableSong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.luke.tracks.data.SampleData
 import uniffi.tracks_engine.SourceFilter
+import uniffi.tracks_engine.demoSongMetadata
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -26,6 +28,8 @@ class SampleLibrary(private val engine: Engine, private val folder: File) {
             ?: return emptyList()
         return withContext(Dispatchers.IO) {
             folder.mkdirs()
+            // Genres and years, so Tracks Radio has directions to try and decades to steer by.
+            val details = demoSongMetadata(SampleData.SEED).associateBy { it.identity }
             chart.rows.map { row ->
                 val song = row.song
                 val file = File(folder, "${Integer.toHexString(song.identity.hashCode())}.wav")
@@ -40,6 +44,8 @@ class SampleLibrary(private val engine: Engine, private val folder: File) {
                         artworkUri = null,
                         durationMs = (Tones.SECONDS * 1000).toLong(),
                         identity = song.identity,
+                        year = details[song.identity]?.releaseYear,
+                        genre = details[song.identity]?.genre,
                     ),
                     source = LibrarySourceKind.Device,
                     albumKey = "sample:album:" + (song.albumTitle ?: song.identity),

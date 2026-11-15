@@ -1,0 +1,17 @@
+[package]
+name = "tracks-catalog"
+description = "Music you don't have yet: the iTunes catalog, Lidarr, matching and suggestions, with the transport left to the host."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tracks-model.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

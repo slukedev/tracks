@@ -14,10 +14,13 @@ use std::sync::Arc;
 
 uniffi::setup_scaffolding!();
 
+mod catalog;
 mod demo;
 mod lastfm;
 mod library;
 mod mixes;
+mod radio;
+mod server;
 
 /// Something the engine couldn't do.
 #[derive(Debug, thiserror::Error, uniffi::Error)]

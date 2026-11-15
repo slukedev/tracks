@@ -1,18 +1,15 @@
 package com.luke.tracks.library
 
 import android.Manifest
-import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.ContentObserver
-import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.luke.tracks.playback.PlayableSong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,7 +19,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import uniffi.tracks_engine.songIdentity
 
 /** What a music app asks for to read the phone's audio files: READ_MEDIA_AUDIO from Android 13. */
 val musicPermission: String
@@ -33,8 +29,9 @@ fun Context.hasMusicPermission(): Boolean =
     ContextCompat.checkSelfPermission(this, musicPermission) == PackageManager.PERMISSION_GRANTED
 
 /**
- * The audio files on the phone, from MediaStore: read off the main thread, and read again a
- * moment after anything changes (a download finishes, a card goes in).
+ * The music files on the phone, from MediaStore: read off the main thread, and read again a
+ * moment after anything changes (a download finishes, a card goes in). Ringtones and other
+ * sounds are left out; see [DeviceAudio].
  */
 class DeviceLibrary(private val context: Context, private val scope: CoroutineScope) {
     private val _tracks = MutableStateFlow<List<LibraryTrack>>(emptyList())
@@ -79,68 +76,18 @@ class DeviceLibrary(private val context: Context, private val scope: CoroutineSc
         _loading.value = false
     }
 
+    /**
+     * Every external volume (the phone's storage and any SD card) one by one, as some phones
+     * leave cards out of the combined "external" view; that view when none are listed.
+     */
     private fun query(): List<LibraryTrack> {
-        val columns = arrayOf(
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM,
-            MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.ALBUM_ARTIST,
-            MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.TRACK,
-            MediaStore.Audio.Media.YEAR,
-            MediaStore.Audio.Media.GENRE,
-            MediaStore.Audio.Media.DATE_ADDED,
-        )
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-        val tracks = mutableListOf<LibraryTrack>()
-        context.contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, columns, selection, null, null)?.use { cursor ->
-            val id = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val title = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val artist = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val album = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-            val albumId = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-            val albumArtist = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ARTIST)
-            val duration = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-            val track = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
-            val year = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
-            val genre = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.GENRE)
-            val added = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
-            while (cursor.moveToNext()) {
-                val songId = cursor.getLong(id)
-                val name = cursor.getString(title)?.takeIf { it.isNotBlank() } ?: continue
-                val by = cursor.getString(artist)?.takeIf { it.isNotBlank() && it != MediaStore.UNKNOWN_STRING } ?: "Unknown artist"
-                val albumKey = cursor.getLong(albumId)
-                // TRACK holds the disc in its thousands: 2005 is disc 2, track 5.
-                val rawTrack = cursor.getInt(track).takeIf { it > 0 }
-                tracks += LibraryTrack(
-                    song = PlayableSong(
-                        mediaId = "local:$songId",
-                        uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, songId),
-                        title = name,
-                        artistName = by,
-                        albumTitle = cursor.getString(album)?.takeIf { it.isNotBlank() && it != MediaStore.UNKNOWN_STRING },
-                        artworkUri = ContentUris.withAppendedId(albumArtRoot, albumKey),
-                        durationMs = cursor.getLong(duration).takeIf { it > 0 },
-                        identity = songIdentity(name, by),
-                        trackNumber = rawTrack?.rem(1000)?.takeIf { it > 0 },
-                        year = cursor.getInt(year).takeIf { it > 0 },
-                        genre = cursor.getString(genre)?.takeIf { it.isNotBlank() },
-                    ),
-                    source = LibrarySourceKind.Device,
-                    albumKey = "local:album:$albumKey",
-                    albumArtist = cursor.getString(albumArtist)?.takeIf { it.isNotBlank() },
-                    disc = rawTrack?.div(1000)?.takeIf { it > 0 },
-                    addedAtMs = cursor.getLong(added) * 1000,
-                )
-            }
-        }
-        return tracks
-    }
-
-    private companion object {
-        /** MediaStore's album covers, served from the files' own embedded art. */
-        val albumArtRoot: Uri = Uri.parse("content://media/external/audio/albumart")
+        val volumes = runCatching { MediaStore.getExternalVolumeNames(context).toList() }.getOrDefault(emptyList())
+            .ifEmpty { listOf(MediaStore.VOLUME_EXTERNAL) }
+        return volumes.flatMap { volume ->
+            val uri = MediaStore.Audio.Media.getContentUri(volume)
+            runCatching { DeviceAudio.query { columns, selection -> context.contentResolver.query(uri, columns, selection, null, null) } }
+                .onFailure { Log.w("Tracks", "Couldn't read the music on $volume", it) }
+                .getOrDefault(emptyList())
+        }.distinctBy { it.song.mediaId }
     }
 }

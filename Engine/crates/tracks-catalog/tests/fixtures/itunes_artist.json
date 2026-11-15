@@ -1,0 +1,11 @@
+
+
+
+{
+ "resultCount":2,
+ "results": [
+{"wrapperType":"artist", "artistType":"Artist", "artistName":"Radiohead", "artistLinkUrl":"https://music.apple.com/us/artist/radiohead/657515?uo=4", "artistId":657515, "amgArtistId":41092, "primaryGenreName":"Alternative", "primaryGenreId":20}, 
+{"wrapperType":"artist", "artistType":"Artist", "artistName":"Thom Yorke", "artistLinkUrl":"https://music.apple.com/us/artist/thom-yorke/39753073?uo=4", "artistId":39753073, "amgArtistId":275167, "primaryGenreName":"Alternative", "primaryGenreId":20}]
+}
+
+

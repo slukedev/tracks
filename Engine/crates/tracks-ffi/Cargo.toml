@@ -19,6 +19,7 @@ tracks-lastfm.workspace = true
 tracks-library.workspace = true
 tracks-mixes.workspace = true
 tracks-demo.workspace = true
+tracks-catalog.workspace = true
 jiff.workspace = true
 rustc-hash.workspace = true
 uniffi.workspace = true

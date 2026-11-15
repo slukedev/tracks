@@ -197,7 +197,8 @@ From Android (planned there):
 Engine parity (no visible change):
 
 - Summary, insights, search, mixes, Tracks Radio and Last.fm still run in Swift, as on
-  iPhone. See the iPhone document.
+  iPhone. Tracks Radio over Apple Music stays in Swift; the engine's radio is for Your Music.
+  See the iPhone document.
 
 ## Platform-only
 

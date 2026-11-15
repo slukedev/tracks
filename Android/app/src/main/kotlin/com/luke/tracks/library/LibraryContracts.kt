@@ -1,6 +1,7 @@
 package com.luke.tracks.library
 
 import com.luke.tracks.playback.PlayableSong
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 data class LibraryAlbum(
@@ -38,6 +39,9 @@ data class LibrarySnapshot(
 interface MusicLibrary {
     val snapshot: StateFlow<LibrarySnapshot>
 
+    /** Lookups from a song to its album and artist, where the library groups them. */
+    val index: StateFlow<LibraryIndex> get() = NoIndex
+
     /** Re-reads the phone's files and the servers. */
     suspend fun refresh()
 
@@ -49,3 +53,5 @@ interface MusicLibrary {
 
     suspend fun search(text: String): List<PlayableSong>
 }
+
+private val NoIndex: StateFlow<LibraryIndex> = MutableStateFlow(LibraryIndex.Empty)

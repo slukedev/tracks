@@ -1,10 +1,8 @@
-//! Mixes, the artist-spread shuffle, Tracks Radio's picker and the play feed.
-
-use std::sync::{Arc, Mutex};
+//! Mixes, the artist-spread shuffle and the play feed.
 
 use rustc_hash::FxHashSet;
 
-use crate::{EngineError, HistoryIndex, PlayKind, PlaySource, Result};
+use crate::{HistoryIndex, PlayKind, PlaySource, Result};
 
 /// One play read back from the index, newest spelling of nothing: exactly as it was written.
 #[derive(Debug, Clone, uniffi::Record)]
@@ -238,79 +236,4 @@ pub fn fresh_shuffle(items: Vec<ShuffleItem>, seed: u64) -> Vec<String> {
 #[uniffi::export]
 pub fn daily_seed(year: i16, month: i8, day: i8, salt: String) -> u64 {
     tracks_mixes::daily_seed(year, month, day, &salt)
-}
-
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct RadioCandidate {
-    pub identity: String,
-    pub artist_key: String,
-    pub weight: f64,
-    pub is_new: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum Listen {
-    Skipped,
-    MovedOn,
-    Finished,
-}
-
-/// Tracks Radio: picks the next song from the candidates and learns from each listen.
-#[derive(Debug, uniffi::Object)]
-pub struct RadioStation {
-    picker: Mutex<tracks_mixes::RadioPicker>,
-}
-
-#[uniffi::export]
-impl RadioStation {
-    #[uniffi::constructor]
-    pub fn new(candidates: Vec<RadioCandidate>, new_share: f64, seed: u64) -> Arc<Self> {
-        let candidates = candidates
-            .into_iter()
-            .map(|c| tracks_mixes::RadioCandidate {
-                identity: c.identity,
-                artist_key: c.artist_key,
-                weight: c.weight,
-                is_new: c.is_new,
-            })
-            .collect();
-        Arc::new(Self {
-            picker: Mutex::new(tracks_mixes::RadioPicker::new(candidates, new_share, seed)),
-        })
-    }
-
-    pub fn next(&self) -> Result<Option<String>> {
-        Ok(self.picker.lock().map_err(|_| EngineError::Closed)?.next())
-    }
-
-    /// The next `count` songs, for a queue.
-    pub fn next_batch(&self, count: u32) -> Result<Vec<String>> {
-        let mut picker = self.picker.lock().map_err(|_| EngineError::Closed)?;
-        Ok((0..count).map_while(|_| picker.next()).collect())
-    }
-
-    pub fn note(&self, identity: String, listen: Listen) -> Result<()> {
-        let listen = match listen {
-            Listen::Skipped => tracks_mixes::Listen::Skipped,
-            Listen::MovedOn => tracks_mixes::Listen::MovedOn,
-            Listen::Finished => tracks_mixes::Listen::Finished,
-        };
-        self.picker
-            .lock()
-            .map_err(|_| EngineError::Closed)?
-            .note(&identity, listen);
-        Ok(())
-    }
-
-    pub fn mark_played(&self, identity: String) -> Result<()> {
-        self.picker
-            .lock()
-            .map_err(|_| EngineError::Closed)?
-            .mark_played(&identity);
-        Ok(())
-    }
-
-    pub fn new_share(&self) -> Result<f64> {
-        Ok(self.picker.lock().map_err(|_| EngineError::Closed)?.new_share())
-    }
 }

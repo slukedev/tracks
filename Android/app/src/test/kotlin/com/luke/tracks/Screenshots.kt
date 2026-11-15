@@ -6,6 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import com.luke.tracks.discover.LocalDiscovery
+import com.luke.tracks.discover.NoDiscovery
+import com.luke.tracks.discover.LocalServerPicks
+import com.luke.tracks.discover.NoServerPicks
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
@@ -61,7 +66,10 @@ abstract class ScreenshotTest(protected val dark: Boolean) {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             TracksTheme(dark = dark, dynamic = false, seed = TracksBrand) {
-                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) { content() }
+                // Nothing reaches the catalog unless a test provides its own discovery.
+                CompositionLocalProvider(LocalDiscovery provides NoDiscovery, LocalServerPicks provides NoServerPicks) {
+                    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) { content() }
+                }
             }
         }
         settle(settleMs)

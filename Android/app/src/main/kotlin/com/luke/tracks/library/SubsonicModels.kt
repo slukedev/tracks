@@ -80,6 +80,8 @@ data class SubsonicSong(
     /** OpenSubsonic: the album's artist, where the server knows it. */
     val displayAlbumArtist: String? = null,
     val created: String? = null,
+    /** Octo: a song it found for you elsewhere rather than one in the library. */
+    val isExternal: Boolean? = null,
 )
 
 data class SubsonicSearchResult(
@@ -95,11 +97,20 @@ internal class SubsonicEnvelope(@SerialName("subsonic-response") val body: Subso
 @Serializable
 internal class SubsonicBody(
     val status: String,
+    /** OpenSubsonic: what the server is ("navidrome", "octo"). */
+    val type: String? = null,
+    val serverVersion: String? = null,
+    val openSubsonic: Boolean? = null,
     val error: ErrorBody? = null,
     val artists: ArtistsIndex? = null,
     val album: AlbumWithSongs? = null,
     val albumList2: AlbumList? = null,
     val searchResult3: SearchResult? = null,
+    val similarSongs2: SongList? = null,
+    val randomSongs: SongList? = null,
+    val artist: ArtistWithAlbums? = null,
+    val song: SubsonicSong? = null,
+    val topSongs: SongList? = null,
 ) {
     @Serializable class ErrorBody(val code: Int = 0, val message: String? = null)
     @Serializable class ArtistsIndex(val index: List<Index> = emptyList()) {
@@ -118,7 +129,15 @@ internal class SubsonicBody(
     ) {
         fun album() = SubsonicAlbum(id, name, artist, artistId, coverArt, songCount, null, year, genre)
     }
+    @Serializable class ArtistWithAlbums(
+        val id: Id,
+        val name: String = "",
+        val coverArt: String? = null,
+        val artistImageUrl: String? = null,
+        val album: List<SubsonicAlbum> = emptyList(),
+    )
     @Serializable class AlbumList(val album: List<SubsonicAlbum> = emptyList())
+    @Serializable class SongList(val song: List<SubsonicSong> = emptyList())
     @Serializable class SearchResult(
         val artist: List<SubsonicArtist> = emptyList(),
         val album: List<SubsonicAlbum> = emptyList(),

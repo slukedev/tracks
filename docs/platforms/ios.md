@@ -265,8 +265,10 @@ Engine parity (no visible change, same results on every platform):
 
 - Summary, insights and search still run in Swift; the engine has totals, timeline,
   activity, streaks and search ready.
-- Mixes, the fresh shuffle and Tracks Radio's picker still run in Swift; `tracks-mixes`
-  has the port.
+- Mixes, the fresh shuffle and Tracks Radio still run in Swift; `tracks-mixes` has the port
+  of the mixes and shuffle, and of Tracks Radio over Your Music (`tracks_mixes::radio`, which
+  Android plays). Tracks Radio over Apple Music stays in Swift with the MusicKit catalog; the
+  engine's radio could take over Your Music stations only.
 - Last.fm still uses the Swift client and `ScrobbleService`; `tracks-lastfm` has requests,
   parsing, policy and the queue.
 - The widgets read SwiftData, not the shared index.

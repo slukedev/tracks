@@ -48,7 +48,8 @@ val LocalDarkTheme = staticCompositionLocalOf { false }
  * Settings, the cover playing now, a mix's hue) the palette is built from it in [style],
  * through the same tonal algorithm Android uses. Seeded palettes follow Android's contrast
  * setting; system palettes already do. [pureBlack] makes dark backgrounds true black.
- * [animate] cross-fades every color when the palette changes.
+ * A ready [scheme] wins over all of these. [animate] cross-fades every color when the
+ * palette changes.
  */
 @Composable
 fun TracksTheme(
@@ -58,21 +59,21 @@ fun TracksTheme(
     style: PaletteChoice = PaletteChoice.Vibrant,
     pureBlack: Boolean = false,
     animate: Boolean = false,
+    scheme: ColorScheme? = null,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
+    val system = if (scheme == null && seed == null && dynamic) systemScheme(context, dark) else null
     val target: ColorScheme = when {
+        scheme != null -> scheme
         seed != null -> seededScheme(seed, dark, style, pureBlack)
-        dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val system = if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            if (dark && pureBlack) system.blackened() else system
-        }
+        system != null -> if (dark && pureBlack) system.blackened() else system
         else -> seededScheme(TracksBrand, dark, style, pureBlack)
     }
-    val scheme = if (animate) target.animated() else target
+    val shown = if (animate) target.animated() else target
     CompositionLocalProvider(LocalDarkTheme provides dark) {
         MaterialExpressiveTheme(
-            colorScheme = scheme,
+            colorScheme = shown,
             motionScheme = MotionScheme.expressive(),
             shapes = TracksShapes,
             typography = TracksTypography,
@@ -80,6 +81,15 @@ fun TracksTheme(
         )
     }
 }
+
+/**
+ * The system's own Material You scheme, or null where it can't be read: OEM skins have
+ * shipped without some of the system palette's colors, and reading them then throws.
+ */
+fun systemScheme(context: Context, dark: Boolean): ColorScheme? =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        runCatching { if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context) }.getOrNull()
+    } else null
 
 /** A full Material scheme from one color, the way Android builds one from a wallpaper. */
 @Composable

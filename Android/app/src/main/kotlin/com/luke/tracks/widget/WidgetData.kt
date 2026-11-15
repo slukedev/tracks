@@ -80,8 +80,15 @@ object WidgetData {
         if (uri.isNullOrBlank()) return null
         return runCatching {
             if (uri.startsWith("file://") || uri.startsWith("content://")) {
-                context.contentResolver.openInputStream(Uri.parse(uri))?.use { stream ->
-                    BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = 2 })
+                // Sized down to about 300 pixels: a full cover can be thousands across, past what a
+                // widget may carry, and some phones' launchers drop the widget over it.
+                val address = Uri.parse(uri)
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(address)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                var sample = 1
+                while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 300) sample *= 2
+                context.contentResolver.openInputStream(address)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = sample })
                 }
             } else {
                 val request = ImageRequest.Builder(context).data(uri).size(300).allowHardware(false).build()

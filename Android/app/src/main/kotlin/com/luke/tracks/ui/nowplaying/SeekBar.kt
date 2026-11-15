@@ -28,6 +28,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -43,6 +44,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.luke.tracks.playback.ListenCounter
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -58,6 +60,10 @@ fun WavySeekBar(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val duration = ListenCounter.knownLength(durationMs) ?: run {
+        UnknownLengthBar(position, modifier)
+        return
+    }
     val live by position.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     var scrub by remember { mutableStateOf<Float?>(null) }
@@ -66,7 +72,6 @@ fun WavySeekBar(
     val dragged by interaction.collectIsDraggedAsState()
     val pressed by interaction.collectIsPressedAsState()
     val held = dragged || pressed || scrub != null
-    val duration = durationMs.coerceAtLeast(1)
     val fraction = (scrub ?: (live.toFloat() / duration)).coerceIn(0f, 1f)
     val motion = MaterialTheme.motionScheme
     val amplitude by animateFloatAsState(if (isPlaying && !held) 1f else 0f, motion.slowEffectsSpec(), label = "wave")
@@ -135,6 +140,27 @@ fun WavySeekBar(
     }
 }
 
+/**
+ * For a song whose length isn't known (yet): nothing to seek along, so an empty track and
+ * the time played so far.
+ */
+@Composable
+private fun UnknownLengthBar(position: StateFlow<Long>, modifier: Modifier) {
+    val live by position.collectAsStateWithLifecycle()
+    val scheme = MaterialTheme.colorScheme
+    Column(modifier.semantics { contentDescription = "Length unknown" }) {
+        // The slider's own height, so the controls below don't jump when the length arrives.
+        Box(Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) {
+            FlatTrack(0f, scheme.primary, scheme.primary.copy(alpha = 0.24f))
+        }
+        Row(Modifier.fillMaxWidth()) {
+            Text(clock(live.toFloat()), style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
+            Spacer(Modifier.weight(1f))
+            Text("--:--", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
+        }
+    }
+}
+
 /** The track at rest: the same two tones, straight, with a gap at the thumb. */
 @Composable
 private fun FlatTrack(fraction: Float, active: Color, inactive: Color) {
@@ -154,7 +180,10 @@ private fun FlatTrack(fraction: Float, active: Color, inactive: Color) {
     )
 }
 
+/** "3:07", or "1:02:45" past an hour. */
 fun clock(ms: Float): String {
-    val total = (ms / 1000).toInt().coerceAtLeast(0)
-    return "%d:%02d".format(total / 60, total % 60)
+    val total = (ms / 1000).toLong().coerceAtLeast(0)
+    val hours = total / 3600
+    return if (hours > 0) "%d:%02d:%02d".format(hours, total / 60 % 60, total % 60)
+    else "%d:%02d".format(total / 60, total % 60)
 }

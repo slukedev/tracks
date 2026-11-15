@@ -67,6 +67,11 @@ import com.luke.tracks.ui.insights.bleed
 import com.luke.tracks.ui.insights.rememberGraph
 import com.luke.tracks.ui.insights.segmentedShape
 import com.luke.tracks.ui.navigation.LocalNavigator
+import com.luke.tracks.ui.discover.NotYours
+import com.luke.tracks.ui.discover.Remote
+import com.luke.tracks.ui.discover.catalogSearchItems
+import com.luke.tracks.ui.discover.rememberCatalogSearch
+import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.coroutines.delay
 import uniffi.tracks_engine.SearchResults
 
@@ -157,16 +162,19 @@ fun SearchScreen(initialQuery: String = "") {
         },
     ) { inner ->
         val r = results
+        var retry by remember { mutableIntStateOf(0) }
+        val catalog = rememberCatalogSearch(query, retry)
+        val catalogEmpty = catalog is Remote.Idle || (catalog is Remote.Loaded && catalog.value.isEmpty)
         Box(Modifier.padding(top = inner.calculateTopPadding()).fillMaxSize()) {
             when {
                 query.isBlank() -> Recents(recents, onPick = { query = it })
                 r == null -> Spacer(Modifier.height(1.dp))
-                r.songs.isEmpty() && r.artists.isEmpty() && r.albums.isEmpty() -> EmptyState(
+                r.songs.isEmpty() && r.artists.isEmpty() && r.albums.isEmpty() && catalogEmpty -> EmptyState(
                     icon = Icons.Rounded.SearchOff,
                     title = "Nothing found",
-                    message = "Nothing you've played matches \"${query.trim()}\". Check the spelling, or try fewer words.",
+                    message = "Nothing matches \"${query.trim()}\". Check the spelling, or try fewer words.",
                 )
-                else -> Results(r, onOpen = { remember() })
+                else -> Results(r, catalog, onRetry = { retry++ }, onOpen = { remember() })
             }
         }
     }
@@ -209,7 +217,7 @@ private fun Recents(recents: RecentSearches, onPick: (String) -> Unit) {
 }
 
 @Composable
-private fun Results(r: SearchResults, onOpen: () -> Unit) {
+private fun Results(r: SearchResults, catalog: Remote<NotYours>, onRetry: () -> Unit, onOpen: () -> Unit) {
     val navigator = LocalNavigator.current
     var allSongs by remember(r) { mutableStateOf(false) }
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = com.luke.tracks.ui.navigation.bottomClearance)) {
@@ -257,6 +265,7 @@ private fun Results(r: SearchResults, onOpen: () -> Unit) {
                 }
             }
         }
+        catalogSearchItems(catalog, edge = 20.dp, onRetry = onRetry, listPadding = 16.dp)
     }
 }
 

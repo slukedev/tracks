@@ -1,6 +1,5 @@
 package com.luke.tracks.ui.settings
 
-import android.os.Build
 import android.app.WallpaperManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -43,11 +42,10 @@ import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,7 +53,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -67,12 +68,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.data.AppSettings
+import com.luke.tracks.data.MiniPlayerColors
 import com.luke.tracks.data.ColorChoice
 import com.luke.tracks.data.ThemeChoice
 import com.luke.tracks.graph
 import com.luke.tracks.ui.theme.LocalDarkTheme
 import com.luke.tracks.ui.theme.TracksBrand
 import com.luke.tracks.ui.theme.seededScheme
+import com.luke.tracks.ui.theme.systemScheme
 import kotlinx.coroutines.launch
 
 /** Light or dark, and where the colors come from, each shown as it will look. */
@@ -96,9 +99,7 @@ fun AppearancePage() {
         }
         group("Colors", key = "colors") {
             custom {
-                val wallpaper = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-                } else seededScheme(TracksBrand, dark)
+                val wallpaper = systemScheme(context, dark) ?: seededScheme(TracksBrand, dark)
                 val custom = seededScheme(Color(settings.seedColor), dark, settings.paletteStyle)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ColorCard(
@@ -133,6 +134,26 @@ fun AppearancePage() {
             else "Exact uses the color as picked. Tonal, Vibrant and Muted build a palette around it.",
             key = "note",
         )
+        group("Mini player", key = "miniplayer") {
+            custom {
+                val album = seededScheme(SampleCover, dark)
+                val app = MaterialTheme.colorScheme
+                val cover = Brush.linearGradient(listOf(album.primary, album.tertiary))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    listOf(MiniPlayerColors.Album to album, MiniPlayerColors.App to app).forEach { (choice, scheme) ->
+                        ChoiceCard(
+                            if (choice == MiniPlayerColors.Album) "Album colors" else "App colors",
+                            selected = settings.miniPlayerColors == choice,
+                            aspectRatio = 1.5f,
+                            background = app.surfaceContainerLow,
+                            modifier = Modifier.weight(1f),
+                            onClick = { save { it.copy(miniPlayerColors = choice) } },
+                        ) { MiniPlayerPreview(scheme, cover) }
+                    }
+                }
+            }
+        }
+        footnote("Album colors change with each song.", key = "miniplayer-note")
         group("Dark theme", key = "dark") {
             toggle(
                 "Pure black",
@@ -338,7 +359,20 @@ fun ThemeButtons(current: ThemeChoice, onChoose: (ThemeChoice) -> Unit) {
 
 /** A choice of colors, drawn as a little Tracks screen in those colors. */
 @Composable
-private fun ColorCard(label: String, scheme: ColorScheme, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun ColorCard(label: String, scheme: ColorScheme, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) =
+    ChoiceCard(label, selected, aspectRatio = 0.82f, background = scheme.surfaceContainer, modifier, onClick) { MiniScreen(scheme) }
+
+/** A choice drawn as a preview, which takes a ring, rounder corners and a check when chosen. */
+@Composable
+private fun ChoiceCard(
+    label: String,
+    selected: Boolean,
+    aspectRatio: Float,
+    background: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    preview: @Composable () -> Unit,
+) {
     val motion = MaterialTheme.motionScheme
     val corner by animateDpAsState(if (selected) 28.dp else 18.dp, motion.defaultSpatialSpec(), label = "corner")
     val ring by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, motion.defaultEffectsSpec(), label = "ring")
@@ -347,14 +381,14 @@ private fun ColorCard(label: String, scheme: ColorScheme, selected: Boolean, mod
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.82f)
+                .aspectRatio(aspectRatio)
                 .border(BorderStroke(if (selected) 3.dp else 1.dp, ring), RoundedCornerShape(corner + 4.dp))
                 .padding(6.dp)
                 .clip(RoundedCornerShape(corner))
-                .background(scheme.surfaceContainer)
+                .background(background)
                 .clickable(onClick = onClick),
         ) {
-            MiniScreen(scheme)
+            preview()
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
@@ -373,6 +407,35 @@ private fun ColorCard(label: String, scheme: ColorScheme, selected: Boolean, mod
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp),
         )
+    }
+}
+
+/** The cover the Album colors preview pretends is playing. */
+private val SampleCover = Color(0xFF00897B)
+
+/** The mini player in small: the song's toolbar and the play button with its progress. */
+@Composable
+private fun MiniPlayerPreview(scheme: ColorScheme, cover: Brush) {
+    Row(Modifier.fillMaxSize().padding(10.dp), verticalAlignment = Alignment.Bottom) {
+        Surface(shape = CircleShape, color = scheme.surfaceContainer, shadowElevation = 2.dp, modifier = Modifier.weight(1f).height(32.dp)) {
+            Row(Modifier.padding(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(22.dp).background(cover, CircleShape))
+                Spacer(Modifier.width(6.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Box(Modifier.width(34.dp).height(5.dp).background(scheme.onSurface.copy(alpha = 0.75f), CircleShape))
+                    Box(Modifier.width(24.dp).height(4.dp).background(scheme.onSurfaceVariant.copy(alpha = 0.5f), CircleShape))
+                }
+            }
+        }
+        Spacer(Modifier.width(4.dp))
+        Canvas(Modifier.size(32.dp)) {
+            drawCircle(scheme.primary)
+            val stroke = 2.5.dp.toPx()
+            val inset = stroke / 2 + 2.5.dp.toPx()
+            val arc = Size(size.width - inset * 2, size.height - inset * 2)
+            drawArc(scheme.onPrimary.copy(alpha = 0.24f), 0f, 360f, false, Offset(inset, inset), arc, style = Stroke(stroke))
+            drawArc(scheme.onPrimary, -90f, 220f, false, Offset(inset, inset), arc, style = Stroke(stroke, cap = StrokeCap.Round))
+        }
     }
 }
 

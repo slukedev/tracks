@@ -54,7 +54,19 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.SpeakerGroup
 import androidx.compose.material.icons.rounded.TimerOff
+import androidx.compose.material.icons.rounded.ThumbUp
+import androidx.compose.material.icons.rounded.ThumbUpOffAlt
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.DropdownMenuItem
+import com.luke.tracks.playback.QueueOrigin
+import com.luke.tracks.playback.RadioState
+import com.luke.tracks.ui.navigation.LocalNavigator
+import com.luke.tracks.ui.navigation.SettingsPageRoute
+import uniffi.tracks_engine.RadioReason
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.material3.ButtonGroup
+import androidx.compose.material3.ButtonGroupScope
+import androidx.compose.ui.unit.Dp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.FilledTonalIconButton
@@ -90,7 +102,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.graph
+import com.luke.tracks.playback.ListenCounter
 import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.playback.artistLabel
+import com.luke.tracks.playback.hasArtist
+import com.luke.tracks.playback.titleLabel
 import com.luke.tracks.playback.PlayerController
 import com.luke.tracks.playback.PlayerState
 import com.luke.tracks.playback.RepeatChoice
@@ -146,6 +162,15 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
     val actions = rememberPlayActions()
     var queueOpen by remember { mutableStateOf(false) }
     var dragDown by remember { mutableStateOf(0f) }
+    val navigator = LocalNavigator.current
+    val radioState by LocalContext.current.graph.radio.state.collectAsStateWithLifecycle()
+    // Tracks Radio's own song on now, which can steer what it plays next.
+    val radio = radioState.takeIf { state.origin?.kind == QueueOrigin.Kind.Radio }
+    val tuneRadio = {
+        queueOpen = false
+        onClose()
+        navigator.open(SettingsPageRoute("radio"))
+    }
 
     Box(
         Modifier
@@ -177,32 +202,40 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
                 .graphicsLayer { translationY = dragDown * 0.5f },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            TopRow(state, song, actions, onClose)
+            TopRow(state, song, actions, onClose, radio, player, tuneRadio)
             Spacer(Modifier.weight(0.6f))
             Cover(state, song, player)
             Spacer(Modifier.weight(0.6f))
-            TitleBlock(state, song, actions)
+            TitleBlock(state, song, actions, radio?.reason(song))
             Spacer(Modifier.height(16.dp))
             WavySeekBar(
                 position = player.position,
-                durationMs = state.durationMs.takeIf { it > 0 } ?: song.durationMs ?: 0,
+                durationMs = state.lengthMs ?: 0,
                 isPlaying = state.isPlaying,
                 onSeek = player::seekTo,
                 modifier = Modifier.widthIn(max = 560.dp),
             )
             Spacer(Modifier.height(12.dp))
-            Transport(state, player)
+            Transport(state, player, isStation = radio != null)
             Spacer(Modifier.weight(0.4f))
             BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) })
             Spacer(Modifier.height(8.dp))
         }
     }
 
-    if (queueOpen) QueueSheet(state, player, onDismiss = { queueOpen = false })
+    if (queueOpen) QueueSheet(state, player, onDismiss = { queueOpen = false }, onTuneRadio = tuneRadio)
 }
 
 @Composable
-private fun TopRow(state: PlayerState, song: PlayableSong, actions: PlayActions, onClose: () -> Unit) {
+private fun TopRow(
+    state: PlayerState,
+    song: PlayableSong,
+    actions: PlayActions,
+    onClose: () -> Unit,
+    radio: RadioState?,
+    player: PlayerController,
+    onTuneRadio: () -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onClose) {
@@ -227,10 +260,29 @@ private fun TopRow(state: PlayerState, song: PlayableSong, actions: PlayActions,
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = "More") }
             DropdownMenu(menu, { menu = false }, shape = MaterialTheme.shapes.large) {
-                MenuItem(Icons.Rounded.Person, "Go to artist") {
-                    menu = false
-                    onClose()
-                    actions.goToArtist(song.artistName)
+                // Steering what Tracks Radio plays next, for its own song on now.
+                if (radio != null && radio.isPick(song)) {
+                    val asked = song.identity in radio.askedMoreLike
+                    DropdownMenuItem(
+                        text = { Text(if (asked) "Asked for more like this" else "Play more like this") },
+                        leadingIcon = { Icon(if (asked) Icons.Rounded.ThumbUp else Icons.Rounded.ThumbUpOffAlt, contentDescription = null) },
+                        enabled = !asked,
+                        onClick = {
+                            menu = false
+                            player.playMoreLikeThis()
+                        },
+                    )
+                    MenuItem(Icons.Rounded.Tune, "Tune Tracks Radio") {
+                        menu = false
+                        onTuneRadio()
+                    }
+                }
+                if (song.hasArtist) {
+                    MenuItem(Icons.Rounded.Person, "Go to artist") {
+                        menu = false
+                        onClose()
+                        actions.goToArtist(song.artistName)
+                    }
                 }
                 MenuItem(Icons.Rounded.Share, "Share") {
                     menu = false
@@ -317,7 +369,7 @@ private fun Cover(state: PlayerState, song: PlayableSong, player: PlayerControll
 }
 
 @Composable
-private fun TitleBlock(state: PlayerState, song: PlayableSong, actions: PlayActions) {
+private fun TitleBlock(state: PlayerState, song: PlayableSong, actions: PlayActions, reason: RadioReason?) {
     val graph = LocalContext.current.graph
     val revision by graph.engine.revision.collectAsStateWithLifecycle()
     val plays by produceState<Long?>(null, song.identity, revision) {
@@ -326,22 +378,36 @@ private fun TitleBlock(state: PlayerState, song: PlayableSong, actions: PlayActi
     Row(Modifier.fillMaxWidth().widthIn(max = 560.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
-                song.title,
+                song.titleLabel,
                 style = MaterialTheme.typography.headlineMediumEmphasized,
                 maxLines = 1,
                 modifier = Modifier.basicMarquee(iterations = if (state.isPlaying) 2 else 0),
             )
             Text(
-                song.artistName,
+                song.artistLabel,
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = if (song.hasArtist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable(onClickLabel = "Go to artist") { actions.goToArtist(song.artistName) },
+                modifier = if (song.hasArtist) {
+                    Modifier.clickable(onClickLabel = "Go to artist") { actions.goToArtist(song.artistName) }
+                } else Modifier,
             )
+            // Why Tracks Radio picked it.
+            val enter = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+            val exit = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+            AnimatedContent(
+                targetState = reason,
+                transitionSpec = { fadeIn(enter) togetherWith fadeOut(exit) },
+                label = "reason",
+            ) { shown ->
+                if (shown != null) PickReasonLabel(shown, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.padding(top = 4.dp))
+            }
         }
         Spacer(Modifier.width(12.dp))
-        KeepRing(state.keepProgress, state.kept, plays)
+        // A song of 30 seconds or less (a ringtone, a jingle) is never kept: no ring to fill.
+        val keepable = remember(state.lengthMs) { ListenCounter.canKeep(state.lengthMs) }
+        if (keepable || state.kept) KeepRing(state.keepProgress, state.kept, plays)
     }
 }
 
@@ -380,98 +446,129 @@ private fun KeepRing(progress: Float, kept: Boolean, plays: Long?) {
 }
 
 /**
+ * How big the transport's middle buttons can be in [width]: the full expressive sizes in a
+ * button group on a roomy phone, smaller ones on a narrow one, and a plain row on the
+ * narrowest, as Material's button group throws when its buttons don't fit.
+ */
+internal data class TransportFit(val side: IconButtonDefaults.IconButtonWidthOption, val play: Dp, val grouped: Boolean) {
+    companion object {
+        private val gaps = 16.dp
+
+        /** Room for a press to widen one button, which the group takes from its own width. */
+        private val pressRoom = 24.dp
+
+        fun of(width: Dp): TransportFit {
+            val wide = TransportFit(IconButtonDefaults.IconButtonWidthOption.Wide, 88.dp, grouped = true)
+            if (width >= wide.width + pressRoom) return wide
+            val uniform = TransportFit(IconButtonDefaults.IconButtonWidthOption.Uniform, 72.dp, grouped = true)
+            if (width >= uniform.width + pressRoom) return uniform
+            return TransportFit(IconButtonDefaults.IconButtonWidthOption.Narrow, 64.dp, grouped = false)
+        }
+    }
+
+    val width: Dp get() = IconButtonDefaults.mediumContainerSize(side).width * 2 + play + gaps
+}
+
+/**
  * Shuffle, previous, play, next and repeat. Previous and next sit in a Material 3 Expressive
- * button group, so a press widens the one under the finger and its neighbors give way.
+ * button group, so a press widens the one under the finger and its neighbors give way. The
+ * middle three size themselves to the room there is: 360dp-wide phones (most Galaxies at
+ * their default display size) can't fit the largest.
  */
 @Composable
-private fun Transport(state: PlayerState, player: PlayerController) {
+private fun Transport(state: PlayerState, player: PlayerController, isStation: Boolean) {
     val haptics = LocalHapticFeedback.current
-    Row(
-        Modifier.fillMaxWidth().widthIn(max = 560.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        FilledTonalIconToggleButton(
-            checked = state.shuffle,
-            onCheckedChange = {
-                haptics.performHapticFeedback(if (it) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
-                player.setShuffle(it)
-            },
-            shapes = IconButtonDefaults.toggleableShapes(),
-        ) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle") }
-
-        ButtonGroup(
-            overflowIndicator = {},
-            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+    BoxWithConstraints(Modifier.fillMaxWidth().widthIn(max = 560.dp)) {
+        // Each toggle takes 48dp to touch, and the group keeps 8dp from each.
+        val fit = TransportFit.of(maxWidth - 48.dp * 2 - 16.dp)
+        Row(
+            Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            customItem(
-                buttonGroupContent = {
-                    val source = remember { MutableInteractionSource() }
-                    FilledTonalIconButton(
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                            player.previous()
-                        },
-                        shapes = IconButtonDefaults.shapes(),
-                        interactionSource = source,
-                        modifier = Modifier.size(IconButtonDefaults.mediumContainerSize(IconButtonDefaults.IconButtonWidthOption.Wide)).animateWidth(source),
-                    ) { Icon(Icons.Rounded.SkipPrevious, "Previous", Modifier.size(IconButtonDefaults.mediumIconSize)) }
+            // A station picks as it goes: there's no order to shuffle or end to repeat, so the
+            // toggles leave their room empty and the transport stays centered.
+            if (isStation) Spacer(Modifier.size(48.dp)) else FilledTonalIconToggleButton(
+                checked = state.shuffle,
+                onCheckedChange = {
+                    haptics.performHapticFeedback(if (it) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
+                    player.setShuffle(it)
                 },
-                menuContent = {},
-            )
-            customItem(
-                buttonGroupContent = {
-                    MorphPlayButton(
-                        playing = state.isPlaying,
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                            player.playPause()
-                        },
-                        size = 88.dp,
-                    )
-                },
-                menuContent = {},
-            )
-            customItem(
-                buttonGroupContent = {
-                    val source = remember { MutableInteractionSource() }
-                    FilledTonalIconButton(
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                            player.next()
-                        },
-                        shapes = IconButtonDefaults.shapes(),
-                        interactionSource = source,
-                        modifier = Modifier.size(IconButtonDefaults.mediumContainerSize(IconButtonDefaults.IconButtonWidthOption.Wide)).animateWidth(source),
-                    ) { Icon(Icons.Rounded.SkipNext, "Next", Modifier.size(IconButtonDefaults.mediumIconSize)) }
-                },
-                menuContent = {},
-            )
-        }
+                shapes = IconButtonDefaults.toggleableShapes(),
+            ) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle") }
 
-        FilledTonalIconToggleButton(
-            checked = state.repeat != RepeatChoice.Off,
-            onCheckedChange = {
-                val next = when (state.repeat) {
-                    RepeatChoice.Off -> RepeatChoice.All
-                    RepeatChoice.All -> RepeatChoice.One
-                    RepeatChoice.One -> RepeatChoice.Off
+            // In the group a press widens the button, so the group needs to hear about it.
+            val skip: @Composable (ButtonGroupScope?, ImageVector, String, () -> Unit) -> Unit = { group, icon, label, action ->
+                val source = remember { MutableInteractionSource() }
+                FilledTonalIconButton(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        action()
+                    },
+                    shapes = IconButtonDefaults.shapes(),
+                    interactionSource = source,
+                    modifier = Modifier.size(IconButtonDefaults.mediumContainerSize(fit.side))
+                        .then(group?.run { Modifier.animateWidth(source) } ?: Modifier),
+                ) { Icon(icon, label, Modifier.size(IconButtonDefaults.mediumIconSize)) }
+            }
+            val play: @Composable () -> Unit = {
+                MorphPlayButton(
+                    playing = state.isPlaying,
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        player.playPause()
+                    },
+                    size = fit.play,
+                )
+            }
+            val middle = Modifier.weight(1f).padding(horizontal = 8.dp)
+
+            if (fit.grouped) {
+                ButtonGroup(
+                    overflowIndicator = {},
+                    modifier = middle,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val group = this
+                    customItem(buttonGroupContent = { skip(group, Icons.Rounded.SkipPrevious, "Previous", player::previous) }, menuContent = {})
+                    customItem(buttonGroupContent = play, menuContent = {})
+                    customItem(buttonGroupContent = { skip(group, Icons.Rounded.SkipNext, "Next", player::next) }, menuContent = {})
                 }
-                haptics.performHapticFeedback(if (next == RepeatChoice.Off) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
-                player.setRepeat(next)
-            },
-            shapes = IconButtonDefaults.toggleableShapes(),
-        ) {
-            Icon(
-                if (state.repeat == RepeatChoice.One) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                contentDescription = when (state.repeat) {
-                    RepeatChoice.Off -> "Repeat off"
-                    RepeatChoice.All -> "Repeat all"
-                    RepeatChoice.One -> "Repeat one"
+            } else {
+                Row(
+                    middle,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    skip(null, Icons.Rounded.SkipPrevious, "Previous", player::previous)
+                    play()
+                    skip(null, Icons.Rounded.SkipNext, "Next", player::next)
+                }
+            }
+
+            if (isStation) Spacer(Modifier.size(48.dp)) else FilledTonalIconToggleButton(
+                checked = state.repeat != RepeatChoice.Off,
+                onCheckedChange = {
+                    val next = when (state.repeat) {
+                        RepeatChoice.Off -> RepeatChoice.All
+                        RepeatChoice.All -> RepeatChoice.One
+                        RepeatChoice.One -> RepeatChoice.Off
+                    }
+                    haptics.performHapticFeedback(if (next == RepeatChoice.Off) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+                    player.setRepeat(next)
                 },
-            )
+                shapes = IconButtonDefaults.toggleableShapes(),
+            ) {
+                Icon(
+                    if (state.repeat == RepeatChoice.One) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                    contentDescription = when (state.repeat) {
+                        RepeatChoice.Off -> "Repeat off"
+                        RepeatChoice.All -> "Repeat all"
+                        RepeatChoice.One -> "Repeat one"
+                    },
+                )
+            }
         }
     }
 }

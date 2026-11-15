@@ -38,15 +38,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.graph
-import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.library.LibraryAlbum
-import com.luke.tracks.library.LibraryIndex
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.ui.components.Artwork
 import com.luke.tracks.ui.navigation.LibraryArtistRoute
+import com.luke.tracks.ui.navigation.Route
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.sharedElement
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
 /** An album in Your Music, by its library id. */
@@ -54,7 +52,7 @@ import kotlinx.coroutines.flow.map
 fun LibraryAlbumScreen(albumId: String) {
     val context = LocalContext.current
     val graph = context.graph
-    val index by remember { (graph.library as? CombinedLibrary)?.index ?: MutableStateFlow(LibraryIndex.Empty) }.collectAsStateWithLifecycle()
+    val index = com.luke.tracks.ui.play.components.rememberLibraryIndex()
     val current by remember { graph.player.state.map { it.current?.mediaId } }.collectAsStateWithLifecycle(null)
     val album = index.album(albumId)
     if (album == null) {
@@ -65,7 +63,13 @@ fun LibraryAlbumScreen(albumId: String) {
 }
 
 @Composable
-fun LibraryAlbumPage(album: LibraryAlbum, currentMediaId: String?, artistId: String?) {
+fun LibraryAlbumPage(
+    album: LibraryAlbum,
+    currentMediaId: String?,
+    artistId: String?,
+    /** Where the artist's name leads: their page in Your Music, or a server's. */
+    artistRoute: Route? = artistId?.let(::LibraryArtistRoute),
+) {
     val navigator = LocalNavigator.current
     val player = LocalContext.current.graph.player
     val origin = remember(album.id) { QueueOrigin(album.title, QueueOrigin.Kind.Album) }
@@ -108,7 +112,7 @@ fun LibraryAlbumPage(album: LibraryAlbum, currentMediaId: String?, artistId: Str
                             color = MaterialTheme.colorScheme.primary,
                             textAlign = TextAlign.Center,
                             modifier = Modifier
-                                .then(if (artistId != null) Modifier.clickable { navigator.open(LibraryArtistRoute(artistId)) } else Modifier)
+                                .then(if (artistRoute != null) Modifier.clickable { navigator.open(artistRoute) } else Modifier)
                                 .padding(horizontal = 8.dp, vertical = 2.dp),
                         )
                         val details = listOfNotNull(album.year?.toString(), album.songs.firstNotNullOfOrNull { it.genre }).joinToString(" · ")
@@ -134,6 +138,9 @@ fun LibraryAlbumPage(album: LibraryAlbum, currentMediaId: String?, artistId: Str
                         albumArtist = album.artistName,
                         modifier = Modifier.animateItem(),
                     )
+                }
+                item(key = "missing") {
+                    com.luke.tracks.ui.discover.MissingFromAlbum(album.title, album.artistName, album.songs.size, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                 }
             }
         }

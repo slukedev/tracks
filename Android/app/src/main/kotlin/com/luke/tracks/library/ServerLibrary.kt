@@ -89,6 +89,12 @@ class ServerLibrary(
         return SubsonicClient(server, password, transport)
     }
 
+    /** Album and artist lookups on one of your servers, or null when it's gone or locked. */
+    fun browse(serverId: String): ServerBrowse? {
+        val server = _entries.value.firstOrNull { it.server.id == serverId }?.server ?: return null
+        return client(server)?.let { ServerBrowse(server, it) }
+    }
+
     /** The saved password, for checking a server again without typing it. */
     fun savedPassword(server: SubsonicServer): String? = secrets.open(server.secret)
 
@@ -213,6 +219,9 @@ class ServerLibrary(
 
         fun mediaId(serverId: String, songId: String) = "$PREFIX$serverId:$songId"
 
+        /** The library's id for a server's album. */
+        fun albumId(serverId: String, albumId: String) = "$PREFIX$serverId:album:$albumId"
+
         /** The server and song a media id names, if it's a server's. */
         fun parseMediaId(mediaId: String): Pair<String, String>? {
             if (!mediaId.startsWith(PREFIX)) return null
@@ -240,7 +249,7 @@ class ServerLibrary(
                         genre = song.genre,
                     ),
                     source = LibrarySourceKind.Server,
-                    albumKey = "$PREFIX${server.id}:album:" + (song.albumId ?: song.album.orEmpty()),
+                    albumKey = albumId(server.id, song.albumId ?: song.album.orEmpty()),
                     albumArtist = song.displayAlbumArtist,
                     disc = song.discNumber,
                 )

@@ -6,11 +6,11 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
-import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
+import com.luke.tracks.graph
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -114,7 +114,7 @@ class MediaControllerPlayer(private val context: Context) : PlayerController {
         }
         val index = c.currentMediaItemIndex.coerceAtLeast(0)
         val current = queueCache.getOrNull(index)
-        val duration = c.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: current?.durationMs ?: 0L
+        val duration = ListenCounter.knownLength(c.duration) ?: ListenCounter.knownLength(current?.durationMs) ?: 0L
         base.value = PlayerState(
             current = current,
             isPlaying = c.isPlaying,
@@ -186,11 +186,28 @@ class MediaControllerPlayer(private val context: Context) : PlayerController {
                 setMediaItem(song.toMediaItem())
                 prepare()
                 play()
-            } else addMediaItem(song.toMediaItem())
+            } else {
+                // On Tracks Radio, songs you add play before the station's next, and it picks on after them.
+                val radioNext = if (isRadio()) firstRadioPick() else null
+                if (radioNext != null) addMediaItem(radioNext, song.toMediaItem()) else addMediaItem(song.toMediaItem())
+            }
         }
     }
 
-    override fun removeFromQueue(index: Int) = run { if (index in 0 until mediaItemCount) removeMediaItem(index) }
+    override fun removeFromQueue(index: Int) = run {
+        if (index !in 0 until mediaItemCount) return@run
+        // A pick taken out of Tracks Radio is a no to it, heard as a skip would be.
+        val song = queueCache.getOrNull(index)
+        if (song != null && index > currentMediaItemIndex && isRadio() && radio.state.value.isPick(song)) radio.removed(song)
+        removeMediaItem(index)
+    }
+
+    private val radio get() = context.graph.radio
+
+    private fun isRadio() = PlaybackBridge.origin.value?.kind == QueueOrigin.Kind.Radio
+
+    private fun MediaController.firstRadioPick(): Int? =
+        (currentMediaItemIndex + 1 until mediaItemCount).firstOrNull { radio.state.value.picks.containsKey(getMediaItemAt(it).mediaId) }
     override fun moveInQueue(from: Int, to: Int) = run {
         if (from in 0 until mediaItemCount && to in 0 until mediaItemCount) moveMediaItem(from, to)
     }
@@ -233,6 +250,10 @@ class MediaControllerPlayer(private val context: Context) : PlayerController {
 
     override fun startRadio() = run {
         sendCustomCommand(TracksCommands.command(TracksCommands.RADIO), Bundle.EMPTY)
+    }
+
+    override fun playMoreLikeThis() = run {
+        sendCustomCommand(TracksCommands.command(TracksCommands.MORE_LIKE_THIS), Bundle.EMPTY)
     }
 
     /** Likes or unlikes the song playing now, as the notification's heart does. */
