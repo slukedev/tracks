@@ -17,7 +17,6 @@ struct HandpickedPicker: View {
     @State private var found: PickSearch?
     @State private var recent: [Handpick] = []
     @State private var top: [Handpick] = []
-    @State private var suggestions: [Handpick] = []
     @State private var hasLoaded = false
     @State private var selection = HandpickedSelection()
     @State private var preview = HandpickedPreview()
@@ -118,10 +117,9 @@ struct HandpickedPicker: View {
                 }
             }
         }
-        let suggested = Set(suggestions.map(\.identity))
-        rows(suggestions, in: .suggestions)
-        rows(recent.filter { !suggested.contains($0.identity) }, in: .recent)
-        rows(top.filter { !suggested.contains($0.identity) }, in: .top)
+        rows(recent, in: .recent)
+        rows(top, in: .top)
+        rows(browsedSuggestions, in: .suggestions)
         if hasLoaded, recent.isEmpty, top.isEmpty {
             Section {
                 Text("Search for songs you love, or pick from your playlists. Songs you play show up here too.")
@@ -129,6 +127,11 @@ struct HandpickedPicker: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var browsedSuggestions: [Handpick] {
+        let shown = Set((recent + top).map(\.identity))
+        return selection.suggestions.filter { !shown.contains($0.identity) }
     }
 
     @ViewBuilder
@@ -176,7 +179,7 @@ struct HandpickedPicker: View {
 
     private func pick(for row: PickRowID) -> Handpick? {
         let shown: [Handpick] = switch row.section {
-        case .suggestions: suggestions
+        case .suggestions: selection.suggestions
         case .recent: recent
         case .top: top
         default: found?.sections[row.section] ?? []
@@ -211,12 +214,10 @@ struct HandpickedPicker: View {
         hasLoaded = true
     }
 
-    /// Songs of yours like the picks. The ones already shown stay where they are while they're
-    /// still like them, and new ones join at the end, so nothing moves under your finger.
     private func suggest(source: MusicSource) async {
         let picked = selection.picks.map(\.mixSong)
         guard !picked.isEmpty else {
-            withAnimation(PlayMotion.row) { suggestions = [] }
+            withAnimation(PlayMotion.row) { selection.suggestions = [] }
             return
         }
         try? await Task.sleep(for: .milliseconds(400))
@@ -226,14 +227,16 @@ struct HandpickedPicker: View {
             HandpickedChoices.like(picked, in: history, signals: signals, limit: 40)
         }
         guard !Task.isCancelled else { return }
-        let fresh = picks(from: like, source: source)
-        let still = Set(fresh.map(\.identity))
-        let kept = suggestions.filter { still.contains($0.identity) || selection.contains($0.identity) }
-        let next = Array(HandpickedChoices.merged([kept, fresh], identity: \.identity).prefix(Self.suggestionCount))
-        withAnimation(PlayMotion.row) { suggestions = next }
+        let shown = selection.suggestions
+        let fresh = picks(from: like, source: source).filter { !selection.contains($0.identity) }
+        let room = max(Self.suggestionCount - shown.count { !selection.contains($0.identity) }, 0)
+        let added = fresh.filter { song in !shown.contains { $0.identity == song.identity } }.prefix(room)
+        guard !added.isEmpty else { return }
+        withAnimation(PlayMotion.row) { selection.suggestions = Array((shown + added).prefix(Self.suggestionLimit)) }
     }
 
     private static let suggestionCount = 8
+    private static let suggestionLimit = 30
 
     private func picks(from songs: [MixSong], source: MusicSource) -> [Handpick] {
         switch source {
@@ -250,9 +253,6 @@ struct HandpickedPicker: View {
 
     // MARK: Searching
 
-    /// Every place a song could be found at once, each showing as it answers: what you've
-    /// played and your music first, as they answer at once, then the library, the catalog and
-    /// your servers.
     private func search(source: MusicSource) async {
         let term = query.trimmingCharacters(in: .whitespaces)
         guard !term.isEmpty else {
@@ -324,7 +324,6 @@ struct HandpickedPicker: View {
     }
 }
 
-/// A search's results, by where they were found, as they arrive.
 struct PickSearch {
     let term: String
     let order: [PickSection]
@@ -337,7 +336,6 @@ struct PickSearch {
         pending = Set(order)
     }
 
-    /// Where to look: Apple Music's places, or your music's.
     static func sections(source: MusicSource, isDemo: Bool, hasServers: Bool) -> [PickSection] {
         switch source {
         case .appleMusic: isDemo ? [.history, .catalog] : [.history, .library, .catalog]
@@ -350,8 +348,6 @@ struct PickSearch {
         pending.remove(section)
     }
 
-    /// The places that found something, in order, each song in the first place it was found.
-    /// A place shows once the ones before it have answered, so rows don't jump as they do.
     var visible: [(section: PickSection, picks: [Handpick])] {
         var shown: [(section: PickSection, picks: [Handpick])] = []
         var seen = Set<String>()
@@ -365,8 +361,6 @@ struct PickSearch {
 }
 
 #if os(macOS)
-/// The sheet's title and its search on one line, as Music's sheets have them, both on the
-/// list's leading and trailing edges.
 private struct MacPickerHeader: View {
     @Binding var query: String
     @FocusState private var isSearching: Bool
@@ -418,8 +412,6 @@ private struct MacPickerHeader: View {
 }
 #endif
 
-/// Lets the preview give way when music starts some other way: from the keyboard, the menu
-/// bar or Control Center.
 private struct PreviewGuard: View {
     let preview: HandpickedPreview
     @Environment(PlayerModel.self) private var player

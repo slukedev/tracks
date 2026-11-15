@@ -36,9 +36,6 @@ struct PickRowID: Hashable {
     let identity: String
 }
 
-/// A song to pick: its cover, which plays its preview, its name and artist, and ⊕, or ✓
-/// once picked. On the iPhone the rest of the row picks; on the Mac a click chooses the row,
-/// as in Music, and a double-click, Return or ⊕ picks it.
 struct PickRow: View {
     let pick: Handpick
     @Environment(HandpickedSelection.self) private var selection
@@ -123,7 +120,6 @@ struct PickRow: View {
     }
 }
 
-/// Hearing a song and picking it, from a right-click on the Mac or a long press on the iPhone.
 struct PickMenu: View {
     let pick: Handpick
     @Environment(HandpickedSelection.self) private var selection
@@ -146,12 +142,9 @@ struct PickMenu: View {
     }
 }
 
-/// A song's cover that plays its preview: a play button over it, and while it plays, pause
-/// and a ring for the half minute running out. Only the cover where there's nothing to hear.
 struct PreviewCover: View {
     let pick: Handpick
     let size: CGFloat
-    /// Whether play shows before the preview starts: always on the iPhone, on hover on the Mac.
     var showsControl: Bool
     @Environment(HandpickedPreview.self) private var preview
     @Environment(AppModel.self) private var model
@@ -198,13 +191,11 @@ struct PreviewCover: View {
     }
 }
 
-/// What lies over a cover playing its preview.
 private struct PreviewControl: View {
     let phase: HandpickedPreview.Phase?
     let progress: HandpickedPreview.Progress?
     let hasFailed: Bool
     let size: CGFloat
-    /// Play before anything's started: a small badge, so the cover still shows.
     let isQuiet: Bool
 
     var body: some View {
@@ -244,7 +235,6 @@ private struct PreviewControl: View {
     }
 }
 
-/// The half minute of a preview running out, as a ring that fills.
 private struct PreviewRing: View {
     let progress: HandpickedPreview.Progress
     @State private var shown = 0.0

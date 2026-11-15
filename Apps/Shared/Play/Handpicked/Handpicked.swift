@@ -32,7 +32,6 @@ nonisolated struct Handpick: Hashable, Identifiable, Sendable {
     let cover: CoverArt
     /// Apple Music's genre, or the file's, where known: what "like it" goes by.
     let genre: String?
-    /// The catalog's preview, where the song came with one: others are looked up when asked.
     var previewURL: URL?
 
     var id: String { identity }
@@ -89,6 +88,7 @@ nonisolated struct Handpick: Hashable, Identifiable, Sendable {
 @Observable
 final class HandpickedSelection {
     private(set) var list = HandpickedPicks<Handpick>(limit: Handpicked.limit)
+    var suggestions: [Handpick] = []
 
     var picks: [Handpick] { list.all }
     var isFull: Bool { list.isFull }
@@ -119,7 +119,6 @@ final class HandpickedSelection {
 /// new songs like them from Apple Music, or from your servers with your own music.
 @MainActor
 enum HandpickedPlayback {
-    /// Opens with the first pick, as they're ordered in the sheet.
     static func start(model: AppModel, picks: [Handpick]) async {
         let source = model.musicSource
         let player = model.player

@@ -2,7 +2,6 @@ import SwiftUI
 import TracksCore
 
 extension View {
-    /// The picks so far along the bottom, once there are any, opening them in order.
     func pickedTray() -> some View {
         modifier(PickedTrayInset())
     }
@@ -17,7 +16,6 @@ private struct PickedTrayInset: ViewModifier {
     func body(content: Content) -> some View {
         let showsTray = !selection.picks.isEmpty
         content
-            // Room for the tray under the last row, so it scrolls clear of it.
             .contentMargins(.bottom, showsTray ? trayHeight : 0, for: .scrollContent)
             .overlay(alignment: .bottom) {
                 if showsTray {
@@ -40,8 +38,6 @@ private struct PickedTrayInset: ViewModifier {
     }
 }
 
-/// The songs picked so far, along the bottom of the sheet as Photos shows what's chosen: each
-/// cover takes its song back out, and the count opens them in order, to move and remove.
 struct PickedTray: View {
     let openList: () -> Void
     @Environment(HandpickedSelection.self) private var selection
@@ -108,7 +104,6 @@ struct PickedTray: View {
     }
 }
 
-/// A picked song's cover in the tray, with ⓧ to take it back out.
 private struct TrayCover: View {
     let pick: Handpick
     @Environment(HandpickedSelection.self) private var selection
@@ -160,8 +155,6 @@ private struct TrayCover: View {
     }
 }
 
-/// The picks in the order they'll play, to drag into another order and to remove: the first
-/// opens the station.
 struct PickedList: View {
     @Environment(HandpickedSelection.self) private var selection
     @Environment(\.dismiss) private var dismiss
@@ -191,12 +184,13 @@ struct PickedList: View {
                 }
                 focus = []
             }
-            .frame(width: 340, height: min(CGFloat(selection.picks.count) * 46 + 64, 420))
+            .frame(width: 340, height: 420)
         #else
         List { rows }
         #endif
     }
 
+    @ViewBuilder
     private var rows: some View {
         Section {
             ForEach(selection.picks) { pick in
@@ -214,6 +208,14 @@ struct PickedList: View {
             }
         } footer: {
             Text("The station opens with the first song.")
+        }
+        let suggestions = selection.suggestions.filter { !selection.contains($0.identity) }
+        if !suggestions.isEmpty {
+            Section(PickSection.suggestions.title) {
+                ForEach(suggestions) { pick in
+                    PickRow(pick: pick)
+                }
+            }
         }
     }
 }

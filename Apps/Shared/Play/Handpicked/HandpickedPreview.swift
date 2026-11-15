@@ -3,8 +3,6 @@ import MusicKit
 import SwiftUI
 import TracksCore
 
-/// Hearing a song before picking it, as the iTunes Store plays a song's preview: half a
-/// minute of it, one song at a time. The song playing pauses for it and plays on after.
 @MainActor
 @Observable
 final class HandpickedPreview {
@@ -14,7 +12,6 @@ final class HandpickedPreview {
         case paused
     }
 
-    /// How far the preview has got, for its ring: moving on its own while it plays.
     struct Progress: Equatable {
         var elapsed: TimeInterval = 0
         var length: TimeInterval = HandpickedPreview.length
@@ -28,13 +25,10 @@ final class HandpickedPreview {
 
     nonisolated static let length: TimeInterval = 30
 
-    /// The song whose preview is on.
     private(set) var current: String?
     private(set) var phase: Phase = .loading
     private(set) var progress = Progress()
-    /// Songs found to have no preview: their control goes quiet rather than failing again.
     private(set) var unavailable: Set<String> = []
-    /// A song whose preview couldn't play just now, to say so for a moment.
     private(set) var failed: String?
 
     @ObservationIgnored private var handoff = PreviewHandoff()
@@ -62,8 +56,6 @@ final class HandpickedPreview {
         current == identity
     }
 
-    /// Whether a song could have a preview here: the catalog's, or your music's own file or
-    /// stream. Apple Music's need its permission, and anything but a file needs a connection.
     func canPreview(_ pick: Handpick, source: MusicSource, music: YourMusic, isDemo: Bool) -> Bool {
         guard !unavailable.contains(pick.identity) else { return false }
         if isDemo { return true }
@@ -76,7 +68,6 @@ final class HandpickedPreview {
         }
     }
 
-    /// Plays the song's preview, or pauses or plays on the one that's on.
     func toggle(_ pick: Handpick, source: MusicSource, music: YourMusic, player: PlayerModel) {
         if current == pick.identity {
             switch phase {
@@ -89,15 +80,12 @@ final class HandpickedPreview {
         start(pick, source: source, music: music, player: player)
     }
 
-    /// Ends the preview. The song paused for it plays on unless a station is about to start.
     func stop(resumingSong: Bool = true) {
         let effects = handoff.stop(resumingSong: resumingSong)
         reset()
         apply(effects)
     }
 
-    /// Music was started some other way, from the keyboard or Control Center: the preview
-    /// gives way to it.
     func songStartedElsewhere() {
         guard current != nil else { return }
         handoff.songStartedElsewhere()
@@ -179,7 +167,6 @@ final class HandpickedPreview {
         audio.play()
     }
 
-    /// The pretend player's preview: the ring runs as a real one would, without a sound.
     private func pretend(turn: Int) {
         phase = .playing
         progress.runningSince = .now
@@ -254,7 +241,6 @@ final class HandpickedPreview {
 
     // MARK: Finding the preview
 
-    /// Where a preview plays from, and the part of the song it is.
     struct Address: Sendable {
         let url: URL
         var start: TimeInterval = 0
