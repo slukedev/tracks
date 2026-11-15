@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.luke.tracks.data.MiniPlayerColors
 import com.luke.tracks.graph
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.hasArtist
@@ -70,6 +71,8 @@ import com.luke.tracks.ui.play.components.pressable
 import com.luke.tracks.ui.theme.LocalDarkTheme
 import com.luke.tracks.ui.theme.TracksTheme
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlin.math.abs
 
 /** The play button's size, and the toolbar's: Material's floating toolbar height. */
@@ -90,6 +93,8 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
     val haptics = LocalHapticFeedback.current
     val motion = MaterialTheme.motionScheme
     var queueOpen by remember { mutableStateOf(false) }
+    val colors by remember { graph.settings.settings.map { it.miniPlayerColors }.distinctUntilChanged() }
+        .collectAsStateWithLifecycle(MiniPlayerColors.Album)
     val song = state.current
     // Tells the shell how much room pages should leave under their lists.
     SideEffect { navigator.miniPlayerVisible = song != null }
@@ -106,9 +111,16 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
         val current = shown.value ?: return@AnimatedVisibility
         var drag by remember { mutableStateOf(Offset.Zero) }
 
-        // Tinted from the cover like Now Playing, so the toolbar matches the screen it opens.
+        // Tinted from the cover like Now Playing, so the toolbar matches the screen it opens,
+        // unless Settings asks for the app's own colors. Either way a change fades across.
         val seed = rememberCoverSeed(current.artworkUri, current.albumTitle ?: current.title)
-        TracksTheme(dark = LocalDarkTheme.current, seed = seed, animate = true) {
+        val appScheme = MaterialTheme.colorScheme
+        TracksTheme(
+            dark = LocalDarkTheme.current,
+            seed = seed,
+            scheme = appScheme.takeIf { colors == MiniPlayerColors.App },
+            animate = true,
+        ) {
             val scheme = MaterialTheme.colorScheme
             Row(
                 Modifier

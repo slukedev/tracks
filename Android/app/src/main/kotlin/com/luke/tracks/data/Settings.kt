@@ -31,6 +31,9 @@ enum class ColorChoice {
 /** How a picked color becomes a palette, as Android's own wallpaper styles do. */
 enum class PaletteChoice { TonalSpot, Vibrant, Fidelity, Neutral }
 
+/** Whose colors the mini player wears: the album playing, or the app's own. */
+enum class MiniPlayerColors { Album, App }
+
 /** Tracks red, from the icon. */
 const val TRACKS_RED: Int = 0xFFE83A5F.toInt()
 
@@ -42,6 +45,7 @@ data class AppSettings(
     val paletteStyle: PaletteChoice = PaletteChoice.Vibrant,
     /** True black backgrounds in the dark theme. */
     val pureBlack: Boolean = false,
+    val miniPlayerColors: MiniPlayerColors = MiniPlayerColors.Album,
     /** Songs asked to hear less of; they leave every mix and the radio. */
     val hiddenSongs: Set<String> = emptySet(),
     val scrobbleEnabled: Boolean = true,
@@ -62,6 +66,7 @@ class SettingsRepository(private val context: Context) {
         val seed = androidx.datastore.preferences.core.intPreferencesKey("seedColor")
         val style = stringPreferencesKey("paletteStyle")
         val pureBlack = booleanPreferencesKey("pureBlack")
+        val miniPlayerColors = stringPreferencesKey("miniPlayerColors")
         val hidden = stringSetPreferencesKey("hiddenSongs")
         val scrobble = booleanPreferencesKey("scrobbleEnabled")
         val lastFmUser = stringPreferencesKey("lastFmUser")
@@ -80,6 +85,7 @@ class SettingsRepository(private val context: Context) {
         seedColor = this[Keys.seed] ?: TRACKS_RED,
         paletteStyle = this[Keys.style]?.let { runCatching { PaletteChoice.valueOf(it) }.getOrNull() } ?: PaletteChoice.Vibrant,
         pureBlack = this[Keys.pureBlack] ?: false,
+        miniPlayerColors = this[Keys.miniPlayerColors]?.let { runCatching { MiniPlayerColors.valueOf(it) }.getOrNull() } ?: MiniPlayerColors.Album,
         hiddenSongs = this[Keys.hidden] ?: emptySet(),
         scrobbleEnabled = this[Keys.scrobble] ?: true,
         lastFmUser = this[Keys.lastFmUser],
@@ -98,6 +104,7 @@ class SettingsRepository(private val context: Context) {
             p[Keys.seed] = new.seedColor
             p[Keys.style] = new.paletteStyle.name
             p[Keys.pureBlack] = new.pureBlack
+            p[Keys.miniPlayerColors] = new.miniPlayerColors.name
             p[Keys.hidden] = new.hiddenSongs
             p[Keys.scrobble] = new.scrobbleEnabled
             if (new.lastFmUser == null) p.remove(Keys.lastFmUser) else p[Keys.lastFmUser] = new.lastFmUser

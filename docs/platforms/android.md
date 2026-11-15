@@ -180,7 +180,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Output switcher, sleep timer with a fade, Up Next with drag to reorder and swipe to remove,
   Share.
 - Mini player as a floating toolbar across the screen beside a round play button, tinted
-  from the cover, with the song's progress filling the play button's edge: tap or swipe up
+  from the cover (or in the app's colors, from Settings, Appearance), with the song's progress filling the play button's edge: tap or swipe up
   to expand, swipe to skip, press and hold (or TalkBack's Show queue action) for the queue.
 
 ### Your Music

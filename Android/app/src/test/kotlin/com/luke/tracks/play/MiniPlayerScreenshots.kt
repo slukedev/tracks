@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.luke.tracks.ScreenshotTest
+import com.luke.tracks.data.MiniPlayerColors
 import com.luke.tracks.playback.IdlePlayer
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.PlayerState
@@ -23,6 +24,7 @@ import com.luke.tracks.ui.navigation.AppShell
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.Navigator
 import com.luke.tracks.ui.nowplaying.MiniPlayer
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import org.robolectric.annotation.Config
 import uniffi.tracks_engine.songIdentity
@@ -33,7 +35,7 @@ import uniffi.tracks_engine.songIdentity
  * phone width and at 360dp, where everything still has to fit.
  */
 abstract class MiniPlayerShots(dark: Boolean, private val width: Int) : ScreenshotTest(dark) {
-    private fun song(title: String, artist: String) = PlayableSong(
+    protected fun song(title: String, artist: String) = PlayableSong(
         mediaId = "local:${title.hashCode()}",
         uri = Uri.parse("content://media/external/audio/media/1"),
         title = title,
@@ -44,7 +46,7 @@ abstract class MiniPlayerShots(dark: Boolean, private val width: Int) : Screensh
         identity = songIdentity(title, artist),
     )
 
-    private fun shot(name: String, song: PlayableSong, isPlaying: Boolean, positionMs: Long) {
+    protected fun shot(name: String, song: PlayableSong, isPlaying: Boolean, positionMs: Long) {
         graph.player = IdlePlayer(
             PlayerState(current = song, isPlaying = isPlaying, positionMs = positionMs, durationMs = 214_000, queue = listOf(song)),
         )
@@ -95,7 +97,17 @@ abstract class MiniPlayerShots(dark: Boolean, private val width: Int) : Screensh
 }
 
 @Config(qualifiers = "w412dp-h915dp-xxhdpi")
-class MiniPlayerScreenshots(dark: Boolean) : MiniPlayerShots(dark, 412)
+class MiniPlayerScreenshots(dark: Boolean) : MiniPlayerShots(dark, 412) {
+    /** Set to the app's colors in Settings: this cover tints green (see no-artist), here it doesn't. */
+    @Test fun appColors() {
+        runBlocking { graph.settings.update { it.copy(miniPlayerColors = MiniPlayerColors.App) } }
+        try {
+            shot("app-colors", song("Over the Horizon", "Juniper Lane"), isPlaying = true, positionMs = 120_000)
+        } finally {
+            runBlocking { graph.settings.update { it.copy(miniPlayerColors = MiniPlayerColors.Album) } }
+        }
+    }
+}
 
 @Config(qualifiers = "w360dp-h780dp-xxhdpi")
 class MiniPlayerNarrowScreenshots(dark: Boolean) : MiniPlayerShots(dark, 360)

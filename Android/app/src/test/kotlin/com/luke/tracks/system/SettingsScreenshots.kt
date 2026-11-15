@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.luke.tracks.data.ColorChoice
+import com.luke.tracks.data.MiniPlayerColors
 import com.luke.tracks.data.PaletteChoice
 import com.luke.tracks.ui.settings.PresetColors
 import com.luke.tracks.ui.summary.SummaryScreen
@@ -42,6 +43,17 @@ class SettingsScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     @Test fun appearance() {
         runBlocking { graph.settings.update { it.copy(colors = ColorChoice.Wallpaper) } }
         page("settings-appearance") { SettingsPageScreen("appearance") }
+    }
+
+    /** The whole page with the mini player set to the app's colors. */
+    @Test @Config(qualifiers = "w412dp-h2000dp-xxhdpi")
+    fun appearanceMiniPlayer() {
+        runBlocking { graph.settings.update { it.copy(colors = ColorChoice.Wallpaper, miniPlayerColors = MiniPlayerColors.App) } }
+        try {
+            page("full-settings-appearance-miniplayer") { SettingsPageScreen("appearance") }
+        } finally {
+            runBlocking { graph.settings.update { it.copy(miniPlayerColors = MiniPlayerColors.Album) } }
+        }
     }
 
     /** A picked color, in the palette it makes, the way the app shows it once chosen. */
