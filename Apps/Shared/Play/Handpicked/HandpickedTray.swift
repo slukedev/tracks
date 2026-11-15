@@ -12,12 +12,17 @@ private struct PickedTrayInset: ViewModifier {
     @Environment(HandpickedSelection.self) private var selection
     @Environment(HandpickedPreview.self) private var preview
     @State private var showsPicked = false
+    @State private var trayHeight: CGFloat = 0
 
     func body(content: Content) -> some View {
+        let showsTray = !selection.picks.isEmpty
         content
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !selection.picks.isEmpty {
+            // Room for the tray under the last row, so it scrolls clear of it.
+            .contentMargins(.bottom, showsTray ? trayHeight : 0, for: .scrollContent)
+            .overlay(alignment: .bottom) {
+                if showsTray {
                     PickedTray { showsPicked = true }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { trayHeight = $0 }
                         #if os(macOS)
                         .popover(isPresented: $showsPicked, arrowEdge: .top) {
                             PickedList()
@@ -28,7 +33,7 @@ private struct PickedTrayInset: ViewModifier {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .animation(PlayMotion.panel, value: selection.picks.isEmpty)
+            .animation(PlayMotion.panel, value: showsTray)
             #if os(iOS)
             .navigationDestination(isPresented: $showsPicked) { PickedList() }
             #endif
@@ -81,8 +86,14 @@ struct PickedTray: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        // A material, not clear glass: rows scroll behind it and mustn't read through.
+        .background(.regularMaterial, in: .rect(cornerRadius: 26, style: .continuous))
         .clipShape(.rect(cornerRadius: 26, style: .continuous))
-        .glassEffect(.regular, in: .rect(cornerRadius: 26, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(.separator.opacity(0.6), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
         .animation(PlayMotion.row, value: picks.map(\.identity))

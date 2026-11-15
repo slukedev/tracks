@@ -30,11 +30,13 @@ struct HandpickedPicker: View {
         let source = model.musicSource
         NavigationStack {
             list(source: source)
-                .navigationTitle(Handpicked.title)
                 #if os(iOS)
+                .navigationTitle(Handpicked.title)
                 .navigationBarTitleDisplayMode(.inline)
-                #endif
                 .searchable(text: $query, prompt: "Songs")
+                #else
+                .safeAreaInset(edge: .top, spacing: 0) { MacPickerHeader(query: $query) }
+                #endif
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel", role: .cancel) { dismiss() }
@@ -116,9 +118,10 @@ struct HandpickedPicker: View {
                 }
             }
         }
+        let suggested = Set(suggestions.map(\.identity))
         rows(suggestions, in: .suggestions)
-        rows(recent, in: .recent)
-        rows(top, in: .top)
+        rows(recent.filter { !suggested.contains($0.identity) }, in: .recent)
+        rows(top.filter { !suggested.contains($0.identity) }, in: .top)
         if hasLoaded, recent.isEmpty, top.isEmpty {
             Section {
                 Text("Search for songs you love, or pick from your playlists. Songs you play show up here too.")
@@ -360,6 +363,60 @@ struct PickSearch {
         return shown
     }
 }
+
+#if os(macOS)
+/// The sheet's title and its search on one line, as Music's sheets have them, both on the
+/// list's leading and trailing edges.
+private struct MacPickerHeader: View {
+    @Binding var query: String
+    @FocusState private var isSearching: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(Handpicked.title)
+                .font(.title2.weight(.semibold))
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 12)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                TextField("Songs", text: $query, prompt: Text("Songs"))
+                    .textFieldStyle(.plain)
+                    .focused($isSearching)
+                    .onKeyPress(.escape) {
+                        guard !query.isEmpty else { return .ignored }
+                        query = ""
+                        return .handled
+                    }
+                if !query.isEmpty {
+                    Button("Clear Search", systemImage: "xmark.circle.fill") { query = "" }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(width: 240, height: 28)
+            .background(.quaternary.opacity(0.6), in: .rect(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isSearching ? Color.accentColor.opacity(0.6) : .clear, lineWidth: 2)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 10)
+        .background(.background)
+        .background {
+            Button("Find") { isSearching = true }
+                .keyboardShortcut("f")
+                .hidden()
+        }
+    }
+}
+#endif
 
 /// Lets the preview give way when music starts some other way: from the keyboard, the menu
 /// bar or Control Center.
