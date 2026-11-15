@@ -261,14 +261,19 @@ struct HandpickedPicker: View {
         guard !Task.isCancelled else { return }
         let sections = PickSearch.sections(source: source, isDemo: player.isDemo, hasServers: !music.servers.servers.isEmpty)
         found = PickSearch(term: term, order: sections)
-        await withTaskGroup(of: Void.self) { group in
-            for section in sections {
-                group.addTask { @MainActor in
-                    let picks = await songs(in: section, matching: term, source: source)
-                    guard !Task.isCancelled, found?.term == term else { return }
-                    withAnimation(PlayMotion.row) { found?.arrived(picks, in: section) }
-                }
+        // All asked at once, and taken in order: a place only shows once the ones before it
+        // have answered anyway.
+        let lookups = sections.map { section in
+            (section, Task { await songs(in: section, matching: term, source: source) })
+        }
+        await withTaskCancellationHandler {
+            for (section, lookup) in lookups {
+                let picks = await lookup.value
+                guard !Task.isCancelled, found?.term == term else { return }
+                withAnimation(PlayMotion.row) { found?.arrived(picks, in: section) }
             }
+        } onCancel: {
+            for (_, lookup) in lookups { lookup.cancel() }
         }
     }
 

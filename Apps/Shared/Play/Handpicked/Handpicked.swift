@@ -21,7 +21,7 @@ enum Handpicked {
 }
 
 /// A song picked for a Handpicked station.
-struct Handpick: Hashable, Identifiable {
+nonisolated struct Handpick: Hashable, Identifiable, Sendable {
     /// The song as the history knows it.
     let identity: String
     /// Apple Music's id for it, or your music's.

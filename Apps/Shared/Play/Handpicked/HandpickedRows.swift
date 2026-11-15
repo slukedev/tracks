@@ -140,7 +140,7 @@ struct PickMenu: View {
             }
         }
         Button(isPicked ? "Remove from Station" : "Add to Station", systemImage: isPicked ? "minus.circle" : "plus.circle") {
-            withAnimation(PlayMotion.row) { selection.toggle(pick) }
+            withAnimation(PlayMotion.row) { _ = selection.toggle(pick) }
         }
         .disabled(!isPicked && selection.isFull)
     }
