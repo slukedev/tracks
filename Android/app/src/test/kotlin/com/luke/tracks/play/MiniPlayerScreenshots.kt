@@ -6,10 +6,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
+import com.github.takahirom.roborazzi.captureRoboImage
 import com.luke.tracks.ScreenshotTest
 import com.luke.tracks.playback.IdlePlayer
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.PlayerState
+import com.luke.tracks.playback.QueueOrigin
+import com.luke.tracks.ui.navigation.AppShell
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.Navigator
 import com.luke.tracks.ui.nowplaying.MiniPlayer
@@ -18,8 +28,9 @@ import org.robolectric.annotation.Config
 import uniffi.tracks_engine.songIdentity
 
 /**
- * The mini player alone, playing and paused, with a title too long for the card and with no
- * artist, at a common phone width and at 360dp, where everything still has to fit.
+ * The mini player playing and paused, with a title too long for it and with no artist, alone
+ * and in the app's frame (at the top of Play and scrolled, with the bar hidden), at a common
+ * phone width and at 360dp, where everything still has to fit.
  */
 abstract class MiniPlayerShots(dark: Boolean, private val width: Int) : ScreenshotTest(dark) {
     private fun song(title: String, artist: String) = PlayableSong(
@@ -44,6 +55,27 @@ abstract class MiniPlayerShots(dark: Boolean, private val width: Int) : Screensh
         }
     }
 
+    private fun shell(isPlaying: Boolean) {
+        withSampleHistory()
+        val library = SampleLibrary().also { graph.library = it }
+        val queue = library.songs.take(8)
+        graph.player = IdlePlayer(
+            PlayerState(
+                current = queue[1], isPlaying = isPlaying, positionMs = 120_000, durationMs = 210_000,
+                queue = queue, index = 1, origin = QueueOrigin("On Repeat", QueueOrigin.Kind.Mix),
+            ),
+        )
+        val name = "miniplayer-shell-${if (isPlaying) "playing" else "paused"}-$width"
+        snap(name, settleMs = 3000) { AppShell(Navigator()) }
+        val vertical = hasScrollAction() and SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)
+        repeat(2) {
+            compose.onAllNodes(vertical).onFirst().performTouchInput { swipeUp(startY = bottom * 0.85f, endY = top + height * 0.15f) }
+            settle(400)
+        }
+        settle(1200)
+        compose.onRoot().captureRoboImage("build/screenshots/$name-scrolled-${if (dark) "dark" else "light"}.png")
+    }
+
     @Test fun playing() = shot("playing", song("Open Road", "Juniper Lane"), isPlaying = true, positionMs = 120_000)
 
     @Test fun paused() = shot("paused", song("Open Road", "Juniper Lane"), isPlaying = false, positionMs = 120_000)
@@ -56,10 +88,14 @@ abstract class MiniPlayerShots(dark: Boolean, private val width: Int) : Screensh
     )
 
     @Test fun noArtist() = shot("no-artist", song("Over the Horizon", "<unknown>"), isPlaying = false, positionMs = 30_000)
+
+    @Test fun shellPlaying() = shell(isPlaying = true)
+
+    @Test fun shellPaused() = shell(isPlaying = false)
 }
 
-@Config(qualifiers = "w412dp-h200dp-xxhdpi")
+@Config(qualifiers = "w412dp-h915dp-xxhdpi")
 class MiniPlayerScreenshots(dark: Boolean) : MiniPlayerShots(dark, 412)
 
-@Config(qualifiers = "w360dp-h200dp-xxhdpi")
+@Config(qualifiers = "w360dp-h780dp-xxhdpi")
 class MiniPlayerNarrowScreenshots(dark: Boolean) : MiniPlayerShots(dark, 360)
