@@ -312,6 +312,7 @@ final class MusicKitPlayerEngine: PlayerEngine {
         // The song tapped, when it isn't the first: the queue is checked to be on it before
         // any of it plays.
         var startSong: StartSong?
+        var continuing: ContinuedSong?
         var queued: [Song] = []
         switch request {
         case .history(let songs, let start):
@@ -340,9 +341,10 @@ final class MusicKitPlayerEngine: PlayerEngine {
             startSong = StartSong(allowed, at: index)
             queued = allowed
             queue = try await Self.queue(of: allowed, startingAt: index, shuffled: shuffled)
-        case .station(let station):
+        case .station(let station, let continued):
             // A station can't be filtered ahead of time; the player model skips what's not allowed.
             queue = ApplicationMusicPlayer.Queue(for: [station])
+            continuing = continued
         case .album(let album):
             // The clean edition of an album plays as its explicit songs, where they exist.
             if allowsExplicit, album.contentRating == .clean {
@@ -390,6 +392,13 @@ final class MusicKitPlayerEngine: PlayerEngine {
         #endif
         player.state.shuffleMode = systemShuffle ? .songs : .off
         if context.isStation { player.state.repeatMode = MusicPlayer.RepeatMode.none }
+        // Where the song carrying on is now, after the station was looked up; if it has given
+        // way meanwhile, the station starts from its own beginning.
+        continuing = continuing.flatMap { song in
+            current?.songIdentity == song.songIdentity
+                ? ContinuedSong(songID: song.songID, songIdentity: song.songIdentity, time: lastKnownPlaybackTime)
+                : nil
+        }
         queueStarting = playID
         queuedCovers = Self.covers(of: queued)
         coversLookedUp = []
@@ -402,15 +411,16 @@ final class MusicKitPlayerEngine: PlayerEngine {
         } else {
             TracksPlayerContext.playingOnDemand()
         }
-        try await start(playID, on: startSong)
+        try await start(playID, on: startSong, continuing: continuing)
     }
 
     /// Starts the queue just set. If starting fails and no newer request is the reason, it's
     /// tried once more, quietly, a moment later: the player often manages it the second time,
     /// after something touched the queue while it was getting ready.
-    private func start(_ playID: Int, on startSong: StartSong?) async throws {
+    private func start(_ playID: Int, on startSong: StartSong?, continuing: ContinuedSong? = nil) async throws {
         do {
             try await ready(playID, on: startSong)
+            try await carryOn(continuing, playID)
             try await ApplicationPlayerCommands.play()
             return
         } catch {
@@ -427,6 +437,17 @@ final class MusicKitPlayerEngine: PlayerEngine {
             guard playID == latestPlay else { throw CancellationError() }
             throw PlayerProblem(error)
         }
+    }
+
+    /// A station made from the song playing opens with that song: it carries on from where it
+    /// was, rather than starting again, so making the station doesn't lose your place.
+    private func carryOn(_ song: ContinuedSong?, _ playID: Int) async throws {
+        guard let song, song.time > 0 else { return }
+        try await ApplicationPlayerCommands.prepare()
+        guard playID == latestPlay else { throw CancellationError() }
+        guard case .song(let opening)? = player.queue.currentEntry?.item, song.isSame(as: opening) else { return }
+        player.playbackTime = song.time
+        setTime(song.time, check: false)
     }
 
     /// A song tapped part way down a list, as the queue was made.
@@ -479,8 +500,7 @@ final class MusicKitPlayerEngine: PlayerEngine {
             guard !allowsExplicit || album.contentRating == .clean else {
                 await PlayerQuiet.settled()
                 guard queueID == latestPlay, starting == 0 else { throw CancellationError() }
-                try await ApplicationPlayerCommands.insert([album], next: next)
-                refresh()
+                try await insert([album], next: next)
                 return
             }
             songs = try await Self.tracks(of: album)
@@ -489,8 +509,7 @@ final class MusicKitPlayerEngine: PlayerEngine {
             guard !allowsExplicit || songs.contains(where: { $0.contentRating == .clean }) else {
                 await PlayerQuiet.settled()
                 guard queueID == latestPlay, starting == 0 else { throw CancellationError() }
-                try await ApplicationPlayerCommands.insert([playlist], next: next)
-                refresh()
+                try await insert([playlist], next: next)
                 return
             }
         case .station, .demoStation, .local:
@@ -504,8 +523,29 @@ final class MusicKitPlayerEngine: PlayerEngine {
         try Task.checkCancellation()
         guard queueID == latestPlay, starting == 0 else { throw CancellationError() }
         queuedCovers.merge(Self.covers(of: allowed)) { _, new in new }
-        try await ApplicationPlayerCommands.insert(allowed, next: next)
+        try await insert(allowed, next: next)
+    }
+
+    /// Adds to the queue. A queue that had run out, its last song over or skipped past, plays
+    /// on with what's added, as your own music's player does: otherwise a live mix's next pick
+    /// landed in a queue that had stopped, and the music stayed stopped.
+    private func insert<Item: PlayableMusicItem>(_ items: [Item], next: Bool) async throws {
+        let ranOut = hasRunOut
+        let before = Set(player.queue.entries.map(\.id))
+        try await ApplicationPlayerCommands.insert(items, next: next)
+        if ranOut, let added = player.queue.entries.first(where: { !before.contains($0.id) }) {
+            player.queue.currentEntry = added
+            refresh()
+            try await ApplicationPlayerCommands.play()
+        }
         refresh()
+    }
+
+    /// Whether the player has stopped at the end of its queue.
+    private var hasRunOut: Bool {
+        guard canRead, !TracksPlayerContext.isStation, player.state.playbackStatus == .stopped else { return false }
+        guard let currentID = player.queue.currentEntry?.id else { return !player.queue.entries.isEmpty }
+        return player.queue.entries.last?.id == currentID
     }
 
     func pause() {
@@ -526,6 +566,9 @@ final class MusicKitPlayerEngine: PlayerEngine {
     func skipToNext() async throws {
         await PlayerQuiet.settled()
         try await ApplicationPlayerCommands.skipToNext()
+        // Read now, not when the player next reports in: a skip straight after this one has
+        // to see what's left after the song it landed on.
+        if canRead { refresh() }
     }
 
     /// Back to the start of the song after the first few seconds, as every player does, and

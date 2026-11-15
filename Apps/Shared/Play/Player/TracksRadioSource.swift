@@ -10,6 +10,7 @@ enum TracksRadioSource {
     /// drives where that's already allowed.
     static func make(library: Library, discovery: Discovery, yourMusic: YourMusic, player: PlayerModel) -> () async -> LiveMix {
         followGenres(library: library, player: player)
+        GenrePlayback.followRestarts(library: library, yourMusic: yourMusic, player: player)
         player.drive.onChange = { [weak player] in
             // Only the radio that notices driving plays differently for the road.
             guard PlayPreferences.radioNoticesDriving else { return }

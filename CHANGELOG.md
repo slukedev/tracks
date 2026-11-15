@@ -67,6 +67,19 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   play counts for more from someone who skips freely
 - A small library plays more new finds, so the first listens don't go round the same few
   songs, and one skip of a song you play all the time barely counts against it
+- Skip as fast as you like: Tracks Radio, the moods, genre stations and Autoplay keep a song
+  waiting behind the next while you skip, from the app, the lock screen, CarPlay or your
+  headphones, and never skip off the end and stop. When the next song can't be reached yet,
+  the one playing plays on and Tracks says so
+- A genre's station stays in its genre however much you skip. Its new finds are only songs
+  filed under it, and a small one that has played every song it has says it's reaching into
+  the genres closest to it, never anything at random. It picks up where it was after Tracks
+  closes, too, rather than running out into songs from anywhere
+- Moods are truer to themselves: Energy, Workout and Party never play classical, ambient or
+  sleep music, or a quiet acoustic take, and Sleep, Focus and Chill leave out metal, drill and
+  club mixes, judged by each song's genre and by what its title, album and artist give away
+- Create Station from the song playing, or start a mood or Handpicked from it, and the song
+  carries on from where it is rather than starting again
 
 ### Play on the Mac
 

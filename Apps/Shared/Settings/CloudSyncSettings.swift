@@ -119,6 +119,12 @@ struct CloudSyncPage: View {
                     }
                 }
 
+                if Onboarding.shared.restore.isUnderWay {
+                    Section {
+                        HistoryRestoreRow(restore: Onboarding.shared.restore)
+                    }
+                }
+
                 if let fix = fix(for: status) {
                     Section {
                     } footer: {

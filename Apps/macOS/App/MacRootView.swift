@@ -130,6 +130,7 @@ struct MacRootView: View {
                 open: open
             )
             .opensDeepLinks(in: model)
+            .onboarding(model)
             .modelContainer(store.container)
             .environment(capture)
             .environment(playback)

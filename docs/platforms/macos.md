@@ -129,7 +129,12 @@ See [README.md](README.md) for the legend and how to keep this current.
 ### Sync and backup
 
 - History syncs through your private iCloud database with the iPhone.
-- Settings and removed songs sync through the iCloud key-value store.
+- Settings and removed songs sync through the iCloud key-value store. Every setting is listed
+  once in `SettingsRegistry` (TracksCore's `core`, the app's `AppSettingsRegistry.swift`), as
+  synced or kept on the device; renamed keys carry over through `formerKeys`, and a demo
+  launch's changes are undone on the next real launch.
+- A welcome the first time Tracks opens on the device, with Apple Music, Last.fm, Your Music
+  and the iCloud restore's progress (`Apps/Shared/Onboarding`).
 - Sync with iCloud on or off, with what syncs and what iCloud said.
 
 ### Devices, Play On and SharePlay

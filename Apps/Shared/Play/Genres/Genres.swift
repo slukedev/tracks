@@ -305,10 +305,30 @@ struct CoverFan: View {
 enum GenrePlayback {
     /// - Parameter charts: the genre's chart songs, where they're already loaded.
     static func start(_ genre: MusicGenre, model: AppModel, charts: [Song]? = nil) async {
-        let player = model.player
-        let (history, signals, isDemo) = (model.library.history, player.signals, player.isDemo)
-        if model.musicSource == .yourMusic {
-            let tracks = model.yourMusic.playableTracks
+        await start(genre, library: model.library, yourMusic: model.yourMusic, player: model.player, charts: charts)
+    }
+
+    /// Starts the station again from the song it was on, for one left paused when Tracks last
+    /// closed: it carries on as the genre's station, never as a queue that runs out into
+    /// Autoplay's songs from anywhere.
+    static func followRestarts(library: Library, yourMusic: YourMusic, player: PlayerModel) {
+        player.restartGenre = { [weak library, weak yourMusic, weak player] genre, first in
+            guard let library, let yourMusic, let player else { return }
+            await start(genre, library: library, yourMusic: yourMusic, player: player, startingWith: first)
+        }
+    }
+
+    private static func start(
+        _ genre: MusicGenre,
+        library: Library,
+        yourMusic: YourMusic,
+        player: PlayerModel,
+        charts: [Song]? = nil,
+        startingWith first: MixSong? = nil
+    ) async {
+        let (history, signals, isDemo) = (library.history, player.signals, player.isDemo)
+        if MusicSource.current == .yourMusic {
+            let tracks = yourMusic.playableTracks
             let mix = await OffMainActor.run {
                 LiveMix.genre(genre, from: tracks, history: history, signals: signals, seed: .random(in: 0...UInt64.max))
             }
@@ -316,7 +336,7 @@ enum GenrePlayback {
                 player.problem = .failed(String(localized: "None of your music is \(genre.title) yet."))
                 return
             }
-            await player.startLive(mix, from: genre.context)
+            await player.startLive(mix, from: genre.context, startingWith: first)
             return
         }
         let songs = if let charts { charts } else { await GenreCatalog.load(genre, isDemo: isDemo).songs }
@@ -329,7 +349,7 @@ enum GenrePlayback {
             player.problem = .failed(String(localized: "Nothing to play for \(genre.title) yet."))
             return
         }
-        await player.startLive(mix, from: genre.context)
+        await player.startLive(mix, from: genre.context, startingWith: first)
     }
 }
 

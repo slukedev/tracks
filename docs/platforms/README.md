@@ -222,7 +222,7 @@ As of November 2026, on `feat/android-m3-expressive`.
 | Feature | iPhone | Mac | Android | Engine (shared) |
 | --- | --- | --- | --- | --- |
 | Settings with a status line on each page | Yes | Yes | Yes | Platform |
-| Onboarding | Partial (permission prompts in context) | Partial | Yes | Platform |
+| Onboarding | Yes (welcome, setup and iCloud restore) | Yes (welcome, setup and iCloud restore) | Yes | Platform |
 | Choose where the app opens | Yes | Yes | No | Platform |
 | App theme and color choice | n/a (follows system) | n/a | Yes (Material You) | Platform |
 | Screen reader labels and actions | Yes | Yes | Partial | Platform |

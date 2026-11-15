@@ -85,6 +85,7 @@ struct RootView: View {
             // Someone else's SharePlay, joined from Messages.
             .sharePlayGuestPage(closing: $showsNowPlaying)
             .opensDeepLinks(in: model)
+            .onboarding(model)
             .modifier(TabMemory(model: model, selection: $selection))
             // A song from a widget. Summary is the tab whose stack can be pushed from here.
             // Initial too, for a link that launched the app.
