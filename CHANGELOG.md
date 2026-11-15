@@ -286,6 +286,14 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   control and widget queue, Save Current Radio Song, Treat Everything as Radio, and Background
   App Refresh
 - Settings say less: shorter names, and a note under a setting only where it saves a mistake
+- A welcome the first time Tracks opens on a device: Apple Music, Last.fm and Your Music in
+  one place, none of them required. Installing again, or on a new device, shows Welcome Back
+  and brings your history down from iCloud with how far it has got: "Restoring 12,400 plays
+  from iCloud". A Last.fm account still in the Keychain is connected again without signing in
+- Your settings survive updates, reinstalls and new devices. Play, Tracks Radio, Now Playing,
+  Stage and device settings now sync through iCloud as well as History's, and a device that
+  updates keeps its own choices rather than taking another device's. What depends on the
+  device (downloads, streaming quality, your servers, where Play's music comes from) stays on it
 - Summary's charts: tap a bar to read it and swipe sideways for the week or month before,
   and the page still scrolls from a chart. Charts compares your listening with the same
   point last week, month or year
