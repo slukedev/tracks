@@ -344,7 +344,7 @@ nonisolated final class LevelAnalysis: @unchecked Sendable {
 
 extension HeardSound {
     /// Copies a moment of a song in, timed by the song's own clock. On the audio thread.
-    func hear(_ buffers: UnsafeMutablePointer<AudioBufferList>, frames: Int, at start: CMTime) {
+    nonisolated func hear(_ buffers: UnsafeMutablePointer<AudioBufferList>, frames: Int, at start: CMTime) {
         hear(buffers, frames: frames, at: start.isNumeric ? start.seconds : nil)
     }
 }
