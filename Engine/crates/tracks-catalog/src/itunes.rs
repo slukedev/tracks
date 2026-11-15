@@ -144,8 +144,6 @@ pub struct CatalogAlbum {
     pub year: Option<u32>,
     pub genre: Option<String>,
     pub kind: AlbumKind,
-    /// The day it came out, or comes out, as "2016-05-08".
-    pub released: Option<String>,
     pub store_url: Option<String>,
 }
 
@@ -261,12 +259,6 @@ impl Item {
             .map(larger_artwork)
     }
 
-    fn day(&self) -> Option<String> {
-        let day = self.release_date.as_deref()?.get(..10)?;
-        let digits = day.bytes().enumerate().all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() });
-        digits.then(|| day.to_owned())
-    }
-
     fn year(&self) -> Option<u32> {
         self.release_date.as_deref()?.get(..4)?.parse().ok()
     }
@@ -303,7 +295,6 @@ impl Item {
             id: self.collection_id?,
             artwork_url: self.artwork(),
             year: self.year(),
-            released: self.day(),
             title,
             artist_name,
             artist_id: self.artist_id,

@@ -26,10 +26,11 @@ See [README.md](README.md) for the legend and how to keep this current.
   through Tracks. The notification listener, its onboarding step, the Listening history and
   excluded apps pages, and the Radio filter are gone. Plays it kept earlier stay in the
   history.
-- 2026-11-15: Suggestions of music you don't have live on Play only, and show whether or not
-  a server can get them (previews and Open in another app without one). Your Music shows only
-  your music. Play's old "Suggested songs" (your most played this month) and "Keep exploring"
-  (old favorites) are gone: On Repeat and Rediscover cover them, and those names now mean new
+- 2026-11-15: Play follows the iPhone's Play with your own music. New music comes from your
+  Subsonic server, as on iPhone (its similar songs, which Octo gets from Last.fm), so those
+  shelves show only with a server. They live on Play only; Your Music shows only your music.
+  Play's old "Suggested songs" (your most played this month) and "Keep exploring" (old
+  favorites) are gone: On Repeat and Rediscover cover them, and those names now mean new
   music, as on iPhone.
 
 ## Complete features
@@ -164,17 +165,22 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Mixes from the shared engine: time of day, On Repeat, New Finds, All-Time Favorites, Deep
   Cuts, Rediscover, A Year Ago. Radio Finds needs radio plays, so it never appears on
   Android.
-- Sections in the iPhone's order: the crate, Suggested songs, Suggested artists, Recently
-  played, Your artists, Made from your listening, New from your artists, then Keep exploring at
-  the end. Each shows only when it has something.
-- Suggested songs, Suggested artists, New from your artists and Keep exploring are music you
-  don't have, from your top artists and artists like them: Deezer's related artists (no key
-  needed), plus Last.fm's similar songs where this build has a key, ranked by the engine, with
-  artists you already play left out. Each song has a 30 second preview (never kept or
-  scrobbled) and Open in another app; with Octo or Lidarr, a Get button too. Not interested
-  on an artist stops suggesting them. Answers are kept on disk, asked again at most every 8
-  hours or when your top artists change, and shown from there when offline.
-- Recently played: the albums of your latest plays, with the album menu on press and hold.
+- Sections in the order of the iPhone's Play with your own music: a card for a server that
+  can't be reached, the crate, Suggested songs, Recently played, Your artists, Made from your
+  listening, Waiting to be heard, then for each server Picked for you, New on, Most played on
+  and Something different, and Keep exploring at the end. Each shows only when it has
+  something.
+- Suggested songs, Picked for you and Keep exploring come from each Subsonic server, as on
+  iPhone: the engine (`tracks_mixes::server`) picks the artists to start from (what you play,
+  then your library's), walks on to artists like them a step at a time as a shelf is scrolled,
+  leaves out songs you've heard, and decides which shelf each goes to (artists you know to
+  Picked for you, woven with your own unheard songs; new artists to Suggested songs). The app
+  asks the server (search, then `getSimilarSongs2`) within a budget of a few requests then one
+  every 8 seconds, checks covers, and keeps the picks on disk for 6 hours. With Octo, songs not
+  in your music have an Add button that has Octo fetch them. Keep exploring weaves in songs
+  you've never played from `getRandomSongs`.
+- Recently played (your albums by when you last heard them), Your artists (only ones in your
+  music), Waiting to be heard (your songs you've never played, in a fresh order each day).
 - Mix pages with Play and Shuffle; songs you can't play here are dimmed and offer "Open in"
   another app.
 - Pin a mix to the home screen.
@@ -286,12 +292,13 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - Save a mix as a playlist.
 - Tune Tracks Radio beyond adventure: genres, old favorites, Through the Day.
 - Learning which songs go together, and Autoplay after an album or playlist.
-- Find Songs and Find Artists (the "Find More" pages behind Suggested songs and Suggested
-  artists), and shelves that keep growing as you scroll to their end.
-- Discover in the crate, and Tracks Radio's new finds from suggestions.
+- Choose Artists for Picked for you (iPhone's SeedArtistPicker), and its start card when
+  there's nothing to start from.
+- The server's slower second search for an artist (iPhone shows the quick one first and adds
+  the slower one's songs later); Android does one search.
+- Your servers' songs in the crate, and Tracks Radio's new finds from them.
 - Moods, genres, Handpicked and Party.
-- Radio (live stations), Top Charts, Apple Music's picks and the library overview on Play:
-  Apple Music's on iPhone. Android would need its own sources, if any.
+- From Your Downloads (Android has no downloads yet) and the library list on Play.
 - For You cards.
 - Edit Play's sections; Open To.
 - Pull to refresh Play.

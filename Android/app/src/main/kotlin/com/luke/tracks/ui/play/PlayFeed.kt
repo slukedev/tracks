@@ -10,28 +10,37 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.AppGraph
 import com.luke.tracks.engine.Engine
 import com.luke.tracks.graph
+import com.luke.tracks.library.LibraryAlbum
 import com.luke.tracks.playback.PlayableSong
-import com.luke.tracks.ui.insights.Identities
 import uniffi.tracks_engine.ArtistStats
+import uniffi.tracks_engine.ShuffleItem
+import uniffi.tracks_engine.dailySeed
+import uniffi.tracks_engine.foldedName
+import uniffi.tracks_engine.freshShuffle
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import uniffi.tracks_engine.Mix
 import uniffi.tracks_engine.MixSet
 import uniffi.tracks_engine.Period
 import uniffi.tracks_engine.SourceFilter
 
-/** An album you played lately, for Recently played. */
-@Immutable
-data class RecentAlbum(val identity: String, val title: String, val artistName: String, val artworkUrl: String?)
-
-/** Everything the Play tab shows from your history, read from the engine in one go. */
+/** Everything the Play tab shows from your history and your music, read in one go. */
 @Immutable
 data class PlayFeed(
     val mixes: MixSet,
     /** Songs you can play here, by identity, for the mixes on the page. */
     val playable: Map<String, PlayableSong>,
-    val recentlyPlayed: List<RecentAlbum>,
+    /** Your albums, most lately heard first. */
+    val recentlyPlayed: List<LibraryAlbum>,
     val topArtists: List<ArtistStats>,
+    /** Your songs you've never played. */
+    val waiting: List<PlayableSong> = emptyList(),
     val hasHistory: Boolean,
 ) {
+    /** The mixes for their shelf: ones with at least five songs you can play here. */
+    val shelfMixes: List<Mix> get() = mixes.mixes.filter { playable(it).size >= 5 }
+
     /** The crate: this hour's mix first, then the rest of today. */
     val crate: List<Mix> get() = listOfNotNull(mixes.rightNow) + mixes.otherTimes
 
@@ -66,22 +75,35 @@ suspend fun loadFeed(graph: AppGraph, hidden: Set<String>, nowMs: Long = System.
         val recent = Period(nowMs - 90 * DAY, null)
         val artists = artistChart(recent, null, SourceFilter.ALL, 12u).rows.map { it.artist }
             .ifEmpty { artistChart(Engine.allTime, null, SourceFilter.ALL, 12u).rows.map { it.artist } }
-        // The albums of the latest plays, newest first, each once.
-        val albums = LinkedHashMap<String, RecentAlbum>()
-        for (play in recentPlays(null, 400u)) {
-            if (albums.size == 12) break
-            val identity = Identities.album(play.albumTitle, play.artistName, play.title) ?: continue
-            if (identity !in albums) albums[identity] = RecentAlbum(identity, play.albumTitle!!, play.artistName, play.artworkUrl)
-        }
+        val library = graph.library.snapshot.value
+        // Your albums by when you last heard any song on them, latest first.
+        val lastHeard = HashMap<String, Long>()
+        for (play in recentPlays(null, 2000u)) lastHeard.putIfAbsent(play.identity, play.playedAtMs)
+        val recentAlbums = library.albums
+            .mapNotNull { album -> album.songs.mapNotNull { lastHeard[it.identity] }.maxOrNull()?.let { album to it } }
+            .sortedByDescending { it.second }
+            .take(15)
+            .map { it.first }
+        // Your songs you've never played, a fresh order each day.
+        val unplayed = library.songs.filter { song(it.identity) == null }.distinctBy { it.identity }
+        val today = LocalDate.ofInstant(Instant.ofEpochMilli(nowMs), ZoneId.systemDefault())
+        val order = freshShuffle(
+            unplayed.map { ShuffleItem(it.identity, foldedName(it.artistName), false) },
+            dailySeed(today.year.toShort(), today.monthValue.toByte(), today.dayOfMonth.toByte(), "waiting"),
+        )
+        val byIdentity = unplayed.associateBy { it.identity }
         val identities = HashSet<String>()
         (listOfNotNull(set.rightNow) + set.otherTimes + set.mixes).forEach { mix -> mix.songs.forEach { identities += it.identity } }
         val playable = HashMap<String, PlayableSong>()
         for (identity in identities) graph.library.find(identity)?.let { playable[identity] = it }
+        val yours = library.artists.map { foldedName(it.name) }.toSet()
         PlayFeed(
             mixes = set,
             playable = playable,
-            recentlyPlayed = albums.values.toList(),
-            topArtists = artists,
+            recentlyPlayed = recentAlbums,
+            // The artists you play most lately who are in your music.
+            topArtists = artists.filter { foldedName(it.name) in yours },
+            waiting = order.take(15).mapNotNull { byIdentity[it] },
             hasHistory = playCount() > 0u,
         )
     }

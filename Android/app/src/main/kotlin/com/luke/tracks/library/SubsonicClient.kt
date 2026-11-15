@@ -99,6 +99,13 @@ class SubsonicClient(
         return SubsonicSearchResult(result?.artist.orEmpty(), result?.album.orEmpty(), result?.song.orEmpty())
     }
 
+    /** Songs like one, by way of its artist: Octo gets them from Last.fm, and can fetch them. */
+    suspend fun similarSongs(songId: String, count: Int = 15): List<SubsonicSong> =
+        call("getSimilarSongs2", mapOf("id" to songId, "count" to "$count")).similarSongs2?.song.orEmpty()
+
+    suspend fun randomSongs(count: Int = 40): List<SubsonicSong> =
+        call("getRandomSongs", mapOf("size" to "$count")).randomSongs?.song.orEmpty()
+
     suspend fun star(songId: String) { call("star", mapOf("id" to songId)) }
     suspend fun unstar(songId: String) { call("unstar", mapOf("id" to songId)) }
 

@@ -9,6 +9,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import com.luke.tracks.discover.LocalDiscovery
 import com.luke.tracks.discover.NoDiscovery
+import com.luke.tracks.discover.LocalServerPicks
+import com.luke.tracks.discover.NoServerPicks
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
@@ -65,7 +67,7 @@ abstract class ScreenshotTest(protected val dark: Boolean) {
         compose.setContent {
             TracksTheme(dark = dark, dynamic = false, seed = TracksBrand) {
                 // Nothing reaches the catalog unless a test provides its own discovery.
-                CompositionLocalProvider(LocalDiscovery provides NoDiscovery) {
+                CompositionLocalProvider(LocalDiscovery provides NoDiscovery, LocalServerPicks provides NoServerPicks) {
                     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) { content() }
                 }
             }

@@ -1241,6 +1241,8 @@ version = "0.1.0"
 dependencies = [
  "jiff",
  "rustc-hash",
+ "serde",
+ "serde_json",
  "tracks-model",
 ]
 

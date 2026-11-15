@@ -1,5 +1,5 @@
 //! Mixes built from the listening history, the shuffle that keeps artists apart, and the
-//! picker behind Tracks Radio.
+//! picker behind Tracks Radio, and what a music server finds for you.
 //!
 //! A port of the Swift app's `MixBuilder`, `FreshShuffle` and the core of `LiveMix`, so every
 //! platform offers the same mixes from the same history. Pure and synchronous: the host hands
@@ -11,6 +11,7 @@
 mod builder;
 mod radio;
 mod random;
+pub mod server;
 mod shuffle;
 
 pub use builder::{DayPart, Mix, MixKind, MixOutput, MixPlay, MixSong, build_mixes};

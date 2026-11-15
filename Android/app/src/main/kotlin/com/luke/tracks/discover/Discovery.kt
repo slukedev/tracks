@@ -9,7 +9,6 @@ import uniffi.tracks_engine.CatalogAlbum
 import uniffi.tracks_engine.CatalogArtist
 import uniffi.tracks_engine.CatalogResults
 import uniffi.tracks_engine.CatalogSong
-import uniffi.tracks_engine.foldedName
 
 /** Where music you don't have can come from, if anywhere. */
 data class FetchSources(
@@ -44,36 +43,6 @@ sealed interface Availability {
 
 data class AlbumHolding(val ownership: AlbumOwnership, val ownedSongs: Int)
 
-data class SuggestedAlbum(val album: CatalogAlbum, val holding: AlbumHolding)
-
-/** An artist you don't play, like ones you do. */
-data class SuggestedArtist(
-    val name: String,
-    val pictureUrl: String?,
-    /** Your artists they're like, the closest first. */
-    val like: List<String>,
-)
-
-/** Music you'd likely want and don't have, from your listening. */
-data class Suggestions(
-    /** Songs by your artists and artists like them, best first. */
-    val songs: List<CatalogSong> = emptyList(),
-    val artists: List<SuggestedArtist> = emptyList(),
-    /** What your artists put out in the last six months, or have coming, newest first. */
-    val releases: List<SuggestedAlbum> = emptyList(),
-) {
-    val isEmpty: Boolean get() = songs.isEmpty() && artists.isEmpty() && releases.isEmpty()
-
-    /** Without an artist asked not to be suggested, and their songs. */
-    fun without(artist: String): Suggestions {
-        val key = foldedName(artist)
-        return copy(
-            songs = songs.filter { foldedName(it.artistName) != key },
-            artists = artists.filter { foldedName(it.name) != key },
-        )
-    }
-}
-
 /**
  * Music you don't have: the catalog to search and browse, whether something is already
  * yours, and getting it through your server or Lidarr when one of them can.
@@ -89,15 +58,6 @@ interface Discovery {
     suspend fun album(id: ULong): AlbumCatalog?
     /** The catalog's album of this title by this artist, if it has one. */
     suspend fun findAlbum(title: String, artist: String): CatalogAlbum?
-    /**
-     * What to suggest, worked out again a few times a day or when your top artists change.
-     * Never throws: offline, it's what was found last, or nothing.
-     */
-    suspend fun suggestions(force: Boolean = false): Suggestions
-    /** The last suggestions worked out in this process, for a page's first frame. */
-    val lastSuggestions: Suggestions?
-    /** Stops suggesting an artist and their songs. */
-    suspend fun notInterested(artist: String)
 
     /** The song in your music, if you have it. */
     fun owned(song: CatalogSong): PlayableSong?
@@ -119,9 +79,6 @@ object NoDiscovery : Discovery {
     override suspend fun artist(name: String, catalogId: ULong?): ArtistCatalog? = null
     override suspend fun album(id: ULong): AlbumCatalog? = null
     override suspend fun findAlbum(title: String, artist: String): CatalogAlbum? = null
-    override suspend fun suggestions(force: Boolean) = Suggestions()
-    override val lastSuggestions: Suggestions? = null
-    override suspend fun notInterested(artist: String) = Unit
     override fun owned(song: CatalogSong): PlayableSong? = null
     override fun holding(album: CatalogAlbum) = AlbumHolding(AlbumOwnership.MISSING, 0)
     override suspend fun availability(song: CatalogSong): Availability = Availability.Unavailable

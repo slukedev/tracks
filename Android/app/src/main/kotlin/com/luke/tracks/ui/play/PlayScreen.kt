@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -30,11 +32,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,13 +58,19 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.graph
-import com.luke.tracks.ui.discover.Remote
+import com.luke.tracks.library.CombinedLibrary
+import com.luke.tracks.library.LibraryAlbum
+import com.luke.tracks.library.ServerEntry
+import com.luke.tracks.library.ServerStatus
+import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.ui.components.Artwork
-import com.luke.tracks.ui.insights.ItemActionsBox
-import com.luke.tracks.ui.insights.ItemTarget
 import com.luke.tracks.ui.insights.LocalInsightsSnackbar
-import com.luke.tracks.ui.navigation.AlbumRoute
+import com.luke.tracks.ui.library.LibraryTarget
+import com.luke.tracks.ui.library.LocalLibraryActions
+import com.luke.tracks.ui.library.WithLibraryActions
 import com.luke.tracks.ui.navigation.ArtistRoute
+import com.luke.tracks.ui.navigation.LibraryAlbumRoute
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.MixRoute
 import com.luke.tracks.ui.navigation.SearchRoute
@@ -74,16 +85,19 @@ import com.luke.tracks.ui.play.components.pressable
 import com.luke.tracks.ui.play.components.rememberPlayActions
 import com.luke.tracks.ui.play.components.shareText
 import com.luke.tracks.ui.theme.GoogleSansFlexCondensed
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import uniffi.tracks_engine.ArtistStats
+import uniffi.tracks_engine.ForYouShelf
 import uniffi.tracks_engine.Mix
 import java.util.Calendar
 
 /**
- * The Play tab: start something in one tap. In the order of the iPhone's Play: today's crate
- * of mixes with Tracks Radio, then new music for you (songs and artists you don't have),
- * what you played lately, your artists, the mixes made from your listening and your artists'
- * new albums, with more suggestions for as long as you scroll.
+ * The Play tab: start something in one tap. The iPhone's Play with your own music, in its
+ * order: today's crate of mixes with Tracks Radio; songs your servers find by artists new to
+ * you; your albums lately, your artists, the mixes made from your listening and your songs
+ * waiting to be heard; your servers' picks and shelves; and Keep exploring for as long as
+ * you scroll. Each section only when it has something.
  */
 @Composable
 fun PlayScreen() {
@@ -92,12 +106,16 @@ fun PlayScreen() {
     val feed by rememberPlayFeed()
     val player by graph.player.state.collectAsStateWithLifecycle()
     val actions = rememberPlayActions()
+    val picks = rememberServerPicks()
+    val servers by picks.servers.collectAsState()
+    val exploring by picks.exploring.collectAsState()
+    val canExploreMore by picks.canExploreMore.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val current = feed
-    val topArtists = remember(current?.topArtists) { current?.topArtists.orEmpty().take(8).map { it.identity }.toSet() }
-    val suggestions = rememberPlaySuggestions(enabled = current?.hasHistory == true, topArtists = topArtists)
+    // Picks are made again when the artists you play change, not for every song played.
+    val taste = remember(current?.topArtists) { current?.topArtists.orEmpty().take(8).map { it.identity }.toSet() }
 
     val unplayable: () -> Unit = {
         scope.launch { snackbar.showSnackbar("None of these songs are in your music on this phone yet") }
@@ -130,71 +148,148 @@ fun PlayScreen() {
             )
         },
     ) { padding ->
-        // Getting a song from a suggestion says how it went here.
+        // Adding a song a server found says how it went here.
         CompositionLocalProvider(LocalInsightsSnackbar provides snackbar) {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = MiniPlayerClearance + 16.dp),
-                verticalArrangement = Arrangement.spacedBy(32.dp),
-            ) {
-                item(key = "crate", contentType = "crate") {
-                    Crate(
-                        items = remember(current) { crateItems(current) },
-                        feed = current,
-                        player = player,
-                        actions = actions,
-                        onOpenMix = openMix,
-                        onUnplayable = unplayable,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+            WithLibraryActions {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = MiniPlayerClearance + 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(32.dp),
+                ) {
+                    // A server that can't be reached says so first, since it's why its shelves are gone.
+                    item(key = "problems", contentType = "problems") { ServerProblems() }
+                    item(key = "crate", contentType = "crate") {
+                        Crate(
+                            items = remember(current) { crateItems(current) },
+                            feed = current,
+                            player = player,
+                            actions = actions,
+                            onOpenMix = openMix,
+                            onUnplayable = unplayable,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                    if (current == null) {
+                        item(key = "loading") {
+                            Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
+                                LoadingIndicator(Modifier.size(56.dp))
+                            }
+                        }
+                        return@LazyColumn
+                    }
+                    if (!current.hasHistory) item(key = "empty") { EmptyPlay(Modifier.animateItem()) }
+                    servers.forEach { server ->
+                        item(key = "suggested-${server.id}", contentType = "server-songs") {
+                            ServerForYouShelf(server, ForYouShelf.SUGGESTED, taste, Modifier.animateItem())
+                        }
+                    }
+                    if (current.recentlyPlayed.isNotEmpty()) {
+                        item(key = "recent", contentType = "shelf") { RecentlyPlayed(current.recentlyPlayed, Modifier.animateItem()) }
+                    }
+                    if (current.topArtists.isNotEmpty()) {
+                        item(key = "artists", contentType = "artists") { ArtistRail(current.topArtists, actions, Modifier.animateItem()) }
+                    }
+                    if (current.shelfMixes.isNotEmpty()) {
+                        item(key = "mixes", contentType = "shelf") { MixShelf(current, actions, openMix, unplayable, Modifier.animateItem()) }
+                    }
+                    if (current.waiting.isNotEmpty()) {
+                        item(key = "waiting", contentType = "shelf") { WaitingToBeHeard(current.waiting, Modifier.animateItem()) }
+                    }
+                    servers.forEach { server ->
+                        item(key = "picks-${server.id}", contentType = "server-songs") {
+                            ServerForYouShelf(server, ForYouShelf.PICKS, taste, Modifier.animateItem())
+                        }
+                        item(key = "albums-${server.id}", contentType = "server-albums") {
+                            ServerAlbumShelves(server, Modifier.animateItem())
+                        }
+                    }
+                    if (servers.isNotEmpty() && (exploring.isNotEmpty() || canExploreMore)) {
+                        item(key = "keep-exploring", contentType = "explore") {
+                            KeepExploring(exploring, goesOn = canExploreMore, onEnd = { picks.exploreMore() }, Modifier.animateItem())
+                        }
+                    }
                 }
-                when {
-                    current == null -> item(key = "loading") {
-                        Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
-                            LoadingIndicator(Modifier.size(56.dp))
-                        }
+            }
+        }
+    }
+}
+
+/** Each server that can't be reached, with what's wrong and Try again. */
+@Composable
+private fun ServerProblems() {
+    val context = LocalContext.current
+    val library = context.graph.library as? CombinedLibrary
+    val entries by (library?.servers?.entries ?: remember { MutableStateFlow(emptyList<ServerEntry>()) }).collectAsState()
+    val scope = rememberCoroutineScope()
+    val failing = entries.filter { it.status is ServerStatus.Failed }
+    if (failing.isEmpty()) return
+    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        failing.forEach { entry ->
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.CloudOff, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Can't reach ${entry.server.name}", style = MaterialTheme.typography.titleSmallEmphasized)
+                        Text((entry.status as ServerStatus.Failed).message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    !current.hasHistory -> item(key = "empty") { EmptyPlay(Modifier.animateItem()) }
-                    else -> {
-                        // Each section only when it has something, so no gap is left for one
-                        // that doesn't. Offline with nothing found before, they stay away.
-                        val found = suggestions.value
-                        if (suggestions.state is Remote.Loading || found?.songs?.isNotEmpty() == true) {
-                            item(key = "suggested-songs", contentType = "suggested-songs") {
-                                SuggestedSongsShelf(suggestions, Modifier.animateItem())
-                            }
-                        }
-                        if (found?.artists?.isNotEmpty() == true) {
-                            item(key = "suggested-artists", contentType = "artists") {
-                                SuggestedArtistsShelf(suggestions, Modifier.animateItem())
-                            }
-                        }
-                        if (current.recentlyPlayed.isNotEmpty()) {
-                            item(key = "recent", contentType = "shelf") {
-                                RecentlyPlayed(current.recentlyPlayed, Modifier.animateItem())
-                            }
-                        }
-                        if (current.topArtists.isNotEmpty()) {
-                            item(key = "artists", contentType = "artists") {
-                                ArtistRail(current.topArtists, actions, Modifier.animateItem())
-                            }
-                        }
-                        if (current.mixes.mixes.isNotEmpty()) {
-                            item(key = "mixes", contentType = "shelf") {
-                                MixShelf(current, actions, openMix, unplayable, Modifier.animateItem())
-                            }
-                        }
-                        if (found?.releases?.isNotEmpty() == true) {
-                            item(key = "new-releases", contentType = "shelf") {
-                                NewReleasesShelf(suggestions, Modifier.animateItem())
-                            }
-                        }
-                        if ((found?.songs?.size ?: 0) > SHELF_SONGS) {
-                            item(key = "keep-exploring", contentType = "explore") {
-                                KeepExploring(suggestions, Modifier.animateItem())
-                            }
-                        }
-                    }
+                    TextButton(onClick = { scope.launch { library?.servers?.sync(entry.server) } }) { Text("Try again") }
+                }
+            }
+        }
+    }
+}
+
+/** Your albums most lately heard: tap for the album, press and hold for its menu. */
+@Composable
+private fun RecentlyPlayed(albums: List<LibraryAlbum>, modifier: Modifier) {
+    val navigator = LocalNavigator.current
+    val actions = LocalLibraryActions.current
+    Column(modifier) {
+        SectionTitle("Recently played")
+        Spacer(Modifier.height(12.dp))
+        LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            items(albums, key = { it.id }) { album ->
+                Column(
+                    Modifier
+                        .animateItem()
+                        .width(148.dp)
+                        .pressable(onClick = { navigator.open(LibraryAlbumRoute(album.id)) }, onLongClick = { actions.open(LibraryTarget.Album(album)) }),
+                ) {
+                    Artwork(album.artworkUri, album.title + album.artistName, Modifier.fillMaxWidth().sharedElement("cover:album:${album.id}"), shape = RoundedCornerShape(20.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Text(album.title, style = MaterialTheme.typography.titleSmallEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(album.artistName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+/** Your songs you've never played: tap plays from there, press and hold for the song's menu. */
+@Composable
+private fun WaitingToBeHeard(songs: List<PlayableSong>, modifier: Modifier) {
+    val graph = LocalContext.current.graph
+    val actions = LocalLibraryActions.current
+    Column(modifier) {
+        SectionTitle("Waiting to be heard")
+        Spacer(Modifier.height(12.dp))
+        LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            items(songs.size, key = { songs[it].mediaId }) { index ->
+                val song = songs[index]
+                Column(
+                    Modifier
+                        .animateItem()
+                        .width(148.dp)
+                        .pressable(
+                            onClick = { graph.player.play(songs, index, QueueOrigin("Waiting to be heard", QueueOrigin.Kind.Library)) },
+                            onLongClick = { actions.open(LibraryTarget.Song(song)) },
+                        ),
+                ) {
+                    Artwork(song.artworkUri, (song.albumTitle ?: song.title) + song.artistName, Modifier.fillMaxWidth(), shape = MaterialShapes.Cookie12Sided.toShape(), showInitials = false)
+                    Spacer(Modifier.height(10.dp))
+                    Text(song.title, style = MaterialTheme.typography.titleSmallEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(song.artistName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -219,7 +314,7 @@ private fun MixShelf(feed: PlayFeed, actions: PlayActions, onOpen: (Mix) -> Unit
             contentPadding = PaddingValues(horizontal = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            items(feed.mixes.mixes, key = { it.id }) { mix ->
+            items(feed.shelfMixes, key = { it.id }) { mix ->
                 var menu by remember { mutableStateOf(false) }
                 Column(
                     Modifier
@@ -239,44 +334,6 @@ private fun MixShelf(feed: PlayFeed, actions: PlayActions, onOpen: (Mix) -> Unit
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
-                }
-            }
-        }
-    }
-}
-
-/** Albums of the latest plays: tap for the album's page, press and hold for its menu. */
-@Composable
-private fun RecentlyPlayed(albums: List<RecentAlbum>, modifier: Modifier) {
-    val navigator = LocalNavigator.current
-    Column(modifier) {
-        SectionTitle("Recently played")
-        Spacer(Modifier.height(12.dp))
-        // The ripple's rounded edge sits outside the cover and the text, so it clips neither.
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 18.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            items(albums, key = { it.identity }) { album ->
-                val target = ItemTarget.Album(album.identity, album.title, album.artistName, album.artworkUrl)
-                ItemActionsBox(
-                    target,
-                    onClick = { navigator.open(AlbumRoute(album.identity, album.title, album.artistName)) },
-                    modifier = Modifier.animateItem().width(160.dp),
-                    shape = RoundedCornerShape(24.dp),
-                ) {
-                    Column(Modifier.padding(6.dp)) {
-                        Artwork(album.artworkUrl, album.title + album.artistName, Modifier.fillMaxWidth().sharedElement(target.coverKey), shape = RoundedCornerShape(20.dp))
-                        Spacer(Modifier.height(10.dp))
-                        Text(album.title, style = MaterialTheme.typography.titleSmallEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            album.artistName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
                 }
             }
         }

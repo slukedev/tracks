@@ -11,6 +11,8 @@ publish.workspace = true
 tracks-model.workspace = true
 jiff.workspace = true
 rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
