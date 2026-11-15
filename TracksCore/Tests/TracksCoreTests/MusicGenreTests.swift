@@ -95,4 +95,70 @@ struct MusicGenreTests {
         #expect(mix.isEmpty)
         #expect(mix.newShare == 1)
     }
+
+    /// A history of songs in each genre named, each by its own artist, each played a few times.
+    func library(_ genres: [String: Int]) -> ListeningHistory {
+        var plays: [CaptureStat] = []
+        var metadata: [String: SongMetadata] = [:]
+        for (genre, count) in genres {
+            for index in 0..<count {
+                let title = "\(genre) \(index)"
+                let artist = "\(genre) Artist \(index)"
+                for play in 0..<3 {
+                    plays.append(CaptureStat(songKey: title, songID: title, title: title, artistName: artist, capturedAt: now.addingTimeInterval(-Double(play + 2) * 86_400)))
+                }
+                metadata[SongIdentity.key(title: title, artistName: artist)] = SongMetadata(genre: genre, releaseYear: nil)
+            }
+        }
+        return ListeningHistory(plays).with(artistArtwork: [:], songMetadata: metadata)
+    }
+
+    func find(_ title: String, genre: String?) -> MixSong {
+        MixSong(songIdentity: title, songID: title, title: title, artistName: "\(title) Band", albumTitle: nil, artworkURL: nil, plays: 0, lastHeard: .distantPast, genre: genre)
+    }
+
+    @Test("a genre's station leaves out its chart's songs filed under another genre")
+    func chartSongsOutsideTheGenre() throws {
+        let rock = try #require(MusicGenre.all.first { $0.id == "rock" })
+        let mix = LiveMix.genre(rock, from: history(), newFinds: [find("Ballad", genre: "Pop"), find("Riff", genre: "Hard Rock"), find("Untagged", genre: nil)], now: now, seed: 1)
+        #expect(Set(mix.candidates.filter(\.isNew).map(\.song.title)) == ["Riff", "Untagged"])
+    }
+
+    // Skipping a lot on Hip-Hop once played songs from every genre: two skips in a row in
+    // "Hip-Hop/Rap" turned the station away from hip-hop itself.
+    @Test("skipping song after song never takes a genre's station off its genre", arguments: 1...12 as ClosedRange<UInt64>)
+    func skippingStaysInTheGenre(seed: UInt64) throws {
+        let hipHop = try #require(MusicGenre.all.first { $0.id == "hip-hop" })
+        let finds = (0..<10).map { find("Chart \($0)", genre: $0.isMultiple(of: 2) ? "Hip-Hop/Rap" : "Pop") }
+        var mix = LiveMix.genre(hipHop, from: library(["Hip-Hop/Rap": 40, "Trap": 4, "R&B/Soul": 20, "Country": 20]), newFinds: finds, now: now, seed: seed)
+        for _ in 0..<120 {
+            let picked = mix.next()
+            let song = try #require(picked)
+            let candidate = try #require(mix.candidates.first { $0.song.songIdentity == song.songIdentity })
+            #expect(hipHop.contains(genre: candidate.genre), "\(song.title) isn't hip-hop")
+            mix.note(.skipped, of: song.songIdentity)
+            // A kind of it, like Trap, can make way for the rest; the genre itself never does.
+            if case .awayFromGenre("Hip-Hop/Rap") = mix.steering { Issue.record("turned away from the station's own genre") }
+        }
+    }
+
+    @Test("a small genre's station plays all of its own before reaching into close genres, and says so", arguments: 1...12 as ClosedRange<UInt64>)
+    func smallStationWidens(seed: UInt64) throws {
+        let jazz = try #require(MusicGenre.all.first { $0.id == "jazz" })
+        var mix = LiveMix.genre(jazz, from: library(["Jazz": 5, "Blues": 6, "Rock": 6]), now: now, seed: seed)
+        let first = (0..<5).compactMap { _ in mix.next() }
+        #expect(first.allSatisfy { $0.title.hasPrefix("Jazz") })
+        #expect(mix.steering == nil)
+        let later = (0..<6).compactMap { _ in mix.next() }
+        #expect(later.allSatisfy { $0.title.hasPrefix("Blues") })
+        #expect(mix.steering == .wideningBeyond(jazz))
+        let widened = try #require(later.first)
+        #expect(mix.reason(for: widened.songIdentity) == .closeTo(jazz))
+    }
+
+    @Test("a station with only songs in close genres has nothing of its own to play")
+    func onlyCloseGenres() throws {
+        let jazz = try #require(MusicGenre.all.first { $0.id == "jazz" })
+        #expect(LiveMix.genre(jazz, from: library(["Blues": 6]), now: now, seed: 1).isEmpty)
+    }
 }

@@ -30,6 +30,40 @@ public struct MusicGenre: Sendable, Hashable, Identifiable {
         all.first { $0.contains(genre: genre) }
     }
 
+    /// The genres closest to this one, the closest first: where its station reaches once it
+    /// has played all of its own songs.
+    public var neighbors: [MusicGenre] {
+        (Self.neighborIDs[id] ?? []).compactMap { id in Self.all.first { $0.id == id } }
+    }
+
+    private static let neighborIDs: [String: [String]] = [
+        "pop": ["k-pop", "r-b", "electronic"],
+        "hip-hop": ["r-b", "afrobeats"],
+        "r-b": ["hip-hop", "pop", "afrobeats"],
+        "rock": ["alternative", "metal", "blues"],
+        "alternative": ["rock", "singer-songwriter"],
+        "electronic": ["pop"],
+        "country": ["singer-songwriter", "blues"],
+        "latin": ["pop", "reggae"],
+        "k-pop": ["pop"],
+        "metal": ["rock"],
+        "jazz": ["blues", "r-b"],
+        "singer-songwriter": ["alternative", "country"],
+        "classical": ["soundtrack"],
+        "afrobeats": ["r-b", "hip-hop", "reggae"],
+        "reggae": ["afrobeats", "latin"],
+        "blues": ["jazz", "rock", "r-b"],
+        "soundtrack": ["classical"],
+        "christian": ["pop", "singer-songwriter"],
+    ]
+
+    /// Whether a song found for the genre, as on its charts, really is in it: Apple's charts
+    /// for a genre carry songs filed under others. One with no genre to say is taken on the
+    /// chart's word.
+    func admits(_ song: MixSong) -> Bool {
+        song.genre.map { contains(genre: $0) } ?? true
+    }
+
     /// Every genre, in Apple Music's usual order of how widely it's played.
     public static let all: [MusicGenre] = [
         MusicGenre("pop", "Pop", appleMusicID: "14", families: ["pop", "pop-rock", "teen-pop", "adult-contemporary", "dance-pop", "synth-pop"]),
@@ -122,7 +156,10 @@ public struct GenreProfile: Sendable, Identifiable {
 extension LiveMix {
     /// A genre's station: your songs in it, the more played the likelier, resting the ones
     /// heard lately, and new finds from Apple Music's charts for it. The fewer songs of yours
-    /// are in it, the more new finds it plays.
+    /// are in it, the more new finds it plays. It plays only the genre: a chart's song filed
+    /// under another is left out, skips never turn it away from the genre, and only once it
+    /// has played every song of the genre does it reach into your songs in the genres closest
+    /// to it, and says so. See ``LiveMix/anchor``.
     public static func genre(
         _ genre: MusicGenre,
         from history: ListeningHistory,
@@ -133,27 +170,34 @@ extension LiveMix {
         seed: UInt64
     ) -> LiveMix {
         let rested = now.addingTimeInterval(-restPeriod)
-        let yours: [Candidate] = MixBuilder.aggregate(history, signals: signals, now: now, calendar: calendar).compactMap { aggregate in
+        let neighbors = genre.neighbors
+        var yours: [Candidate] = []
+        var nearby: [Candidate] = []
+        for aggregate in MixBuilder.aggregate(history, signals: signals, now: now, calendar: calendar) {
             let metadata = history.songMetadata[aggregate.identity]
-            guard genre.contains(genre: metadata?.genre) else { return nil }
-            return Candidate(
+            let isIn = genre.contains(genre: metadata?.genre)
+            guard isIn || neighbors.contains(where: { $0.contains(genre: metadata?.genre) }) else { continue }
+            let candidate = Candidate(
                 song: aggregate.song,
                 weight: weight(plays: aggregate.dates.count, lastHeard: aggregate.lastHeard, now: now) * freshness(lastHeard: aggregate.lastHeard, now: now),
                 isResting: aggregate.lastHeard >= rested,
                 genre: metadata?.genre,
                 releaseYear: metadata?.releaseYear
             )
+            if isIn { yours.append(candidate) } else { nearby.append(candidate.nearby(genre)) }
         }
         let known = Set(yours.map(\.song.songIdentity))
         let new = newFinds
-            .filter { !known.contains($0.songIdentity) && !signals.excludes($0.songIdentity, now: now) }
+            .filter { genre.admits($0) && !known.contains($0.songIdentity) && !signals.excludes($0.songIdentity, now: now) }
             .map { Candidate(song: $0, weight: 1, isNew: true) }
         let share = switch yours.count {
         case 0: 1.0
         case ..<genreFewSongs: 0.5
         default: 0.3
         }
-        return LiveMix(candidates: balancedByArtist(yours) + new, newShare: share, seed: seed)
+        let found = Set(new.map(\.song.songIdentity))
+        return LiveMix(candidates: balancedByArtist(yours) + new + balancedByArtist(nearby.filter { !found.contains($0.song.songIdentity) }), newShare: share, seed: seed)
+            .anchored(to: genre)
             .following(history, now: now)
     }
 

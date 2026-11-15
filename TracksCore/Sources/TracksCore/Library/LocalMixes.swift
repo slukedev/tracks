@@ -43,7 +43,7 @@ extension LiveMix {
     /// A mood from your own music: the songs whose genre suits it, played ones by how much,
     /// the rest as new finds.
     /// - Parameter finds: songs found for the mood elsewhere, like ones that suit it, taken as
-    ///   they are: a server's often have no genre to go by.
+    ///   they are unless they're its opposite: a server's often have no genre to go by.
     public static func mood(
         _ mood: Mood,
         from tracks: [LocalTrack],
@@ -54,18 +54,21 @@ extension LiveMix {
         seed: UInt64
     ) -> LiveMix {
         let suited = tracks.filter { track in
-            (track.genre ?? history.songMetadata[track.identity]?.genre).map { mood.suits(genre: $0) } ?? false
+            guard let genre = track.genre ?? history.songMetadata[track.identity]?.genre, mood.suits(genre: genre) else { return false }
+            return mood.fit(genre: nil, title: track.title, artist: track.artist, album: track.album) != .clashes
         }
+        let fitting = finds.filter { mood.fit(genre: $0.genre, title: $0.title, artist: $0.artist, album: $0.album) != .clashes }
         let played = MixBuilder.aggregate(history, signals: signals, now: now, calendar: .current)
         return local(
-            suited + finds, played: played, metadata: history.songMetadata, signals: signals, now: now, seed: seed,
+            suited + fitting, played: played, metadata: history.songMetadata, signals: signals, now: now, seed: seed,
             newShare: finds.isEmpty ? 0.3 : 0.4
         ) { _, _ in 1 }
         .following(history, now: now)
     }
 
     /// A genre's station from your own music: your songs in it, played ones by how much and
-    /// how lately, the ones you've never played as its new finds.
+    /// how lately, the ones you've never played as its new finds, and your songs in the genres
+    /// closest to it for once it has played them all. See ``LiveMix/anchor``.
     public static func genre(
         _ genre: MusicGenre,
         from tracks: [LocalTrack],
@@ -75,12 +78,26 @@ extension LiveMix {
         calendar: Calendar = .current,
         seed: UInt64
     ) -> LiveMix {
-        let inIt = tracks.filter { genre.contains(genre: $0.genre ?? history.songMetadata[$0.identity]?.genre) }
+        let neighbors = genre.neighbors
+        var inIt: [LocalTrack] = []
+        var nearby = Set<String>()
+        for track in tracks {
+            let tag = track.genre ?? history.songMetadata[track.identity]?.genre
+            if genre.contains(genre: tag) {
+                inIt.append(track)
+            } else if neighbors.contains(where: { $0.contains(genre: tag) }) {
+                inIt.append(track)
+                nearby.insert(track.identity)
+            }
+        }
         let played = MixBuilder.aggregate(history, signals: signals, now: now, calendar: calendar)
-        return local(inIt, played: played, metadata: history.songMetadata, signals: signals, now: now, seed: seed, newShare: 0.25) { _, aggregate in
+        let mix = local(inIt, played: played, metadata: history.songMetadata, signals: signals, now: now, seed: seed, newShare: 0.25) { _, aggregate in
             aggregate.map { freshness(lastHeard: $0.lastHeard, now: now) } ?? 1
         }
-        .following(history, now: now)
+        let candidates = mix.candidates.map { nearby.contains($0.song.songIdentity) ? $0.nearby(genre) : $0 }
+        return LiveMix(candidates: candidates, newShare: mix.newShare, seed: seed)
+            .anchored(to: genre)
+            .following(history, now: now)
     }
 
     /// Handpicked from your own music: your picks, your songs like them, the ones you've never

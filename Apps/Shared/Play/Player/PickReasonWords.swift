@@ -17,6 +17,7 @@ extension LiveMix.Reason {
         case .moreLike(let artist): String(localized: "More like \(artist)")
         case .probing: String(localized: "Trying a few directions to start")
         case .goesWith(let title): String(localized: "Because you played \u{201C}\(title)\u{201D}")
+        case .closeTo(let genre): String(localized: "Close to \(genre.title)")
         }
     }
 
@@ -31,6 +32,7 @@ extension LiveMix.Reason {
         case .moreOf, .moreLike: "scope"
         case .probing: "arrow.triangle.branch"
         case .goesWith: "link"
+        case .closeTo: "arrow.left.and.right"
         }
     }
 

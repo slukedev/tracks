@@ -5,7 +5,7 @@ extension LiveMix.Steering {
     /// A turn away after a run of skips, said at once. A turn toward is quieter: Up Next says it.
     var isTurningAway: Bool {
         switch self {
-        case .awayFromGenre, .awayFromDecade, .fewerNewFinds, .moreNewFinds, .tryingSomethingElse: true
+        case .awayFromGenre, .awayFromDecade, .fewerNewFinds, .moreNewFinds, .tryingSomethingElse, .tryingOtherKinds, .wideningBeyond: true
         case .towardGenre, .towardArtist, .settledOn: false
         }
     }
@@ -21,6 +21,8 @@ extension LiveMix.Steering {
         case .towardGenre(let genre): String(localized: "More \(genre)")
         case .towardArtist(let artist): String(localized: "More Like \(artist)")
         case .settledOn(let genre): String(localized: "Settled on \(genre)")
+        case .tryingOtherKinds(let genre): String(localized: "Trying Different \(genre.title)")
+        case .wideningBeyond(let genre): String(localized: "Beyond \(genre.title) Now")
         }
     }
 
@@ -43,6 +45,10 @@ extension LiveMix.Steering {
             String(localized: "More like \(artist) are coming.")
         case .settledOn(let genre):
             String(localized: "\(genre) landed best of the first few songs, so more of it is coming, with something different now and then.")
+        case .tryingOtherKinds(let genre):
+            String(localized: "Nothing's landing, so it's trying other kinds of \(genre.title). Let one play and it'll follow.")
+        case .wideningBeyond(let genre):
+            String(localized: "Every \(genre.title) song it can play has played, so genres close to it are joining in.")
         }
     }
 

@@ -48,6 +48,9 @@ public struct LiveMix: Sendable {
         public let releaseYear: Int?
         /// Why it would come up, for the player to say. Nil when nothing stands out.
         public let reason: Reason?
+        /// From a genre close to the one a genre's station plays, for once it has played all of
+        /// its own. See ``anchor``.
+        public let isNearby: Bool
 
         public init(
             song: MixSong,
@@ -56,7 +59,8 @@ public struct LiveMix: Sendable {
             isResting: Bool = false,
             genre: String? = nil,
             releaseYear: Int? = nil,
-            reason: Reason? = nil
+            reason: Reason? = nil,
+            isNearby: Bool = false
         ) {
             self.song = song
             self.weight = weight
@@ -65,11 +69,23 @@ public struct LiveMix: Sendable {
             self.genre = genre ?? song.genre
             self.releaseYear = releaseYear
             self.reason = reason ?? (isNew ? .newFind : nil)
+            self.isNearby = isNearby
         }
 
         /// The same song at another weight.
         func weighted(_ weight: Double) -> Candidate {
-            Candidate(song: song, weight: weight, isNew: isNew, isResting: isResting, genre: genre, releaseYear: releaseYear, reason: reason)
+            Candidate(
+                song: song, weight: weight, isNew: isNew, isResting: isResting, genre: genre, releaseYear: releaseYear,
+                reason: reason, isNearby: isNearby
+            )
+        }
+
+        /// The same song, from a genre close to the station's.
+        func nearby(_ station: MusicGenre) -> Candidate {
+            Candidate(
+                song: song, weight: weight, isNew: isNew, isResting: isResting, genre: genre, releaseYear: releaseYear,
+                reason: .closeTo(station), isNearby: true
+            )
         }
 
         /// The genre folded to its family: "Hip-Hop/Rap" and "Hip-Hop" are one.
@@ -97,6 +113,11 @@ public struct LiveMix: Sendable {
         /// The opening probe is over, and this genre landed best: more of it, with something
         /// else now and then.
         case settledOn(String)
+        /// A genre's station has played every song of its own it can: genres close to it join
+        /// in, rather than the same few coming round again.
+        case wideningBeyond(MusicGenre)
+        /// Skips with nothing in common on a genre's station: other kinds of its genre.
+        case tryingOtherKinds(of: MusicGenre)
     }
 
     /// Why a song came up, as far as one thing stands out. Only what the mix really weighed:
@@ -127,6 +148,8 @@ public struct LiveMix: Sendable {
         case probing
         /// One you play with a song that landed this listen: its title.
         case goesWith(String)
+        /// On a genre's station that has played all of its own, a song in a genre close to it.
+        case closeTo(MusicGenre)
     }
 
     /// How a song went, told by when it gave way.
@@ -174,6 +197,11 @@ public struct LiveMix: Sendable {
     /// Artists blocked while the mix plays, whose songs it no longer picks. The mix was made
     /// without the ones blocked before.
     public var blocked = BlockedArtists()
+
+    /// The genre a genre's station plays. It never turns away from it after skips, and only
+    /// plays its ``Candidate/isNearby`` songs once it has played all of its own. Nil for any
+    /// other mix.
+    public private(set) var anchor: MusicGenre?
 
     /// Songs picked this listen, in order.
     public private(set) var picks: [String] = []
@@ -317,7 +345,8 @@ public struct LiveMix: Sendable {
         self.random = SeededGenerator(seed: seed)
     }
 
-    public var isEmpty: Bool { candidates.isEmpty }
+    /// Nothing to play: no candidates, or for a genre's station, none in its genre.
+    public var isEmpty: Bool { !candidates.contains { !$0.isNearby } }
 
     public func hasPicked(_ identity: String) -> Bool { picked.contains(identity) }
 
@@ -343,9 +372,16 @@ public struct LiveMix: Sendable {
             return choice.song
         }
 
-        let open = candidates.filter { !picked.contains($0.song.songIdentity) && allows($0.song) && include($0.song) }
-        let yours = newFinds == true ? [] : open.filter { !$0.isNew }
-        let new = newFinds == false ? [] : open.filter(\.isNew)
+        var open = candidates.filter { !picked.contains($0.song.songIdentity) && allows($0.song) && include($0.song) }
+        if anchor != nil, !open.contains(where: { !$0.isNearby }), candidates.count(where: { !$0.isNearby }) >= Self.fullRound {
+            // A station with plenty of its own goes round them again before reaching further.
+            startOver()
+            open = candidates.filter { !picked.contains($0.song.songIdentity) && allows($0.song) && include($0.song) }
+        }
+        let own = open.filter { !$0.isNearby }
+        let reach = own.isEmpty ? open : own
+        let yours = newFinds == true ? [] : reach.filter { !$0.isNew }
+        let new = newFinds == false ? [] : reach.filter(\.isNew)
         let pool: [Candidate]
         if yours.isEmpty || new.isEmpty {
             pool = yours.isEmpty ? new : yours
@@ -367,7 +403,27 @@ public struct LiveMix: Sendable {
         note(picked: choice.song.songIdentity)
         easeBack()
         if habitsBase != nil { picksSinceProbe += 1 }
+        if choice.isNearby, let anchor, steering != .wideningBeyond(anchor) { steering = .wideningBeyond(anchor) }
         return choice.song
+    }
+
+    /// A genre's station with at least this many songs of its own goes round them again once
+    /// it has played them all; one with fewer reaches into the genres close to it.
+    static let fullRound = 30
+
+    /// The mix as a genre's station: anchored to the genre. See ``anchor``.
+    func anchored(to genre: MusicGenre) -> LiveMix {
+        var mix = self
+        mix.anchor = genre
+        return mix
+    }
+
+    /// Whether skips sharing this genre family say nothing on a genre's station, since it's
+    /// most of what the station is: turning away from it would leave the genre.
+    private func isAnchorFamily(_ key: String) -> Bool {
+        guard anchor != nil else { return false }
+        let own = candidates.filter { !$0.isNearby }
+        return own.count(where: { $0.genreKey == key }) * 2 >= own.count
     }
 
     /// Whether the song is by no one blocked.
@@ -382,7 +438,9 @@ public struct LiveMix: Sendable {
     public mutating func opener(where include: (MixSong) -> Bool) -> MixSong? {
         // Probing, the likeliest direction to land opens it.
         if let choice = probePick(onlyNew: false, opening: true, where: include) { return choice.song }
-        let yours = candidates.filter { !$0.isNew && !$0.isResting && !picked.contains($0.song.songIdentity) && allows($0.song) && include($0.song) }
+        let yours = candidates.filter {
+            !$0.isNew && !$0.isNearby && !$0.isResting && !picked.contains($0.song.songIdentity) && allows($0.song) && include($0.song)
+        }
         guard let choice = draw(from: yours, emphasis: 2) else { return next(playable: include) }
         // As it is now, even when nothing stands out: a song come round again doesn't keep
         // what it was picked for before.
@@ -577,8 +635,8 @@ public struct LiveMix: Sendable {
     /// Whether the mix is looking for something after a run of skips.
     private var isSearching: Bool {
         switch steering {
-        case .awayFromGenre, .awayFromDecade, .fewerNewFinds, .moreNewFinds, .tryingSomethingElse: avoiding != nil
-        case .towardGenre, .towardArtist, .settledOn, nil: false
+        case .awayFromGenre, .awayFromDecade, .fewerNewFinds, .moreNewFinds, .tryingSomethingElse, .tryingOtherKinds: avoiding != nil
+        case .towardGenre, .towardArtist, .settledOn, .wideningBeyond, nil: false
         }
     }
 
@@ -602,7 +660,7 @@ public struct LiveMix: Sendable {
         guard run.prefix(Self.runLength).contains(where: { !$0.movedOn }) || run.count > Self.runLength else { return }
         let latest = Array(run.prefix(Self.runLength))
         var avoid = Avoidance(picksLeft: Self.avoidFor)
-        if let genre = latest[0].genre, latest.allSatisfy({ $0.genre == genre }) {
+        if let genre = latest[0].genre, latest.allSatisfy({ $0.genre == genre }), !isAnchorFamily(genre) {
             genreBias[genre] = min(genreBias[genre] ?? 1, 0.15)
             avoid.genres = [genre]
             steering = .awayFromGenre(displayName(ofGenre: genre))
@@ -615,9 +673,9 @@ public struct LiveMix: Sendable {
         } else if latest.allSatisfy({ !$0.isNew }), run.count >= 3, candidates.contains(where: \.isNew) {
             newShare = (newShare * 1.6 + 0.05).clamped(to: shareRange)
             steering = .moreNewFinds
-        } else if run.count >= 3 {
-            avoid.genres = Set(run.compactMap(\.genre))
-            steering = .tryingSomethingElse
+        } else if run.count >= 3, case let genres = Set(run.compactMap(\.genre)).filter({ !isAnchorFamily($0) }), anchor == nil || !genres.isEmpty {
+            avoid.genres = genres
+            steering = anchor.map { .tryingOtherKinds(of: $0) } ?? .tryingSomethingElse
         } else {
             return
         }
@@ -980,9 +1038,16 @@ extension LiveMix {
         case ..<MoodMix.fewSongs: 0.5
         default: 0.25
         }
-        return LiveMix(candidates: yours + new(newFinds, besides: yours, signals: signals, now: now), newShare: share, seed: seed)
+        let finds = new(MoodMix.fitting(newFinds, mood), besides: yours, signals: signals, now: now).map { candidate in
+            mood.fit(genre: candidate.genre) == .suits ? candidate : candidate.weighted(Self.unnamedFit)
+        }
+        return LiveMix(candidates: yours + finds, newShare: share, seed: seed)
             .following(history, now: now)
     }
+
+    /// How likely a new find found for a mood is when its genre isn't one the mood names,
+    /// against one whose genre is.
+    static let unnamedFit = 0.6
 
     /// New finds as candidates, leaving out any already in the history or suggested less.
     private static func new(_ songs: [MixSong], besides yours: [Candidate], signals: ListeningSignals, now: Date) -> [Candidate] {
