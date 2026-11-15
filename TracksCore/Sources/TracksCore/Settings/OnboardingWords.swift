@@ -1,10 +1,7 @@
 import Foundation
 
-/// How each row of getting started says where it stands. The app maps MusicKit, the Last.fm
-/// connection and the servers onto these, so the words can be tested without them.
 public enum OnboardingWords {
 
-    /// Apple Music access, and whether the account can play the catalog.
     public static func appleMusic(_ access: MusicAccessStatus, canPlayCatalog: Bool?) -> String {
         switch access {
         case .notAsked: String(localized: "Play Apple Music in Tracks")
@@ -22,7 +19,6 @@ public enum OnboardingWords {
         return String(localized: "Scrobble what you play")
     }
 
-    /// The servers connected so far, by name.
     public static func yourMusic(servers: [String]) -> String {
         switch servers.count {
         case 0: String(localized: "Play music from your own server")
@@ -31,7 +27,6 @@ public enum OnboardingWords {
         }
     }
 
-    /// The heading: a welcome, or a welcome back when iCloud already holds a history.
     public static func setupTitle(isReturning: Bool) -> String {
         isReturning ? String(localized: "Welcome Back") : String(localized: "Set Up Tracks")
     }

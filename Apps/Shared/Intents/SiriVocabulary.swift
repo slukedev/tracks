@@ -6,9 +6,6 @@ import TracksCore
 import Intents
 #endif
 
-/// The names Siri should know before anyone says them: your playlists, Tracks' mixes, and the
-/// artists in your own music that the catalog may not have. Indexed for Spotlight and Siri,
-/// given to Siri's vocabulary on iPhone, and offered to "Play my … playlist in Tracks".
 @MainActor
 enum SiriVocabulary {
     /// The most of your playlists named anywhere: plenty for anyone's, few enough that the
@@ -16,12 +13,10 @@ enum SiriVocabulary {
     static let playlistLimit = 50
     static let artistLimit = 200
 
-    /// Tracks' own mixes, stations and moods.
     static var stations: [ResolvedMedia] {
         PlayChoice.allCases.map { MediaRequestResolver.tracksItem($0) }
     }
 
-    /// Your playlists, Tracks' first, then Apple Music's, most recently changed or played first.
     static func playlists(limit: Int = playlistLimit) async -> [ResolvedMedia] {
         let model = AppModel.shared
         guard !model.isDemoLaunch else { return [] }
@@ -45,8 +40,6 @@ enum SiriVocabulary {
             .map(\.self)
     }
 
-    /// One pass: Spotlight's entries replaced whole, Siri's vocabulary set, and the shortcut
-    /// phrases told their playlists changed.
     static func update() async {
         guard !AppModel.shared.isDemoLaunch else { return }
         let playlists = await playlists()

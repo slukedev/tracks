@@ -42,12 +42,8 @@ public final class SettingsSync {
     private let cloud: KeyValueSyncStore
     private let registry: SettingsRegistry
     private let settings: [StoredSetting]
-    /// Keys this install had nothing of its own for when it first ran. See
-    /// ``seedSettingsNeverSynced()``.
     private let unseededKeys: Set<String>
 
-    /// Whether iCloud refused the last write because the store is full. Tracks' own values
-    /// are far inside the quota, so this means something grew past what it should.
     public private(set) var isOverQuota = false
 
     /// The mirrored values as this last saw them, so a local write can be spotted without
@@ -150,7 +146,6 @@ public final class SettingsSync {
     private func cloudChanged(reason: Int?, keys: [String]?) {
         switch reason {
         case NSUbiquitousKeyValueStoreQuotaViolationChange:
-            // The local copies stay as they are; only the mirror is behind.
             isOverQuota = true
             Log.iCloud.error("iCloud's key-value store is full; settings aren't syncing")
             return

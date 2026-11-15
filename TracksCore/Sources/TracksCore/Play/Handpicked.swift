@@ -143,10 +143,6 @@ public enum HandpickedChoices {
 }
 
 extension HandpickedChoices {
-    /// Songs of yours most like the picks, for picking more: by the same artists, in the same
-    /// genres and decades, and played alongside them, the likest first and the most played
-    /// breaking a tie. Only ones close to the picks, so a pick with nothing like it in the
-    /// history suggests nothing rather than anything.
     public static func like(
         _ picks: [MixSong],
         in history: ListeningHistory,
@@ -182,8 +178,6 @@ extension HandpickedChoices {
             .map(\.song)
     }
 
-    /// Songs from the history whose name, artist or album has every word typed: a song's own
-    /// name matching first, then its artist's, then its album's, the most played breaking a tie.
     public static func matching(
         _ query: String,
         in history: ListeningHistory,
@@ -226,8 +220,6 @@ extension HandpickedChoices {
     }
 }
 
-/// The songs picked for a Handpicked station, in the order they're to play in: the first one
-/// opens the station. At most ``limit``, each once.
 public struct HandpickedPicks<Pick: Identifiable> {
     public let limit: Int
     public private(set) var all: [Pick] = []
@@ -276,15 +268,11 @@ public struct HandpickedPicks<Pick: Identifiable> {
 
 extension HandpickedPicks: Sendable where Pick: Sendable {}
 
-/// Hearing previews while picking, one at a time: the song playing pauses for them, and
-/// plays on once they're done, unless it was started again in the meantime.
 public struct PreviewHandoff: Sendable, Equatable {
-    /// The song whose preview is on, playing or paused.
     public private(set) var current: String?
     /// Counts the previews asked for, so a preview that took a while to load doesn't start
     /// after another was asked for.
     public private(set) var turn = 0
-    /// Whether a preview paused the song that was playing, to play it on afterwards.
     public private(set) var pausedSong = false
 
     public enum Effect: Sendable, Equatable {
@@ -294,8 +282,6 @@ public struct PreviewHandoff: Sendable, Equatable {
 
     public init() {}
 
-    /// A preview asked for. The song playing pauses for the first one; the ones after take
-    /// over from it.
     public mutating func start(_ id: String, songIsPlaying: Bool) -> [Effect] {
         current = id
         turn += 1
@@ -308,8 +294,6 @@ public struct PreviewHandoff: Sendable, Equatable {
         turn == self.turn
     }
 
-    /// The preview over: done, closed, or stopped. The song paused for it plays on, unless
-    /// another one's about to start in its place.
     public mutating func stop(resumingSong: Bool = true) -> [Effect] {
         let resumes = resumingSong && pausedSong
         current = nil
@@ -318,8 +302,6 @@ public struct PreviewHandoff: Sendable, Equatable {
         return resumes ? [.resumeSong] : []
     }
 
-    /// Music started some other way while a preview was on: the preview gives way, and
-    /// nothing is resumed over it.
     public mutating func songStartedElsewhere() {
         current = nil
         turn += 1

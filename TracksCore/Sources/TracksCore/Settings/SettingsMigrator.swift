@@ -1,28 +1,18 @@
 import Foundation
 
-/// Brings settings stored by an earlier build up to date, once per version, before anything
-/// reads them.
-///
 /// Each step only fills in a value that's missing and never deletes the one it read, so a
 /// step is safe to run again, and an older build, on another device or after a downgrade,
 /// still finds the keys it knows. The version only ever goes up: a build that finds a newer
 /// one than it knows runs nothing, and leaves the number for the newer build.
 public struct SettingsMigrator {
 
-    /// Which migrations this device has run, in the App Group.
     static let versionKey = "TracksSettingsVersion"
-    /// The synced keys a fresh install had nothing of its own for. See
-    /// ``SettingsSync`` and ``keysUnseeded(in:)``.
     static let unseededKeysKey = "TracksSettingsUnseeded"
 
-    /// The newest migration this build knows.
     public static let currentVersion = 1
 
-    /// How this install began, as the first build with the migrator found it.
     public enum Origin: Sendable, Equatable {
-        /// Nothing of the person's was here: a first install, or a reinstall.
         case fresh
-        /// An earlier build had already kept settings here.
         case upgrade
     }
 
@@ -34,7 +24,6 @@ public struct SettingsMigrator {
         self.registry = registry
     }
 
-    /// Runs whatever this device hasn't run yet.
     /// - Returns: how this install began, the first time; nil once it's known.
     @discardableResult
     public func run() -> Origin? {
@@ -63,7 +52,6 @@ public struct SettingsMigrator {
         return origin
     }
 
-    /// Whether an earlier build left any setting, or the sync ledger, behind.
     private var hasAnythingStored: Bool {
         if stores.ledger.object(forKey: SettingsSync.modifiedAtKey) != nil { return true }
         if stores.appGroup.object(forKey: CaptureSettings.legacyMinimumListenKey) != nil { return true }
@@ -79,7 +67,6 @@ public struct SettingsMigrator {
         }
     }
 
-    /// Copies each renamed setting's old value into its new key, where the new key is empty.
     private func carryOverFormerKeys() {
         for setting in registry.settings where !setting.formerKeys.isEmpty {
             let defaults = stores.defaults(for: setting)
@@ -101,8 +88,6 @@ public struct SettingsMigrator {
         defaults.set(0.0, forKey: CaptureSettings.minimumListenShareKey)
     }
 
-    /// The synced keys this install had nothing of its own for when it first ran, which
-    /// ``SettingsSync`` doesn't seed. Empty for an install that began as an upgrade.
     static func keysUnseeded(in stores: SettingsStores) -> Set<String> {
         Set(stores.ledger.stringArray(forKey: unseededKeysKey) ?? [])
     }

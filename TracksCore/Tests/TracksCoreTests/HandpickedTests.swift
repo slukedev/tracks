@@ -175,7 +175,6 @@ struct HandpickedTests {
         var handoff = PreviewHandoff()
         #expect(handoff.start("one", songIsPlaying: true) == [.pauseSong])
         let first = handoff.turn
-        // The song is paused now: the next preview takes over without touching it again.
         #expect(handoff.start("two", songIsPlaying: false) == [])
         #expect(!handoff.isLatest(first))
         #expect(handoff.current == "two")

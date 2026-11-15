@@ -108,7 +108,6 @@ struct OnboardingWordsTests {
         #expect(OnboardingWords.yourMusic(servers: ["Living Room", "Studio"]) == "Connected to Living Room and Studio")
     }
 
-    /// The record is read by later builds, and written by earlier ones.
     @Test("a record with fields missing or unknown still reads")
     func recordReadsAcrossBuilds() throws {
         let older = try JSONDecoder().decode(OnboardingRecord.self, from: Data(#"{"completedVersion":1}"#.utf8))

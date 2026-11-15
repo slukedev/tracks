@@ -31,7 +31,6 @@ final class YourMusic {
     @ObservationIgnored private(set) lazy var playlistMerge = PlaylistMerge(music: self)
     /// Getting music you don't own, where a server or Lidarr can.
     @ObservationIgnored private(set) lazy var getMore = GetMore(music: self, isDemo: isDemo)
-    /// One Download for Apple Music and Your Music, where it's turned on.
     @ObservationIgnored private(set) lazy var downloadChoice = DownloadChoice(music: self, isDemo: isDemo)
     /// The servers' songs as of the index: ``MusicServers/catalogRevision`` when it was built.
     @ObservationIgnored private(set) var indexedCatalogRevision = -1

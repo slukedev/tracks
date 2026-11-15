@@ -1,8 +1,5 @@
 import Foundation
 
-/// The two `UserDefaults` settings live in, one per ``StoredSetting/Domain``.
-///
-/// Not `Sendable`: `UserDefaults` isn't. Make one where it's used.
 public struct SettingsStores {
     public let appGroup: UserDefaults
     public let app: UserDefaults
@@ -12,8 +9,8 @@ public struct SettingsStores {
         self.app = app
     }
 
-    /// The App Group's suite and the app's standard defaults. Without an App Group (unit
-    /// tests, previews, an unsigned build) both are the standard defaults.
+    /// Without an App Group (unit tests, previews, an unsigned build) both are the standard
+    /// defaults.
     public static var live: SettingsStores {
         SettingsStores(appGroup: CaptureSettings.sharedDefaults, app: .standard)
     }

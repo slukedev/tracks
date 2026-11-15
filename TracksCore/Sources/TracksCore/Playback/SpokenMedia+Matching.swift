@@ -6,7 +6,6 @@ extension SpokenMedia {
         case anything, song, album, artist, playlist, station, genre
     }
 
-    /// One way to read what was said: a name, who it's by, and what kind of thing it is.
     public struct Reading: Sendable, Equatable {
         public var name: String
         public var artist: String
@@ -55,9 +54,6 @@ extension SpokenMedia {
         return [Reading(name: title, artist: artist, kind: kind), Reading(name: name, kind: kind)]
     }
 
-    /// A mood asked for as music rather than by a title: "relaxing music", "something to
-    /// study to", "songs for the gym". "Love Story" names a song, so a mood word alone isn't
-    /// enough; it takes a word that asks for music in general too.
     public static func moodRequest(in text: String) -> String? {
         let words = Set(StatsCalculator.folded(text).split { !$0.isLetter }.map(String.init))
         guard !words.isDisjoint(with: musicWords) else { return nil }
@@ -66,14 +62,11 @@ extension SpokenMedia {
 
     private static let musicWords: Set<String> = ["music", "songs", "something", "tunes", "playlist", "mix", "stuff", "vibes"]
 
-    /// Something found for a request, as plain values for ranking.
     public struct Candidate: Sendable, Equatable {
         public var title: String
         public var artist: String?
         public var kind: Kind
-        /// In your library or your own music.
         public var isOwned: Bool
-        /// How often you've played it, as the history has it.
         public var plays: Int
 
         public init(title: String, artist: String? = nil, kind: Kind, isOwned: Bool = false, plays: Int = 0) {
@@ -85,9 +78,6 @@ extension SpokenMedia {
         }
     }
 
-    /// The order to offer candidates in, as indices into them: closest to what was said
-    /// first, then yours (owned or played) before the rest, then as found, since a search
-    /// already puts the likelier one first.
     public static func rank(_ candidates: [Candidate], name: String, artist: String = "") -> [Int] {
         let scores = candidates.map { score($0, name: name, artist: artist) }
         return candidates.indices.sorted { left, right in
@@ -123,7 +113,6 @@ extension SpokenMedia {
         candidate.isOwned || candidate.plays > 0
     }
 
-    /// How close a candidate is to what was said, for choosing between readings of it.
     public static func score(_ candidate: Candidate, name: String, artist: String = "") -> Int {
         var score = name.isEmpty ? exactTitle : titleScore(candidate.title, name)
         if !artist.isEmpty {
@@ -145,7 +134,6 @@ extension SpokenMedia {
         return theirs.contains(wanted) ? 1 : 0
     }
 
-    /// A title without what versions add: "(Remastered 2011)", "[Live]", " - Single".
     private static func baseTitle(_ folded: String) -> String {
         var title = folded
         for opener in [" (", " [", " - "] {
@@ -168,7 +156,6 @@ extension SpokenMedia {
     ]
 }
 
-/// Apple Music links, as Siri passes on one shared or on screen: which item it names.
 public enum AppleMusicURL {
     public struct Item: Sendable, Equatable {
         public let kind: SpokenMedia.Kind

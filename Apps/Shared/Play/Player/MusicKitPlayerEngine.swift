@@ -392,8 +392,6 @@ final class MusicKitPlayerEngine: PlayerEngine {
         #endif
         player.state.shuffleMode = systemShuffle ? .songs : .off
         if context.isStation { player.state.repeatMode = MusicPlayer.RepeatMode.none }
-        // Where the song carrying on is now, after the station was looked up; if it has given
-        // way meanwhile, the station starts from its own beginning.
         continuing = continuing.flatMap { song in
             current?.songIdentity == song.songIdentity
                 ? ContinuedSong(songID: song.songID, songIdentity: song.songIdentity, time: lastKnownPlaybackTime)
@@ -439,8 +437,6 @@ final class MusicKitPlayerEngine: PlayerEngine {
         }
     }
 
-    /// A station made from the song playing opens with that song: it carries on from where it
-    /// was, rather than starting again, so making the station doesn't lose your place.
     private func carryOn(_ song: ContinuedSong?, _ playID: Int) async throws {
         guard let song, song.time > 0 else { return }
         try await ApplicationPlayerCommands.prepare()
@@ -541,7 +537,6 @@ final class MusicKitPlayerEngine: PlayerEngine {
         refresh()
     }
 
-    /// Whether the player has stopped at the end of its queue.
     private var hasRunOut: Bool {
         guard canRead, !TracksPlayerContext.isStation, player.state.playbackStatus == .stopped else { return false }
         guard let currentID = player.queue.currentEntry?.id else { return !player.queue.entries.isEmpty }

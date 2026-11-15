@@ -57,8 +57,6 @@ struct TracksShortcuts: AppShortcutsProvider {
             shortTitle: "Play a Mix",
             systemImageName: "play.circle"
         )
-        // Your playlists by name, so Siri knows them before they're ever said. Names come
-        // from PlaylistAudioQuery's suggestions, capped by SiriVocabulary.playlistLimit.
         AppShortcut(
             intent: PlayPlaylistIntent(),
             phrases: [

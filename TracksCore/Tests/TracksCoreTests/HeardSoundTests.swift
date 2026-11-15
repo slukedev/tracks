@@ -20,7 +20,6 @@ struct HeardSoundTests {
         )
     }
 
-    /// Hands `sound` a buffer whose two interleaved channels are `left` and `right`.
     static func hear(_ sound: HeardSound, left: [Float], right: [Float], at time: Double?) {
         var interleaved = zip(left, right).flatMap { [$0, $1] }
         interleaved.withUnsafeMutableBytes { bytes in
@@ -29,7 +28,6 @@ struct HeardSoundTests {
         }
     }
 
-    /// Hands `sound` a run of rising numbers, both channels the same, starting from `first`.
     static func hearRamp(_ sound: HeardSound, from first: Int, count: Int, at time: Double?) {
         let ramp = (first..<first + count).map(Float.init)
         hear(sound, left: ramp, right: ramp, at: time)
@@ -149,7 +147,6 @@ struct HeardSoundTests {
     @Test("Read across the ring's wrap, it comes out whole")
     func wraps() throws {
         let sound = Self.prepared()
-        // Several times round a ring of a few seconds, ending part way through it.
         let block = 1000
         var first = 0
         while first < 1_000_000 {
@@ -172,8 +169,6 @@ struct HeardSoundTests {
         #expect(sound.copy(around: 4096 / Self.rate, into: &window) == nil)
     }
 
-    /// The audio thread never waits, so a frame reading while it writes must never be handed
-    /// a moment it was part way through writing over.
     @Test("Read while it's written, a moment is never torn", .timeLimit(.minutes(1)))
     func concurrent() async {
         let sound = Self.prepared()

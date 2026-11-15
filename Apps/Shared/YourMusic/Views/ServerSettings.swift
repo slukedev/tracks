@@ -54,9 +54,8 @@ struct ServersSection: View {
     }
 }
 
-/// Download for Apple Music and Your Music together, and which one it uses without asking.
-/// Off by default, and shown with either music source, but only once a server or Lidarr is
-/// set up: without one, Download would only ever be Add to Library.
+/// Shown only once a server or Lidarr is set up: without one, Download would only ever be
+/// Add to Library.
 struct DownloadChoiceSection: View {
     @Environment(YourMusic.self) private var music
     @Environment(Lidarr.self) private var lidarr: Lidarr?

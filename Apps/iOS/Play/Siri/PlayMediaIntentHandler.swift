@@ -58,7 +58,6 @@ nonisolated final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandl
         INMediaItem(identifier: found.identifier, title: found.title, type: found.kind.mediaType, artwork: nil, artist: found.artist)
     }
 
-    /// Siri's own words for each reason: "You'll need to log in", "That needs a subscription".
     private static func unsupported(_ miss: MediaMiss) -> INPlayMediaMediaItemResolutionResult {
         switch miss {
         case .needsAccess: .unsupported(forReason: .loginRequired)

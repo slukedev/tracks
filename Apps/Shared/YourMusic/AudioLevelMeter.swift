@@ -264,7 +264,6 @@ nonisolated final class LevelAnalysis: @unchecked Sendable {
             heardAt = now - (time.seconds - centre)
         }
         #if os(macOS)
-        // Apple Music, heard as it goes to the speakers.
         if total == nil, let music = AppleMusicListener.shared.heard {
             let time = AppleMusicListener.now()
             if let (decibels, centre) = measure(music, at: time) {

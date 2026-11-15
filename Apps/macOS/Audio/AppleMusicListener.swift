@@ -4,32 +4,21 @@ import Synchronization
 import TracksCore
 import os
 
-/// The sound Apple Music plays for Tracks, as it goes to the speakers, for Stage and the
-/// backgrounds that move with the music. Without it they'd replay each song's preview; with
-/// it they follow the song itself, beat for beat.
-///
 /// MusicKit doesn't play in Tracks: on the Mac, MediaPlayer starts a helper for it,
 /// RemotePlayerService, and the song is heard from there. Only that helper is tapped, by its
-/// bundle ID, so nothing else the Mac plays reaches the visualizer, and the tap picks the
-/// helper up again when the system starts a new one. It's a private Core Audio tap read
-/// through a private aggregate device that nothing else sees, kept on the speakers' clock.
+/// bundle ID, and the tap picks the helper up again when the system starts a new one.
 ///
-/// It runs only while something that moves with the music is on screen and the person has
-/// said yes (see ``MusicHearing``). The first time it runs, macOS asks whether Tracks may
-/// hear other apps' audio; refused, the tap hears silence, so while the helper plays and
-/// nothing comes through, it reports ``Access/blocked``. Nothing is recorded or kept: the last
-/// few seconds sit in memory to be measured, and are written over.
+/// A tap macOS hasn't let Tracks use hears silence rather than failing, so while the helper
+/// plays and nothing comes through, it reports ``Access/blocked``.
 ///
-/// The audio thread only copies the sound into a ring and notes when it was last loud
-/// (see ``HeardSound``): no allocating, locking or waiting. Everything else happens on a
-/// queue of its own.
+/// The audio thread only copies the sound into a ring and notes when it was last loud:
+/// no allocating, locking or waiting. Everything else happens on `queue`.
 nonisolated final class AppleMusicListener: @unchecked Sendable {
     static let shared = AppleMusicListener()
     static let playerBundleID = "com.apple.MediaPlayer.RemotePlayerService"
 
     enum Access: Sendable, Equatable {
         case hearing
-        /// Apple Music is playing and the tap hears nothing: macOS hasn't let Tracks hear it.
         case blocked
     }
 
@@ -48,7 +37,6 @@ nonisolated final class AppleMusicListener: @unchecked Sendable {
     private var stopping: DispatchWorkItem?
     private var rebuilding: DispatchWorkItem?
     private var failures = 0
-    /// Seconds in a row the helper has been playing, by the poll.
     private var playingFor = 0
     private var access: Access?
     private var onAccess: (@MainActor @Sendable (Access) -> Void)?
@@ -59,14 +47,10 @@ nonisolated final class AppleMusicListener: @unchecked Sendable {
 
     private init() {}
 
-    /// The sound being heard now, or nil while nothing is: not allowed, not running, or
-    /// Apple Music quiet.
     var heard: HeardSound? {
         current.withLock { session in session.flatMap { $0.isHearing(at: Self.now()) ? $0.sound : nil } }
     }
 
-    /// Whether something on screen wants it. It lets go a moment after the last one goes, so
-    /// moving from one view that listens to the next keeps the same tap.
     func setWanted(_ wanted: Bool) {
         queue.async { [self] in
             isWanted = wanted
@@ -74,7 +58,6 @@ nonisolated final class AppleMusicListener: @unchecked Sendable {
         }
     }
 
-    /// Whether the person has said it may listen.
     func setAllowed(_ allowed: Bool) {
         queue.async { [self] in
             isAllowed = allowed
@@ -82,13 +65,10 @@ nonisolated final class AppleMusicListener: @unchecked Sendable {
         }
     }
 
-    /// Tells `handler`, on the main actor, each time what it hears changes.
     func observeAccess(_ handler: @escaping @MainActor @Sendable (Access) -> Void) {
         queue.async { [self] in onAccess = handler }
     }
 
-    /// Builds the tap again, as after the Mac wakes, when the devices underneath it may have
-    /// gone and come back.
     func restart() {
         queue.async { [self] in
             guard aggregate != nil else { return }
@@ -202,7 +182,6 @@ nonisolated final class AppleMusicListener: @unchecked Sendable {
         playingFor = 0
     }
 
-    /// A device that went as the tap was being made, say, is tried again a few times.
     private func retryLater() {
         failures += 1
         guard failures <= 4, isWanted, isAllowed else { return }
@@ -222,8 +201,6 @@ nonisolated final class AppleMusicListener: @unchecked Sendable {
 
     // MARK: - Changes underneath
 
-    /// Built again when the sound goes elsewhere (AirPods connected), changes rate, or the
-    /// device underneath goes away.
     private func watch(tap: AudioObjectID, aggregate: AudioObjectID) {
         let rebuild: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.scheduleRebuild() }
         let changes = [
@@ -248,8 +225,6 @@ nonisolated final class AppleMusicListener: @unchecked Sendable {
         watched.removeAll()
     }
 
-    /// Once a second while it runs: whether Apple Music is playing and being heard, and that
-    /// the tap still has the helper playing it.
     private func startPolling() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(250))
@@ -309,7 +284,6 @@ nonisolated final class AppleMusicListener: @unchecked Sendable {
     }
 }
 
-/// One tap's worth of listening: its sound, and when anything last came through.
 private nonisolated final class Session: Sendable {
     let sound = HeardSound()
     let latency: Double

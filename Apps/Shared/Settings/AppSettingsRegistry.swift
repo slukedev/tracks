@@ -2,12 +2,8 @@ import Foundation
 import TracksCore
 
 extension SettingsRegistry {
-    /// Every setting Tracks keeps: TracksCore's own and the app's.
     static let tracks = core + app
 
-    /// The settings the app's views own, most of them in `UserDefaults.standard` where
-    /// `@AppStorage` puts them. Add a new one here, in the group it belongs to.
-    ///
     /// Kept on each device: what depends on the device itself (its storage, network, speakers
     /// and servers), where Play's music comes from, and how each window or screen was left
     /// (sort orders, the chart on show, the Play layout and Stage's orientation).

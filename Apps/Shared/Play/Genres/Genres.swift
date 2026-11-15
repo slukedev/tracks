@@ -308,9 +308,6 @@ enum GenrePlayback {
         await start(genre, library: model.library, yourMusic: model.yourMusic, player: model.player, charts: charts)
     }
 
-    /// Starts the station again from the song it was on, for one left paused when Tracks last
-    /// closed: it carries on as the genre's station, never as a queue that runs out into
-    /// Autoplay's songs from anywhere.
     static func followRestarts(library: Library, yourMusic: YourMusic, player: PlayerModel) {
         player.restartGenre = { [weak library, weak yourMusic, weak player] genre, first in
             guard let library, let yourMusic, let player else { return }

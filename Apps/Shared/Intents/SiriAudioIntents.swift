@@ -73,8 +73,6 @@ struct ArtistAudioEntity {
     }
 }
 
-/// Your playlists, in Tracks and in Apple Music, and Apple Music's own. Yours are in
-/// Spotlight, and in "Play my Workout playlist in Tracks".
 @AppEntity(schema: .audio.playlist)
 struct PlaylistAudioEntity: IndexedEntity {
     static let defaultQuery = PlaylistAudioQuery()
@@ -97,8 +95,6 @@ struct PlaylistAudioEntity: IndexedEntity {
     }
 }
 
-/// Tracks' own mixes and stations, moods and genres, and Apple Music's stations: made for
-/// you, so Siri hears "my station" and "something chill" as these.
 @AppEntity(schema: .audio.algorithmicRadioStation)
 struct StationAudioEntity: IndexedEntity {
     static let defaultQuery = StationAudioQuery()
@@ -118,7 +114,6 @@ struct StationAudioEntity: IndexedEntity {
     }
 }
 
-/// Live broadcasts: Apple Music 1 and the other Apple Music radio stations.
 @AppEntity(schema: .audio.liveRadioStation)
 struct LiveStationAudioEntity {
     static let defaultQuery = LiveStationAudioQuery()
@@ -236,8 +231,6 @@ struct PlayAudioIntent: AudioPlaybackIntent {
     }
 }
 
-/// "Play more like this", "Make a station from this song": steers a live mix toward the
-/// song on, or starts Tracks Radio.
 @AppIntent(schema: .audio.createStation)
 struct CreateStationIntent: AudioPlaybackIntent {
     @MainActor
@@ -250,8 +243,6 @@ struct CreateStationIntent: AudioPlaybackIntent {
     }
 }
 
-/// "I like this song", "I don't like this": a favorite in Apple Music, and either way the
-/// live mix hears about it, as the star and the skip tell it.
 @AppIntent(schema: .audio.updateAudioAffinity)
 struct UpdateAudioAffinityIntent: AppIntent {
     var affinityState: AudioAffinityState
@@ -281,7 +272,6 @@ struct UpdateAudioAffinityIntent: AppIntent {
     }
 }
 
-/// "Add this song to my library", "Add this album to my library".
 @AppIntent(schema: .audio.addToLibrary)
 struct AddAudioToLibraryIntent: AppIntent {
     var audioEntity: AudioItem
@@ -308,8 +298,6 @@ struct AddAudioToLibraryIntent: AppIntent {
     }
 }
 
-/// "Play my Workout playlist in Tracks": one of your playlists by name, which Siri learns
-/// from Tracks' shortcuts without needing to search.
 struct PlayPlaylistIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Playlist"
     static let description = IntentDescription(
@@ -345,7 +333,6 @@ struct PlayPlaylistIntent: AudioPlaybackIntent {
 /// Finds what Siri names, one kind at a time, and rebuilds what it was given before.
 @MainActor
 enum AudioLookup {
-    /// Siri's audio search for one kind of thing: what was said, a link, or nothing at all.
     static func search(_ search: AudioSearch, for kind: MediaKind) async throws -> [ResolvedMedia] {
         guard !AppModel.shared.isDemoLaunch else { throw PlayIntentError.sampleData }
         let found: [ResolvedMedia]
@@ -363,8 +350,6 @@ enum AudioLookup {
             }
             guard !readings.isEmpty else { return [] }
             found = await MediaRequestResolver.matches(for: readings)
-            // Nothing anywhere, for a reason that holds for every kind: say it, rather than
-            // that nothing matched.
             if found.isEmpty {
                 let miss = await MediaRequestResolver.miss(for: readings)
                 if !miss.isNotFound { throw PlayIntentError.problem(miss.message) }
@@ -398,7 +383,6 @@ enum AudioLookup {
         return found
     }
 
-    /// Live stations from an audio search: Apple Music's, and Tracks' The Radio.
     static func liveStations(_ search: AudioSearch) async throws -> [ResolvedMedia] {
         guard case .searchQuery(let text) = search.criteria else {
             if case .url(let urls) = search.criteria { return await MediaRequestResolver.linked(urls).filter(\.isLive) }
@@ -464,7 +448,6 @@ struct PlaylistAudioQuery: EntityStringQuery, IntentValueQuery {
         try await AudioLookup.search(search, for: .playlist).map(PlaylistAudioEntity.init)
     }
 
-    /// Yours, most recent first, for Shortcuts' picker and the names Siri learns.
     func suggestedEntities() async throws -> [PlaylistAudioEntity] {
         await SiriVocabulary.playlists().map(PlaylistAudioEntity.init)
     }

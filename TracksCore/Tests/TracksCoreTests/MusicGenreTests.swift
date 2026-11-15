@@ -96,7 +96,6 @@ struct MusicGenreTests {
         #expect(mix.newShare == 1)
     }
 
-    /// A history of songs in each genre named, each by its own artist, each played a few times.
     func library(_ genres: [String: Int]) -> ListeningHistory {
         var plays: [CaptureStat] = []
         var metadata: [String: SongMetadata] = [:]
@@ -124,8 +123,6 @@ struct MusicGenreTests {
         #expect(Set(mix.candidates.filter(\.isNew).map(\.song.title)) == ["Riff", "Untagged"])
     }
 
-    // Skipping a lot on Hip-Hop once played songs from every genre: two skips in a row in
-    // "Hip-Hop/Rap" turned the station away from hip-hop itself.
     @Test("skipping song after song never takes a genre's station off its genre", arguments: 1...12 as ClosedRange<UInt64>)
     func skippingStaysInTheGenre(seed: UInt64) throws {
         let hipHop = try #require(MusicGenre.all.first { $0.id == "hip-hop" })

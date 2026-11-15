@@ -1,12 +1,6 @@
 import SwiftUI
 import TracksCore
 
-// Download for Apple Music and Your Music together, where Settings turns it on: the items a
-// menu shows, the button on an album's or artist's page, and a row's swipe. Each offers
-// Download on Apple Music and Get on Your Music, leading with the last one chosen, or uses the
-// one set in Settings straight away.
-
-/// The pieces each Download place reads: what's offered, and doing it.
 private struct DownloadContext {
     let choice: DownloadChoice
     let plan: DownloadPlan
@@ -22,7 +16,6 @@ private struct DownloadContext {
         }
     }
 
-    /// For a single tap: the plan's own, or for a swipe that can't ask, the one that leads.
     func tapService(asking: Bool) -> DownloadService? {
         switch plan.tap {
         case .perform(let service): service
@@ -55,8 +48,6 @@ private struct DownloadReader<Content: View>: View {
     }
 }
 
-/// Download's items in a menu: one item where only one service applies, or else Download with
-/// each service under it and which to always use.
 struct DownloadMenuItems: View {
     let subject: DownloadSubject
 
@@ -87,7 +78,6 @@ private struct DownloadOptionButtons: View {
     }
 }
 
-/// Which service Download uses without asking, the same choice as in Settings.
 struct AlwaysUsePicker: View {
     @AppStorage(DownloadChoice.defaultKey) private var preferred = DownloadDefault.ask
 
@@ -101,8 +91,6 @@ struct AlwaysUsePicker: View {
     }
 }
 
-/// Download as a button, for an album's or artist's page: one tap where one service will do,
-/// or the menu of both. Held down, or clicked on its arrow on the Mac, it always shows the menu.
 struct DownloadControl: View {
     let subject: DownloadSubject
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -161,8 +149,6 @@ struct DownloadControl: View {
     }
 }
 
-/// Download in a row's swipe. A swipe can't ask, so where both services could keep it, it uses
-/// the one that leads: the one set in Settings, or else the last one chosen.
 struct DownloadSwipeAction: View {
     let subject: DownloadSubject
 
@@ -177,7 +163,6 @@ struct DownloadSwipeAction: View {
     }
 }
 
-/// What Download's places say.
 struct DownloadWords {
     let title: LocalizedStringKey
     let short: LocalizedStringKey

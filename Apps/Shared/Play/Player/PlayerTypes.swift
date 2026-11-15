@@ -160,8 +160,6 @@ enum PlayRequest {
     case history([HistorySong], startingAt: Int = 0)
     /// Songs straight from Apple Music: search, an artist's top songs, a list of tracks.
     case songs([Song], startingAt: Int = 0)
-    /// - Parameter continuing: the song on as the station was made from it, to carry on from
-    ///   where it is when the station opens with it.
     case station(MusicKit.Station, continuing: ContinuedSong? = nil)
     case album(Album)
     case playlist(Playlist)
@@ -180,14 +178,11 @@ enum PlayRequest {
     }
 }
 
-/// A song playing as something new starts from it, and how far into it it is.
 struct ContinuedSong {
     let songID: String
     let songIdentity: String
     let time: TimeInterval
 
-    /// Whether a song is this one: the same catalog song, or the same title and artist, as a
-    /// library copy of it is.
     func isSame(as song: Song) -> Bool {
         song.id.rawValue == songID || SongIdentity.key(title: song.title, artistName: song.artistName) == songIdentity
     }

@@ -9,7 +9,6 @@ import Synchronization
 /// all there, and finds out if it was written over while it copied. Only ``prepare(_:)``,
 /// before any sound arrives, swaps the ring, and it waits for a copy in progress to finish.
 public nonisolated final class HeardSound: @unchecked Sendable {
-    /// Its samples are written by one thread and read by another, kept apart as above.
     private struct Ring: @unchecked Sendable {
         let samples: UnsafeMutablePointer<Float>
         let capacity: Int
@@ -140,7 +139,6 @@ public nonisolated final class HeardSound: @unchecked Sendable {
         sequence.store(next &+ 1, ordering: .releasing)
     }
 
-    /// How far it's written, the time there, and where the run began, all from one buffer.
     private func published() -> (written: Int, end: Double, runStart: Int)? {
         for _ in 0..<4 {
             let before = sequence.load(ordering: .acquiring)

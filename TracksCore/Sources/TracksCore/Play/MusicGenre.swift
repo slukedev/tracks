@@ -30,8 +30,6 @@ public struct MusicGenre: Sendable, Hashable, Identifiable {
         all.first { $0.contains(genre: genre) }
     }
 
-    /// The genres closest to this one, the closest first: where its station reaches once it
-    /// has played all of its own songs.
     public var neighbors: [MusicGenre] {
         (Self.neighborIDs[id] ?? []).compactMap { id in Self.all.first { $0.id == id } }
     }

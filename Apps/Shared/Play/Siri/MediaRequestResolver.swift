@@ -15,7 +15,6 @@ nonisolated struct MediaRequest: Sendable, Hashable {
     /// A source asked for in so many words, beyond any in the name.
     var source: MusicSource?
 
-    /// Each way a request said in one go can be read: "the album Blue by Joni Mitchell".
     static func readings(of spoken: String, kind: MediaKind = .anything) -> [MediaRequest] {
         SpokenMedia.readings(of: spoken).map { reading in
             let heard = MediaKind(rawValue: reading.kind.rawValue) ?? .anything
@@ -42,11 +41,8 @@ nonisolated struct ResolvedMedia: Sendable, Equatable {
     let title: String
     let kind: MediaKind
     var artist: String?
-    /// In your Apple Music library or your own music.
     var isOwned = false
-    /// How often the history has it played.
     var plays = 0
-    /// A live broadcast, such as Apple Music 1.
     var isLive = false
 
     var candidate: SpokenMedia.Candidate {
@@ -59,13 +55,11 @@ nonisolated struct ResolvedMedia: Sendable, Equatable {
         )
     }
 
-    /// For a sentence: "Blue · Joni Mitchell".
     var spokenTitle: String {
         [title, artist].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 
-/// Why nothing could be played, so Siri can say something useful.
 nonisolated enum MediaMiss: Sendable, Equatable {
     case notFound(String)
     case needsAccess(neverAsked: Bool)
@@ -97,8 +91,6 @@ nonisolated enum MediaMiss: Sendable, Equatable {
     }
 }
 
-/// What to do with a request: play the first match, ask which of a few was meant, or say
-/// why there's nothing.
 nonisolated enum MediaAnswer: Sendable {
     case play([ResolvedMedia])
     case ask([ResolvedMedia])
@@ -110,12 +102,10 @@ nonisolated enum MediaAnswer: Sendable {
 /// match came from the other one. What was playing carries on until the new music starts.
 @MainActor
 enum MediaRequestResolver {
-    /// The best match, if there is one.
     static func item(for request: MediaRequest) async -> ResolvedMedia? {
         await matches(for: [request]).first
     }
 
-    /// What to do with a request read in one or more ways.
     static func answer(for readings: [MediaRequest]) async -> MediaAnswer {
         guard !AppModel.shared.isDemoLaunch else { return .missing(.sampleData) }
         let found = await matches(for: readings)
@@ -127,8 +117,6 @@ enum MediaRequestResolver {
         return ask.isEmpty ? .play(found) : .ask(ask.map { found[$0] })
     }
 
-    /// Every match for the readings, best first, from whichever reading fits better: "Stand
-    /// by Me" said whole beats the song "Stand" by an artist called "Me".
     static func matches(for readings: [MediaRequest], limit: Int = 6) async -> [ResolvedMedia] {
         var best: (score: Int, found: [ResolvedMedia])?
         for reading in readings where !reading.name.isEmpty || !reading.artist.isEmpty || readings.count == 1 {
@@ -147,7 +135,6 @@ enum MediaRequestResolver {
         } ?? MediaRequest(name: first.title)
     }
 
-    /// Why nothing was found for a request, in the words that help most.
     static func miss(for readings: [MediaRequest]) async -> MediaMiss {
         let model = AppModel.shared
         if model.isDemoLaunch { return .sampleData }
@@ -233,13 +220,11 @@ enum MediaRequestResolver {
             case .yourMusic: found += localItems(name: name, artist: artist, kind: request.kind)
             case .appleMusic: found += await appleMusicItems(name: name, artist: artist, kind: request.kind)
             }
-            // The source that's on had it: no reason to switch for a closer match elsewhere.
             if found.contains(where: { isClose($0, name: name, artist: artist) }) { break }
         }
         return rank(unique(found), name: name, artist: artist)
     }
 
-    /// As close as a match gets: the name as said, by the artist said.
     private static func isClose(_ item: ResolvedMedia, name: String, artist: String) -> Bool {
         let kind = item.candidate.kind
         let perfect = SpokenMedia.Candidate(title: kind == .artist && name.isEmpty ? artist : name, artist: artist, kind: kind)
@@ -250,7 +235,6 @@ enum MediaRequestResolver {
         SpokenMedia.rank(found.map(\.candidate), name: name, artist: artist).map { found[$0] }
     }
 
-    /// The first of each: a song in your library and the catalog is one song.
     private static func unique(_ found: [ResolvedMedia]) -> [ResolvedMedia] {
         var seen = Set<String>()
         return found.filter { item in
@@ -360,7 +344,6 @@ enum MediaRequestResolver {
         return player.problem
     }
 
-    /// Your own music's songs for an identifier, as many as can play right now.
     private static func localTracks(kind: String, value: String) -> [LocalTrack] {
         let music = AppModel.shared.yourMusic
         let tracks: [LocalTrack] = switch kind {
@@ -434,7 +417,6 @@ enum MediaRequestResolver {
         }
     }
 
-    /// What an Apple Music link names, as Siri passes one on from a message or the screen.
     static func linked(_ urls: [URL]) async -> [ResolvedMedia] {
         var found: [ResolvedMedia] = []
         for url in urls {
@@ -446,7 +428,6 @@ enum MediaRequestResolver {
         return found
     }
 
-    /// For "Play music" with nothing named: Tracks' own, what's on first.
     static var suggestions: [ResolvedMedia] {
         let first: PlayChoice = PlayPreferences.isTracksRadioOn ? .station : .forYou
         return [first, first == .station ? .forYou : .station, .discover].map { tracksItem($0, suffix: "") }
@@ -454,7 +435,6 @@ enum MediaRequestResolver {
 
     // MARK: - Finding things
 
-    /// Your own music's matches: songs, albums, artists and your Tracks playlists, as asked.
     private static func localItems(name: String, artist: String, kind: MediaKind) -> [ResolvedMedia] {
         let music = AppModel.shared.yourMusic
         let index = music.index
@@ -499,8 +479,6 @@ enum MediaRequestResolver {
         return found
     }
 
-    /// Apple Music's matches: your library first, which works offline too, then the catalog
-    /// when it can be reached and played.
     private static func appleMusicItems(name: String, artist: String, kind: MediaKind) async -> [ResolvedMedia] {
         guard MusicAuthorization.currentStatus == .authorized else { return [] }
         let both = [name, artist].filter { !$0.isEmpty }.joined(separator: " ")
@@ -600,7 +578,6 @@ enum MediaRequestResolver {
         return !subscription.canPlayCatalogContent
     }
 
-    /// One of Tracks' own mixes, stations or moods.
     static func tracksItem(_ choice: PlayChoice, suffix: String = "") -> ResolvedMedia {
         let title = String(localized: PlayChoice.caseDisplayRepresentations[choice]?.title ?? "Tracks Radio")
         return ResolvedMedia(identifier: "tracks\(suffix):\(choice.rawValue)", title: title, kind: .station, isLive: choice == .radio)
@@ -608,12 +585,10 @@ enum MediaRequestResolver {
 
     // MARK: - Looking up by identifier
 
-    /// The Apple Music song an identifier names, for a favorite.
     static func appleMusicSong(_ identifier: String) async -> Song? {
         if case .song(let song) = await appleMusicItem(identifier) { song } else { nil }
     }
 
-    /// The Apple Music song, album or playlist an identifier names, for adding to the library.
     static func appleMusicItem(_ identifier: String) async -> AppleMusicItem? {
         let parts = identifier.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2, MusicAuthorization.currentStatus == .authorized else { return nil }
@@ -632,7 +607,6 @@ enum MediaRequestResolver {
         case playlist(Playlist)
     }
 
-    /// The catalog's, or your library's: a library ID only the library knows.
     private static func song(_ id: MusicItemID) async -> Song? {
         if let found = try? await MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: id).response().items.first { return found }
         var library = MusicLibraryRequest<Song>()

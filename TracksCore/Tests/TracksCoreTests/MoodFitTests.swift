@@ -12,8 +12,6 @@ struct MoodFitTests {
         )
     }
 
-    // Energy played classical: an Energy playlist carried a piano piece, and its genre-blind
-    // new finds went straight into the mix.
     @Test("lively moods never take classical, ambient or sleep music, however it's tagged", arguments: [Mood.energy, .workout, .party])
     func livelyMoodsLeaveOutStillMusic(mood: Mood) {
         let still = [

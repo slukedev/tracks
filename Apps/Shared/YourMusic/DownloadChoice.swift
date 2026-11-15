@@ -6,11 +6,9 @@ import TracksCore
 import MediaPlayer
 #endif
 
-/// Something Download can keep: an Apple Music song or album, or an artist.
 enum DownloadSubject: Hashable {
     case song(Song)
     case album(Album)
-    /// An artist by name, for Lidarr to follow.
     case artist(String)
 
     var key: String {
@@ -38,9 +36,6 @@ enum DownloadSubject: Hashable {
     }
 }
 
-/// One Download for Apple Music and Your Music, when it's turned on: what each can keep of an
-/// album, song or artist, what each has already, and keeping it with the one you choose.
-///
 /// Apple Music adds to the library; MusicKit can't download, so Music does that, opened at the
 /// item. Your Music gets it the way Get does, from your server or Lidarr.
 @MainActor
@@ -50,11 +45,8 @@ final class DownloadChoice {
     static let defaultKey = "downloadChoiceDefault"
     static let lastKey = "downloadChoiceLast"
 
-    /// What Apple Music's library has, by ``DownloadSubject/key``. Missing means not looked up.
     private(set) var apple: [String: AppleMusicHolding] = [:]
-    /// Artists Lidarr was asked to follow this session, before its list says so.
     private(set) var followedArtists: Set<String> = []
-    /// The service chosen last, which leads the menu.
     private(set) var last: DownloadService? = UserDefaults.standard.string(forKey: DownloadChoice.lastKey).flatMap(DownloadService.init)
 
     @ObservationIgnored private unowned let music: YourMusic
@@ -133,8 +125,6 @@ final class DownloadChoice {
 
     // MARK: - Apple Music's library
 
-    /// Finds whether Apple Music's library has it, and on iPhone whether it's downloaded. Once a
-    /// session, unless asked again.
     func lookUp(_ subject: DownloadSubject, again: Bool = false) {
         let key = subject.key
         guard again || (apple[key] == nil && lookups[key] == nil) else { return }
@@ -182,7 +172,6 @@ final class DownloadChoice {
     }
 
     #if os(iOS)
-    /// Whether every song of it in the library is on this iPhone rather than in iCloud.
     private static func isOnDevice(title: String, artist: String, property: String) -> Bool {
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(MPMediaPropertyPredicate(value: title, forProperty: property))
@@ -196,8 +185,6 @@ final class DownloadChoice {
 
     // MARK: - Keeping
 
-    /// Keeps it with a service, remembering the choice.
-    /// - Returns: what to tell the person.
     func keep(_ subject: DownloadSubject, with service: DownloadService, openURL: (URL) -> Void) async -> String? {
         remember(service)
         switch service {

@@ -1,43 +1,24 @@
 import Foundation
 
-/// How far bringing the history down from iCloud has got, on a device Tracks was just
-/// installed on, and how to say it.
-///
 /// CloudKit doesn't say how much it has left to send, so the size of the history comes from
 /// ``HistoryCountBeacon``: every settled device notes in iCloud's key-value store how many
 /// plays it holds, and that small value arrives long before the plays themselves.
 public enum HistoryRestore: Sendable, Equatable {
-    /// iCloud has said nothing yet about a history to bring down.
     case looking
-    /// Nothing in iCloud: someone new to Tracks.
     case nothingToRestore
     case restoring(restored: Int, expected: Int)
-    /// Plays are arriving, but no other device has said how many to expect: one still on a
-    /// build from before devices noted their counts.
     case arriving(restored: Int)
-    /// Restoring, but nothing has arrived for a while.
     case slow(restored: Int, expected: Int)
     case finished(restored: Int)
-    /// The history can't come down from iCloud on this device, for the reason given.
     case unavailable(String)
 
-    /// How long to look for a history before taking it that there isn't one.
     public static let lookingTimeout: TimeInterval = 20
-    /// How long without a new play before restoring counts as slow.
     public static let slowAfter: TimeInterval = 45
     /// How long a restore that has stopped short of the count can sit still before it's
     /// taken as done. Two devices' counts can differ by the duplicates sync folds away.
     public static let settleAfter: TimeInterval = 120
-    /// The share of the expected count that counts as all of it.
     static let completeShare = 0.98
 
-    /// Where a restore stands.
-    /// - Parameters:
-    ///   - expected: the play count another device noted, if any has.
-    ///   - restored: plays this device holds now.
-    ///   - startedAt: when this device began looking.
-    ///   - lastArrival: when the count here last went up.
-    ///   - blocked: why iCloud can't bring the history down, if it can't.
     public static func resolve(
         expected: Int?,
         restored: Int,
@@ -65,7 +46,6 @@ public enum HistoryRestore: Sendable, Equatable {
             : .restoring(restored: restored, expected: expected)
     }
 
-    /// Whether there's nothing more to wait for.
     public var isSettled: Bool {
         switch self {
         case .nothingToRestore, .finished: true
@@ -73,7 +53,6 @@ public enum HistoryRestore: Sendable, Equatable {
         }
     }
 
-    /// Whether plays are on their way, for showing the restore outside the welcome.
     public var isUnderWay: Bool {
         switch self {
         case .restoring, .arriving, .slow: true
@@ -81,7 +60,6 @@ public enum HistoryRestore: Sendable, Equatable {
         }
     }
 
-    /// How much has arrived, for a progress bar; nil while there's nothing to measure.
     public var fraction: Double? {
         switch self {
         case .restoring(let restored, let expected), .slow(let restored, let expected):
@@ -91,7 +69,6 @@ public enum HistoryRestore: Sendable, Equatable {
         }
     }
 
-    /// The line that says where it stands.
     public var title: String {
         switch self {
         case .looking:
@@ -113,7 +90,6 @@ public enum HistoryRestore: Sendable, Equatable {
         }
     }
 
-    /// The detail under it, if there is one.
     public var detail: String? {
         switch self {
         case .restoring(let restored, let expected) where restored > 0:
@@ -132,9 +108,6 @@ public enum HistoryRestore: Sendable, Equatable {
     }
 }
 
-/// The play count each settled device notes in iCloud's key-value store, so a device that's
-/// just been set up knows how much history to expect.
-///
 /// One key for every device: they all hold the same synced history, so whichever wrote last
 /// is as good as any. A device only writes once its own restore has finished, so a new
 /// install can't lower the number another one is waiting for.
@@ -149,12 +122,10 @@ public struct HistoryCountBeacon {
         self.cloud = cloud
     }
 
-    /// The count another device noted, if any has.
     public var noted: Int? {
         (cloud.object(forKey: Self.key) as? [String: Any])?[Self.countField] as? Int
     }
 
-    /// Notes this device's count, when it has moved enough to matter.
     public func note(_ count: Int, now: Date = .now) {
         guard count > 0 else { return }
         let stored = cloud.object(forKey: Self.key) as? [String: Any]

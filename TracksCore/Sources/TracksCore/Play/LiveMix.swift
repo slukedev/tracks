@@ -48,8 +48,6 @@ public struct LiveMix: Sendable {
         public let releaseYear: Int?
         /// Why it would come up, for the player to say. Nil when nothing stands out.
         public let reason: Reason?
-        /// From a genre close to the one a genre's station plays, for once it has played all of
-        /// its own. See ``anchor``.
         public let isNearby: Bool
 
         public init(
@@ -80,7 +78,6 @@ public struct LiveMix: Sendable {
             )
         }
 
-        /// The same song, from a genre close to the station's.
         func nearby(_ station: MusicGenre) -> Candidate {
             Candidate(
                 song: song, weight: weight, isNew: isNew, isResting: isResting, genre: genre, releaseYear: releaseYear,
@@ -113,10 +110,7 @@ public struct LiveMix: Sendable {
         /// The opening probe is over, and this genre landed best: more of it, with something
         /// else now and then.
         case settledOn(String)
-        /// A genre's station has played every song of its own it can: genres close to it join
-        /// in, rather than the same few coming round again.
         case wideningBeyond(MusicGenre)
-        /// Skips with nothing in common on a genre's station: other kinds of its genre.
         case tryingOtherKinds(of: MusicGenre)
     }
 
@@ -148,7 +142,6 @@ public struct LiveMix: Sendable {
         case probing
         /// One you play with a song that landed this listen: its title.
         case goesWith(String)
-        /// On a genre's station that has played all of its own, a song in a genre close to it.
         case closeTo(MusicGenre)
     }
 
@@ -345,7 +338,6 @@ public struct LiveMix: Sendable {
         self.random = SeededGenerator(seed: seed)
     }
 
-    /// Nothing to play: no candidates, or for a genre's station, none in its genre.
     public var isEmpty: Bool { !candidates.contains { !$0.isNearby } }
 
     public func hasPicked(_ identity: String) -> Bool { picked.contains(identity) }
@@ -374,7 +366,6 @@ public struct LiveMix: Sendable {
 
         var open = candidates.filter { !picked.contains($0.song.songIdentity) && allows($0.song) && include($0.song) }
         if anchor != nil, !open.contains(where: { !$0.isNearby }), candidates.count(where: { !$0.isNearby }) >= Self.fullRound {
-            // A station with plenty of its own goes round them again before reaching further.
             startOver()
             open = candidates.filter { !picked.contains($0.song.songIdentity) && allows($0.song) && include($0.song) }
         }
@@ -411,15 +402,12 @@ public struct LiveMix: Sendable {
     /// it has played them all; one with fewer reaches into the genres close to it.
     static let fullRound = 30
 
-    /// The mix as a genre's station: anchored to the genre. See ``anchor``.
     func anchored(to genre: MusicGenre) -> LiveMix {
         var mix = self
         mix.anchor = genre
         return mix
     }
 
-    /// Whether skips sharing this genre family say nothing on a genre's station, since it's
-    /// most of what the station is: turning away from it would leave the genre.
     private func isAnchorFamily(_ key: String) -> Bool {
         guard anchor != nil else { return false }
         let own = candidates.filter { !$0.isNearby }

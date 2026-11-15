@@ -11,8 +11,6 @@ struct SongActions {
     var playLast: (() -> Void)?
     var createStation: (() -> Void)?
     var addToLibrary: (() -> Void)?
-    /// The song for Download, which stands in for Add to Library where Settings turns on
-    /// Download for Apple Music and Your Music together.
     var download: DownloadSubject?
     /// Your music's own ways of keeping a song, beside Add to Library: Download, Keep on This
     /// Mac, Ask Lidarr.

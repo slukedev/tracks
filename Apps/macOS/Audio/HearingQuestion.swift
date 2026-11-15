@@ -1,8 +1,6 @@
 import SwiftUI
 
 extension View {
-    /// Asks, once, whether Stage and the backgrounds that move with the music may hear Apple
-    /// Music: the first time this one wants to, a moment after the music's moving it.
     func asksToHearMusic(when isWanted: Bool, isDemo: Bool) -> some View {
         modifier(HearingQuestion(isWanted: isWanted, isDemo: isDemo))
     }
@@ -36,8 +34,6 @@ private struct HearingQuestion: ViewModifier {
     }
 }
 
-/// The setting, in Settings › Play › Now Playing: on or off, and the way to System Settings
-/// when macOS hasn't let Tracks hear.
 struct MusicHearingSettings: View {
     @Bindable private var hearing = MusicHearing.shared
 

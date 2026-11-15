@@ -1,20 +1,9 @@
 import Foundation
 
-/// One setting Tracks keeps, where it's kept, and whether it follows the person to their
-/// other devices.
-///
-/// Every setting is listed once in a ``SettingsRegistry``. ``SettingsSync`` mirrors the ones
-/// that reach every device through iCloud's key-value store, ``SettingsMigrator`` carries
-/// values over from the keys they used to have, and ``DemoSettingsGuard`` puts them back
-/// after a demo launch has changed them.
 public struct StoredSetting: Sendable, Hashable {
 
-    /// Which `UserDefaults` holds the value.
     public enum Domain: Sendable, Hashable {
-        /// The App Group's suite, which widgets, intents and the menu bar read without
-        /// opening the model container. See ``CaptureSettings/sharedDefaults``.
         case appGroup
-        /// The app's own `UserDefaults.standard`, where `@AppStorage` writes without a store.
         case app
     }
 
@@ -31,12 +20,8 @@ public struct StoredSetting: Sendable, Hashable {
         case union
     }
 
-    /// Whether the value travels.
     public enum Reach: Sendable, Hashable {
-        /// The same on every device signed in to the same iCloud account.
         case everyDevice(Merge)
-        /// Kept on this device only: what depends on the device itself (its speakers, its
-        /// storage, its network, its window layout) or is the device's own identity.
         case thisDevice
     }
 
@@ -67,7 +52,6 @@ public struct StoredSetting: Sendable, Hashable {
         self.formerKeys = formerKeys
     }
 
-    /// A setting that follows the person to every device.
     public static func everyDevice(
         _ key: String,
         in domain: Domain = .appGroup,
@@ -77,7 +61,6 @@ public struct StoredSetting: Sendable, Hashable {
         StoredSetting(key: key, domain: domain, reach: .everyDevice(merge), formerKeys: formerKeys)
     }
 
-    /// A setting kept on this device only.
     public static func thisDevice(
         _ key: String,
         in domain: Domain = .appGroup,

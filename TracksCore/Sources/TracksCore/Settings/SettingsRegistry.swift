@@ -1,14 +1,5 @@
 import Foundation
 
-/// Every setting Tracks keeps, in one list.
-///
-/// TracksCore lists its own in ``core``; the app adds the ones its views own and passes the
-/// whole registry to ``SettingsSync``, ``SettingsMigrator`` and ``DemoSettingsGuard``. A new
-/// setting is one line in one of those lists:
-///
-///     .everyDevice(PlayPreferences.someKey, in: .app),
-///     .thisDevice(SomeFeature.storageKey, in: .app),
-///
 /// Keys never change once shipped. A renamed setting keeps its old key in `formerKeys`, and
 /// a key taken out of the registry stays out of use: older builds on the person's other
 /// devices still write it.
@@ -25,10 +16,8 @@ public struct SettingsRegistry: Sendable {
         SettingsRegistry(lhs.settings + rhs.settings)
     }
 
-    /// The settings that follow the person to their other devices.
     public var synced: [StoredSetting] { settings.filter(\.syncs) }
 
-    /// Keys listed more than once, which would make two settings share one value.
     public var duplicateKeys: [String] {
         Dictionary(grouping: settings, by: \.key).filter { $0.value.count > 1 }.keys.sorted()
     }
@@ -37,8 +26,6 @@ public struct SettingsRegistry: Sendable {
 }
 
 extension SettingsRegistry {
-    /// The settings TracksCore owns. All in the App Group, which widgets and intents read.
-    ///
     /// Kept on this device: whether this device syncs at all (turning it off on one device
     /// mustn't turn it off everywhere), the device's identity, the Last.fm username (its
     /// session key is in this device's Keychain and doesn't travel, so a synced name would

@@ -40,8 +40,6 @@ public enum Mood: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    /// The feels that never belong in the mood, whatever a playlist for it holds: nothing
-    /// still or classical where it's meant to lift, nothing loud where it's meant to settle.
     private var clashingFeels: Set<SongFeel> {
         switch self {
         case .energy, .workout, .party: [.still, .soft]
@@ -52,34 +50,23 @@ public enum Mood: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    /// Whether a genre suits the mood: it names one of the mood's genres and nothing that
-    /// clashes with it, so "Classical Crossover" is never Energy and "Ambient Electronic"
-    /// never Workout.
     func suits(genre: String) -> Bool {
         fit(genre: genre) == .suits
     }
 
-    /// How a song sits with the mood, by its genre and, where the genre can't say, what its
-    /// title, artist and album give away: a sonata or a philharmonic is classical whatever
-    /// it's filed under, and an acoustic version isn't one to lift a workout.
     public func fit(genre: String?, title: String = "", artist: String = "", album: String? = nil) -> Fit {
         let genreFeels = genre.map(SongFeel.feels(ofGenre:)) ?? []
         if !genreFeels.isDisjoint(with: clashingFeels) { return .clashes }
         let textFeels = SongFeel.feels(title: title, artist: artist, album: album)
-        // A catalogued work or an orchestra is classical whatever it's filed under.
         if textFeels.contains(.still), clashingFeels.contains(.still) { return .clashes }
         let folded = genre.map(StatsCalculator.folded)
         if let folded, genreHints.contains(where: folded.contains) { return .suits }
         return textFeels.isDisjoint(with: clashingFeels) ? .unknown : .clashes
     }
 
-    /// How a song sits with a mood.
     public enum Fit: Sendable, Equatable {
-        /// Its genre is one of the mood's.
         case suits
-        /// Nothing says either way: a genre the mood doesn't name, or none at all.
         case unknown
-        /// It's the opposite of the mood.
         case clashes
     }
 }
@@ -87,13 +74,9 @@ public enum Mood: String, CaseIterable, Sendable, Identifiable {
 /// The feel a song gives away by its genre or its name, as far as either says one. The
 /// history has no tempo or loudness for a song, so these are what there is to go on.
 enum SongFeel: Sendable, Hashable {
-    /// Classical, ambient, sleep and meditation, scores: music that sits still.
     case still
-    /// Quiet takes of other music: acoustic, unplugged, piano versions, slowed.
     case soft
-    /// Metal, punk, hardcore, drill, the hardest dance music.
     case intense
-    /// Club edits and festival mixes.
     case club
 
     static func feels(ofGenre genre: String) -> Set<SongFeel> {
@@ -118,7 +101,6 @@ enum SongFeel: Sendable, Hashable {
         return feels
     }
 
-    /// A movement or a catalogued work: "Op. 27", "BWV 1007", "No. 5 in C minor", a sonata.
     private static func isClassicalWork(_ text: String) -> Bool {
         if classicalForms.contains(where: { text.contains(" \($0) ") }) { return true }
         return text.contains(catalogNumber) || text.contains(key)
@@ -210,9 +192,6 @@ public enum MoodMix {
         }
     }
 
-    /// Songs found for a mood elsewhere, as Apple Music's playlists for it, without the ones
-    /// that are its opposite: an Energy playlist can carry a piano piece, and a sleep one a
-    /// club edit.
     public static func fitting(_ songs: [MixSong], _ mood: Mood) -> [MixSong] {
         songs.filter { mood.fit(genre: $0.genre, title: $0.title, artist: $0.artistName, album: $0.albumTitle) != .clashes }
     }

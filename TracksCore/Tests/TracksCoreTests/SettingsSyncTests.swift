@@ -63,8 +63,6 @@ struct SettingsSyncTests {
         #expect(SettingsRegistry.core.duplicateKeys.isEmpty)
     }
 
-    /// Turning sync off on one device mustn't turn it off on the others, and a device's
-    /// identity is what tells the devices apart.
     @Test("what belongs to the device stays on it", arguments: [
         CloudSync.enabledKey, DeviceIdentity.defaultsKey, LastFMSessionStore.usernameKey, OnboardingRecord.storageKey,
     ])

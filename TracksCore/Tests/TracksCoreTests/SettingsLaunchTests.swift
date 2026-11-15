@@ -2,8 +2,6 @@ import Testing
 import Foundation
 @testable import TracksCore
 
-/// What happens to settings as Tracks starts: migrations from earlier builds, a demo's
-/// changes undone, and how a fresh install and an upgrade differ.
 @MainActor
 @Suite("Settings at launch")
 struct SettingsLaunchTests {
@@ -43,8 +41,6 @@ struct SettingsLaunchTests {
         #expect(app.defaults.string(forKey: "playLayoutV2") == "new")
     }
 
-    /// A downgrade to an older build and back must not run a migration twice, and an older
-    /// build finding a newer version mustn't lower it.
     @Test("migrations run once, and a newer version is left alone")
     func migrationsRunOnce() {
         #expect(SettingsMigrator(stores: stores, registry: registry).run() == .fresh)
@@ -76,10 +72,6 @@ struct SettingsLaunchTests {
 
     // MARK: - A fresh install and iCloud
 
-    /// The reset on reinstall. A fresh install pushed whatever it held to iCloud as a seed
-    /// before iCloud had handed it the person's real settings, and the key-value store kept
-    /// the later write: the reinstalled iPhone, and then every other device that took the
-    /// seed, went back to defaults.
     @Test("a fresh install sends up nothing it didn't choose")
     func freshInstallSeedsNothing() {
         registry.prepareForLaunch(isDemo: false, stores: stores)
@@ -108,8 +100,6 @@ struct SettingsLaunchTests {
         #expect(app.defaults.object(forKey: "musicSource") == nil)
     }
 
-    /// The reset on update. When a setting first began to sync, both devices seeded their
-    /// own value, and the second to update took the first one's, replacing its own.
     @Test("an upgraded device keeps its own value against another device's seed")
     func seedDoesNotReplaceValue() {
         app.defaults.set(true, forKey: "playAllowsExplicit")
@@ -148,8 +138,6 @@ struct SettingsLaunchTests {
         #expect(app.defaults.object(forKey: "musicSource") == nil)
     }
 
-    /// Two demos in a row, with no real launch between: the second mustn't take the first
-    /// demo's values for the person's.
     @Test("a second demo keeps the first one's backup")
     func secondDemoKeepsBackup() {
         app.defaults.set(true, forKey: "playAllowsExplicit")
@@ -178,7 +166,6 @@ struct SettingsLaunchTests {
         #expect(SettingsRegistry([.everyDevice("a"), .thisDevice("a")]).duplicateKeys == ["a"])
     }
 
-    /// Widgets and intents read these straight from the App Group, never the app's defaults.
     @Test("what widgets read lives in the App Group", arguments: [
         CaptureSettings.menuBarLabelStyleKey, CaptureSettings.scrobblesToLastFMKey, CaptureSettings.capturesOnDemandKey,
     ])

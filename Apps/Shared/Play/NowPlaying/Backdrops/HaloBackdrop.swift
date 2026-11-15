@@ -113,8 +113,6 @@ extension View {
     /// Has ``AudioLevelMeter`` hear your own music while this is shown and on screen, and
     /// stop when it goes, or when its window or the app does. Meanwhile ``GrooveStore``
     /// learns the groove of each song that plays, so nothing is fetched while nothing shows.
-    /// On the Mac, Apple Music is heard too once it's allowed, and the first one shown while
-    /// it plays asks (see ``MusicHearing``).
     /// Off, as for a background set not to move with the music, it doesn't listen at all.
     func listensToAudio(_ isOn: Bool = true) -> some View {
         modifier(AudioListening(isOn: isOn))
