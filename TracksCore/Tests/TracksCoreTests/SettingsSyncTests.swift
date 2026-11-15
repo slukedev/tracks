@@ -11,8 +11,10 @@ struct SettingsSyncTests {
 
     private var defaults: UserDefaults { scratch.defaults }
 
-    private func sync(_ settings: [SyncedSetting] = SyncedSetting.all) -> SettingsSync {
-        SettingsSync(defaults: defaults, cloud: cloud, settings: settings)
+    private var stores: SettingsStores { SettingsStores(appGroup: defaults, app: defaults) }
+
+    private func sync(_ registry: SettingsRegistry = .core) -> SettingsSync {
+        SettingsSync(stores: stores, cloud: cloud, registry: registry)
     }
 
     /// When this device last changed `key`, as `SettingsSync` recorded it.
@@ -39,7 +41,7 @@ struct SettingsSyncTests {
 
     @Test("the settings the user actually sets are all mirrored")
     func userFacingSettingsAreIncluded() {
-        let mirrored = Set(SyncedSetting.all.map(\.key))
+        let mirrored = Set(SettingsRegistry.core.synced.map(\.key))
         for key in [
             CaptureSettings.playlistNameKey,
             CaptureSettings.playlistIDKey,
@@ -58,7 +60,17 @@ struct SettingsSyncTests {
 
     @Test("no key is listed twice")
     func keysAreUnique() {
-        #expect(SyncedSetting.byKey.count == SyncedSetting.all.count)
+        #expect(SettingsRegistry.core.duplicateKeys.isEmpty)
+    }
+
+    /// Turning sync off on one device mustn't turn it off on the others, and a device's
+    /// identity is what tells the devices apart.
+    @Test("what belongs to the device stays on it", arguments: [
+        CloudSync.enabledKey, DeviceIdentity.defaultsKey, LastFMSessionStore.usernameKey, OnboardingRecord.storageKey,
+    ])
+    func deviceSettingsStayPut(key: String) throws {
+        let setting = try #require(SettingsRegistry.core.setting(forKey: key))
+        #expect(!setting.syncs)
     }
 
     /// `swift test` has no iCloud container in its Info.plist, so there is nothing to mirror
@@ -85,13 +97,13 @@ struct SettingsSyncTests {
     // MARK: - Choosing a copy
 
     @Test("the newer copy wins", arguments: [
-        (local: 100.0, remote: 200.0, expected: SyncedSetting.Decision.takeRemote),
+        (local: 100.0, remote: 200.0, expected: StoredSetting.Decision.takeRemote),
         (local: 200.0, remote: 100.0, expected: .keepLocal),
         // A tie keeps what's here, so two devices can't hand one change back and forth.
         (local: 100.0, remote: 100.0, expected: .keepLocal),
     ])
-    func newestWins(local: Double, remote: Double, expected: SyncedSetting.Decision) {
-        let setting = SyncedSetting(key: "k", merge: .newestWins)
+    func newestWins(local: Double, remote: Double, expected: StoredSetting.Decision) {
+        let setting = StoredSetting.everyDevice("k")
         #expect(setting.decide(
             localModifiedAt: Date(timeIntervalSince1970: local),
             remoteModifiedAt: Date(timeIntervalSince1970: remote)
@@ -102,7 +114,7 @@ struct SettingsSyncTests {
     /// what makes a fresh install adopt the user's settings instead of pushing its defaults.
     @Test("a device that has never set the key takes iCloud's copy")
     func untouchedDeviceTakesRemote() {
-        let setting = SyncedSetting(key: "k")
+        let setting = StoredSetting.everyDevice("k")
         #expect(setting.decide(
             localModifiedAt: nil,
             remoteModifiedAt: Date(timeIntervalSince1970: 100)
@@ -111,7 +123,7 @@ struct SettingsSyncTests {
 
     @Test("a key iCloud has never seen is left alone")
     func unknownRemoteKeepsLocal() {
-        let setting = SyncedSetting(key: "k")
+        let setting = StoredSetting.everyDevice("k")
         #expect(setting.decide(
             localModifiedAt: Date(timeIntervalSince1970: 100),
             remoteModifiedAt: nil
@@ -120,7 +132,7 @@ struct SettingsSyncTests {
 
     @Test("a union key never discards either side, whatever the timestamps say")
     func unionIgnoresTimestamps() {
-        let setting = SyncedSetting(key: "k", merge: .union)
+        let setting = StoredSetting.everyDevice("k", merge: .union)
         #expect(setting.decide(
             localModifiedAt: Date(timeIntervalSince1970: 900),
             remoteModifiedAt: Date(timeIntervalSince1970: 100)
@@ -240,7 +252,7 @@ struct SettingsSyncTests {
         sync.reconcileAll()
         #expect(defaults.double(forKey: CaptureSettings.minimumListenShareKey) == 0.25)
 
-        #expect(sync.pull(keys: SyncedSetting.all.map(\.key)).isEmpty)
+        #expect(sync.pull(keys: SettingsRegistry.core.synced.map(\.key)).isEmpty)
         #expect(defaults.double(forKey: CaptureSettings.minimumListenShareKey) == 0.25)
     }
 
@@ -378,8 +390,8 @@ struct SettingsSyncTests {
     func twoDevicesConverge() throws {
         let phone = ScratchDefaults()
         let mac = ScratchDefaults()
-        let phoneSync = SettingsSync(defaults: phone.defaults, cloud: cloud)
-        let macSync = SettingsSync(defaults: mac.defaults, cloud: cloud)
+        let phoneSync = SettingsSync(stores: SettingsStores(appGroup: phone.defaults, app: phone.defaults), cloud: cloud)
+        let macSync = SettingsSync(stores: SettingsStores(appGroup: mac.defaults, app: mac.defaults), cloud: cloud)
 
         phone.defaults.set("Late Night", forKey: CaptureSettings.playlistNameKey)
         phone.defaults.set(["phone song"], forKey: CaptureSettings.forgottenSongsKey)

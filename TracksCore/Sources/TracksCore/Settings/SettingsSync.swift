@@ -8,8 +8,10 @@ import Foundation
 /// `UserDefaults`. This mirrors those defaults through iCloud's key-value store instead, so
 /// every device keeps reading them the same cheap way and still sees the same values.
 ///
-/// The key-value store is sized for exactly this: a kilobyte per key, a megabyte overall,
-/// against the couple of dozen small values in ``SyncedSetting/all``.
+/// Which settings take part is ``SettingsRegistry``'s call: every ``StoredSetting`` that
+/// reaches every device, from either of the two `UserDefaults` it can live in. The key-value
+/// store is sized for exactly this: a megabyte and a thousand keys overall, against a few
+/// dozen small values.
 ///
 /// Both directions are idempotent: a pull writes the local copy only when it differs, and a
 /// push compares against what it last saw, so the two devices settle instead of handing one
@@ -23,22 +25,30 @@ public final class SettingsSync {
     /// `@AppStorage` redraws on its own, since this writes through `UserDefaults`. This is
     /// for the views that copy a setting into `@State` and would otherwise keep showing the
     /// old value.
-    public static let didChangeNotification = Notification.Name("TracksSettingsDidChangeRemotely")
-    public static let changedKeysKey = "keys"
+    public nonisolated static let didChangeNotification = Notification.Name("TracksSettingsDidChangeRemotely")
+    public nonisolated static let changedKeysKey = "keys"
 
     /// Where each key was last changed, as `[key: timeIntervalSince1970]`.
     ///
     /// Kept next to the values so a device that changed a setting offline still wins when it
     /// reconnects, rather than being overwritten by a device that only ever read it.
-    static let modifiedAtKey = "TracksSettingModifiedAt"
+    nonisolated static let modifiedAtKey = "TracksSettingModifiedAt"
 
     /// The fields of the envelope each value travels in.
-    static let valueField = "value"
-    static let modifiedAtField = "modifiedAt"
+    nonisolated static let valueField = "value"
+    nonisolated static let modifiedAtField = "modifiedAt"
 
-    private let defaults: UserDefaults
+    private let stores: SettingsStores
     private let cloud: KeyValueSyncStore
-    private let settings: [SyncedSetting]
+    private let registry: SettingsRegistry
+    private let settings: [StoredSetting]
+    /// Keys this install had nothing of its own for when it first ran. See
+    /// ``seedSettingsNeverSynced()``.
+    private let unseededKeys: Set<String>
+
+    /// Whether iCloud refused the last write because the store is full. Tracks' own values
+    /// are far inside the quota, so this means something grew past what it should.
+    public private(set) var isOverQuota = false
 
     /// The mirrored values as this last saw them, so a local write can be spotted without
     /// `UserDefaults` saying which key moved.
@@ -53,10 +63,10 @@ public final class SettingsSync {
     /// the settings travelling as well as the history, or the toggle would only be half
     /// true. Like the store, the switch is read once here, so a change takes effect on the
     /// next launch.
-    public static func forCurrentBuild() -> SettingsSync? {
+    public static func forCurrentBuild(registry: SettingsRegistry = .core) -> SettingsSync? {
         guard shouldMirror(enabled: CloudSync.isEnabled, configured: CloudSync.isConfigured)
         else { return nil }
-        return SettingsSync()
+        return SettingsSync(registry: registry)
     }
 
     /// Whether to mirror settings at all, given the user's switch and whether this build can
@@ -67,14 +77,16 @@ public final class SettingsSync {
     }
 
     public init(
-        defaults: UserDefaults = CaptureSettings.sharedDefaults,
+        stores: SettingsStores = .live,
         cloud: KeyValueSyncStore = NSUbiquitousKeyValueStore.default,
-        settings: [SyncedSetting] = SyncedSetting.all
+        registry: SettingsRegistry = .core
     ) {
-        self.defaults = defaults
+        self.stores = stores
         self.cloud = cloud
-        self.settings = settings
-        self.snapshot = Self.read(settings, from: defaults)
+        self.registry = registry
+        self.settings = registry.synced
+        self.unseededKeys = SettingsMigrator.keysUnseeded(in: stores)
+        self.snapshot = Self.read(settings, from: stores)
     }
 
     isolated deinit {
@@ -104,16 +116,18 @@ public final class SettingsSync {
             })
 
             // `UserDefaults` doesn't say which key changed, so this diffs against `snapshot`.
-            observers.append(NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: defaults,
-                // Never `.main`: that makes whichever thread wrote the default wait for the
-                // main thread, and a framework writing from a queue the main thread is
-                // waiting on deadlocks (see CarPlaySceneDelegate's settings observer).
-                queue: nil
-            ) { [weak self] _ in
-                Task { @MainActor in self?.pushLocalChanges() }
-            })
+            for defaults in stores.distinct {
+                observers.append(NotificationCenter.default.addObserver(
+                    forName: UserDefaults.didChangeNotification,
+                    object: defaults,
+                    // Never `.main`: that makes whichever thread wrote the default wait for
+                    // the main thread, and a framework writing from a queue the main thread
+                    // is waiting on deadlocks (see CarPlaySceneDelegate's settings observer).
+                    queue: nil
+                ) { [weak self] _ in
+                    Task { @MainActor in self?.pushLocalChanges() }
+                })
+            }
         }
 
         cloud.synchronize()
@@ -136,8 +150,9 @@ public final class SettingsSync {
     private func cloudChanged(reason: Int?, keys: [String]?) {
         switch reason {
         case NSUbiquitousKeyValueStoreQuotaViolationChange:
-            // Nothing sensible to do: the values here are far inside the quota, so something
-            // else filled it. Leave the local copies alone.
+            // The local copies stay as they are; only the mirror is behind.
+            isOverQuota = true
+            Log.iCloud.error("iCloud's key-value store is full; settings aren't syncing")
             return
         case NSUbiquitousKeyValueStoreAccountChange:
             // A different iCloud account, so the remote side is another person's settings or
@@ -164,11 +179,12 @@ public final class SettingsSync {
         var stamps = localModifiedAt
 
         for key in keys {
-            guard let setting = SyncedSetting.byKey[key],
-                  settings.contains(setting),
+            guard let setting = registry.setting(forKey: key),
+                  setting.syncs,
                   let envelope = cloud.object(forKey: key) as? [String: Any]
             else { continue }
 
+            let defaults = stores.defaults(for: setting)
             let remoteValue = envelope[Self.valueField]
             let remoteModifiedAt = (envelope[Self.modifiedAtField] as? Double)
                 .map(Date.init(timeIntervalSince1970:))
@@ -176,7 +192,8 @@ public final class SettingsSync {
 
             switch setting.decide(
                 localModifiedAt: stamps[key].map(Date.init(timeIntervalSince1970:)),
-                remoteModifiedAt: remoteModifiedAt
+                remoteModifiedAt: remoteModifiedAt,
+                hasLocalValue: localValue != nil
             ) {
             case .keepLocal:
                 continue
@@ -221,7 +238,7 @@ public final class SettingsSync {
     /// and doesn't say which, so the work is the diff rather than the notification.
     func pushLocalChanges() {
         guard !isPulling else { return }
-        let current = Self.read(settings, from: defaults)
+        let current = Self.read(settings, from: stores)
         let moved = settings.filter { !Self.isEqual(current[$0.key], snapshot[$0.key]) }
         guard !moved.isEmpty else { return }
 
@@ -232,7 +249,7 @@ public final class SettingsSync {
             let key = setting.key
             let value: Any?
             switch setting.merge {
-            case .newestWins:
+            case .newestWins, nil:
                 value = current[key]
             case .union:
                 // A union key's local copy may be missing entries another device added and
@@ -258,14 +275,18 @@ public final class SettingsSync {
     /// its own defaults, which looks exactly like sync not working.
     ///
     /// Seeded values are dated 1970, so a real change made on any device at any time beats
-    /// them. Where two devices both seed a key, the first to run the new build wins it; the
-    /// next time the user sets it anywhere, that settles it for good.
+    /// them, and a seed fills a gap on another device without replacing what it has (see
+    /// ``StoredSetting/decide(localModifiedAt:remoteModifiedAt:hasLocalValue:)``).
+    ///
+    /// A fresh install seeds nothing it already knew about when it first ran. Its values are
+    /// defaults, or ones the app wrote for itself, and iCloud's key-value store can still be
+    /// downloading the person's real settings: a seed sent up then could land on top of them.
     private func seedSettingsNeverSynced() {
         var stamps = localModifiedAt
-        for setting in settings where stamps[setting.key] == nil {
+        for setting in settings where stamps[setting.key] == nil && !unseededKeys.contains(setting.key) {
             // Only keys iCloud has never heard of. A key already up there has an owner.
             guard cloud.object(forKey: setting.key) == nil,
-                  let value = defaults.object(forKey: setting.key)
+                  let value = stores.defaults(for: setting).object(forKey: setting.key)
             else { continue }
             write(value, forKey: setting.key, modifiedAt: 0)
             stamps[setting.key] = 0
@@ -300,19 +321,21 @@ public final class SettingsSync {
     // MARK: - Stored timestamps
 
     private var localModifiedAt: [String: TimeInterval] {
-        get { defaults.dictionary(forKey: Self.modifiedAtKey) as? [String: TimeInterval] ?? [:] }
-        set { defaults.set(newValue, forKey: Self.modifiedAtKey) }
+        get { stores.ledger.dictionary(forKey: Self.modifiedAtKey) as? [String: TimeInterval] ?? [:] }
+        set { stores.ledger.set(newValue, forKey: Self.modifiedAtKey) }
     }
 
     // MARK: - Values
 
     private static func read(
-        _ settings: [SyncedSetting],
-        from defaults: UserDefaults
+        _ settings: [StoredSetting],
+        from stores: SettingsStores
     ) -> [String: Any] {
         var values: [String: Any] = [:]
         for setting in settings {
-            if let value = defaults.object(forKey: setting.key) { values[setting.key] = value }
+            if let value = stores.defaults(for: setting).object(forKey: setting.key) {
+                values[setting.key] = value
+            }
         }
         return values
     }
@@ -327,7 +350,7 @@ public final class SettingsSync {
         }
     }
 
-    /// Both sides of a ``SyncedSetting/Merge/union`` key, sorted so every device stores the
+    /// Both sides of a ``StoredSetting/Merge/union`` key, sorted so every device stores the
     /// same array and neither sees the other's copy as a change.
     static func union(_ lhs: Any?, _ rhs: Any?) -> [String] {
         let left = lhs as? [String] ?? []

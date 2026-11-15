@@ -15,7 +15,7 @@ public struct CaptureSettings: Sendable {
     public static let autoAddKey = "autoAddToPlaylist"
     public static let capturesOnDemandKey = "capturesOnDemand"
     public static let minimumListenShareKey = "minimumListenShare"
-    /// When a play counted after a set time. Read once, by ``migrateMinimumListen()``.
+    /// When a play counted after a set time. Read once, by ``SettingsMigrator``.
     static let legacyMinimumListenKey = "minimumListenSeconds"
     public static let forgottenSongsKey = "forgottenSongs"
     public static let forgottenSongDatesKey = "forgottenSongDates"
@@ -114,17 +114,6 @@ public struct CaptureSettings: Sendable {
 
     private static func clampedShare(_ share: Double) -> Double {
         min(max(0, share), maximumListenShare)
-    }
-
-    /// Keeps Straight Away for someone who chose it when a play counted after a set time.
-    /// Any other time has no matching share, so it gives way to the default. Runs before
-    /// settings sync starts; once there's a share, it does nothing.
-    public func migrateMinimumListen() {
-        guard defaults.object(forKey: Self.minimumListenShareKey) == nil,
-              defaults.object(forKey: Self.legacyMinimumListenKey) != nil,
-              defaults.double(forKey: Self.legacyMinimumListenKey) <= 0
-        else { return }
-        minimumListenShare = 0
     }
 
     /// Whether to keep on-demand plays as well as radio. On by default.

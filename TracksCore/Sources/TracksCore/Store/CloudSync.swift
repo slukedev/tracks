@@ -29,8 +29,8 @@ public enum CloudSync {
 
     // Renaming them would turn sync back on for anyone who turned it off, and run the
     // legacy stamp again.
-    private static let enabledKey = "TracksCloudSyncEnabled"
-    private static let stampedKey = "TracksCloudSyncDidStampLegacyCaptures"
+    static let enabledKey = "TracksCloudSyncEnabled"
+    static let stampedKey = "TracksCloudSyncDidStampLegacyCaptures"
 
     /// Whether to mirror the store to iCloud. On by default.
     ///

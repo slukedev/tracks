@@ -170,7 +170,7 @@ final class AppModel {
             self.capture = capture
             self.playback = playback
             self.startupError = nil
-            self.settingsSync = isDemoLaunch ? nil : SettingsSync.forCurrentBuild()
+            self.settingsSync = isDemoLaunch ? nil : SettingsSync.forCurrentBuild(registry: .tracks)
             self.reconciler = isDemoLaunch ? nil : SyncReconciler(store: store)
             self.lastFMHistory = isDemoLaunch ? nil : LastFMHistorySync(store: store)
             // Starts the first read of the history now, in the background, so it's under way
@@ -543,7 +543,12 @@ final class AppModel {
 
     /// The one model for the process. The phone's window, CarPlay and Siri all need the same
     /// player, so it can't belong to any one scene.
-    static let shared = AppModel()
+    /// Settings are made ready first: a demo's changes undone and earlier builds' keys
+    /// carried over, before anything here reads them.
+    static let shared: AppModel = {
+        SettingsRegistry.tracks.prepareForLaunch(isDemo: DemoMode.isRequestedAtLaunch)
+        return AppModel()
+    }()
 
     /// Gets the process ready to play without a window: capture running, and the history's
     /// first read done with the mixes built from it. For Siri and CarPlay, which can start
@@ -657,9 +662,6 @@ final class AppModel {
             await DemoMode.runLiveFeed(into: store)
         }
         guard !isDemoLaunch, let capture else { return }
-        // Before capture and sync, so the first song is held to the carried-over choice, and
-        // it goes up rather than being taken for an unset one.
-        CaptureSettings().migrateMinimumListen()
         capture.start()
         // Before the catch-up, so settings another device changed are in force for the
         // captures it is about to make.

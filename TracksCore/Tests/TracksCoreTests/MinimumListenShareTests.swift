@@ -10,6 +10,13 @@ struct MinimumListenShareTests {
     private let scratch = ScratchDefaults()
     private var settings: CaptureSettings { scratch.settings }
 
+    private func migrate() {
+        SettingsMigrator(
+            stores: SettingsStores(appGroup: scratch.defaults, app: scratch.defaults),
+            registry: .core
+        ).run()
+    }
+
     @Test("the share is held between none and nine tenths", arguments: [(-0.2, 0.0), (0.4, 0.4), (1.0, 0.9)])
     func shareIsClamped(stored: Double, read: Double) {
         settings.minimumListenShare = stored
@@ -34,7 +41,7 @@ struct MinimumListenShareTests {
     @Test("Straight Away carries over from the old time")
     func straightAwayCarriesOver() {
         scratch.defaults.set(0.0, forKey: CaptureSettings.legacyMinimumListenKey)
-        settings.migrateMinimumListen()
+        migrate()
         #expect(settings.minimumListenShare == 0)
     }
 
@@ -42,7 +49,7 @@ struct MinimumListenShareTests {
     @Test("any other old time gives way to the default", arguments: [30.0, 90.0])
     func otherTimesTakeTheDefault(seconds: TimeInterval) {
         scratch.defaults.set(seconds, forKey: CaptureSettings.legacyMinimumListenKey)
-        settings.migrateMinimumListen()
+        migrate()
         #expect(scratch.defaults.object(forKey: CaptureSettings.minimumListenShareKey) == nil)
         #expect(settings.minimumListenShare == CaptureSettings.defaultMinimumListenShare)
     }
@@ -53,7 +60,7 @@ struct MinimumListenShareTests {
     func chosenShareWins() {
         settings.minimumListenShare = 0.25
         scratch.defaults.set(0.0, forKey: CaptureSettings.legacyMinimumListenKey)
-        settings.migrateMinimumListen()
+        migrate()
         #expect(settings.minimumListenShare == 0.25)
     }
 }
