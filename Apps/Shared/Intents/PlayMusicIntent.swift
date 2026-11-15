@@ -85,9 +85,9 @@ struct PlayMusicIntent: AudioPlaybackIntent {
 }
 
 extension PlayMusicIntent {
-    /// Two of yours by the same name: "Hello by Adele, or Hello by Lionel Richie?"
-    @MainActor
-    private func choose(among matches: [ResolvedMedia]) async throws -> ResolvedMedia {
+    /// Two of yours by the same name: "Hello by Adele, or Hello by Lionel Richie?" Off the
+    /// main actor, where App Intents asks, so the options never cross into it.
+    nonisolated private func choose(among matches: [ResolvedMedia]) async throws -> ResolvedMedia {
         let options = matches.map { IntentChoiceOption(title: "\($0.spokenTitle)") }
         let chosen = try await requestChoice(between: options + [.cancel], dialog: "Which one?")
         guard let index = options.firstIndex(of: chosen) else { throw CancellationError() }
