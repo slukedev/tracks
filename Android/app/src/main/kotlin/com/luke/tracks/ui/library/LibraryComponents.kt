@@ -97,7 +97,7 @@ fun artistAvatarKey(artistId: String) = "avatar:artist:$artistId"
 fun AlbumCell(
     album: LibraryAlbum,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     showArtist: Boolean = true,
 ) {

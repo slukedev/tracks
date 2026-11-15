@@ -89,6 +89,12 @@ class ServerLibrary(
         return SubsonicClient(server, password, transport)
     }
 
+    /** Album and artist lookups on one of your servers, or null when it's gone or locked. */
+    fun browse(serverId: String): ServerBrowse? {
+        val server = _entries.value.firstOrNull { it.server.id == serverId }?.server ?: return null
+        return client(server)?.let { ServerBrowse(server, it) }
+    }
+
     /** The saved password, for checking a server again without typing it. */
     fun savedPassword(server: SubsonicServer): String? = secrets.open(server.secret)
 

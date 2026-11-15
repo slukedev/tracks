@@ -42,6 +42,8 @@ import com.luke.tracks.library.LibraryIndex
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.ui.navigation.LibraryAlbumRoute
+import com.luke.tracks.library.LibraryAlbum
+import com.luke.tracks.ui.navigation.Route
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.sharedElement
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,7 +65,14 @@ fun LibraryArtistScreen(artistId: String) {
 }
 
 @Composable
-fun LibraryArtistPage(artist: LibraryArtist, songs: List<PlayableSong>, currentMediaId: String?) {
+fun LibraryArtistPage(
+    artist: LibraryArtist,
+    songs: List<PlayableSong>,
+    currentMediaId: String?,
+    songsTitle: String = "Songs",
+    /** A server artist's albums open on the server, and have no menu of their own. */
+    albumRoute: ((LibraryAlbum) -> Route)? = null,
+) {
     val navigator = LocalNavigator.current
     val player = LocalContext.current.graph.player
     val origin = remember(artist.id) { QueueOrigin(artist.name, QueueOrigin.Kind.Artist) }
@@ -108,8 +117,8 @@ fun LibraryArtistPage(artist: LibraryArtist, songs: List<PlayableSong>, currentM
                             items(artist.albums, key = { it.id }) { album ->
                                 AlbumCell(
                                     album = album,
-                                    onClick = { navigator.open(LibraryAlbumRoute(album.id)) },
-                                    onLongClick = { actions.open(LibraryTarget.Album(album)) },
+                                    onClick = { navigator.open(albumRoute?.invoke(album) ?: LibraryAlbumRoute(album.id)) },
+                                    onLongClick = if (albumRoute == null) { { actions.open(LibraryTarget.Album(album)) } } else null,
                                     showArtist = false,
                                     modifier = Modifier.width(160.dp).animateItem(),
                                 )
@@ -118,7 +127,7 @@ fun LibraryArtistPage(artist: LibraryArtist, songs: List<PlayableSong>, currentM
                     }
                 }
                 if (songs.isNotEmpty()) {
-                    item(key = "songs-h") { SectionHeader("Songs") }
+                    item(key = "songs-h") { SectionHeader(songsTitle) }
                     itemsIndexed(songs, key = { _, song -> song.mediaId }) { i, song ->
                         SongRow(
                             song = song,

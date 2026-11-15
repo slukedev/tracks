@@ -3,6 +3,7 @@ package com.luke.tracks.ui.play.components
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AddToHomeScreen
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Share
@@ -17,6 +18,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.ui.navigation.Route
 import uniffi.tracks_engine.Mix
 
 /** A long press on a mix: play it, shuffle it, open it or pin it to the home screen. */
@@ -61,13 +63,19 @@ fun MixMenu(
     }
 }
 
-/** A long press on an artist. */
+/** A long press on an artist: their page in Your Music, your stats for them, Share. */
 @Composable
-fun ArtistMenu(expanded: Boolean, onDismiss: () -> Unit, name: String, actions: PlayActions, onShare: () -> Unit) {
+fun ArtistMenu(expanded: Boolean, onDismiss: () -> Unit, page: Route, stats: Route, actions: PlayActions, onShare: () -> Unit) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, shape = MaterialTheme.shapes.large) {
         MenuItem(Icons.Rounded.Person, "Go to artist") {
             onDismiss()
-            actions.goToArtist(name)
+            actions.open(page)
+        }
+        if (stats != page) {
+            MenuItem(Icons.Rounded.BarChart, "Your stats") {
+                onDismiss()
+                actions.open(stats)
+            }
         }
         MenuItem(Icons.Rounded.Share, "Share") {
             onDismiss()

@@ -1,112 +1,92 @@
 package com.luke.tracks.ui.play.components
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.luke.tracks.ui.components.Artwork
-import com.luke.tracks.ui.play.playsLabel
-import kotlinx.coroutines.launch
+import com.luke.tracks.ui.library.ActionSheet
+import com.luke.tracks.ui.library.ActionSheetContent
+import com.luke.tracks.ui.library.ActionSheetHeader
+import com.luke.tracks.ui.library.SheetAction
+import com.luke.tracks.ui.navigation.SongRoute
 
 /**
- * Everything you can do with a song, as a sheet with the song on top: what a long press opens
- * anywhere on the Play pages, and the overflow button on a row.
+ * A song's press-and-hold sheet on the Play pages, in the iPhone's order: Play, Play next and
+ * Add to queue; Add to your music where its server can fetch it; Go to album, Go to artist and
+ * Your stats; Open in another app for a song this phone can't play; Share; Hear less of this.
  */
 @Composable
 fun SongActionsSheet(
     song: SongRef,
     actions: PlayActions,
+    links: GoTo,
     onDismiss: () -> Unit,
+    onPlay: (() -> Unit)? = null,
+    onAdd: (() -> Unit)? = null,
     onHearLess: ((SongRef) -> Unit)? = null,
 ) {
-    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    fun run(block: () -> Unit) {
-        block()
-        scope.launch { state.hide() }.invokeOnCompletion { onDismiss() }
-    }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state) {
-        Column(Modifier.navigationBarsPadding().padding(bottom = 8.dp)) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Artwork(song.artworkUrl, song.coverSeed, Modifier.size(56.dp), shape = RoundedCornerShape(12.dp))
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(song.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        listOfNotNull(song.artistName, song.plays?.let(::playsLabel)).joinToString(" · "),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (song.playable == null) {
-                        Text(
-                            "Not in your music on this phone",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.tertiary,
-                        )
-                    }
-                }
-            }
-            HorizontalDivider(Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            Spacer(Modifier.size(8.dp))
-            if (song.playable != null) {
-                Action(Icons.Rounded.PlayArrow, "Play") { run { actions.play(song) } }
-                Action(Icons.AutoMirrored.Rounded.QueueMusic, "Play next") { run { actions.playNext(song) } }
-                Action(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to queue") { run { actions.addToQueue(song) } }
-            }
-            Action(Icons.AutoMirrored.Rounded.OpenInNew, "Open in another app") { run { actions.openElsewhere(song) } }
-            Action(Icons.Rounded.Person, "Go to artist") { run { actions.goToArtist(song.artistName) } }
-            Action(Icons.Rounded.Share, "Share") { run { actions.share(song) } }
-            Action(Icons.Rounded.RemoveCircleOutline, "Hear less of this", supporting = "Leaves your mixes and Tracks Radio") {
-                run { onHearLess?.invoke(song) ?: actions.hearLess(song.identity) }
-            }
-        }
-    }
+    val (quick, more) = songSheetActions(song, actions, links, onPlay, onAdd, onHearLess)
+    ActionSheet(quick, more, onDismiss) { SongSheetHeader(song) }
+}
+
+/** The sheet's contents without the sheet, for screenshots. */
+@Composable
+fun SongActionsPreview(song: SongRef, actions: PlayActions, links: GoTo, onAdd: (() -> Unit)? = null) {
+    val (quick, more) = songSheetActions(song, actions, links, onAdd = onAdd)
+    ActionSheetContent(quick, more, onAction = {}) { SongSheetHeader(song) }
 }
 
 @Composable
-private fun Action(icon: ImageVector, label: String, supporting: String? = null, onClick: () -> Unit) {
-    ListItem(
-        headlineContent = { Text(label) },
-        supportingContent = supporting?.let { { Text(it) } },
-        leadingContent = { Icon(icon, contentDescription = null) },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.padding(horizontal = 8.dp).pressable(onClick = onClick, pressedScale = 0.98f),
+private fun SongSheetHeader(song: SongRef) {
+    ActionSheetHeader(
+        title = song.title,
+        subtitle = listOfNotNull(song.artistName, song.albumTitle?.takeIf { it.isNotBlank() }).joinToString(" · "),
+        note = if (song.playable == null) "Not in your music on this phone" else null,
+    ) {
+        Artwork(song.artworkUrl, song.coverSeed, Modifier.size(64.dp), shape = RoundedCornerShape(16.dp))
+    }
+}
+
+private fun songSheetActions(
+    song: SongRef,
+    actions: PlayActions,
+    links: GoTo,
+    onPlay: (() -> Unit)? = null,
+    onAdd: (() -> Unit)? = null,
+    onHearLess: ((SongRef) -> Unit)? = null,
+): Pair<List<SheetAction>, List<SheetAction>> {
+    val quick = if (song.playable == null) emptyList() else listOf(
+        SheetAction("Play", Icons.Rounded.PlayArrow) { onPlay?.invoke() ?: actions.play(song) },
+        SheetAction("Play next", Icons.AutoMirrored.Rounded.QueueMusic) { actions.playNext(song) },
+        SheetAction("Add to queue", Icons.AutoMirrored.Rounded.PlaylistAdd) { actions.addToQueue(song) },
     )
+    val more = listOfNotNull(
+        onAdd?.let { SheetAction("Add to your music", Icons.Rounded.Add, run = it) },
+        links.album?.let { SheetAction("Go to album", Icons.Rounded.Album) { actions.open(it) } },
+        links.artist?.let { SheetAction("Go to artist", Icons.Rounded.Person) { actions.open(it) } },
+        song.plays?.takeIf { it > 0 }?.let {
+            SheetAction("Your stats", Icons.Rounded.BarChart) { actions.open(SongRoute(song.identity, song.title, song.artistName)) }
+        },
+        if (song.playable == null) SheetAction("Open in another app", Icons.AutoMirrored.Rounded.OpenInNew) { actions.openElsewhere(song) } else null,
+        SheetAction("Share", Icons.Rounded.Share) { actions.share(song) },
+        SheetAction("Hear less of this", Icons.Rounded.RemoveCircleOutline, supporting = "Leaves your mixes and Tracks Radio") {
+            onHearLess?.invoke(song) ?: actions.hearLess(song.identity)
+        },
+    )
+    return quick to more
 }
 
 /** Room for the floating mini player under the last row. */

@@ -71,12 +71,21 @@ import com.luke.tracks.ui.library.LocalLibraryActions
 import com.luke.tracks.ui.library.WithLibraryActions
 import com.luke.tracks.ui.navigation.ArtistRoute
 import com.luke.tracks.ui.navigation.LibraryAlbumRoute
+import com.luke.tracks.ui.navigation.LibraryArtistRoute
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.MixRoute
 import com.luke.tracks.ui.navigation.SearchRoute
 import com.luke.tracks.ui.navigation.SettingsRoute
 import com.luke.tracks.ui.navigation.sharedElement
 import com.luke.tracks.ui.play.components.ArtistMenu
+import com.luke.tracks.ui.play.components.GoTo
+import com.luke.tracks.ui.play.components.SongActionsSheet
+import com.luke.tracks.ui.play.components.SongRef
+import com.luke.tracks.ui.play.components.artistLink
+import com.luke.tracks.ui.play.components.goToActions
+import com.luke.tracks.ui.play.components.ref
+import com.luke.tracks.ui.play.components.rememberLibraryIndex
+import com.luke.tracks.ui.play.components.songLinks
 import com.luke.tracks.ui.play.components.MiniPlayerClearance
 import com.luke.tracks.ui.play.components.MixArt
 import com.luke.tracks.ui.play.components.MixMenu
@@ -193,7 +202,7 @@ fun PlayScreen() {
                         item(key = "mixes", contentType = "shelf") { MixShelf(current, actions, openMix, unplayable, Modifier.animateItem()) }
                     }
                     if (current.waiting.isNotEmpty()) {
-                        item(key = "waiting", contentType = "shelf") { WaitingToBeHeard(current.waiting, Modifier.animateItem()) }
+                        item(key = "waiting", contentType = "shelf") { WaitingToBeHeard(current.waiting, actions, Modifier.animateItem()) }
                     }
                     servers.forEach { server ->
                         item(key = "picks-${server.id}", contentType = "server-songs") {
@@ -245,6 +254,7 @@ private fun ServerProblems() {
 private fun RecentlyPlayed(albums: List<LibraryAlbum>, modifier: Modifier) {
     val navigator = LocalNavigator.current
     val actions = LocalLibraryActions.current
+    val index = rememberLibraryIndex()
     Column(modifier) {
         SectionTitle("Recently played")
         Spacer(Modifier.height(12.dp))
@@ -254,6 +264,7 @@ private fun RecentlyPlayed(albums: List<LibraryAlbum>, modifier: Modifier) {
                     Modifier
                         .animateItem()
                         .width(148.dp)
+                        .goToActions(GoTo(artist = index.artistIdOf(album.artistName)?.let(::LibraryArtistRoute)), navigator)
                         .pressable(onClick = { navigator.open(LibraryAlbumRoute(album.id)) }, onLongClick = { actions.open(LibraryTarget.Album(album)) }),
                 ) {
                     Artwork(album.artworkUri, album.title + album.artistName, Modifier.fillMaxWidth().sharedElement("cover:album:${album.id}"), shape = RoundedCornerShape(20.dp))
@@ -268,22 +279,27 @@ private fun RecentlyPlayed(albums: List<LibraryAlbum>, modifier: Modifier) {
 
 /** Your songs you've never played: tap plays from there, press and hold for the song's menu. */
 @Composable
-private fun WaitingToBeHeard(songs: List<PlayableSong>, modifier: Modifier) {
+private fun WaitingToBeHeard(songs: List<PlayableSong>, actions: PlayActions, modifier: Modifier) {
     val graph = LocalContext.current.graph
-    val actions = LocalLibraryActions.current
+    val navigator = LocalNavigator.current
+    val index = rememberLibraryIndex()
+    var held by remember { mutableStateOf<SongRef?>(null) }
+    val playFrom = { position: Int -> graph.player.play(songs, position, QueueOrigin("Waiting to be heard", QueueOrigin.Kind.Library)) }
     Column(modifier) {
         SectionTitle("Waiting to be heard")
         Spacer(Modifier.height(12.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(songs.size, key = { songs[it].mediaId }) { index ->
-                val song = songs[index]
+            items(songs.size, key = { songs[it].mediaId }) { position ->
+                val song = songs[position]
+                val ref = remember(song) { song.ref() }
                 Column(
                     Modifier
                         .animateItem()
                         .width(148.dp)
+                        .goToActions(remember(ref, index) { songLinks(ref, index) }, navigator)
                         .pressable(
-                            onClick = { graph.player.play(songs, index, QueueOrigin("Waiting to be heard", QueueOrigin.Kind.Library)) },
-                            onLongClick = { actions.open(LibraryTarget.Song(song)) },
+                            onClick = { playFrom(position) },
+                            onLongClick = { held = ref },
                         ),
                 ) {
                     Artwork(song.artworkUri, (song.albumTitle ?: song.title) + song.artistName, Modifier.fillMaxWidth(), shape = MaterialShapes.Cookie12Sided.toShape(), showInitials = false)
@@ -293,6 +309,15 @@ private fun WaitingToBeHeard(songs: List<PlayableSong>, modifier: Modifier) {
                 }
             }
         }
+    }
+    held?.let { song ->
+        SongActionsSheet(
+            song,
+            actions,
+            links = songLinks(song, index),
+            onDismiss = { held = null },
+            onPlay = { playFrom(songs.indexOf(song.playable).coerceAtLeast(0)) },
+        )
     }
 }
 
@@ -367,6 +392,7 @@ internal fun ShapedArtistCover(name: String, url: String?, shape: Shape, size: D
 private fun ArtistRail(artists: List<ArtistStats>, actions: PlayActions, modifier: Modifier) {
     val navigator = LocalNavigator.current
     val context = LocalContext.current
+    val index = rememberLibraryIndex()
     Column(modifier) {
         SectionTitle("Your artists")
         Spacer(Modifier.height(12.dp))
@@ -374,13 +400,16 @@ private fun ArtistRail(artists: List<ArtistStats>, actions: PlayActions, modifie
             contentPadding = PaddingValues(horizontal = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            items(artists.size, key = { artists[it].identity }) { index ->
-                val artist = artists[index]
+            items(artists.size, key = { artists[it].identity }) { position ->
+                val artist = artists[position]
+                val stats = ArtistRoute(artist.identity, artist.name)
+                val page = remember(artist, index) { artistLink(artist.name, artist.identity, index) }
                 var menu by remember { mutableStateOf(false) }
                 Column(
                     Modifier
                         .animateItem()
                         .width(104.dp)
+                        .goToActions(GoTo(artist = page), navigator)
                         .pressable(
                             onClick = { navigator.open(ArtistRoute(artist.identity, artist.name)) },
                             onLongClick = { menu = true },
@@ -388,8 +417,8 @@ private fun ArtistRail(artists: List<ArtistStats>, actions: PlayActions, modifie
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Box {
-                        ShapedArtistCover(artist.name, artist.artworkUrl, expressiveShapes[index % expressiveShapes.size].toShape())
-                        ArtistMenu(menu, { menu = false }, artist.name, actions) {
+                        ShapedArtistCover(artist.name, artist.artworkUrl, expressiveShapes[position % expressiveShapes.size].toShape())
+                        ArtistMenu(menu, { menu = false }, page, stats, actions) {
                             shareText(context, artist.name)
                         }
                     }

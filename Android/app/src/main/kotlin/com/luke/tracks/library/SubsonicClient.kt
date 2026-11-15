@@ -73,6 +73,20 @@ class SubsonicClient(
         return album.album() to album.song
     }
 
+    /** An artist and their albums. */
+    suspend fun artist(id: String): Pair<SubsonicArtist, List<SubsonicAlbum>> {
+        val artist = call("getArtist", mapOf("id" to id)).artist ?: throw SubsonicError.NotFound
+        return SubsonicArtist(artist.id, artist.name, artist.album.size, artist.coverArt, artist.artistImageUrl) to artist.album
+    }
+
+    /** One song, with the ids of its album and artist. */
+    suspend fun song(id: String): SubsonicSong =
+        call("getSong", mapOf("id" to id)).song ?: throw SubsonicError.NotFound
+
+    /** An artist's most popular songs, by name: servers ask Last.fm. */
+    suspend fun topSongs(artist: String, count: Int = 20): List<SubsonicSong> =
+        call("getTopSongs", mapOf("artist" to artist, "count" to "$count")).topSongs?.song.orEmpty()
+
     enum class AlbumListType(val value: String) {
         Newest("newest"), Recent("recent"), Frequent("frequent"), Random("random"),
         AlphabeticalByName("alphabeticalByName"), Starred("starred"),
