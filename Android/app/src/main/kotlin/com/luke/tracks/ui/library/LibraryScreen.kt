@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -93,10 +92,8 @@ import com.luke.tracks.library.musicPermission
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.ui.discover.Remote
-import com.luke.tracks.ui.discover.SuggestedForYou
 import com.luke.tracks.ui.discover.catalogSearchItems
 import com.luke.tracks.ui.discover.rememberCatalogSearch
-import com.luke.tracks.ui.insights.bleed
 import androidx.compose.runtime.mutableIntStateOf
 import com.luke.tracks.ui.library.servers.ServerList
 import com.luke.tracks.ui.library.servers.rememberServerEditing
@@ -307,10 +304,6 @@ private fun AlbumsTab(albums: List<LibraryAlbum>) {
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 4.dp, bottom = MiniPlayerClearance),
     ) {
-        // Only where your server or Lidarr can get them; otherwise it draws nothing.
-        item(key = "suggested", span = { GridItemSpan(maxLineSpan) }, contentType = "suggested") {
-            SuggestedForYou(Modifier.bleed(10.dp), edge = 16.dp, followedBy = "Your albums")
-        }
         items(albums, key = { it.id }) { album ->
             AlbumCell(
                 album = album,

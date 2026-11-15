@@ -8,7 +8,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.luke.tracks.ScreenshotTest
 import com.luke.tracks.data.SampleData
+import com.luke.tracks.discover.LocalServerPicks
+import com.luke.tracks.discover.ServerPicks
+import com.luke.tracks.library.LibraryIndex
 import com.luke.tracks.library.LibrarySnapshot
+import com.luke.tracks.library.LibrarySourceKind
+import com.luke.tracks.library.LibraryTrack
 import com.luke.tracks.library.MusicLibrary
 import com.luke.tracks.playback.IdlePlayer
 import com.luke.tracks.playback.PlayableSong
@@ -49,14 +54,30 @@ class SampleLibrary : MusicLibrary {
                 durationMs = play.durationMs,
                 identity = identity,
             )
-        }.toMap()
+        }.toMap() + waiting.associateBy { it.identity }
 
-    override val snapshot: StateFlow<LibrarySnapshot> = MutableStateFlow(LibrarySnapshot(songs = byIdentity.values.toList()))
+    /** Albums and artists as the real library groups them. */
+    override val snapshot: StateFlow<LibrarySnapshot> = MutableStateFlow(
+        LibraryIndex.build(
+            byIdentity.values.map { LibraryTrack(it, LibrarySourceKind.Device, albumKey = "local:album:" + it.albumTitle.orEmpty() + "|" + it.artistName) },
+            hasPermission = true,
+        ).snapshot,
+    )
     override suspend fun refresh() = Unit
     override fun find(identity: String): PlayableSong? = byIdentity[identity]
     override suspend fun search(text: String): List<PlayableSong> = emptyList()
 
     val songs: List<PlayableSong> get() = byIdentity.values.toList()
+
+    private companion object {
+        /** Songs you have and have never played, for Waiting to be heard. */
+        val waiting = listOf(
+            "Paper Lanterns" to "Mara Solis", "Low Tide Radio" to "Nova Harbor", "Wintering" to "Juniper Lane",
+            "Glasshouse" to "Mara Solis", "Second Summer" to "Nova Harbor", "Ferry Lights" to "Juniper Lane",
+        ).mapIndexed { i, (title, artist) ->
+            PlayableSong("local:w$i", Uri.parse("content://media/external/audio/media/w$i"), title, artist, "New Songs", null, 200_000, songIdentity(title, artist))
+        }
+    }
 }
 
 class PlayScreenshots(dark: Boolean) : ScreenshotTest(dark) {
@@ -87,16 +108,6 @@ class PlayScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         }
     }
 
-    /** The whole page, past the fold. */
-    @Test
-    @Config(qualifiers = "w412dp-h2400dp-xxhdpi")
-    fun playFull() {
-        withSampleHistory()
-        withLibrary()
-        snap("play-full", settleMs = 3000) {
-            CompositionLocalProvider(LocalNavigator provides Navigator()) { PlayScreen() }
-        }
-    }
 
     @Test
     fun playEmpty() {

@@ -55,6 +55,23 @@ class SubsonicClientTest {
         assertEquals(cover, client().coverArtUrl("al-7", size = 600))
     }
 
+    @Test fun similarAndRandomSongsAskTheirOwnEndpoints() = runBlocking {
+        val asked = mutableListOf<HttpUrl>()
+        val body = """{"subsonic-response":{"status":"ok","version":"1.16.1",
+            "similarSongs2":{"song":[{"id":"7","title":"Teardrop","artist":"Massive Attack","coverArt":"al-3","duration":330,"isExternal":true}]},
+            "randomSongs":{"song":[{"id":8,"title":"Glory Box","artist":"Portishead"}]}}}"""
+        val client = client(SubsonicTransport { url -> asked += url; 200 to body })
+        val like = client.similarSongs("42", count = 15)
+        assertEquals("Teardrop", like.single().title)
+        assertEquals(true, like.single().isExternal)
+        assertEquals("/navidrome/rest/getSimilarSongs2", asked[0].encodedPath)
+        assertEquals("42", asked[0].queryParameter("id"))
+        assertEquals("15", asked[0].queryParameter("count"))
+        assertEquals("8", client.randomSongs(40).single().id)
+        assertEquals("/navidrome/rest/getRandomSongs", asked[1].encodedPath)
+        assertEquals("40", asked[1].queryParameter("size"))
+    }
+
     @Test fun errorsReadAsWhatWentWrong() {
         assertThrows<SubsonicError.WrongCredentials> { SubsonicClient.decode(error(40), 200) }
         assertThrows<SubsonicError.WrongCredentials> { SubsonicClient.decode(error(41), 200) }

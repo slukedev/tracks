@@ -106,6 +106,8 @@ internal class SubsonicBody(
     val album: AlbumWithSongs? = null,
     val albumList2: AlbumList? = null,
     val searchResult3: SearchResult? = null,
+    val similarSongs2: SongList? = null,
+    val randomSongs: SongList? = null,
 ) {
     @Serializable class ErrorBody(val code: Int = 0, val message: String? = null)
     @Serializable class ArtistsIndex(val index: List<Index> = emptyList()) {
@@ -125,6 +127,7 @@ internal class SubsonicBody(
         fun album() = SubsonicAlbum(id, name, artist, artistId, coverArt, songCount, null, year, genre)
     }
     @Serializable class AlbumList(val album: List<SubsonicAlbum> = emptyList())
+    @Serializable class SongList(val song: List<SubsonicSong> = emptyList())
     @Serializable class SearchResult(
         val artist: List<SubsonicArtist> = emptyList(),
         val album: List<SubsonicAlbum> = emptyList(),

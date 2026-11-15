@@ -43,17 +43,6 @@ sealed interface Availability {
 
 data class AlbumHolding(val ownership: AlbumOwnership, val ownedSongs: Int)
 
-data class SuggestedAlbum(val album: CatalogAlbum, val holding: AlbumHolding)
-
-/** Songs and albums you'd likely want and don't have, and the artists they come from. */
-data class Suggestions(
-    val albums: List<SuggestedAlbum> = emptyList(),
-    val songs: List<CatalogSong> = emptyList(),
-    val from: List<String> = emptyList(),
-) {
-    val isEmpty: Boolean get() = albums.isEmpty() && songs.isEmpty()
-}
-
 /**
  * Music you don't have: the catalog to search and browse, whether something is already
  * yours, and getting it through your server or Lidarr when one of them can.
@@ -69,7 +58,6 @@ interface Discovery {
     suspend fun album(id: ULong): AlbumCatalog?
     /** The catalog's album of this title by this artist, if it has one. */
     suspend fun findAlbum(title: String, artist: String): CatalogAlbum?
-    suspend fun suggestions(force: Boolean = false): Suggestions
 
     /** The song in your music, if you have it. */
     fun owned(song: CatalogSong): PlayableSong?
@@ -91,7 +79,6 @@ object NoDiscovery : Discovery {
     override suspend fun artist(name: String, catalogId: ULong?): ArtistCatalog? = null
     override suspend fun album(id: ULong): AlbumCatalog? = null
     override suspend fun findAlbum(title: String, artist: String): CatalogAlbum? = null
-    override suspend fun suggestions(force: Boolean) = Suggestions()
     override fun owned(song: CatalogSong): PlayableSong? = null
     override fun holding(album: CatalogAlbum) = AlbumHolding(AlbumOwnership.MISSING, 0)
     override suspend fun availability(song: CatalogSong): Availability = Availability.Unavailable

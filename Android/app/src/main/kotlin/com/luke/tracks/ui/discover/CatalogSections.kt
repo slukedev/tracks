@@ -3,7 +3,6 @@ package com.luke.tracks.ui.discover
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -43,7 +42,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.luke.tracks.discover.ArtistCatalog
 import com.luke.tracks.discover.Discovery
-import com.luke.tracks.discover.Suggestions
 import com.luke.tracks.ui.insights.bleed
 import com.luke.tracks.ui.navigation.CatalogArtistRoute
 import com.luke.tracks.ui.navigation.LocalNavigator
@@ -229,76 +227,6 @@ fun MoreFromArtist(name: String, modifier: Modifier = Modifier, edge: Dp = 16.dp
                         missing.forEach { CatalogSongRow(it, Modifier.padding(horizontal = edge - 16.dp), showArtist = false) }
                     }
                 }
-            }
-        }
-    }
-}
-
-/** Suggestions for the Your Music tab: loaded once, again on [refresh]. */
-@Composable
-fun rememberSuggestions(refresh: Int = 0): Remote<Suggestions> {
-    val discovery = rememberDiscovery()
-    val sources by discovery.sources.collectAsState()
-    val state by produceState<Remote<Suggestions>>(Remote.Loading, sources.canFetch, refresh) {
-        if (!sources.canFetch) { value = Remote.Idle; return@produceState }
-        value = runCatching { discovery.suggestions(force = refresh > 0) }.map { Remote.Loaded(it) }.getOrDefault(Remote.Failed)
-    }
-    return state
-}
-
-/**
- * Albums and songs you'd likely want and don't have, from the artists you play most. Shown
- * only when your server or Lidarr can get them.
- */
-@Composable
-fun SuggestedForYou(
-    modifier: Modifier = Modifier,
-    edge: Dp = 16.dp,
-    /** A heading for what comes after, shown only with the suggestions: "Your albums". */
-    followedBy: String? = null,
-) {
-    var refresh by remember { mutableIntStateOf(0) }
-    val state = rememberSuggestions(refresh)
-    if (state is Remote.Idle) return
-    if (state is Remote.Loaded && state.value.isEmpty) return
-    Column(modifier.fillMaxWidth()) {
-        val from = (state as? Remote.Loaded)?.value?.from.orEmpty()
-        GroupHeading(
-            "Suggested for you",
-            Modifier.padding(horizontal = edge),
-            subtitle = if (from.isEmpty()) null else "Based on ${listPhrase(from)}",
-        )
-        when (state) {
-            Remote.Idle -> Unit
-            Remote.Loading -> SuggestionsLoading(edge)
-            Remote.Failed -> CatalogProblem("Couldn't load suggestions", { refresh++ }, Modifier.padding(horizontal = edge))
-            is Remote.Loaded -> {
-                val s = state.value
-                if (s.albums.isNotEmpty()) {
-                    LazyRow(contentPadding = PaddingValues(horizontal = edge - 6.dp)) {
-                        items(s.albums, key = { it.album.id.toLong() }) { CatalogAlbumCell(it.album) }
-                    }
-                }
-                s.songs.take(6).forEach { CatalogSongRow(it, Modifier.padding(horizontal = edge - 16.dp)) }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        if (followedBy != null) GroupHeading(followedBy, Modifier.padding(horizontal = edge).padding(top = 16.dp))
-    }
-}
-
-/** The shelf's shape while it loads: covers and rows where they'll be, no fake content. */
-@Composable
-private fun SuggestionsLoading(edge: Dp) {
-    val fill = MaterialTheme.colorScheme.surfaceContainerHigh
-    Row(Modifier.padding(horizontal = edge), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        repeat(3) {
-            Column {
-                Surface(color = fill, shape = RoundedCornerShape(16.dp), modifier = Modifier.size(144.dp)) {}
-                Spacer(Modifier.height(10.dp))
-                Surface(color = fill, shape = RoundedCornerShape(6.dp), modifier = Modifier.size(96.dp, 12.dp)) {}
-                Spacer(Modifier.height(6.dp))
-                Surface(color = fill, shape = RoundedCornerShape(6.dp), modifier = Modifier.size(64.dp, 10.dp)) {}
             }
         }
     }

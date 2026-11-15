@@ -94,15 +94,6 @@ class FakeDiscovery(
 
     override suspend fun findAlbum(title: String, artist: String): CatalogAlbum? = albums.firstOrNull { foldedName(it.title) == foldedName(title) }
 
-    override suspend fun suggestions(force: Boolean): Suggestions {
-        if (waitForever) awaitCancellation()
-        return Suggestions(
-            albums = albums.map { SuggestedAlbum(it, holding(it)) }.filter { it.holding.ownership != AlbumOwnership.OWNED },
-            songs = songs.filter { owned(it) == null }.distinctBy { it.identity },
-            from = listOf("Radiohead", "Björk", "Portishead"),
-        )
-    }
-
     override fun owned(song: CatalogSong): PlayableSong? = Owned.index.find(song.identity)
 
     override fun holding(album: CatalogAlbum): AlbumHolding {
@@ -172,14 +163,9 @@ class DiscoverScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         }
     }
 
-    @Test fun suggestedForYou() = snap("discover-suggested", settleMs = 2500) {
+    /** Your albums and nothing else, even where a server could get more: suggestions are Play's. */
+    @Test fun yourAlbumsOnly() = snap("discover-library-albums", settleMs = 2500) {
         Frame(FakeDiscovery(octo)) {
-            LibraryContent(Owned.index.snapshot, { Owned.index }, emptyList(), null, {}, initialTab = LibraryTab.Albums)
-        }
-    }
-
-    @Test fun suggestedLoading() = snap("discover-suggested-loading") {
-        Frame(FakeDiscovery(octo, waitForever = true)) {
             LibraryContent(Owned.index.snapshot, { Owned.index }, emptyList(), null, {}, initialTab = LibraryTab.Albums)
         }
     }
