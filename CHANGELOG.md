@@ -160,6 +160,12 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   you just say "Play music"
 - CarPlay: Listen Now with your moods, Radio, Library and Insights, with your week's top
   artists and songs a tap from playing
+- Handpicked's picker searches everything at once: what you've played, your library and
+  Apple Music, or your music and your servers. Suggestions like your picks join as you pick,
+  beside Recently Played and Top Songs. Tap a cover to hear half a minute of the song: what's
+  playing pauses for it and plays on after. Picks gather in a tray along the bottom, to take
+  out or put in order, and the station opens with the first. On the Mac, Space plays the
+  preview of the song you're on and Return picks it
 
 ### Your Music
 

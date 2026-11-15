@@ -2,95 +2,111 @@ import SwiftUI
 import MusicKit
 import TracksCore
 
-/// Making a Handpicked station: pick songs as Music adds songs to a playlist, from a search,
-/// your playlists, what you've played lately and what you play most, then start it. Each
-/// song's ⊕ picks it and turns to a ✓, and a second tap takes it back out.
+/// Making a Handpicked station: pick songs as Music adds songs to a playlist, from a search of
+/// what you've played, your library and Apple Music (or your music and your servers),
+/// suggestions like your picks, your playlists, what you've played lately and what you play
+/// most, then start it. Each cover plays the song's preview; the picks gather in a tray along
+/// the bottom, to remove and put in order.
 struct HandpickedPicker: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(AppModel.self) private var model
     @Environment(PlayerModel.self) private var player
     @Environment(YourMusic.self) private var music
     @State private var query = ""
-    @State private var results: [Handpick]?
+    @State private var found: PickSearch?
     @State private var recent: [Handpick] = []
-    @State private var mostPlayed: [Handpick] = []
+    @State private var top: [Handpick] = []
+    @State private var suggestions: [Handpick] = []
     @State private var hasLoaded = false
     @State private var selection = HandpickedSelection()
+    @State private var preview = HandpickedPreview()
     @State private var isStarting = false
+    #if os(macOS)
+    @State private var focus: Set<PickRowID> = []
+    #endif
 
     var body: some View {
         let source = model.musicSource
-        let count = selection.picks.count
         NavigationStack {
-            List {
-                if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                    browse(source: source)
-                } else {
-                    searchResults
-                }
-            }
-            #if os(iOS)
-            .listStyle(.insetGrouped)
-            #endif
-            .navigationTitle(Handpicked.title)
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            // On the Mac a sheet's subtitle shows in the window behind it too, so there the
-            // list says the same at its top.
-            .navigationSubtitle(Self.status(count: count))
-            #endif
-            .searchable(text: $query, prompt: source == .appleMusic ? "Apple Music" : "Your Music")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", role: .cancel) { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isStarting {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityLabel("Starting Station")
-                    } else {
-                        Button("Start", role: .confirm, action: start)
-                            .disabled(selection.picks.isEmpty)
+            list(source: source)
+                .navigationTitle(Handpicked.title)
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .searchable(text: $query, prompt: "Songs")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel", role: .cancel) { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        if isStarting {
+                            ProgressView()
+                                .controlSize(.small)
+                                .accessibilityLabel("Starting Station")
+                        } else {
+                            Button("Start", role: .confirm, action: start)
+                                .disabled(selection.picks.isEmpty)
+                        }
                     }
                 }
-            }
-            .navigationDestination(for: PickerPlaylist.self) { playlist in
-                PickerPlaylistSongs(playlist: playlist)
-            }
-            .task { await loadHistory(source: source) }
-            .task(id: query) { await search(source: source) }
+                .pickedTray()
+                .navigationDestination(for: PickerPlaylist.self) { playlist in
+                    PickerPlaylistSongs(playlist: playlist)
+                }
+                .task { await loadHistory(source: source) }
+                .task(id: query) { await search(source: source) }
+                .task(id: selection.picks.map(\.identity)) { await suggest(source: source) }
         }
         .environment(selection)
+        .environment(preview)
+        .background { PreviewGuard(preview: preview) }
+        .onDisappear { preview.stop() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { preview.stop() }
+        }
         #if os(macOS)
-        .frame(minWidth: 460, idealWidth: 520, minHeight: 560, idealHeight: 640)
+        .frame(minWidth: 480, idealWidth: 560, minHeight: 560, idealHeight: 680)
         #endif
     }
 
-    // MARK: Browsing
+    // MARK: The list
 
-    private func start() {
-        isStarting = true
-        let picks = selection.picks
-        Task {
-            await HandpickedPlayback.start(model: model, picks: picks)
-            dismiss()
-        }
+    @ViewBuilder
+    private func list(source: MusicSource) -> some View {
+        #if os(macOS)
+        List(selection: $focus) { content(source: source) }
+            .contextMenu(forSelectionType: PickRowID.self) { rows in
+                if rows.count == 1, let row = rows.first, let pick = pick(for: row) {
+                    PickMenu(pick: pick)
+                }
+            } primaryAction: { rows in
+                withAnimation(PlayMotion.row) {
+                    for pick in rows.compactMap(pick(for:)) { selection.toggle(pick) }
+                }
+            }
+            .onKeyPress(.space) {
+                guard let row = focus.first, let pick = pick(for: row) else { return .ignored }
+                preview.toggle(pick, source: source, music: music, player: player)
+                return .handled
+            }
+        #else
+        List { content(source: source) }
+            .listStyle(.insetGrouped)
+        #endif
     }
 
-    private static func status(count: Int) -> String {
-        count == 0
-            ? String(localized: "Pick Songs for a Station")
-            : String(localized: "\(count) of \(Handpicked.limit) Picked")
+    @ViewBuilder
+    private func content(source: MusicSource) -> some View {
+        if query.trimmingCharacters(in: .whitespaces).isEmpty {
+            browse(source: source)
+        } else {
+            searchResults
+        }
     }
 
     @ViewBuilder
     private func browse(source: MusicSource) -> some View {
-        #if os(macOS)
-        Section {} header: {
-            Text(Self.status(count: selection.picks.count))
-        }
-        #endif
         if PickerPlaylist.canBrowse(source: source, isDemo: player.isDemo) {
             Section {
                 NavigationLink {
@@ -100,41 +116,37 @@ struct HandpickedPicker: View {
                 }
             }
         }
-        if !recent.isEmpty {
-            Section("Recently Played") {
-                ForEach(recent) { PickRow(pick: $0) }
-            }
-        }
-        if !mostPlayed.isEmpty {
-            Section("Most Played") {
-                ForEach(mostPlayed) { PickRow(pick: $0) }
-            }
-        }
-        if hasLoaded, recent.isEmpty, mostPlayed.isEmpty {
+        rows(suggestions, in: .suggestions)
+        rows(recent, in: .recent)
+        rows(top, in: .top)
+        if hasLoaded, recent.isEmpty, top.isEmpty {
             Section {
                 Text("Search for songs you love, or pick from your playlists. Songs you play show up here too.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
         }
-        // Last, so a pick never moves the rows under your finger.
-        if !selection.picks.isEmpty {
-            Section("Picked") {
-                ForEach(selection.picks) { PickRow(pick: $0) }
-            }
-        }
     }
 
     @ViewBuilder
     private var searchResults: some View {
-        if let results {
-            if results.isEmpty {
+        if let found {
+            let sections = found.visible
+            ForEach(sections, id: \.section) { part in
+                rows(part.picks, in: part.section)
+            }
+            if !found.pending.isEmpty {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(sections.isEmpty ? .regular : .small)
+                    Spacer()
+                }
+                .listRowBackground(Color.clear)
+                .accessibilityLabel("Searching")
+            } else if sections.isEmpty {
                 ContentUnavailableView.search(text: query)
                     .listRowBackground(Color.clear)
-            } else {
-                Section {
-                    ForEach(results) { PickRow(pick: $0) }
-                }
             }
         } else {
             HStack {
@@ -144,6 +156,40 @@ struct HandpickedPicker: View {
             }
             .listRowBackground(Color.clear)
             .accessibilityLabel("Searching")
+        }
+    }
+
+    @ViewBuilder
+    private func rows(_ picks: [Handpick], in section: PickSection) -> some View {
+        if !picks.isEmpty {
+            Section(section.title) {
+                ForEach(picks) { pick in
+                    PickRow(pick: pick)
+                        .tag(PickRowID(section: section, identity: pick.identity))
+                }
+            }
+        }
+    }
+
+    private func pick(for row: PickRowID) -> Handpick? {
+        let shown: [Handpick] = switch row.section {
+        case .suggestions: suggestions
+        case .recent: recent
+        case .top: top
+        default: found?.sections[row.section] ?? []
+        }
+        return shown.first { $0.identity == row.identity }
+    }
+
+    // MARK: Starting
+
+    private func start() {
+        isStarting = true
+        preview.stop(resumingSong: false)
+        let picks = selection.picks
+        Task {
+            await HandpickedPlayback.start(model: model, picks: picks)
+            dismiss()
         }
     }
 
@@ -158,15 +204,39 @@ struct HandpickedPicker: View {
              HandpickedChoices.mostPlayed(in: history, signals: signals, limit: 40))
         }
         recent = Array(picks(from: recentSongs, source: source).prefix(15))
-        mostPlayed = Array(picks(from: mostSongs, source: source).prefix(25))
+        top = Array(picks(from: mostSongs, source: source).prefix(25))
         hasLoaded = true
     }
+
+    /// Songs of yours like the picks. The ones already shown stay where they are while they're
+    /// still like them, and new ones join at the end, so nothing moves under your finger.
+    private func suggest(source: MusicSource) async {
+        let picked = selection.picks.map(\.mixSong)
+        guard !picked.isEmpty else {
+            withAnimation(PlayMotion.row) { suggestions = [] }
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(400))
+        guard !Task.isCancelled else { return }
+        let (history, signals) = (model.library.history, player.signals)
+        let like = await OffMainActor.run {
+            HandpickedChoices.like(picked, in: history, signals: signals, limit: 40)
+        }
+        guard !Task.isCancelled else { return }
+        let fresh = picks(from: like, source: source)
+        let still = Set(fresh.map(\.identity))
+        let kept = suggestions.filter { still.contains($0.identity) || selection.contains($0.identity) }
+        let next = Array(HandpickedChoices.merged([kept, fresh], identity: \.identity).prefix(Self.suggestionCount))
+        withAnimation(PlayMotion.row) { suggestions = next }
+    }
+
+    private static let suggestionCount = 8
 
     private func picks(from songs: [MixSong], source: MusicSource) -> [Handpick] {
         switch source {
         case .appleMusic:
             // Songs played from your own music have no Apple Music id to play by.
-            return songs.filter { player.canPlay(songID: $0.songID) && !isLocalID($0.songID) }.map(Handpick.init)
+            return songs.filter { player.canPlay(songID: $0.songID) && music.index.track(id: $0.songID) == nil }.map(Handpick.init)
         case .yourMusic:
             var seen = Set<String>()
             return songs.compactMap { music.track(for: HistorySong($0)) }
@@ -175,47 +245,67 @@ struct HandpickedPicker: View {
         }
     }
 
-    private func isLocalID(_ id: String) -> Bool {
-        music.index.track(id: id) != nil
-    }
+    // MARK: Searching
 
+    /// Every place a song could be found at once, each showing as it answers: what you've
+    /// played and your music first, as they answer at once, then the library, the catalog and
+    /// your servers.
     private func search(source: MusicSource) async {
         let term = query.trimmingCharacters(in: .whitespaces)
         guard !term.isEmpty else {
-            results = nil
+            found = nil
             return
         }
         // Typing settles before asking.
-        try? await Task.sleep(for: .milliseconds(300))
+        try? await Task.sleep(for: .milliseconds(250))
         guard !Task.isCancelled else { return }
-        results = nil
-        let found: [Handpick]
-        switch source {
-        case .yourMusic:
-            found = music.index.tracks
-                .filter { $0.title.localizedStandardContains(term) || $0.artist.localizedStandardContains(term) || ($0.album?.localizedStandardContains(term) ?? false) }
-                .filter(music.isPlayable)
-                .prefix(40)
-                .map { Handpick($0, music: music) }
-        case .appleMusic:
-            found = await catalogSongs(matching: term)
+        let sections = PickSearch.sections(source: source, isDemo: player.isDemo, hasServers: !music.servers.servers.isEmpty)
+        found = PickSearch(term: term, order: sections)
+        await withTaskGroup(of: Void.self) { group in
+            for section in sections {
+                group.addTask { @MainActor in
+                    let picks = await songs(in: section, matching: term, source: source)
+                    guard !Task.isCancelled, found?.term == term else { return }
+                    withAnimation(PlayMotion.row) { found?.arrived(picks, in: section) }
+                }
+            }
         }
-        guard !Task.isCancelled else { return }
-        results = found
+    }
+
+    private func songs(in section: PickSection, matching term: String, source: MusicSource) async -> [Handpick] {
+        switch section {
+        case .history:
+            let (history, signals) = (model.library.history, player.signals)
+            let played = await OffMainActor.run {
+                HandpickedChoices.matching(term, in: history, signals: signals, limit: 30)
+            }
+            return Array(picks(from: played, source: source).prefix(8))
+        case .library:
+            guard MusicAuthorization.currentStatus == .authorized else { return [] }
+            var request = MusicLibrarySearchRequest(term: term, types: [Song.self])
+            request.limit = 12
+            let songs = (try? await request.response().songs).map(Array.init) ?? []
+            return PlayPreferences.versions(of: songs).map(Handpick.init(song:))
+        case .catalog:
+            return await catalogSongs(matching: term)
+        case .yours:
+            return music.index.search(term, limit: 40).tracks
+                .filter(music.isPlayable)
+                .map { Handpick($0, music: music) }
+        case .servers:
+            let page = await music.searchServers(term, isFull: false)
+            return page.tracks.filter(music.isPlayable).prefix(20).map { Handpick($0, music: music) }
+        case .suggestions, .recent, .top, .playlist, .picked:
+            return []
+        }
     }
 
     private func catalogSongs(matching term: String) async -> [Handpick] {
         #if DEBUG
         if player.isDemo {
-            // The sample catalog has none of the sample history's songs: both, as Apple
-            // Music's search would find them.
-            let yours = HandpickedChoices.mostPlayed(in: model.library.history, limit: 500)
-                .filter { $0.title.localizedStandardContains(term) || $0.artistName.localizedStandardContains(term) }
-                .map(Handpick.init)
-            let catalog = DemoCatalog.songs(count: 160, offset: 0, artists: nil)
+            return DemoCatalog.songs(count: 160, offset: 0, artists: nil)
                 .filter { $0.title.localizedStandardContains(term) || $0.artistName.localizedStandardContains(term) }
                 .map(Handpick.init(song:))
-            return yours + catalog
         }
         #endif
         guard MusicAuthorization.currentStatus == .authorized else { return [] }
@@ -226,48 +316,57 @@ struct HandpickedPicker: View {
     }
 }
 
-/// A song to pick: its cover, name and artist, and ⊕, or ✓ once picked. The whole row picks.
-private struct PickRow: View {
-    let pick: Handpick
-    @Environment(HandpickedSelection.self) private var selection
-    /// Counts picks made here, so the tap is felt.
-    @State private var toggles = 0
+/// A search's results, by where they were found, as they arrive.
+struct PickSearch {
+    let term: String
+    let order: [PickSection]
+    private(set) var sections: [PickSection: [Handpick]] = [:]
+    private(set) var pending: Set<PickSection>
+
+    init(term: String, order: [PickSection]) {
+        self.term = term
+        self.order = order
+        pending = Set(order)
+    }
+
+    /// Where to look: Apple Music's places, or your music's.
+    static func sections(source: MusicSource, isDemo: Bool, hasServers: Bool) -> [PickSection] {
+        switch source {
+        case .appleMusic: isDemo ? [.history, .catalog] : [.history, .library, .catalog]
+        case .yourMusic: hasServers ? [.yours, .servers] : [.yours]
+        }
+    }
+
+    mutating func arrived(_ picks: [Handpick], in section: PickSection) {
+        sections[section] = picks
+        pending.remove(section)
+    }
+
+    /// The places that found something, in order, each song in the first place it was found.
+    /// A place shows once the ones before it have answered, so rows don't jump as they do.
+    var visible: [(section: PickSection, picks: [Handpick])] {
+        var shown: [(section: PickSection, picks: [Handpick])] = []
+        var seen = Set<String>()
+        for section in order {
+            guard let picks = sections[section] else { break }
+            let fresh = picks.filter { seen.insert($0.identity).inserted }
+            if !fresh.isEmpty { shown.append((section, fresh)) }
+        }
+        return shown
+    }
+}
+
+/// Lets the preview give way when music starts some other way: from the keyboard, the menu
+/// bar or Control Center.
+private struct PreviewGuard: View {
+    let preview: HandpickedPreview
+    @Environment(PlayerModel.self) private var player
 
     var body: some View {
-        let isPicked = selection.contains(pick.identity)
-        let isBlocked = !isPicked && selection.isFull
-        Button {
-            withAnimation(PlayMotion.row) {
-                if selection.toggle(pick) { toggles += 1 }
+        Color.clear
+            .onChange(of: player.isPlaying) { _, isPlaying in
+                if isPlaying { preview.songStartedElsewhere() }
             }
-        } label: {
-            HStack(spacing: 12) {
-                CoverImage(cover: pick.cover, size: 44)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(pick.title)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text(pick.artistName)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: isPicked ? "checkmark.circle.fill" : "plus.circle")
-                    .font(.title3)
-                    .foregroundStyle(.tint)
-                    .contentTransition(.symbolEffect(.replace))
-                    .accessibilityHidden(true)
-            }
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .opacity(isBlocked ? 0.4 : 1)
-        .disabled(isBlocked)
-        .sensoryFeedback(.selection, trigger: toggles)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isPicked ? .isSelected : [])
-        .accessibilityHint(isPicked ? "Takes it out of the station" : "Adds it to the station")
     }
 }
 
@@ -394,6 +493,7 @@ private struct PickerPlaylistSongs: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .pickedTray()
         .task { await load() }
     }
 

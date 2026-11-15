@@ -141,3 +141,188 @@ public enum HandpickedChoices {
             .map(\.song)
     }
 }
+
+extension HandpickedChoices {
+    /// Songs of yours most like the picks, for picking more: by the same artists, in the same
+    /// genres and decades, and played alongside them, the likest first and the most played
+    /// breaking a tie. Only ones close to the picks, so a pick with nothing like it in the
+    /// history suggests nothing rather than anything.
+    public static func like(
+        _ picks: [MixSong],
+        in history: ListeningHistory,
+        signals: ListeningSignals = ListeningSignals(),
+        limit: Int = 25,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> [MixSong] {
+        guard !picks.isEmpty else { return [] }
+        let seeds = picks.map { pick in
+            let metadata = history.songMetadata[pick.songIdentity]
+            return AutoplaySeed(
+                songIdentity: pick.songIdentity,
+                artistName: pick.artistName,
+                genre: pick.genre ?? metadata?.genre,
+                releaseYear: metadata?.releaseYear
+            )
+        }
+        let affinity = AutoplayAffinity(seeds: seeds, history: history)
+        let picked = Set(picks.map(\.songIdentity))
+        let close = LiveMix.closeness(toSeeds: picked, in: TasteGraph(history: history, now: now))
+        return MixBuilder.aggregate(history, signals: signals, now: now, calendar: calendar)
+            .compactMap { aggregate -> (song: MixSong, likeness: Double, plays: Int)? in
+                guard !picked.contains(aggregate.identity) else { return nil }
+                let metadata = history.songMetadata[aggregate.identity]
+                let likeness = affinity.likeness(artistName: aggregate.song.artistName, genre: metadata?.genre, releaseYear: metadata?.releaseYear)
+                    + LiveMix.seedCloseness * (close[aggregate.identity] ?? 0)
+                guard likeness >= LiveMix.handpickedCloseLikeness else { return nil }
+                return (aggregate.song, likeness, aggregate.dates.count)
+            }
+            .sorted { $0.likeness == $1.likeness ? $0.plays > $1.plays : $0.likeness > $1.likeness }
+            .prefix(limit)
+            .map(\.song)
+    }
+
+    /// Songs from the history whose name, artist or album has every word typed: a song's own
+    /// name matching first, then its artist's, then its album's, the most played breaking a tie.
+    public static func matching(
+        _ query: String,
+        in history: ListeningHistory,
+        signals: ListeningSignals = ListeningSignals(),
+        limit: Int = 25,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> [MixSong] {
+        let term = SearchFolding.fold(query)
+        let words = term.split(separator: " ")
+        guard !words.isEmpty else { return [] }
+        return MixBuilder.aggregate(history, signals: signals, now: now, calendar: calendar)
+            .compactMap { aggregate -> (song: MixSong, rank: Int, plays: Int)? in
+                let song = aggregate.song
+                let title = SearchFolding.fold(song.title)
+                let artist = SearchFolding.fold(song.artistName)
+                let album = song.albumTitle.map(SearchFolding.fold) ?? ""
+                let haystack = title + " " + artist + " " + album
+                guard words.allSatisfy({ haystack.contains($0) }) else { return nil }
+                let rank = min(rank(of: title, for: term), 4 + rank(of: artist, for: term), 8 + rank(of: album, for: term))
+                return (song, rank, aggregate.dates.count)
+            }
+            .sorted { $0.rank == $1.rank ? $0.plays > $1.plays : $0.rank < $1.rank }
+            .prefix(limit)
+            .map(\.song)
+    }
+
+    private static func rank(of name: String, for term: String) -> Int {
+        if name == term { return 0 }
+        if name.hasPrefix(term) { return 1 }
+        if name.contains(" " + term) { return 2 }
+        return 3
+    }
+
+    /// Songs from several places as one list, each song once: where a song is found in more
+    /// than one, the first place's copy, so a song you've played plays as you played it.
+    public static func merged<Song>(_ sources: [[Song]], identity: (Song) -> String) -> [Song] {
+        var seen = Set<String>()
+        return sources.flatMap { $0 }.filter { seen.insert(identity($0)).inserted }
+    }
+}
+
+/// The songs picked for a Handpicked station, in the order they're to play in: the first one
+/// opens the station. At most ``limit``, each once.
+public struct HandpickedPicks<Pick: Identifiable> {
+    public let limit: Int
+    public private(set) var all: [Pick] = []
+
+    public init(limit: Int) {
+        self.limit = limit
+    }
+
+    public var isFull: Bool { all.count >= limit }
+    public var isEmpty: Bool { all.isEmpty }
+    public var count: Int { all.count }
+
+    public func contains(_ id: Pick.ID) -> Bool {
+        all.contains { $0.id == id }
+    }
+
+    /// Adds the song, or takes it out if it's there. False when it couldn't be added, as
+    /// there are as many picks as a station takes.
+    @discardableResult
+    public mutating func toggle(_ pick: Pick) -> Bool {
+        if contains(pick.id) {
+            remove(pick.id)
+            return true
+        }
+        guard !isFull else { return false }
+        all.append(pick)
+        return true
+    }
+
+    public mutating func remove(_ id: Pick.ID) {
+        all.removeAll { $0.id == id }
+    }
+
+    /// Moves the picks at the offsets to before the one at `destination`, as a list's drag
+    /// does: `destination` counts the picks before the move.
+    public mutating func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        let valid = source.filteredIndexSet { all.indices.contains($0) }
+        guard !valid.isEmpty else { return }
+        let moving = valid.map { all[$0] }
+        let before = valid.count { $0 < destination }
+        for index in valid.reversed() { all.remove(at: index) }
+        let at = min(max(destination - before, 0), all.count)
+        all.insert(contentsOf: moving, at: at)
+    }
+}
+
+extension HandpickedPicks: Sendable where Pick: Sendable {}
+
+/// Hearing previews while picking, one at a time: the song playing pauses for them, and
+/// plays on once they're done, unless it was started again in the meantime.
+public struct PreviewHandoff: Sendable, Equatable {
+    /// The song whose preview is on, playing or paused.
+    public private(set) var current: String?
+    /// Counts the previews asked for, so a preview that took a while to load doesn't start
+    /// after another was asked for.
+    public private(set) var turn = 0
+    /// Whether a preview paused the song that was playing, to play it on afterwards.
+    public private(set) var pausedSong = false
+
+    public enum Effect: Sendable, Equatable {
+        case pauseSong
+        case resumeSong
+    }
+
+    public init() {}
+
+    /// A preview asked for. The song playing pauses for the first one; the ones after take
+    /// over from it.
+    public mutating func start(_ id: String, songIsPlaying: Bool) -> [Effect] {
+        current = id
+        turn += 1
+        guard songIsPlaying else { return [] }
+        pausedSong = true
+        return [.pauseSong]
+    }
+
+    public func isLatest(_ turn: Int) -> Bool {
+        turn == self.turn
+    }
+
+    /// The preview over: done, closed, or stopped. The song paused for it plays on, unless
+    /// another one's about to start in its place.
+    public mutating func stop(resumingSong: Bool = true) -> [Effect] {
+        let resumes = resumingSong && pausedSong
+        current = nil
+        turn += 1
+        pausedSong = false
+        return resumes ? [.resumeSong] : []
+    }
+
+    /// Music started some other way while a preview was on: the preview gives way, and
+    /// nothing is resumed over it.
+    public mutating func songStartedElsewhere() {
+        current = nil
+        turn += 1
+        pausedSong = false
+    }
+}

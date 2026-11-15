@@ -32,6 +32,8 @@ struct Handpick: Hashable, Identifiable {
     let cover: CoverArt
     /// Apple Music's genre, or the file's, where known: what "like it" goes by.
     let genre: String?
+    /// The catalog's preview, where the song came with one: others are looked up when asked.
+    var previewURL: URL?
 
     var id: String { identity }
 
@@ -43,6 +45,7 @@ struct Handpick: Hashable, Identifiable {
         albumTitle = song.albumTitle
         cover = song.artwork.map(CoverArt.artwork) ?? .url(nil, seed: song.albumTitle ?? song.title)
         genre = song.genreNames.first { $0 != "Music" }
+        previewURL = song.previewAssets?.first?.url
     }
 
     init(_ song: MixSong) {
@@ -79,30 +82,34 @@ struct Handpick: Hashable, Identifiable {
     }
 }
 
-/// The songs picked for one station, while the sheet that picks them is open. Each station
-/// is made once, from fresh picks, so nothing is kept after it starts.
+/// The songs picked for one station, while the sheet that picks them is open, in the order
+/// they're to play: the first opens the station. Each station is made once, from fresh picks,
+/// so nothing is kept after it starts.
 @MainActor
 @Observable
 final class HandpickedSelection {
-    private(set) var picks: [Handpick] = []
+    private(set) var list = HandpickedPicks<Handpick>(limit: Handpicked.limit)
 
-    var isFull: Bool { picks.count >= Handpicked.limit }
+    var picks: [Handpick] { list.all }
+    var isFull: Bool { list.isFull }
 
     func contains(_ identity: String) -> Bool {
-        picks.contains { $0.identity == identity }
+        list.contains(identity)
     }
 
     /// Adds the song, or takes it out if it's there. False when it couldn't be added, as
     /// there are as many picks as a station takes.
     @discardableResult
     func toggle(_ pick: Handpick) -> Bool {
-        if let index = picks.firstIndex(where: { $0.identity == pick.identity }) {
-            picks.remove(at: index)
-            return true
-        }
-        guard !isFull else { return false }
-        picks.append(pick)
-        return true
+        list.toggle(pick)
+    }
+
+    func remove(_ identity: String) {
+        list.remove(identity)
+    }
+
+    func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        list.move(fromOffsets: source, toOffset: destination)
     }
 }
 
@@ -112,16 +119,17 @@ final class HandpickedSelection {
 /// new songs like them from Apple Music, or from your servers with your own music.
 @MainActor
 enum HandpickedPlayback {
-    /// Starts with one of the picks at random, so the station doesn't always open the same way.
+    /// Opens with the first pick, as they're ordered in the sheet.
     static func start(model: AppModel, picks: [Handpick]) async {
         let source = model.musicSource
         let player = model.player
-        guard let opener = picks.randomElement() else { return }
+        guard let opener = picks.first else { return }
         let (history, signals, isDemo) = (model.library.history, player.signals, player.isDemo)
         if source == .yourMusic {
             let music = model.yourMusic
-            let tracks = picks.compactMap { music.index.track(id: $0.songID) }
-            guard let start = music.index.track(id: opener.songID) ?? tracks.first else {
+            // By name as well as id, for songs a search of your servers found.
+            let tracks = picks.compactMap { music.track(for: HistorySong($0.mixSong)) }
+            guard let start = tracks.first else {
                 player.problem = .failed(String(localized: "The songs picked for Handpicked aren't in your music anymore."))
                 return
             }

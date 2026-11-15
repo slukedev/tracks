@@ -110,6 +110,99 @@ struct HandpickedTests {
         #expect(HandpickedChoices.mostPlayed(in: history, limit: 5, now: now).count == 5)
     }
 
+    @Test("more like the picks: songs close to them, never the picks or songs like nothing picked")
+    func moreLikeThese() {
+        let history = history()
+        let like = HandpickedChoices.like([song("Band A 0", "Band A")], in: history, now: now)
+        let artists = Set(like.map(\.artistName))
+        #expect(artists.contains("Band B"))
+        #expect(artists.isDisjoint(with: ["Singer C", "Singer D"]))
+        #expect(!like.contains { $0.title == "Band A 0" })
+        #expect(like.first?.artistName == "Band A")
+        #expect(HandpickedChoices.like([], in: history, now: now).isEmpty)
+    }
+
+    @Test("searching what you've played: every word, the song's own name first, folded")
+    func searchingTheHistory() {
+        var plays: [CaptureStat] = []
+        let songs = [("Blue", "Singer Blue"), ("Blue Monday", "New Order"), ("Into the Blue", "Moby"), ("Cafe Del Mar", "Energy 52")]
+        for (index, (title, artist)) in songs.enumerated() {
+            for play in 0...index {
+                plays.append(CaptureStat(songKey: title, songID: title, title: title, artistName: artist, capturedAt: now.addingTimeInterval(-Double(index * 10 + play) * 600)))
+            }
+        }
+        let history = ListeningHistory(plays)
+        #expect(HandpickedChoices.matching("blue", in: history, now: now).map(\.title) == ["Blue", "Blue Monday", "Into the Blue"])
+        #expect(HandpickedChoices.matching("order blue", in: history, now: now).map(\.title) == ["Blue Monday"])
+        #expect(HandpickedChoices.matching("Café", in: history, now: now).map(\.title) == ["Cafe Del Mar"])
+        #expect(HandpickedChoices.matching("  ", in: history, now: now).isEmpty)
+    }
+
+    @Test("results from several places show each song once, the first place's copy")
+    func mergedResults() {
+        let played = [song("Blue", "Singer")]
+        let catalog = [song("Blue", "Singer", genre: "Pop"), song("Green", "Singer")]
+        let merged = HandpickedChoices.merged([played, catalog], identity: \.songIdentity)
+        #expect(merged.map(\.title) == ["Blue", "Green"])
+        #expect(merged.first?.genre == nil)
+    }
+
+    @Test("picks: each once, up to the limit, taken out and moved as a list drags")
+    func picks() {
+        var picks = HandpickedPicks<MixSong>(limit: 3)
+        let (a, b, c, d) = (song("A", "X"), song("B", "X"), song("C", "X"), song("D", "X"))
+        let added = [a, b, c, d].map { picks.toggle($0) }
+        #expect(added == [true, true, true, false])
+        #expect(picks.isFull)
+        picks.move(fromOffsets: [0], toOffset: 3)
+        #expect(picks.all.map(\.title) == ["B", "C", "A"])
+        picks.move(fromOffsets: [2], toOffset: 0)
+        #expect(picks.all.map(\.title) == ["A", "B", "C"])
+        picks.move(fromOffsets: [0, 2], toOffset: 2)
+        #expect(picks.all.map(\.title) == ["B", "A", "C"])
+        picks.move(fromOffsets: [7], toOffset: 1)
+        #expect(picks.all.map(\.title) == ["B", "A", "C"])
+        picks.toggle(a)
+        #expect(!picks.contains(a.id))
+        picks.remove(b.id)
+        #expect(picks.all.map(\.title) == ["C"])
+        picks.toggle(d)
+        #expect(picks.all.map(\.title) == ["C", "D"])
+    }
+
+    @Test("previews pause the song playing once, and play it on when they're done")
+    func previewsPauseTheSong() {
+        var handoff = PreviewHandoff()
+        #expect(handoff.start("one", songIsPlaying: true) == [.pauseSong])
+        let first = handoff.turn
+        // The song is paused now: the next preview takes over without touching it again.
+        #expect(handoff.start("two", songIsPlaying: false) == [])
+        #expect(!handoff.isLatest(first))
+        #expect(handoff.current == "two")
+        #expect(handoff.stop() == [.resumeSong])
+        #expect(handoff.current == nil)
+        #expect(handoff.stop() == [])
+    }
+
+    @Test("nothing plays on after a preview when nothing was playing, a station starts, or music started elsewhere")
+    func previewsLeaveTheSongAlone() {
+        var quiet = PreviewHandoff()
+        #expect(quiet.start("one", songIsPlaying: false) == [])
+        #expect(quiet.stop() == [])
+
+        var starting = PreviewHandoff()
+        _ = starting.start("one", songIsPlaying: true)
+        #expect(starting.stop(resumingSong: false) == [])
+
+        var elsewhere = PreviewHandoff()
+        _ = elsewhere.start("one", songIsPlaying: true)
+        let turn = elsewhere.turn
+        elsewhere.songStartedElsewhere()
+        #expect(elsewhere.current == nil)
+        #expect(!elsewhere.isLatest(turn))
+        #expect(elsewhere.stop() == [])
+    }
+
     // MARK: - Your own music
 
     func track(_ title: String, _ artist: String, genre: String? = nil, server: Bool = false) -> LocalTrack {
