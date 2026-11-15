@@ -69,6 +69,72 @@ struct ExplicitVersionsTests {
     }
 }
 
+@Suite("Explicit twins")
+struct ExplicitTwinTests {
+    struct Found: Equatable {
+        let id: Int
+        var title = "Espresso"
+        var artist = "Sabrina Carpenter"
+        var duration: TimeInterval? = 175
+        var explicit = true
+    }
+
+    func twin(of title: String = "Espresso", artist: String = "Sabrina Carpenter", duration: TimeInterval? = 175, among results: [Found]) -> Int? {
+        ExplicitVersions.explicitTwin(
+            title: title, artist: artist, duration: duration, among: results,
+            title: \.title, artist: \.artist, duration: \.duration, isExplicit: \.explicit
+        )?.id
+    }
+
+    @Test("finds the explicit version, skipping the clean one and other songs")
+    func findsIt() {
+        let results = [
+            Found(id: 1, explicit: false),
+            Found(id: 2, title: "Please Please Please"),
+            Found(id: 3),
+        ]
+        #expect(twin(among: results) == 3)
+    }
+
+    @Test("a marked clean title still finds its explicit twin")
+    func markedTitle() {
+        #expect(twin(of: "Espresso (Clean)", among: [Found(id: 1, title: "Espresso [Explicit]")]) == 1)
+    }
+
+    @Test("another take is another song", arguments: ["Espresso (Live)", "Espresso (Remix)"])
+    func otherTakes(title: String) {
+        #expect(twin(among: [Found(id: 1, title: title)]) == nil)
+    }
+
+    @Test("the same title by another artist is another song")
+    func otherArtist() {
+        #expect(twin(among: [Found(id: 1, artist: "Someone Else")]) == nil)
+    }
+
+    @Test("too different in length to be an edit of the same recording")
+    func lengthTooFar() {
+        #expect(twin(duration: 175, among: [Found(id: 1, duration: 240)]) == nil)
+    }
+
+    @Test("the closest in length wins")
+    func closest() {
+        let results = [Found(id: 1, duration: 186), Found(id: 2, duration: 177)]
+        #expect(twin(duration: 175, among: results) == 2)
+    }
+
+    @Test("an unknown length matches on name alone")
+    func unknownLength() {
+        #expect(twin(duration: nil, among: [Found(id: 1, duration: 240)]) == 1)
+        #expect(twin(among: [Found(id: 2, duration: nil)]) == 2)
+    }
+
+    @Test("nothing explicit, nothing found")
+    func nothing() {
+        #expect(twin(among: [Found(id: 1, explicit: false)]) == nil)
+        #expect(twin(among: []) == nil)
+    }
+}
+
 @Suite("Play layout")
 struct PlayLayoutTests {
     @Test("round-trips through its stored form")

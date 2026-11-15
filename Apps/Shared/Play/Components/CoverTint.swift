@@ -38,6 +38,7 @@ enum CoverTint {
     /// greyer than the cover looks.
     static func glow(for cover: CoverArt) async -> Color? {
         let rgb: RGB?
+        var picture: String?
         switch cover {
         case .artwork(let artwork):
             rgb = artwork.backgroundColor.flatMap(components(of:))
@@ -45,14 +46,38 @@ enum CoverTint {
             if let url, let address = URL(string: url),
                let image = await ArtworkImages.shared.image(for: ArtworkImages.Key(url: address, pixels: 64)) {
                 rgb = average(of: image)
+                picture = url
             } else {
                 rgb = self.rgb(hue: Double(GeneratedCover.hash(seed) % 360) / 360, saturation: 0.7, brightness: 0.75)
             }
         }
         guard let rgb else { return nil }
         let vivid = saturated(rgb, by: 1.5)
+        let glow = Color(red: vivid.red, green: vivid.green, blue: vivid.blue)
+        if let picture { pictureGlows[picture] = glow }
+        return glow
+    }
+
+    /// The glow ``glow(for:)`` gives, without waiting, when it's known already: worked out
+    /// from Apple Music's colour or the stand-in's seed, or from a picture averaged before.
+    /// A page drawing it from its first frame doesn't fade its colour in each time it opens.
+    static func knownGlow(for cover: CoverArt) -> Color? {
+        let rgb: RGB?
+        switch cover {
+        case .artwork(let artwork):
+            rgb = artwork.backgroundColor.flatMap(components(of:))
+        case .url(let url?, _):
+            return pictureGlows[url]
+        case .url(nil, let seed):
+            rgb = self.rgb(hue: Double(GeneratedCover.hash(seed) % 360) / 360, saturation: 0.7, brightness: 0.75)
+        }
+        guard let rgb else { return nil }
+        let vivid = saturated(rgb, by: 1.5)
         return Color(red: vivid.red, green: vivid.green, blue: vivid.blue)
     }
+
+    /// Glows from pictures, by address. A colour each, so it never needs letting go.
+    private static var pictureGlows: [String: Color] = [:]
 
     /// The field for any cover: Apple Music's own colour for its artwork, the picture's
     /// average for an address, and the stand-in's hue for a song with no cover.

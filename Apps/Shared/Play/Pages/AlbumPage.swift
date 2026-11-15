@@ -12,6 +12,8 @@ struct AlbumPage: View {
     @Environment(YourMusic.self) private var music
     @Environment(\.openPlayRoute) private var openPlayRoute
     @State private var loaded: Album?
+    /// The album `loaded` was loaded for: itself, or the clean edition it stands in for.
+    @State private var loadedFor: MusicItemID?
     @State private var tracks: [Track] = []
     @State private var loadFailed = false
     /// True once the full track list has come back, even an empty one.
@@ -329,7 +331,7 @@ struct AlbumPage: View {
 
     /// Once per album: coming back to the page keeps what loaded rather than asking again.
     private func loadOnce() async {
-        guard loaded?.id != album.id else { return }
+        guard loadedFor != album.id else { return }
         await load()
     }
 
@@ -341,8 +343,14 @@ struct AlbumPage: View {
         // Whatever came with the album shows straight away; the full list replaces it.
         if tracks.isEmpty, let known = album.tracks { tracks = Array(known) }
         do {
-            let detailed = try await album.with([.tracks, .artists])
+            var detailed = try await album.with([.tracks, .artists])
+            // With explicit songs on, a clean edition opens as its explicit one.
+            if allowsExplicit, let explicit = await ExplicitTwins.explicitEdition(of: detailed),
+               let full = try? await explicit.with([.tracks, .artists]) {
+                detailed = full
+            }
             loaded = detailed
+            loadedFor = album.id
             tracks = Array(detailed.tracks ?? [])
             hasLoaded = true
         } catch {

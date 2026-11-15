@@ -142,11 +142,11 @@ struct ArtistSongLabel: View {
                 DownloadStateIcon(track: localTrack)
             }
             if let plays, plays > 0 {
-                Text(PlayCountText.short(plays))
+                Text(PlayCountMemo.short(plays))
                     .font(.callout)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel(PlayCountText.spoken(plays))
+                    .accessibilityLabel(PlayCountMemo.spoken(plays))
             }
         }
         .padding(.horizontal, Self.hoverInset)
@@ -360,5 +360,27 @@ struct ArtistLoadingSections: View {
                 .padding(.horizontal, PlayMetrics.margin)
             #endif
         }
+    }
+}
+
+/// ``PlayCountText``, kept once written: each takes an inflection, which costs more than the
+/// row showing it, and the same counts come up again on every page and every redraw.
+@MainActor
+enum PlayCountMemo {
+    private static var shortTexts: [Int: String] = [:]
+    private static var spokenTexts: [Int: String] = [:]
+
+    static func short(_ plays: Int) -> String {
+        if let known = shortTexts[plays] { return known }
+        let text = PlayCountText.short(plays)
+        shortTexts[plays] = text
+        return text
+    }
+
+    static func spoken(_ plays: Int) -> String {
+        if let known = spokenTexts[plays] { return known }
+        let text = PlayCountText.spoken(plays)
+        spokenTexts[plays] = text
+        return text
     }
 }

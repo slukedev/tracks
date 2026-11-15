@@ -35,16 +35,19 @@ struct RoomColumns<Item: Identifiable, Row: View>: View {
     /// Where the rule under a row starts: at its words.
     var ruleInset = RoomSongRow.textInset
     @ViewBuilder var row: (Item) -> Row
+    #if os(macOS)
+    /// How many columns fit, from the width. Measuring a layout for each count to see which fit
+    /// built and measured every row five times on each pass.
+    @State private var count = RoomColumnsMemory.count
+    #endif
 
     var body: some View {
         #if os(macOS)
-        ViewThatFits(in: .horizontal) {
-            columns(5)
-            columns(4)
-            columns(3)
-            columns(2)
-            columns(1)
-        }
+        RoomColumnsFrame { columns(count) }
+            .onGeometryChange(for: Int.self) { RoomColumnsMemory.fitting($0.size.width) } action: { fitting in
+                RoomColumnsMemory.count = fitting
+                count = fitting
+            }
         #else
         column(items)
         #endif
@@ -72,7 +75,7 @@ struct RoomColumns<Item: Identifiable, Row: View>: View {
         }
     }
 
-    private static var columnWidth: CGFloat { 300 }
+    private static var columnWidth: CGFloat { RoomColumnsMemory.columnWidth }
     #endif
 
     private func column(_ items: [Item]) -> some View {
@@ -88,6 +91,34 @@ struct RoomColumns<Item: Identifiable, Row: View>: View {
         }
     }
 }
+
+#if os(macOS)
+/// The count the last columns fit, for the next page's first frame: windows rarely change width
+/// between pages.
+@MainActor
+private enum RoomColumnsMemory {
+    static var count = 3
+    nonisolated static let columnWidth: CGFloat = 300
+
+    /// The most columns whose ideal widths fit: what `ViewThatFits` chose among five to one.
+    nonisolated static func fitting(_ width: CGFloat) -> Int {
+        (1...5).last { CGFloat($0) * columnWidth + CGFloat($0 - 1) * 32 <= width } ?? 1
+    }
+}
+
+/// The columns at the width offered, so the width read for the count doesn't depend on the count.
+private struct RoomColumnsFrame: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        let size = subviews.first?.sizeThatFits(proposal) ?? .zero
+        guard let width = proposal.width, width.isFinite else { return size }
+        return CGSize(width: max(width, RoomColumnsMemory.columnWidth), height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
+        subviews.first?.place(at: bounds.origin, proposal: proposal)
+    }
+}
+#endif
 
 /// A song in a room's list: its cover, or its place in a sequence, its name and artist, and
 /// one fact at the trailing edge. The size of a suggestion's row, so loading rows hold it.

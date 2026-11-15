@@ -163,6 +163,23 @@ struct SuggestionRow: View {
     #endif
 }
 
+/// A suggestion row that's drawn again only when its song changes, not each time the list
+/// around it is: its closure is new every time and never compares equal, so every row of a
+/// shelf ran again whenever the shelf did.
+private struct ListedSuggestionRow: View, Equatable {
+    let suggestion: Suggestion
+    var showsReason = true
+    let play: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.showsReason == rhs.showsReason && lhs.suggestion == rhs.suggestion
+    }
+
+    var body: some View {
+        SuggestionRow(suggestion: suggestion, showsReason: showsReason, play: play)
+    }
+}
+
 /// The star from Music: favorites a suggested song in Apple Music, which keeps it in the
 /// library too. Tapped again, it comes off.
 struct FavoriteButton: View {
@@ -398,7 +415,7 @@ struct SuggestedSongsSection: View {
                         ForEach(columns) { column in
                             VStack(spacing: 0) {
                                 ForEach(column.items) { suggestion in
-                                    row(suggestion, in: visible)
+                                    row(suggestion)
                                     if suggestion.id != column.items.last?.id {
                                         Divider().padding(.leading, 60)
                                     }
@@ -456,12 +473,14 @@ struct SuggestedSongsSection: View {
     }
 
     /// Plays from the song, through the ones the shelf shows: not those it leaves out.
-    private func row(_ suggestion: Suggestion, in visible: [Suggestion]) -> some View {
-        SuggestionRow(suggestion: suggestion, showsReason: false) {
-            let all = visible.map(\.song)
+    private func row(_ suggestion: Suggestion) -> some View {
+        ListedSuggestionRow(suggestion: suggestion, showsReason: false) {
+            // Read when played, as the row keeps its first closure while its song stays.
+            let all = discovery.songs.visible(in: music, source: model.musicSource, mode: mode).map(\.song)
             let start = all.firstIndex(of: suggestion.song) ?? 0
             player.play(.songs(all, startingAt: start), from: .songs(String(localized: "Suggested Songs")))
         }
+        .equatable()
         .frame(height: rowHeight)
         .contextMenu { SuggestionMenu(suggestion: suggestion) }
     }
@@ -494,11 +513,13 @@ struct KeepExploringSection: View {
                     .padding(.bottom, 8)
 
                 ForEach(songs) { suggestion in
-                    SuggestionRow(suggestion: suggestion) {
-                        let all = visible.map(\.song)
+                    ListedSuggestionRow(suggestion: suggestion) {
+                        // Read when played, as the row keeps its first closure while its song stays.
+                        let all = discovery.songs.visible(in: music, source: model.musicSource, mode: mode).map(\.song)
                         let start = all.firstIndex(of: suggestion.song) ?? 0
                         player.play(.songs(all, startingAt: start), from: .songs(String(localized: "Suggested Songs")))
                     }
+                    .equatable()
                     .contextMenu { SuggestionMenu(suggestion: suggestion) }
                     Divider().padding(.leading, 64)
                 }

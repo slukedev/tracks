@@ -150,8 +150,9 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   controls, and Play Here brings the song to your iPhone from where it's got to. The Mac's menu
   bar shows your iPhone's song the same way. Only your own devices, signed in to your iCloud,
   can connect
-- Explicit Songs: on, Tracks plays the explicit version of a song that has both; off, it plays
-  clean versions and skips explicit songs, stations included
+- Explicit Songs: on, Tracks plays the explicit version of a song that has both, even when
+  your history, library or a playlist holds the clean edit, and a clean album opens as its
+  explicit edition; off, it plays clean versions and skips explicit songs, stations included
 - Song Transitions: none, or a crossfade of 1 to 12 seconds
 - Siri: "Play music in Tracks" starts Tracks Radio, and "Play my mix", "Play something new",
   "Play On Repeat in Tracks" and moods like "Play Chill in Tracks" work too. Ask for any

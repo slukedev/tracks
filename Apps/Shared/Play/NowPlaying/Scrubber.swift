@@ -137,10 +137,17 @@ struct Scrubber: View {
         // Int(_:) traps on NaN and infinity.
         guard seconds.isFinite else { return "--:--" }
         let whole = Int(seconds.rounded(.down))
-        return Duration.seconds(whole).formatted(
+        // Four of these each second, and opening the player draws them all again.
+        if let known = formatted[whole] { return known }
+        let text = Duration.seconds(whole).formatted(
             .time(pattern: whole >= 3600 ? .hourMinuteSecond : .minuteSecond)
         )
+        if formatted.count > 4_000 { formatted.removeAll(keepingCapacity: true) }
+        formatted[whole] = text
+        return text
     }
+
+    private static var formatted: [Int: String] = [:]
 }
 
 /// A position just asked for, shown until the player's own time reaches it, so the bar doesn't

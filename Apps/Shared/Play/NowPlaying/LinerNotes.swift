@@ -109,7 +109,7 @@ struct LinerNotes: View {
     /// "13 plays" as one localized phrase, its number set large in SF Rounded and its word
     /// beside it, wherever the language puts the number.
     private func countText(_ plays: Int) -> Text {
-        let phrase = String(AttributedString(localized: "^[\(plays) play](inflect: true)").characters)
+        let phrase = PlayCountMemo.short(plays)
         let number = plays.formatted()
         let big = Font.system(.largeTitle, design: .rounded).weight(.bold)
         let small = isCompact ? Font.headline : .title3.weight(.semibold)

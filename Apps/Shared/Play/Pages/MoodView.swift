@@ -333,6 +333,8 @@ struct MoodView: View {
     @Environment(\.openURL) private var openURL
     /// Nil until your songs that suit it are worked out.
     @State private var room: ListeningRoom?
+    /// What the page shows of them, worked out with them rather than on every draw.
+    @State private var roomText: RoomText?
     @State private var newSongs: [Suggestion] = []
     @State private var newArtists: [Artist] = []
     @State private var stations: [FeedItem] = []
@@ -386,7 +388,7 @@ struct MoodView: View {
             style: style,
             title: mood.title,
             tagline: mood.tagline,
-            facts: room.flatMap(mood.facts(for:)),
+            facts: roomText?.facts,
             covers: heroCovers(style),
             isLoading: room == nil
         ) {
@@ -417,7 +419,7 @@ struct MoodView: View {
     /// The covers of your songs that suit it; of new songs for it when you have none.
     private func heroCovers(_ style: RoomStyle) -> [CoverArt] {
         let count = CoverMosaic.count(for: style.covers)
-        if let room, !room.isEmpty { return room.covers(count) }
+        if let covers = roomText?.covers { return covers }
         return newSongs.prefix(count).map { $0.song.artwork.map(CoverArt.artwork) ?? .url(nil, seed: $0.song.albumTitle ?? $0.song.title) }
     }
 
@@ -493,7 +495,7 @@ struct MoodView: View {
     @ViewBuilder
     private func signature(_ style: RoomStyle) -> some View {
         let signature = mood.signature
-        if let room, case let songs = signature.songs(room), !songs.isEmpty {
+        if let roomText, case let songs = roomText.signature, !songs.isEmpty {
             let shown = Array(songs.prefix(showsAllSignature ? songs.count : style.pace.rows))
             VStack(alignment: .leading, spacing: 0) {
                 RoomSectionHeader(title: signature.title, note: signature.note) {
@@ -502,7 +504,7 @@ struct MoodView: View {
                     }
                 }
                 RoomColumns(items: shown, ruleInset: signature.isSequence ? RoomSongRow.numberedTextInset : RoomSongRow.textInset) { song in
-                    historyRow(song, number: signature.isSequence ? (songs.firstIndex(of: song) ?? 0) + 1 : nil, detail: signature.detail(song)) {
+                    historyRow(song, number: signature.isSequence ? (songs.firstIndex(of: song) ?? 0) + 1 : nil, detail: roomText.signatureDetails[song.id] ?? nil) {
                         play(songs, startingAt: song, title: signature.title)
                     }
                 }
@@ -529,7 +531,7 @@ struct MoodView: View {
                     let songs = room.songs
                     let shown = Array(songs.prefix(showsAllYours ? 25 : style.pace.rows))
                     RoomColumns(items: shown) { song in
-                        historyRow(song, detail: PlayCountText.short(song.plays)) {
+                        historyRow(song, detail: PlayCountMemo.short(song.plays)) {
                             play(startingWith: song.song, flow: .yours)
                         }
                     }
@@ -688,6 +690,7 @@ struct MoodView: View {
             let (history, signals, drives, mood) = (model.library.history, player.signals, player.drive.log, mood)
             let room = await OffMainActor.run { ListeningRoom.mood(mood, in: history, signals: signals, drives: drives) }
             self.room = room
+            roomText = RoomText(room, mood: mood)
             if room.isEmpty { flow = .new }
         }
         guard reach != .found else { return }
@@ -872,5 +875,25 @@ enum MoodPlayback {
         } else {
             player.problem = .failed(String(localized: "Nothing to play for \(mood.title) yet."))
         }
+    }
+}
+
+/// What a mood's page shows of your songs beyond the rows: the signature's songs, in its own
+/// order, and their facts, the hero's line and covers. Sorting and inflecting them cost more
+/// than the rows that show them, so they're made once per room rather than on every draw.
+private struct RoomText {
+    let signature: [ListeningRoom.Song]
+    let signatureDetails: [ListeningRoom.Song.ID: String?]
+    let facts: String?
+    /// Nil when none of your songs suit it, so the hero shows new songs' covers instead.
+    let covers: [CoverArt]?
+
+    init(_ room: ListeningRoom, mood: Mood) {
+        let signature = mood.signature
+        let songs = signature.songs(room)
+        self.signature = songs
+        signatureDetails = Dictionary(songs.map { ($0.id, signature.detail($0)) }, uniquingKeysWith: { first, _ in first })
+        facts = mood.facts(for: room)
+        covers = room.isEmpty ? nil : room.covers(CoverMosaic.count(for: mood.style.covers))
     }
 }

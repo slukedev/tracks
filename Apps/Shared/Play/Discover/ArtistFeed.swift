@@ -9,7 +9,10 @@ import TracksCore
 struct ArtistFeed: View {
     let artists: [SuggestedArtist]
 
-    @State private var width: CGFloat = 0
+    /// As wide as the feed was last time, so it isn't built one card to a row and then again
+    /// in pairs as it opens.
+    @State private var width: CGFloat = ArtistFeed.lastWidth
+    private static var lastWidth: CGFloat = 0
 
     var body: some View {
         let cards = Self.cards(from: artists)
@@ -42,7 +45,10 @@ struct ArtistFeed: View {
         .frame(maxWidth: Self.maximumWidth)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, PlayMetrics.margin)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { new in
+            width = new
+            Self.lastWidth = new
+        }
     }
 
     /// Wide enough to pair cards; narrower, one to a row.
