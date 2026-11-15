@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Test
-import uniffi.tracks_engine.AlbumOwnership
+import uniffi.tracks_engine.Ownership
 import uniffi.tracks_engine.CatalogAlbum
 import uniffi.tracks_engine.CatalogResults
 import uniffi.tracks_engine.CatalogSong

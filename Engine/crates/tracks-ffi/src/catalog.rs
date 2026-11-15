@@ -242,11 +242,7 @@ pub fn catalog_parse(response: HttpResponse) -> Result<CatalogResults> {
 
 // MARK: - Matching
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct SongName {
-    pub title: String,
-    pub artist: String,
-}
+use crate::library::SongName;
 
 /// The first candidate that's the same song, by its position.
 #[uniffi::export]
@@ -291,12 +287,7 @@ pub struct SuggestionCandidate {
     pub is_minor: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum AlbumOwnership {
-    Owned,
-    Partial,
-    Missing,
-}
+use crate::library::Ownership;
 
 /// The candidates worth suggesting, best first, as positions in `candidates`.
 #[uniffi::export]
@@ -331,11 +322,11 @@ pub fn suggestions_rank(
 
 /// How much of an album you have, from how many of its songs are yours.
 #[uniffi::export]
-pub fn album_ownership(owned: u32, total: Option<u32>) -> AlbumOwnership {
+pub fn album_ownership(owned: u32, total: Option<u32>) -> Ownership {
     match core_suggest::Ownership::of(owned, total) {
-        core_suggest::Ownership::Owned => AlbumOwnership::Owned,
-        core_suggest::Ownership::Partial => AlbumOwnership::Partial,
-        core_suggest::Ownership::Missing => AlbumOwnership::Missing,
+        core_suggest::Ownership::Owned => Ownership::Owned,
+        core_suggest::Ownership::Partial => Ownership::PartlyOwned,
+        core_suggest::Ownership::Missing => Ownership::Missing,
     }
 }
 

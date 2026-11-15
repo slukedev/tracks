@@ -92,7 +92,7 @@ import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.play.components.openInAnotherApp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import uniffi.tracks_engine.AlbumOwnership
+import uniffi.tracks_engine.Ownership
 import uniffi.tracks_engine.CatalogAlbum
 import uniffi.tracks_engine.CatalogAlbumKind
 import uniffi.tracks_engine.CatalogArtist
@@ -364,10 +364,10 @@ fun CatalogAlbumMenu(album: CatalogAlbum, expanded: Boolean, onDismiss: () -> Un
     val holding = remember(album) { discovery.holding(album) }
     CatalogMenu(expanded, onDismiss, album.title, album.artistName, album.artworkUrl) {
         MenuEntry("Open album", Icons.Rounded.Album) { act { navigator.open(CatalogAlbumRoute(album.id.toLong(), album.title, album.artistName)) } }
-        if (sources.canFetch && holding.ownership != AlbumOwnership.OWNED) {
+        if (sources.canFetch && holding.ownership != Ownership.OWNED) {
             val label = when {
                 sources.lidarr -> "Ask Lidarr for it"
-                holding.ownership == AlbumOwnership.PARTIAL -> "Get the rest"
+                holding.ownership == Ownership.PARTLY_OWNED -> "Get the rest"
                 else -> "Get album"
             }
             MenuEntry(label, Icons.Rounded.Download) {
@@ -449,7 +449,7 @@ private fun MenuEntry(label: String, icon: ImageVector, onClick: () -> Unit) {
 }
 
 /** What an album's caption says: how much of it you have, or its year and kind. */
-fun albumCaption(album: CatalogAlbum, ownership: AlbumOwnership, ownedSongs: Int, showArtist: Boolean): String {
+fun albumCaption(album: CatalogAlbum, ownership: Ownership, ownedSongs: Int, showArtist: Boolean): String {
     val kind = when (album.kind) {
         CatalogAlbumKind.SINGLE -> "Single"
         CatalogAlbumKind.EP -> "EP"
@@ -457,9 +457,9 @@ fun albumCaption(album: CatalogAlbum, ownership: AlbumOwnership, ownedSongs: Int
         CatalogAlbumKind.ALBUM -> null
     }
     return when (ownership) {
-        AlbumOwnership.OWNED -> "In your music"
-        AlbumOwnership.PARTIAL -> album.trackCount?.let { "$ownedSongs of $it songs" } ?: "Some songs"
-        AlbumOwnership.MISSING -> listOfNotNull(if (showArtist) album.artistName else null, kind, album.year?.toString()).joinToString(" · ")
+        Ownership.OWNED -> "In your music"
+        Ownership.PARTLY_OWNED -> album.trackCount?.let { "$ownedSongs of $it songs" } ?: "Some songs"
+        Ownership.MISSING -> listOfNotNull(if (showArtist) album.artistName else null, kind, album.year?.toString()).joinToString(" · ")
     }
 }
 
@@ -488,7 +488,7 @@ fun CatalogAlbumCell(album: CatalogAlbum, modifier: Modifier = Modifier, showArt
         ) {
             Box {
                 Artwork(album.artworkUrl, album.title + album.artistName, Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
-                if (holding.ownership != AlbumOwnership.MISSING) {
+                if (holding.ownership != Ownership.MISSING) {
                     OwnershipBadge(holding.ownership, Modifier.align(Alignment.TopEnd).padding(8.dp))
                 }
             }
@@ -497,7 +497,7 @@ fun CatalogAlbumCell(album: CatalogAlbum, modifier: Modifier = Modifier, showArt
             Text(
                 albumCaption(album, holding.ownership, holding.ownedSongs, showArtist),
                 style = MaterialTheme.typography.bodySmall,
-                color = if (holding.ownership == AlbumOwnership.MISSING) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                color = if (holding.ownership == Ownership.MISSING) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 4.dp),
@@ -509,9 +509,9 @@ fun CatalogAlbumCell(album: CatalogAlbum, modifier: Modifier = Modifier, showArt
 
 /** A small round mark on a cover: a tick for all of it, a half for some. */
 @Composable
-fun OwnershipBadge(ownership: AlbumOwnership, modifier: Modifier = Modifier) {
+fun OwnershipBadge(ownership: Ownership, modifier: Modifier = Modifier) {
     val (icon, label) = when (ownership) {
-        AlbumOwnership.OWNED -> Icons.Rounded.CheckCircle to "In your music"
+        Ownership.OWNED -> Icons.Rounded.CheckCircle to "In your music"
         else -> Icons.Rounded.Contrast to "Some of it is in your music"
     }
     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = modifier.size(28.dp)) {

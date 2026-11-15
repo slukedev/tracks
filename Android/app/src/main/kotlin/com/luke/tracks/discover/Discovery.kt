@@ -4,7 +4,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import com.luke.tracks.playback.PlayableSong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import uniffi.tracks_engine.AlbumOwnership
+import uniffi.tracks_engine.Ownership
 import uniffi.tracks_engine.CatalogAlbum
 import uniffi.tracks_engine.CatalogArtist
 import uniffi.tracks_engine.CatalogResults
@@ -41,7 +41,7 @@ sealed interface Availability {
     val canGet: Boolean get() = this is OnServer || this is Requestable || this is InLidarr
 }
 
-data class AlbumHolding(val ownership: AlbumOwnership, val ownedSongs: Int)
+data class AlbumHolding(val ownership: Ownership, val ownedSongs: Int)
 
 /**
  * Music you don't have: the catalog to search and browse, whether something is already
@@ -80,7 +80,7 @@ object NoDiscovery : Discovery {
     override suspend fun album(id: ULong): AlbumCatalog? = null
     override suspend fun findAlbum(title: String, artist: String): CatalogAlbum? = null
     override fun owned(song: CatalogSong): PlayableSong? = null
-    override fun holding(album: CatalogAlbum) = AlbumHolding(AlbumOwnership.MISSING, 0)
+    override fun holding(album: CatalogAlbum) = AlbumHolding(Ownership.MISSING, 0)
     override suspend fun availability(song: CatalogSong): Availability = Availability.Unavailable
     override suspend fun get(song: CatalogSong) = ""
     override suspend fun getAlbum(album: CatalogAlbum) = ""

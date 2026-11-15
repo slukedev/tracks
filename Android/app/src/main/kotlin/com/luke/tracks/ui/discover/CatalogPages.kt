@@ -86,7 +86,7 @@ import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.bottomClearance
 import com.luke.tracks.ui.play.components.openInAnotherApp
 import kotlinx.coroutines.launch
-import uniffi.tracks_engine.AlbumOwnership
+import uniffi.tracks_engine.Ownership
 import uniffi.tracks_engine.CatalogAlbumKind
 import uniffi.tracks_engine.albumOwnership
 import uniffi.tracks_engine.foldedName
@@ -264,7 +264,7 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
                     val owned = remember(page) { page.songs.associate { it.id to (discovery.owned(it) != null) } }
                     val ownedCount = owned.values.count { it }
                     val ownership = albumOwnership(ownedCount.toUInt(), page.songs.size.toUInt().takeIf { it > 0u })
-                    val shown = if (missingOnly && ownership == AlbumOwnership.PARTIAL) page.songs.filter { owned[it.id] != true } else page.songs
+                    val shown = if (missingOnly && ownership == Ownership.PARTLY_OWNED) page.songs.filter { owned[it.id] != true } else page.songs
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = bottomClearance)) {
                         item(key = "hero") { AlbumHero(page, ownership, ownedCount, onArtist = { navigator.open(CatalogArtistRoute(page.album.artistName, page.album.artistId?.toLong())) }) }
                         item(key = "actions") {
@@ -273,11 +273,11 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
                                     val songs = page.songs.mapNotNull { discovery.owned(it) }
                                     context.graph.player.play(songs, origin = QueueOrigin(page.album.title, QueueOrigin.Kind.Album))
                                 })
-                                if (sources.canFetch && ownership != AlbumOwnership.OWNED) {
+                                if (sources.canFetch && ownership != Ownership.OWNED) {
                                     val label = when {
                                         getting -> "Asking"
                                         sources.lidarr -> "Ask Lidarr"
-                                        ownership == AlbumOwnership.PARTIAL -> "Get the rest"
+                                        ownership == Ownership.PARTLY_OWNED -> "Get the rest"
                                         else -> "Get album"
                                     }
                                     add(PageAction(label, Icons.Rounded.Download, primary = ownedCount == 0) {
@@ -290,13 +290,13 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
                                         }
                                     })
                                 }
-                                if (ownership != AlbumOwnership.OWNED && size < 2) add(PageAction("Open in", Icons.AutoMirrored.Rounded.OpenInNew) {
+                                if (ownership != Ownership.OWNED && size < 2) add(PageAction("Open in", Icons.AutoMirrored.Rounded.OpenInNew) {
                                     openInAnotherApp(context, page.album.title, page.album.artistName, page.album.title)
                                 })
                             }
                             ConnectedActions(actions, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                         }
-                        if (ownership == AlbumOwnership.PARTIAL) item(key = "filter") {
+                        if (ownership == Ownership.PARTLY_OWNED) item(key = "filter") {
                             SongFilter(missingOnly, missing = page.songs.size - ownedCount, onChange = { missingOnly = it }, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                         }
                         itemsIndexed(shown, key = { _, s -> s.id.toLong() }) { i, song ->
@@ -310,7 +310,7 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
 }
 
 @Composable
-private fun AlbumHero(page: AlbumCatalog, ownership: AlbumOwnership, ownedCount: Int, onArtist: () -> Unit) {
+private fun AlbumHero(page: AlbumCatalog, ownership: Ownership, ownedCount: Int, onArtist: () -> Unit) {
     val album = page.album
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Artwork(album.artworkUrl, album.title + album.artistName, Modifier.size(240.dp), shape = RoundedCornerShape(28.dp))
@@ -329,9 +329,9 @@ private fun AlbumHero(page: AlbumCatalog, ownership: AlbumOwnership, ownedCount:
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        AnimatedVisibility(ownership != AlbumOwnership.MISSING) {
+        AnimatedVisibility(ownership != Ownership.MISSING) {
             Text(
-                if (ownership == AlbumOwnership.OWNED) "In your music" else "$ownedCount of ${page.songs.size} in your music",
+                if (ownership == Ownership.OWNED) "In your music" else "$ownedCount of ${page.songs.size} in your music",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 4.dp),

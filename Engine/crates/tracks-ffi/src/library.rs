@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 /// A song by its names, as the library or a server has them.
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct SongName {
     pub title: String,
     pub artist: String,

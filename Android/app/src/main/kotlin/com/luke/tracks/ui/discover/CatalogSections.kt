@@ -46,7 +46,7 @@ import com.luke.tracks.ui.insights.bleed
 import com.luke.tracks.ui.navigation.CatalogArtistRoute
 import com.luke.tracks.ui.navigation.LocalNavigator
 import kotlinx.coroutines.delay
-import uniffi.tracks_engine.AlbumOwnership
+import uniffi.tracks_engine.Ownership
 import uniffi.tracks_engine.CatalogAlbumKind
 import uniffi.tracks_engine.CatalogResults
 
@@ -85,7 +85,7 @@ fun rememberCatalogSearch(query: String, retry: Int = 0): Remote<NotYours> {
 
 private fun notYours(discovery: Discovery, found: CatalogResults) = CatalogResults(
     songs = found.songs.filter { discovery.owned(it) == null }.distinctBy { it.identity }.take(12),
-    albums = found.albums.filter { discovery.holding(it).ownership != AlbumOwnership.OWNED },
+    albums = found.albums.filter { discovery.holding(it).ownership != Ownership.OWNED },
     artists = found.artists,
 )
 

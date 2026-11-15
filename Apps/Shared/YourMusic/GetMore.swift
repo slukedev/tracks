@@ -581,7 +581,7 @@ final class GetMore {
             requests[key]?.songs = Set(songs.map(\.identity) + offers.map(\.identity))
             var failures = 0
             for song in songs {
-                switch route(for: song) {
+                switch self.route(for: song) {
                 case .keep:
                     do { try await music.servers.keep(song) } catch { failures += 1 }
                 case .request:
