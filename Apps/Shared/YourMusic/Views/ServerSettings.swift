@@ -51,17 +51,25 @@ struct ServersSection: View {
         .sheet(isPresented: $addsServer) {
             ServerForm()
         }
-        DownloadChoiceSection()
     }
 }
 
 /// Download for Apple Music and Your Music together, and which one it uses without asking.
-/// Off by default.
+/// Off by default, and shown with either music source, but only once a server or Lidarr is
+/// set up: without one, Download would only ever be Add to Library.
 struct DownloadChoiceSection: View {
+    @Environment(YourMusic.self) private var music
+    @Environment(Lidarr.self) private var lidarr: Lidarr?
     @AppStorage(DownloadChoice.isOnKey) private var isOn = false
     @AppStorage(DownloadChoice.defaultKey) private var preferred = DownloadDefault.ask
 
     var body: some View {
+        if !music.servers.servers.isEmpty || lidarr?.isSetUp == true {
+            section
+        }
+    }
+
+    private var section: some View {
         Section {
             Toggle("Download to Apple Music or Your Music", isOn: $isOn.animation())
             if isOn {

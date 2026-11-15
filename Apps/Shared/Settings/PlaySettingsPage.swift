@@ -39,6 +39,7 @@ struct PlaySettingsPage: View {
                 SettingsHero("Play", subtitle: status.tone.apply(to: Text(status.line)), systemImage: "play.fill", tint: .indigo)
 
                 sourceSection
+                DownloadChoiceSection()
                 if isYourMusic {
                     yourMusicSections
                 } else {
