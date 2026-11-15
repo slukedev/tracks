@@ -10,6 +10,8 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import uniffi.tracks_engine.RadioDiscovery
+import uniffi.tracks_engine.RadioTuning
 
 private val Context.settingsStore by preferencesDataStore(name = "settings")
 
@@ -50,14 +52,31 @@ data class AppSettings(
     val hiddenSongs: Set<String> = emptySet(),
     val scrobbleEnabled: Boolean = true,
     val lastFmUser: String? = null,
-    /** How often Tracks Radio plays something new, 0 to 1. */
-    val radioAdventure: Float = 0.25f,
+    /** How far Tracks Radio strays from what you know. */
+    val radioDiscovery: RadioDiscovery = RadioDiscovery.BALANCED,
+    /** Genres Tracks Radio leans into, as your music spells them. Empty plays across everything. */
+    val radioGenres: Set<String> = emptySet(),
+    /** Songs not heard in a few months come round more often on Tracks Radio. */
+    val radioOldFavorites: Boolean = false,
+    /** Tracks Radio shows on Play and in the car. */
+    val showTracksRadio: Boolean = true,
     val showSampleData: Boolean = false,
     val onboarded: Boolean = false,
     val subsonicServers: String = "[]",
     /** Songs liked from the player or the media controls, by identity. */
     val likedSongs: Set<String> = emptySet(),
 )
+
+/** The old slider's five steps, as the nearest of the three discoveries. */
+private fun discoveryFromAdventure(adventure: Float): RadioDiscovery = when {
+    adventure < 0.125f -> RadioDiscovery.FAMILIAR
+    adventure < 0.5f -> RadioDiscovery.BALANCED
+    else -> RadioDiscovery.ADVENTUROUS
+}
+
+/** How Tracks Radio is tuned, as the engine takes it. */
+val AppSettings.radioTuning: RadioTuning
+    get() = RadioTuning(radioDiscovery, radioGenres.sorted(), radioOldFavorites)
 
 class SettingsRepository(private val context: Context) {
     private object Keys {
@@ -70,7 +89,12 @@ class SettingsRepository(private val context: Context) {
         val hidden = stringSetPreferencesKey("hiddenSongs")
         val scrobble = booleanPreferencesKey("scrobbleEnabled")
         val lastFmUser = stringPreferencesKey("lastFmUser")
-        val radio = floatPreferencesKey("radioAdventure")
+        /** The old five-step slider, read once to choose a discovery. */
+        val oldAdventure = floatPreferencesKey("radioAdventure")
+        val discovery = stringPreferencesKey("radioDiscovery")
+        val radioGenres = stringSetPreferencesKey("radioGenres")
+        val oldFavorites = booleanPreferencesKey("radioOldFavorites")
+        val showRadio = booleanPreferencesKey("showTracksRadio")
         val sample = booleanPreferencesKey("showSampleData")
         val onboarded = booleanPreferencesKey("onboarded")
         val servers = stringPreferencesKey("subsonicServers")
@@ -89,7 +113,11 @@ class SettingsRepository(private val context: Context) {
         hiddenSongs = this[Keys.hidden] ?: emptySet(),
         scrobbleEnabled = this[Keys.scrobble] ?: true,
         lastFmUser = this[Keys.lastFmUser],
-        radioAdventure = this[Keys.radio] ?: 0.25f,
+        radioDiscovery = this[Keys.discovery]?.let { runCatching { RadioDiscovery.valueOf(it) }.getOrNull() }
+            ?: this[Keys.oldAdventure]?.let(::discoveryFromAdventure) ?: RadioDiscovery.BALANCED,
+        radioGenres = this[Keys.radioGenres] ?: emptySet(),
+        radioOldFavorites = this[Keys.oldFavorites] ?: false,
+        showTracksRadio = this[Keys.showRadio] ?: true,
         showSampleData = this[Keys.sample] ?: false,
         onboarded = this[Keys.onboarded] ?: false,
         subsonicServers = this[Keys.servers] ?: "[]",
@@ -108,7 +136,10 @@ class SettingsRepository(private val context: Context) {
             p[Keys.hidden] = new.hiddenSongs
             p[Keys.scrobble] = new.scrobbleEnabled
             if (new.lastFmUser == null) p.remove(Keys.lastFmUser) else p[Keys.lastFmUser] = new.lastFmUser
-            p[Keys.radio] = new.radioAdventure
+            p[Keys.discovery] = new.radioDiscovery.name
+            p[Keys.radioGenres] = new.radioGenres
+            p[Keys.oldFavorites] = new.radioOldFavorites
+            p[Keys.showRadio] = new.showTracksRadio
             p[Keys.sample] = new.showSampleData
             p[Keys.onboarded] = new.onboarded
             p[Keys.servers] = new.subsonicServers

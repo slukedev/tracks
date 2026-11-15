@@ -27,7 +27,7 @@ object Startup {
             // Robolectric has no session to connect to; screenshots use the player idle.
             if (Build.FINGERPRINT != "robolectric") it.connect()
         }
-        graph.radio = TracksRadio(graph)
+        graph.radio = TracksRadio(graph).also { it.watch() }
         // Last.fm scrobbling, widgets, shortcuts and notification channels.
         com.luke.tracks.system.SystemIntegration.start(app, graph)
     }

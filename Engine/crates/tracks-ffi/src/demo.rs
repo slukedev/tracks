@@ -54,6 +54,28 @@ pub fn demo_live_play(at_ms: i64, number: u32) -> DemoPlay {
     tracks_demo::live_play(at_ms, u64::from(number)).into()
 }
 
+/// An invented song's genre and year, so sample data has genres and decades for Tracks Radio.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DemoSongMetadata {
+    /// The song's identity, as [`crate::song_identity`] makes it.
+    pub identity: String,
+    pub genre: String,
+    pub release_year: i32,
+}
+
+/// The genre and year of every invented song, for the same `seed` as [`demo_plays`].
+#[uniffi::export]
+pub fn demo_song_metadata(seed: u64) -> Vec<DemoSongMetadata> {
+    tracks_demo::song_metadata(seed)
+        .into_iter()
+        .map(|m| DemoSongMetadata {
+            identity: m.song_key,
+            genre: m.genre,
+            release_year: m.release_year,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

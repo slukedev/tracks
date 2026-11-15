@@ -21,7 +21,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Sensors
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
@@ -48,7 +52,16 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.DpOffset
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.luke.tracks.data.AppSettings
+import com.luke.tracks.graph
 import com.luke.tracks.playback.PlayerState
+import com.luke.tracks.playback.radio.RadioWords
+import com.luke.tracks.ui.navigation.LocalNavigator
+import com.luke.tracks.ui.navigation.SettingsPageRoute
+import com.luke.tracks.ui.play.components.MenuItem
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.ui.navigation.sharedElement
 import com.luke.tracks.ui.play.components.CoverCollage
@@ -79,11 +92,13 @@ sealed interface CrateItem {
     }
 }
 
-fun crateItems(feed: PlayFeed?): List<CrateItem> {
-    if (feed == null) return listOf(CrateItem.Radio)
+/** The crate's records. Tracks Radio leaves it when it's hidden in Settings. */
+fun crateItems(feed: PlayFeed?, showsRadio: Boolean = true): List<CrateItem> {
+    val radio = listOfNotNull(CrateItem.Radio.takeIf { showsRadio })
+    if (feed == null) return radio
     val mixes = feed.crate.map { CrateItem.OfMix(it) }
     // This hour's mix leads, Tracks Radio beside it, then the rest of today.
-    return if (mixes.isEmpty()) listOf(CrateItem.Radio) else listOf(mixes.first(), CrateItem.Radio) + mixes.drop(1)
+    return if (mixes.isEmpty()) radio else listOf(mixes.first()) + radio + mixes.drop(1)
 }
 
 /**
@@ -109,16 +124,20 @@ fun Crate(
         }
     }
     Column(modifier) {
-        if (items.size == 1) {
+        if (items.size == 1 && items[0] == CrateItem.Radio) {
             // Tracks Radio alone, before there's any history: one card, no carousel.
+            var menu by remember { mutableStateOf(false) }
             Box(
                 Modifier
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth()
                     .height(312.dp)
                     .clip(MaterialTheme.shapes.extraLarge)
-                    .pressable(onClick = { actions.startRadio() }),
-            ) { RadioArt() }
+                    .pressable(onClick = { actions.startRadio() }, onLongClick = { menu = true }),
+            ) {
+                RadioArt()
+                RadioMenu(menu, { menu = false }, player, actions)
+            }
         } else HorizontalCenteredHeroCarousel(
             state = state,
             modifier = Modifier.fillMaxWidth().height(312.dp),
@@ -126,7 +145,7 @@ fun Crate(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
         ) { index ->
             val item = items[index]
-            CrateCard(item, feed, actions, onOpenMix, onUnplayable)
+            CrateCard(item, feed, player, actions, onOpenMix, onUnplayable)
         }
         val focused = items.getOrNull(state.currentItem) ?: items.first()
         CrateCaption(focused, feed, player, actions, onUnplayable)
@@ -137,6 +156,7 @@ fun Crate(
 private fun CarouselItemScope.CrateCard(
     item: CrateItem,
     feed: PlayFeed?,
+    player: PlayerState,
     actions: PlayActions,
     onOpenMix: (Mix) -> Unit,
     onUnplayable: () -> Unit,
@@ -150,9 +170,10 @@ private fun CarouselItemScope.CrateCard(
             Modifier
                 .fillMaxSize()
                 .maskClip(MaterialTheme.shapes.extraLarge)
-                .pressable(onClick = { actions.startRadio() }, onLongClick = { actions.startRadio() }),
+                .pressable(onClick = { actions.startRadio() }, onLongClick = { menu = true }),
         ) {
             RadioArt(reveal)
+            RadioMenu(menu, { menu = false }, player, actions)
         }
         is CrateItem.OfMix -> {
             val playable = remember(item.mix, feed) { feed?.playable(item.mix).orEmpty() }
@@ -289,6 +310,7 @@ private fun CrateCaption(
     onUnplayable: () -> Unit,
 ) {
     val motion = MaterialTheme.motionScheme
+    val settings by LocalContext.current.graph.settings.settings.collectAsStateWithLifecycle(AppSettings())
     Row(
         Modifier.fillMaxWidth().padding(start = 24.dp, end = 20.dp, top = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -305,7 +327,7 @@ private fun CrateCaption(
             label = "caption",
         ) { shown ->
             val (eyebrow, title, line) = when (shown) {
-                CrateItem.Radio -> Triple("Your station", "Tracks Radio", radioLine(feed))
+                CrateItem.Radio -> Triple("Your station", "Tracks Radio", RadioWords.summary(settings.radioDiscovery, settings.radioGenres))
                 is CrateItem.OfMix -> {
                     val kind = shown.mix.kind
                     Triple(
@@ -360,5 +382,32 @@ private fun CrateCaption(
     }
 }
 
-private fun radioLine(feed: PlayFeed?): String =
-    if (feed?.hasHistory == false) "Plays from your music and adjusts to your skips" else "Your favorites and songs you haven't played"
+/**
+ * What can be done with Tracks Radio from a long press, as from its menu on iPhone: play it,
+ * or pause or resume it while it's on, and tune it.
+ */
+@Composable
+private fun RadioMenu(expanded: Boolean, onDismiss: () -> Unit, player: PlayerState, actions: PlayActions) {
+    val navigator = LocalNavigator.current
+    val isOn = player.origin?.kind == QueueOrigin.Kind.Radio
+    DropdownMenu(expanded, onDismiss, offset = DpOffset(12.dp, (-12).dp), shape = MaterialTheme.shapes.large) {
+        when {
+            isOn && player.isPlaying -> MenuItem(Icons.Rounded.Pause, "Pause") {
+                onDismiss()
+                actions.playPause()
+            }
+            isOn -> MenuItem(Icons.Rounded.PlayArrow, "Resume") {
+                onDismiss()
+                actions.playPause()
+            }
+            else -> MenuItem(Icons.Rounded.PlayArrow, "Play Tracks Radio") {
+                onDismiss()
+                actions.startRadio()
+            }
+        }
+        MenuItem(Icons.Rounded.Tune, "Tune Tracks Radio") {
+            onDismiss()
+            navigator.open(SettingsPageRoute("radio"))
+        }
+    }
+}

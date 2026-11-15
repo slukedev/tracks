@@ -17,7 +17,7 @@ import uniffi.tracks_engine.MixKind
  * played, albums and artists. A song listed inside something carries its parent in its id
  * ("album/<id>|<song>"), so choosing it plays the whole album from there.
  */
-class BrowseTree(private val graph: AppGraph) {
+class BrowseTree(private val graph: AppGraph, private val isPlaying: () -> Boolean = { false }) {
     private var mixesCache: Pair<Long, List<Mix>>? = null
 
     private suspend fun index(): LibraryIndex {
@@ -29,8 +29,8 @@ class BrowseTree(private val graph: AppGraph) {
     val root: MediaItem = folder(ROOT, "Tracks", playable = false)
 
     suspend fun children(parentId: String): List<MediaItem> = when {
-        parentId == ROOT -> listOf(
-            playableItem(RADIO, "Tracks Radio", "Your favorites and songs you haven't played", MediaMetadata.MEDIA_TYPE_RADIO_STATION),
+        parentId == ROOT -> listOfNotNull(
+            radioItem(),
             folder(MIXES, "Mixes", playable = false, type = MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS),
             folder(RECENT, "Recently played", playable = true, type = MediaMetadata.MEDIA_TYPE_PLAYLIST),
             folder(ALBUMS, "Albums", playable = false, type = MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),
@@ -91,6 +91,26 @@ class BrowseTree(private val graph: AppGraph) {
         if (songs.isEmpty()) return null
         val start = if (chosen.isEmpty()) 0 else songs.indexOfFirst { it.mediaId == chosen }.coerceAtLeast(0)
         return Triple(songs, start, origin)
+    }
+
+    /**
+     * Tracks Radio as a station, as CarPlay shows it on iPhone: a line that says where it
+     * stands. Left out when it's hidden in Settings.
+     */
+    private suspend fun radioItem(): MediaItem? {
+        if (!graph.settings.settings.first().showTracksRadio) return null
+        val line = when {
+            PlaybackBridge.origin.value?.kind != QueueOrigin.Kind.Radio -> "Made from your listening"
+            isPlaying() -> "Now playing"
+            else -> "Paused"
+        }
+        return playableItem(RADIO, "Tracks Radio", line, MediaMetadata.MEDIA_TYPE_RADIO_STATION)
+    }
+
+    /** The mix for this time of day, which plays in Tracks Radio's place while it's hidden. */
+    suspend fun hourMix(): Triple<List<PlayableSong>, Int, QueueOrigin?>? {
+        val mix = mixes().firstOrNull { it.kind is MixKind.RightNow } ?: return null
+        return expand("$MIX${mix.id}")
     }
 
     suspend fun search(query: String): List<PlayableSong> {
