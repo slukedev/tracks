@@ -41,6 +41,7 @@ enum HistorySpotlight {
     /// One pass: the history's search index is built off the main actor and let go a minute
     /// later (`HistoryCatalog`), so nothing big is kept between passes.
     private static func index(defaults: UserDefaults) async {
+        await SiriVocabulary.update()
         guard let index = await HistoryCatalog.index() else { return }
         let artists = index.topArtists(limit: artistLimit).map(ListenedArtistEntity.init)
         let albums = index.topAlbums(limit: albumLimit).map(ListenedAlbumEntity.init)

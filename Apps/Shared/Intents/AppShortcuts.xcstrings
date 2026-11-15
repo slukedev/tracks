@@ -1,0 +1,314 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Bring the music here with ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Bring the music here with ${applicationName}"
+          }
+        }
+      }
+    },
+    "Find something to play in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Find something to play in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Move the music to ${device} with ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Move the music to ${device} with ${applicationName}"
+          }
+        }
+      }
+    },
+    "My top artist ${period} in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "My top artist ${period} in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play ${applicationName} Radio": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play ${applicationName} Radio"
+          }
+        }
+      }
+    },
+    "Play ${choice} in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play ${choice} in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play ${choice} on ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play ${choice} on ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play ${playlist} in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play ${playlist} in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play a playlist in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play a playlist in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play a song in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play a song in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play an album in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play an album in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play an artist in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play an artist in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play from ${source} in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play from ${source} in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play it here with ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play it here with ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play music in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play music in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play my ${playlist} playlist in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play my ${playlist} playlist in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play my station in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play my station in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play on ${device} with ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play on ${device} with ${applicationName}"
+          }
+        }
+      }
+    },
+    "Play something I like in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Play something I like in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Search ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Search ${applicationName}"
+          }
+        }
+      }
+    },
+    "Search in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Search in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Switch ${applicationName} to ${source}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Switch ${applicationName} to ${source}"
+          }
+        }
+      }
+    },
+    "Switch music source in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Switch music source in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Use ${source} in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Use ${source} in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Who have I listened to most in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Who have I listened to most in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Who's my top artist ${period} in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Who's my top artist ${period} in ${applicationName}"
+          }
+        }
+      }
+    },
+    "Who's my top artist in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Who's my top artist in ${applicationName}"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

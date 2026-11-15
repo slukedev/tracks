@@ -211,13 +211,18 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Controls for Control Center, the Lock Screen and the Action button: Play in Tracks
   (configurable mix or mood) and Identify Song.
 - Siri: "Play music in Tracks" starts Tracks Radio; "Play my mix", "Play something new", mixes
-  and moods by name; any artist, song, album, playlist or station.
+  and moods by name; any artist, song, album, playlist or station, through both SiriKit's media
+  intent and the App Intents audio schemas (Play Audio's queries answer Siri's `AudioSearch`).
+  Library and Your Music matches rank first; two of yours with one name make Siri ask.
+- Siri's vocabulary has your playlists and Your Music's artists (`SiriVocabulary`, refreshed
+  with the Spotlight pass).
 - Siri can learn to use Tracks for a plain "Play music" (SiriKit media intent).
-- App Shortcuts: Tracks Radio, My Mix, Top Artist, Search, Play a Mix, Play Music, Switch
-  Source, Play on Device, Bring Music Here.
+- App Shortcuts (ten, Apple's limit): Tracks Radio, My Mix, Top Artist, Search, Play a Mix,
+  Play Playlist, Play Music, Switch Source, Play on Device, Bring Music Here.
 - Get Top Artist for a period, answered by Siri.
 - Open Artist, Open Song and Open Album intents on indexed entities.
-- Spotlight indexes the artists, songs and albums you've played.
+- Spotlight indexes the artists, songs and albums you've played, your playlists and Tracks'
+  mixes.
 - Focus filter picks a music source per Focus.
 - Deep links (`tracks://summary`, `history`, `song`) from widgets.
 - Lock screen and Control Center now playing, remote commands, headphones.

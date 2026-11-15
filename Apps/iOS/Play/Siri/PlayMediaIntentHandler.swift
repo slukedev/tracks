@@ -12,6 +12,10 @@ import TracksCore
 /// which is launched in the background to do it.
 nonisolated final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     func resolveMediaItems(for intent: INPlayMediaIntent) async -> [INPlayMediaMediaItemResolutionResult] {
+        // Siri asks again once someone has picked one of the matches it was given.
+        if let chosen = intent.mediaItems, !chosen.isEmpty, chosen.allSatisfy({ $0.identifier != nil }) {
+            return INPlayMediaMediaItemResolutionResult.successes(with: chosen)
+        }
         let search = intent.mediaSearch
         // "Play more like this": nothing to look up.
         if search?.reference == .currentlyPlaying {
@@ -30,11 +34,38 @@ nonisolated final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandl
             moods: search?.moodNames ?? [],
             genres: search?.genreNames ?? []
         )
-        guard let found = await MediaRequestResolver.item(for: request) else {
-            return [.unsupported(forReason: .unsupportedMediaType)]
+        // Siri often hears "Bad Guy by Billie Eilish" as one name: read it both ways.
+        let readings = request.artist.isEmpty && request.kind != .playlist
+            ? [request] + MediaRequest.readings(of: request.name, kind: request.kind).filter { !$0.artist.isEmpty }.map {
+                var reading = request
+                reading.name = $0.name
+                reading.artist = $0.artist
+                return reading
+            }
+            : [request]
+        switch await MediaRequestResolver.answer(for: readings) {
+        case .play(let found):
+            return INPlayMediaMediaItemResolutionResult.successes(with: [Self.mediaItem(found[0])])
+        case .ask(let found):
+            let result = INMediaItemResolutionResult.disambiguation(with: found.map(Self.mediaItem))
+            return [INPlayMediaMediaItemResolutionResult(mediaItemResolutionResult: result)]
+        case .missing(let miss):
+            return [Self.unsupported(miss)]
         }
-        let item = INMediaItem(identifier: found.identifier, title: found.title, type: found.kind.mediaType, artwork: nil, artist: found.artist)
-        return INPlayMediaMediaItemResolutionResult.successes(with: [item])
+    }
+
+    private static func mediaItem(_ found: ResolvedMedia) -> INMediaItem {
+        INMediaItem(identifier: found.identifier, title: found.title, type: found.kind.mediaType, artwork: nil, artist: found.artist)
+    }
+
+    /// Siri's own words for each reason: "You'll need to log in", "That needs a subscription".
+    private static func unsupported(_ miss: MediaMiss) -> INPlayMediaMediaItemResolutionResult {
+        switch miss {
+        case .needsAccess: .unsupported(forReason: .loginRequired)
+        case .needsSubscription: .unsupported(forReason: .subscriptionRequired)
+        case .offline: .unsupported(forReason: .serviceUnavailable)
+        case .notFound, .sampleData: .unsupported()
+        }
     }
 
     func handle(intent: INPlayMediaIntent) async -> INPlayMediaIntentResponse {

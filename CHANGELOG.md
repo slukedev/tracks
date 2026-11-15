@@ -158,6 +158,16 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   "Play On Repeat in Tracks" and moods like "Play Chill in Tracks" work too. Ask for any
   artist, song, album, playlist or station in Tracks, and Siri can learn to use Tracks when
   you just say "Play music"
+- Ask Siri for anything Tracks can play, on iPhone, Mac and in the car: "Play Motion Sickness
+  by Phoebe Bridgers in Tracks", "Play the album Blue", "Shuffle my Workout playlist",
+  "Play Apple Music 1", "Play some jazz", "Play something to study to". Your library and your
+  own music come before the catalog, and the songs you've played before the ones you
+  haven't. When two of yours share a name, Siri asks which one. When nothing can play, Siri
+  says why: no Apple Music access, no subscription, or no connection with none of your own
+  music matching. Apple Music links play too
+- Siri knows your playlists by name, Tracks' and Apple Music's, and the artists in your own
+  music, before you ever ask for them. Your playlists and Tracks' mixes are in Spotlight
+- "I like this song", "Add this to my library" and "Play more like this" work on the Mac too
 - CarPlay: Listen Now with your moods, Radio, Library and Insights, with your week's top
   artists and songs a tap from playing
 - Handpicked's picker searches everything at once: what you've played, your library and

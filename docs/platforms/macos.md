@@ -153,7 +153,10 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Desktop and Notification Center widgets: Listening (small, medium), Top Songs, Last Played,
   Today.
 - Controls: Play in Tracks, Identify Song.
-- App Shortcuts for Siri, Spotlight and Shortcuts: the same nine as iPhone.
+- App Shortcuts for Siri, Spotlight and Shortcuts: the same ten as iPhone.
+- Siri plays any song, album, artist, playlist, station, mix, mood or genre through the App
+  Intents audio schemas (Play Audio, Create Station, Update Audio Affinity, Add to Library),
+  the same queries the iPhone uses.
 - Get Top Artist, Open Artist, Song and Album; Spotlight indexing.
 - Menu commands with Music's shortcuts: Space, ⌘→, ⌘←, ⌘., ⇧⌘F, ⌥⌘R for Tracks Radio, ⌥⌘N
   for something new; Song menu (Favorite, Add to Library, Go to Album or Artist, Share, Create

@@ -56,15 +56,25 @@ struct PlayMusicIntent: AudioPlaybackIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let model = AppModel.shared
         guard !model.isDemoLaunch else { throw PlayIntentError.sampleData }
-        let request = MediaRequest(name: name, kind: kind.kind, source: source.source)
-        guard let found = await MediaRequestResolver.item(for: request) else {
-            throw PlayIntentError.problem(String(localized: "Couldn't find “\(name)” in Apple Music or your music."))
+        let readings = MediaRequest.readings(of: name, kind: kind.kind).map { reading in
+            var reading = reading
+            reading.source = source.source
+            return reading
+        }
+        let found: ResolvedMedia
+        switch await MediaRequestResolver.answer(for: readings) {
+        case .play(let matches):
+            found = matches[0]
+        case .ask(let matches):
+            found = try await choose(among: matches)
+        case .missing(let miss):
+            throw PlayIntentError.problem(miss.message)
         }
         if let problem = await MediaRequestResolver.play(found.identifier, shuffled: shuffled, placement: placement.placement) {
             throw PlayIntentError.playing(problem)
         }
         MediaRequestResolver.remember([name])
-        let title = [found.title, found.artist].compactMap(\.self).joined(separator: " · ")
+        let title = found.spokenTitle
         let dialog: IntentDialog = switch placement {
         case .now: "Playing \(title)."
         case .next: "\(title) will play next."
@@ -75,6 +85,15 @@ struct PlayMusicIntent: AudioPlaybackIntent {
 }
 
 extension PlayMusicIntent {
+    /// Two of yours by the same name: "Hello by Adele, or Hello by Lionel Richie?"
+    @MainActor
+    private func choose(among matches: [ResolvedMedia]) async throws -> ResolvedMedia {
+        let options = matches.map { IntentChoiceOption(title: "\($0.spokenTitle)") }
+        let chosen = try await requestChoice(between: options + [.cancel], dialog: "Which one?")
+        guard let index = options.firstIndex(of: chosen) else { throw CancellationError() }
+        return matches[index]
+    }
+
     enum MediaKindOption: String, AppEnum {
         case anything, song, album, artist, playlist, station, genre
 

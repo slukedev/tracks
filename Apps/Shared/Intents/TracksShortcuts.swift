@@ -25,8 +25,9 @@ struct TracksShortcuts: AppShortcutsProvider {
             shortTitle: "My Mix",
             systemImageName: "sun.max"
         )
-        // Ten is the most an app can have. Discover has no shortcut of its own: "Play
-        // Discover in Tracks" comes from Play a Mix's parameter below.
+        // Ten is the most an app can have, and this makes ten. Discover has no shortcut of its
+        // own: "Play Discover in Tracks" comes from Play a Mix's parameter below. Songs, albums
+        // and artists by name need no shortcut: Siri asks Play Audio's queries for them.
         AppShortcut(
             intent: TopArtistIntent(),
             phrases: [
@@ -55,6 +56,17 @@ struct TracksShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Play a Mix",
             systemImageName: "play.circle"
+        )
+        // Your playlists by name, so Siri knows them before they're ever said. Names come
+        // from PlaylistAudioQuery's suggestions, capped by SiriVocabulary.playlistLimit.
+        AppShortcut(
+            intent: PlayPlaylistIntent(),
+            phrases: [
+                "Play \(\.$playlist) in \(.applicationName)",
+                "Play my \(\.$playlist) playlist in \(.applicationName)",
+            ],
+            shortTitle: "Play Playlist",
+            systemImageName: "music.note.list"
         )
         AppShortcut(
             intent: PlayMusicIntent(),
