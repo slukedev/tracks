@@ -10,6 +10,7 @@ import com.luke.tracks.data.radioTuning
 import com.luke.tracks.discover.ServerSong
 import com.luke.tracks.discover.serverPicks
 import com.luke.tracks.library.CombinedLibrary
+import com.luke.tracks.library.ServerLibrary
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.PlaybackBridge
 import com.luke.tracks.playback.QueueOrigin
@@ -177,12 +178,9 @@ class TracksRadio(private val graph: AppGraph, private val files: File = graph.c
         val byIdentity = LinkedHashMap<String, PlayableSong>()
         val library = graph.library.snapshot.value.songs.sortedBy { it.isFromServer }
         for (song in library) if (song.identity.isNotEmpty()) byIdentity.putIfAbsent(song.identity, song)
-        val owned = byIdentity.size
         for (song in serverFinds()) byIdentity.putIfAbsent(song.identity, song)
         if (byIdentity.isEmpty()) return null
-        val tracks = byIdentity.values.mapIndexed { index, song ->
-            RadioTrack(song.identity, song.title, song.artistName, song.genre, song.year, isFromServer = index >= owned || song.isFromServer)
-        }
+        val tracks = byIdentity.values.map { it.radioTrack }
         val skips = withContext(Dispatchers.IO) { read(skipsFile) }
         val built = runCatching {
             graph.engine.read {
@@ -241,11 +239,14 @@ class TracksRadio(private val graph: AppGraph, private val files: File = graph.c
 }
 
 /** On a server rather than this phone. */
-private val PlayableSong.isFromServer: Boolean get() = mediaId.startsWith("subsonic:")
+private val PlayableSong.isFromServer: Boolean get() = ServerLibrary.parseMediaId(mediaId) != null
+
+/** The song as the engine's radio takes it. */
+private val PlayableSong.radioTrack: RadioTrack get() = RadioTrack(identity, title, artistName, genre, year, isFromServer)
 
 /** The genres Tracks Radio can lean into: the ones you play most, then any picked that have since dropped out. */
 suspend fun AppGraph.radioGenreChoices(picked: Set<String>): List<String> {
-    val tracks = library.snapshot.value.songs.map { RadioTrack(it.identity, it.title, it.artistName, it.genre, it.year, it.mediaId.startsWith("subsonic:")) }
+    val tracks = library.snapshot.value.songs.map { it.radioTrack }
     val found = runCatching { engine.read { radioGenres(tracks, 12u) } }.getOrDefault(emptyList())
     return found + picked.sorted().filter { it !in found }
 }
