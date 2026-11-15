@@ -53,6 +53,7 @@ fun Modifier.pressable(
             indication = ripple(),
             enabled = enabled,
             onClickLabel = onClickLabel,
+            onLongClickLabel = if (onLongClick != null) "More options" else null,
             onLongClick = onLongClick?.let {
                 {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)

@@ -178,6 +178,8 @@ fun AppShell(navigator: Navigator) {
                             entry<SettingsPageRoute> { SettingsPageScreen(it.page) }
                             entry<LibraryAlbumRoute> { LibraryAlbumScreen(it.albumId) }
                             entry<LibraryArtistRoute> { LibraryArtistScreen(it.artistId) }
+                            entry<ServerAlbumRoute> { com.luke.tracks.ui.library.servers.ServerAlbumScreen(it) }
+                            entry<ServerArtistRoute> { com.luke.tracks.ui.library.servers.ServerArtistScreen(it) }
                             entry<CatalogArtistRoute> { com.luke.tracks.ui.discover.CatalogArtistScreen(it.name, it.catalogId) }
                             entry<CatalogAlbumRoute> { com.luke.tracks.ui.discover.CatalogAlbumScreen(it.catalogId, it.title, it.artistName) }
                         },

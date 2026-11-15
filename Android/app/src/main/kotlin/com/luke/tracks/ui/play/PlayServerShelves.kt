@@ -28,14 +28,10 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.FilledTonalIconButton
@@ -78,14 +74,21 @@ import com.luke.tracks.ui.components.Artwork
 import com.luke.tracks.ui.discover.listPhrase
 import com.luke.tracks.ui.discover.tell
 import com.luke.tracks.ui.insights.LocalInsightsSnackbar
-import com.luke.tracks.ui.insights.share
 import com.luke.tracks.ui.library.LibraryTarget
 import com.luke.tracks.ui.library.LocalLibraryActions
-import com.luke.tracks.ui.library.libraryIndex
 import com.luke.tracks.ui.navigation.LibraryAlbumRoute
 import com.luke.tracks.ui.navigation.LocalNavigator
+import com.luke.tracks.ui.navigation.LibraryArtistRoute
+import com.luke.tracks.ui.play.components.GoTo
 import com.luke.tracks.ui.play.components.MenuItem
+import com.luke.tracks.ui.play.components.SongActionsSheet
+import com.luke.tracks.ui.play.components.SongRef
+import com.luke.tracks.ui.play.components.goToActions
+import com.luke.tracks.ui.play.components.rememberLibraryIndex
+import com.luke.tracks.ui.play.components.rememberPlayActions
+import com.luke.tracks.ui.play.components.songLinks
 import com.luke.tracks.ui.play.components.pressable
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import uniffi.tracks_engine.ForYouShelf
 import uniffi.tracks_engine.serverWanted
@@ -245,41 +248,71 @@ fun ServerSongRow(song: ServerSong, queue: List<ServerSong>, index: Int, from: S
     val picks = rememberServerPicks()
     val context = LocalContext.current
     val graph = context.graph
-    val actions = LocalLibraryActions.current
+    val navigator = LocalNavigator.current
+    val actions = rememberPlayActions()
+    val library = rememberLibraryIndex()
     val player by graph.player.state.collectAsState()
     val isCurrent = player.current?.identity == song.song.identity
     var menu by remember { mutableStateOf(false) }
+    // The row's, so adding goes on after the sheet closes.
+    val scope = rememberCoroutineScope()
+    val ref = remember(song, library) { song.ref(picks) }
+    val links = remember(ref, library) { songLinks(ref, library, found = song) }
     val play = {
         val songs = queue.mapNotNull { picks.playable(it) }
         val start = songs.indexOfFirst { it.identity == song.song.identity }.coerceAtLeast(0)
         if (songs.isNotEmpty()) graph.player.play(songs, start, QueueOrigin(from, QueueOrigin.Kind.Other))
     }
-    Box(modifier) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = RowHeight)
-                .pressable(onClick = play, onLongClick = { menu = true }, pressedScale = 0.98f)
-                .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Artwork(picks.coverUrl(song), (song.song.album ?: song.song.title) + song.song.artist, Modifier.size(52.dp), shape = RoundedCornerShape(12.dp), showInitials = false)
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    song.song.title,
-                    style = MaterialTheme.typography.bodyLargeEmphasized,
-                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(song.song.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            AddFoundSong(song)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = RowHeight)
+            .goToActions(links, navigator)
+            .pressable(onClick = play, onLongClick = { menu = true }, pressedScale = 0.98f)
+            .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Artwork(ref.artworkUrl, ref.coverSeed + ref.artistName, Modifier.size(52.dp), shape = RoundedCornerShape(12.dp), showInitials = false)
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                song.song.title,
+                style = MaterialTheme.typography.bodyLargeEmphasized,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(song.song.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        ServerSongMenu(song, expanded = menu, onDismiss = { menu = false }, onPlay = play, onMore = {
-            picks.playable(song)?.let { actions.open(LibraryTarget.Song(it)) }
-        })
+        AddFoundSong(song)
+    }
+    if (menu) {
+        val add = rememberAdd(song, scope)
+        SongActionsSheet(ref, actions, links, onDismiss = { menu = false }, onPlay = play, onAdd = add)
+    }
+}
+
+private fun ServerSong.ref(picks: ServerPicks) =
+    SongRef(song.identity, song.title, song.artist, song.album, picks.coverUrl(this), null, picks.playable(this))
+
+/**
+ * Has the server fetch [song] and says how it went, when it can and you don't have the song
+ * or haven't asked for it already. Null otherwise.
+ */
+@Composable
+private fun rememberAdd(song: ServerSong, scope: CoroutineScope): (() -> Unit)? {
+    val picks = rememberServerPicks()
+    val context = LocalContext.current
+    val discovery = com.luke.tracks.ui.discover.rememberDiscovery()
+    val waiting by discovery.waiting.collectAsState()
+    val snackbar = LocalInsightsSnackbar.current
+    val owned = context.graph.library.find(song.song.identity) != null
+    if (owned || !picks.canKeep(song.serverId) || song.song.identity in waiting) return null
+    return {
+        scope.launch {
+            val message = runCatching { picks.keep(song) }.getOrElse { "Couldn't add “${song.song.title}”" }
+            tell(context, snackbar, scope, message)
+        }
     }
 }
 
@@ -334,22 +367,6 @@ private fun AddFoundSong(song: ServerSong) {
     }
 }
 
-@Composable
-private fun ServerSongMenu(song: ServerSong, expanded: Boolean, onDismiss: () -> Unit, onPlay: () -> Unit, onMore: () -> Unit) {
-    val picks = rememberServerPicks()
-    val context = LocalContext.current
-    val haptics = LocalHapticFeedback.current
-    val act: (() -> Unit) -> Unit = { block -> haptics.performHapticFeedback(HapticFeedbackType.ContextClick); onDismiss(); block() }
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, shape = MaterialTheme.shapes.large) {
-        MenuItem(Icons.Rounded.PlayArrow, "Play") { act(onPlay) }
-        picks.playable(song)?.let { playable ->
-            MenuItem(Icons.AutoMirrored.Rounded.QueueMusic, "Play next") { act { context.graph.player.playNext(playable) } }
-        }
-        MenuItem(Icons.Rounded.MoreHoriz, "More") { act(onMore) }
-        MenuItem(Icons.Rounded.Share, "Share") { act { share(context, "${song.song.title} by ${song.song.artist}") } }
-    }
-}
-
 /** A server's own shelves: what it plays most and albums at random. */
 @Composable
 fun ServerAlbumShelves(server: SubsonicServer, modifier: Modifier = Modifier) {
@@ -372,7 +389,7 @@ fun ServerAlbumShelves(server: SubsonicServer, modifier: Modifier = Modifier) {
 private fun AlbumShelf(title: String, albums: List<ServerAlbum>, action: (@Composable () -> Unit)? = null) {
     val navigator = LocalNavigator.current
     val actions = LocalLibraryActions.current
-    val context = LocalContext.current
+    val index = rememberLibraryIndex()
     Column {
         Row(Modifier.padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             SectionTitle(title, Modifier.weight(1f))
@@ -385,10 +402,11 @@ private fun AlbumShelf(title: String, albums: List<ServerAlbum>, action: (@Compo
                     Modifier
                         .animateItem()
                         .width(148.dp)
+                        .goToActions(remember(album, index) { GoTo(artist = index.artistIdOf(album.artist)?.let(::LibraryArtistRoute)) }, navigator)
                         .pressable(
                             onClick = { navigator.open(LibraryAlbumRoute(album.libraryId)) },
                             onLongClick = {
-                                context.libraryIndex().album(album.libraryId)?.let { actions.open(LibraryTarget.Album(it)) }
+                                index.album(album.libraryId)?.let { actions.open(LibraryTarget.Album(it)) }
                             },
                         ),
                 ) {

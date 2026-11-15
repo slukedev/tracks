@@ -57,12 +57,13 @@ class SampleLibrary : MusicLibrary {
         }.toMap() + waiting.associateBy { it.identity }
 
     /** Albums and artists as the real library groups them. */
-    override val snapshot: StateFlow<LibrarySnapshot> = MutableStateFlow(
+    override val index: StateFlow<LibraryIndex> = MutableStateFlow(
         LibraryIndex.build(
             byIdentity.values.map { LibraryTrack(it, LibrarySourceKind.Device, albumKey = "local:album:" + it.albumTitle.orEmpty() + "|" + it.artistName) },
             hasPermission = true,
-        ).snapshot,
+        ),
     )
+    override val snapshot: StateFlow<LibrarySnapshot> = MutableStateFlow(index.value.snapshot)
     override suspend fun refresh() = Unit
     override fun find(identity: String): PlayableSong? = byIdentity[identity]
     override suspend fun search(text: String): List<PlayableSong> = emptyList()

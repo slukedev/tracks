@@ -78,6 +78,9 @@ import com.luke.tracks.ui.play.components.SongRef
 import com.luke.tracks.ui.play.components.SongRow
 import com.luke.tracks.ui.play.components.ref
 import com.luke.tracks.ui.play.components.rememberPlayActions
+import com.luke.tracks.ui.play.components.goToActions
+import com.luke.tracks.ui.play.components.rememberLibraryIndex
+import com.luke.tracks.ui.play.components.songLinks
 import kotlinx.coroutines.launch
 import uniffi.tracks_engine.Mix
 
@@ -107,6 +110,7 @@ private fun MixPage(mix: Mix, feed: PlayFeed) {
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
     var sheetSong by remember { mutableStateOf<SongRef?>(null) }
+    val index = rememberLibraryIndex()
     var onlyPlayable by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
 
@@ -205,7 +209,7 @@ private fun MixPage(mix: Mix, feed: PlayFeed) {
                     onMore = { sheetSong = song },
                     onOpenElsewhere = { actions.openElsewhere(song) },
                     isCurrent = player.current?.identity == song.identity,
-                    modifier = Modifier.animateItem(),
+                    modifier = Modifier.animateItem().goToActions(remember(song, index) { songLinks(song, index) }, navigator),
                 )
             }
             item(key = "footer") {
@@ -220,7 +224,7 @@ private fun MixPage(mix: Mix, feed: PlayFeed) {
     }
 
     sheetSong?.let { song ->
-        SongActionsSheet(song, actions, onDismiss = { sheetSong = null }, onHearLess = hearLess)
+        SongActionsSheet(song, actions, songLinks(song, index), onDismiss = { sheetSong = null }, onHearLess = hearLess)
     }
 }
 

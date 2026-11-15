@@ -36,7 +36,7 @@ class CombinedLibrary(
     private val _index = MutableStateFlow(LibraryIndex.Empty)
 
     /** The snapshot with its lookups; replaced whole whenever a source changes. */
-    val index: StateFlow<LibraryIndex> = _index.asStateFlow()
+    override val index: StateFlow<LibraryIndex> = _index.asStateFlow()
 
     private val _snapshot = MutableStateFlow(LibraryIndex.Empty.snapshot)
     override val snapshot: StateFlow<LibrarySnapshot> = _snapshot.asStateFlow()

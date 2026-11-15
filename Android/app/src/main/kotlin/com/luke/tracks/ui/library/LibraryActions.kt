@@ -81,8 +81,8 @@ class LibraryActions {
 
 val LocalLibraryActions = staticCompositionLocalOf { LibraryActions() }
 
-/** The library's lookups, when the app's library is Tracks' own. */
-fun Context.libraryIndex(): LibraryIndex = (graph.library as? CombinedLibrary)?.index?.value ?: LibraryIndex.Empty
+/** The library's lookups as they are now. */
+fun Context.libraryIndex(): LibraryIndex = graph.library.index.value
 
 /** Provides [LibraryActions] to [content] and shows its sheet. */
 @Composable
@@ -94,26 +94,15 @@ fun WithLibraryActions(content: @Composable () -> Unit) {
     }
 }
 
-private data class SheetAction(val label: String, val icon: ImageVector, val run: () -> Unit)
+/** One thing a press-and-hold sheet can do. */
+data class SheetAction(val label: String, val icon: ImageVector, val supporting: String? = null, val run: () -> Unit)
 
 @Composable
 fun LibraryActionSheet(target: LibraryTarget, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val navigator = LocalNavigator.current
-    val player = context.graph.player
-    val haptics = LocalHapticFeedback.current
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    fun close(then: () -> Unit) {
-        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-        then()
-        scope.launch { sheet.hide() }.invokeOnCompletion { onDismiss() }
-    }
-
-    val (quick, more) = remember(target) { actionsFor(target, context, player, navigator) }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-        ActionSheetContent(target, quick, more, onAction = { close(it.run) })
-    }
+    val (quick, more) = remember(target) { actionsFor(target, context, context.graph.player, navigator) }
+    ActionSheet(quick, more, onDismiss) { SheetHeader(target) }
 }
 
 @Composable
@@ -121,15 +110,33 @@ fun ActionSheetPreview(target: LibraryTarget, onAction: () -> Unit = {}) {
     val context = LocalContext.current
     val navigator = LocalNavigator.current
     val (quick, more) = remember(target) { actionsFor(target, context, context.graph.player, navigator) }
-    ActionSheetContent(target, quick, more, onAction = { onAction() })
+    ActionSheetContent(quick, more, onAction = { onAction() }) { SheetHeader(target) }
+}
+
+/**
+ * What a press and hold opens: [header] on top, the three [quick] actions you reach for most
+ * as a connected row of big tonal buttons, and the [more] below as one segmented list.
+ */
+@Composable
+fun ActionSheet(quick: List<SheetAction>, more: List<SheetAction>, onDismiss: () -> Unit, header: @Composable () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+        ActionSheetContent(quick, more, header = header, onAction = { action ->
+            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            action.run()
+            scope.launch { sheet.hide() }.invokeOnCompletion { onDismiss() }
+        })
+    }
 }
 
 @Composable
-private fun ActionSheetContent(target: LibraryTarget, quick: List<SheetAction>, more: List<SheetAction>, onAction: (SheetAction) -> Unit) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
-            SheetHeader(target)
-            Spacer(Modifier.height(16.dp))
-            // The three you reach for most, as a connected row of big tonal buttons.
+fun ActionSheetContent(quick: List<SheetAction>, more: List<SheetAction>, onAction: (SheetAction) -> Unit, header: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
+        header()
+        Spacer(Modifier.height(16.dp))
+        if (quick.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
                 quick.forEachIndexed { i, action ->
                     val shapes = when (i) {
@@ -152,35 +159,47 @@ private fun ActionSheetContent(target: LibraryTarget, quick: List<SheetAction>, 
                 }
             }
             Spacer(Modifier.height(16.dp))
-            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                more.forEachIndexed { i, action ->
-                    SegmentedListItem(
-                        onClick = { onAction(action) },
-                        shapes = ListItemDefaults.segmentedShapes(i, more.size),
-                        colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                        leadingContent = { Icon(action.icon, contentDescription = null) },
-                        content = { Text(action.label) },
-                    )
-                }
+        }
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            more.forEachIndexed { i, action ->
+                SegmentedListItem(
+                    onClick = { onAction(action) },
+                    shapes = ListItemDefaults.segmentedShapes(i, more.size),
+                    colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    leadingContent = { Icon(action.icon, contentDescription = null) },
+                    supportingContent = action.supporting?.let { { Text(it) } },
+                    content = { Text(action.label) },
+                )
             }
         }
+    }
+}
+
+/** The top of an action sheet: what was held, its cover and who it's by. */
+@Composable
+fun ActionSheetHeader(title: String, subtitle: String, note: String? = null, cover: @Composable () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+        cover()
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleLargeEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            note?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary) }
+        }
+    }
 }
 
 @Composable
 private fun SheetHeader(target: LibraryTarget) {
-    val (title, subtitle, art, seed) = when (target) {
-        is LibraryTarget.Song -> listOf(target.song.title, listOfNotNull(target.song.artistName, target.song.albumTitle).joinToString(" · "), target.song.artworkUri, (target.song.albumTitle ?: target.song.title) + target.song.artistName)
-        is LibraryTarget.Album -> listOf(target.album.title, target.album.artistName, target.album.artworkUri, target.album.title + target.album.artistName)
-        is LibraryTarget.Artist -> listOf(target.artist.name, "Artist", null, target.artist.name)
-    }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (target is LibraryTarget.Artist) ArtistAvatar(target.artist, 64.dp)
-        else Artwork(url = art, seed = seed as String, shape = RoundedCornerShape(16.dp), modifier = Modifier.size(64.dp))
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title as String, style = MaterialTheme.typography.titleLargeEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(subtitle as String, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val cover = RoundedCornerShape(16.dp)
+    when (target) {
+        is LibraryTarget.Song -> ActionSheetHeader(target.song.title, listOfNotNull(target.song.artistName, target.song.albumTitle).joinToString(" · ")) {
+            Artwork(url = target.song.artworkUri, seed = (target.song.albumTitle ?: target.song.title) + target.song.artistName, shape = cover, modifier = Modifier.size(64.dp))
         }
+        is LibraryTarget.Album -> ActionSheetHeader(target.album.title, target.album.artistName) {
+            Artwork(url = target.album.artworkUri, seed = target.album.title + target.album.artistName, shape = cover, modifier = Modifier.size(64.dp))
+        }
+        is LibraryTarget.Artist -> ActionSheetHeader(target.artist.name, "Artist") { ArtistAvatar(target.artist, 64.dp) }
     }
 }
 
