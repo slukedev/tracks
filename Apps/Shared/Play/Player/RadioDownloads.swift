@@ -10,7 +10,9 @@ protocol RadioDownloads: AnyObject {
     var downloadsFirst: Bool { get }
     /// Whether a song plays at once, with nothing to wait for: a file, or one downloaded.
     func isReady(_ song: HistorySong) -> Bool
-    /// Starts getting a song ready: downloading it, or asking its server to keep it first.
+    /// Whether a song that isn't ready can be: one its server has, to download.
+    func canGetReady(_ song: HistorySong) -> Bool
+    /// Starts getting a song ready: downloading it from its server.
     func prepare(_ song: HistorySong)
     /// A song taken out of Up Next before it played: stops getting it ready.
     func decline(_ song: HistorySong)

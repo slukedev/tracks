@@ -141,4 +141,17 @@ struct AcquisitionTests {
         #expect(UnownedSong.request(for: owned) == nil)
         #expect(try await UnownedSong.stream(owned, from: acquisitions, client: T.client(stub), maxBitRate: nil, network: .wifi) == nil)
     }
+
+    @Test("Get requests a song the server doesn't have where it gets songs, offers nothing where it doesn't, and keeps any other")
+    func getRoute() throws {
+        let candidate = try T.decode(TracksideCandidate.self, APIExamples.candidate)
+        let offered = UnownedSong.track(candidate, on: "home")
+        #expect(UnownedSong.getRoute(for: offered, serverGetsSongs: true) == .request(TracksideExternalPlayRequest(candidate: candidate.token)))
+        #expect(UnownedSong.getRoute(for: offered, serverGetsSongs: false) == .unavailable)
+        let named = UnownedSong.track(title: "Halo", artist: "Beyoncé", on: "home")
+        #expect(UnownedSong.getRoute(for: named, serverGetsSongs: true) == .request(TracksideExternalPlayRequest(title: "Halo", artist: "Beyoncé")))
+        let found = LocalTrack(origin: .server(serverID: "home", songID: "s7m2k4q9x1v8b3n6c0de"), title: "Halo", artist: "Beyoncé")
+        #expect(UnownedSong.getRoute(for: found, serverGetsSongs: false) == .keep)
+        #expect(UnownedSong.getRoute(for: found, serverGetsSongs: true) == .keep)
+    }
 }

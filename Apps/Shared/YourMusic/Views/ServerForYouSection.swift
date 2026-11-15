@@ -6,7 +6,7 @@ import TracksCore
 /// Suggested Songs, songs by artists new to you, led by Tracks Radio. Both go on for as long as
 /// they're scrolled: the last column coming into view asks for more, as fast as the server's
 /// budget allows. From a server that finds songs elsewhere most are songs it finds: they play
-/// straight away, and Add to Your Music has the server fetch the file. Needs no Apple Music, no
+/// straight away, and only Get has the server fetch the file. Needs no Apple Music, no
 /// listening history and no library, only artists to start from, which Picked for You asks for
 /// when there are none.
 struct ServerForYouSection: View {
@@ -132,7 +132,14 @@ struct ServerForYouSection: View {
             Button("Pick Again", systemImage: "arrow.clockwise") {
                 Task { await load(force: true) }
             }
-            let toAdd = songs.filter { $0.isFromServer && !music.isInYourMusic($0) && !music.servers.isWaitingToKeep($0) }
+            let toAdd = songs.filter { track in
+                track.isFromServer && music.getMore.offersGet(track) && ServerSongFetch.decide(
+                    isInLibrary: music.isInYourMusic(track),
+                    isOnDevice: false,
+                    isWaiting: music.servers.isWaitingToKeep(track),
+                    tappedGet: true
+                ) == .askServer
+            }
             if !toAdd.isEmpty {
                 Divider()
                 Button("Get All", systemImage: "arrow.down.circle") {

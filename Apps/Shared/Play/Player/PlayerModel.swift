@@ -1382,7 +1382,7 @@ final class PlayerModel {
             guard !Task.isCancelled, liveGetsReady else { return }
             // Behind it, a new find being got ready, one at a time.
             if !upNext.contains(where: { waitingSince[$0.songIdentity] != nil }),
-               let find = live?.next(newFinds: true, where: { !radio.isReady(HistorySong($0)) && canPlay($0) }) {
+               let find = live?.next(newFinds: true, where: { !radio.isReady(HistorySong($0)) && radio.canGetReady(HistorySong($0)) && canPlay($0) }) {
                 radio.prepare(HistorySong(find))
                 waitingSince[find.songIdentity] = .now
                 do {

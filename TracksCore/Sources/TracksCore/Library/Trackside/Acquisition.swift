@@ -366,6 +366,21 @@ public enum UnownedSong {
         return songID.hasPrefix(prefix)
     }
 
+    /// How Get asks a server for a song it found. A song a Trackside server doesn't have is
+    /// requested, where the server gets songs for you, and can't be got where it doesn't; any
+    /// other is kept.
+    public static func getRoute(for track: LocalTrack, serverGetsSongs: Bool) -> GetRoute {
+        guard isUnowned(track) else { return .keep }
+        guard serverGetsSongs, let asked = request(for: track) else { return .unavailable }
+        return .request(asked)
+    }
+
+    public enum GetRoute: Sendable, Equatable {
+        case keep
+        case request(TracksideExternalPlayRequest)
+        case unavailable
+    }
+
     /// Where the player gets it from: the server's stream of it, kept nowhere, or the
     /// library's copy when the server has it after all. Never a request to get it.
     public static func stream(_ track: LocalTrack, from acquisitions: TracksideAcquisitions, client: TracksideClient, maxBitRate: Int?, network: MusicNetwork) async throws -> MusicServerStream? {

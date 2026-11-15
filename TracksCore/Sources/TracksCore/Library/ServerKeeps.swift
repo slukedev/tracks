@@ -65,3 +65,22 @@ public struct ServerKeeps: Codable, Sendable, Equatable {
         }
     }
 }
+
+/// What may be done to bring a server's song to this device. A song in the server's library
+/// downloads. One it doesn't have is only asked for when you tap Get: asking stars it, and a
+/// server that fetches songs on request goes and gets it, so nothing else may.
+public enum ServerSongFetch: Sendable, Equatable {
+    case nothing
+    case download
+    case askServer
+
+    /// - Parameters:
+    ///   - isInLibrary: the server has the song, as the last sync found.
+    ///   - isOnDevice: it's downloaded or downloading.
+    ///   - isWaiting: it's been asked for and hasn't arrived.
+    ///   - tappedGet: you asked for this song.
+    public static func decide(isInLibrary: Bool, isOnDevice: Bool, isWaiting: Bool, tappedGet: Bool) -> Self {
+        if isInLibrary { return isOnDevice ? .nothing : .download }
+        return tappedGet && !isWaiting ? .askServer : .nothing
+    }
+}

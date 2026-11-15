@@ -22,9 +22,11 @@ struct AvailabilityAccessory: View {
         case .playable(let track):
             if track.isFromServer, !music.isInYourMusic(track) {
                 // Found on a server that doesn't have it yet: it plays, and can be got.
-                GetButton(state: music.getMore.state(ofSong: track.identity, track: track), subject: title) {
-                    Task {
-                        if let problem = await music.getMore.get(track) { player.confirm(problem) }
+                if music.getMore.offersGet(track) {
+                    GetButton(state: music.getMore.state(ofSong: track.identity, track: track), subject: title) {
+                        Task {
+                            if let problem = await music.getMore.get(track) { player.confirm(problem) }
+                        }
                     }
                 }
             } else if track.isFromServer, !music.downloads.isDownloaded(track.id), !music.downloads.isDownloading(track.id) {
@@ -114,7 +116,7 @@ struct YourMusicSongMenu: View {
             actions.playNext = { player.enqueue(.local([track]), next: true, title: track.title) }
             actions.playLast = { player.enqueue(.local([track]), next: false, title: track.title) }
             if track.isFromServer, !music.isInYourMusic(track) {
-                actions.keep.append(.addToYourMusic(track, music: music, player: player))
+                if music.getMore.offersGet(track) { actions.keep.append(.addToYourMusic(track, music: music, player: player)) }
             } else if track.isFromServer, !music.downloads.isDownloaded(track.id) {
                 actions.keep.append(SongMenuButton(title: "Download", systemImage: "arrow.down.circle") { music.downloads.download([track]) })
             }

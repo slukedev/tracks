@@ -245,7 +245,7 @@ extension SongActions {
         if track.isFromServer, !music.isInYourMusic(track) {
             // Found on a server that doesn't have it yet: ask it to keep the song, then it
             // joins your music like any other, to download and find on its album.
-            actions.keep.append(.addToYourMusic(track, music: music, player: player))
+            if music.getMore.offersGet(track) { actions.keep.append(.addToYourMusic(track, music: music, player: player)) }
             return actions
         }
         if music.isRadioOnly(track) {

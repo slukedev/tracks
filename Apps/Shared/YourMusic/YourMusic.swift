@@ -579,30 +579,30 @@ final class YourMusic {
     /// The last full searches of your servers, by what was searched for.
     @ObservationIgnored private var fullSearchAnswers: [String: (page: ServerSearchPage, at: Date)] = [:]
 
-    /// A song started playing. With Automatic Downloads on, one from a server comes down to
-    /// this iPhone: one in your music straight away, one found for you by asking its server to
-    /// keep it first, and downloading it when a sync brings it in.
+    /// A song started playing. With Automatic Downloads on, one in your server's library comes
+    /// down to this iPhone. One the server doesn't have only plays: asking for it is Get's.
     func didStartPlaying(_ track: LocalTrack) {
         guard AutomaticDownloads.isOn, !isDemo, track.isFromServer, !UnownedSong.isUnowned(track) else { return }
         let track = resolved(track)
-        if isInYourMusic(track) {
-            guard !downloads.isDownloaded(track.id), !downloads.isDownloading(track.id) else { return }
-            downloads.download([track])
-        } else if !servers.isWaitingToKeep(track) {
-            Task { _ = try? await servers.keep(track) }
-        }
+        if fetchUnasked(track) == .download { downloads.download([track]) }
+    }
+
+    /// What may be done, without a tap on Get, to have a server's song here.
+    private func fetchUnasked(_ track: LocalTrack) -> ServerSongFetch {
+        ServerSongFetch.decide(
+            isInLibrary: isInYourMusic(track),
+            isOnDevice: downloads.isDownloaded(track.id) || downloads.isDownloading(track.id),
+            isWaiting: servers.isWaitingToKeep(track),
+            tappedGet: false
+        )
     }
 
     /// Songs asked for that a sync brought in: the player hears, in case it's waiting on one,
-    /// and with Automatic Downloads on, or for Tracks Radio, they come down.
+    /// and with Automatic Downloads on, they come down.
     private func keptArrived(_ tracks: [LocalTrack]) {
         onSongsArrived?(tracks)
-        let missing = tracks.filter { !downloads.isDownloaded($0.id) && !downloads.isDownloading($0.id) }
-        let forRadio = missing.filter { readyingForRadio.contains($0.identity) }
-        let wanted = AutomaticDownloads.isOn ? missing.filter { !readyingForRadio.contains($0.identity) } : []
-        readyingForRadio.subtract(tracks.map(\.identity))
-        downloadForRadio(forRadio)
-        downloads.download(wanted)
+        guard AutomaticDownloads.isOn else { return }
+        downloads.download(tracks.filter { !downloads.isDownloaded($0.id) && !downloads.isDownloading($0.id) })
     }
 
     /// Downloads songs Tracks Radio is getting ready, which stay the radio's: with Delete After
@@ -626,9 +626,6 @@ final class YourMusic {
         saveRadioOnly()
     }
 
-    /// Songs being got ready, for Tracks Radio or a playlist merged with Apple Music: downloaded
-    /// when they arrive, whatever the setting.
-    @ObservationIgnored private var readyingForRadio: Set<String> = []
     /// Songs, by identity, downloaded only for Tracks Radio to play: with Delete After Playing
     /// on, their downloads go once they've played. Kept between launches.
     private(set) var radioOnly: Set<String> = Set(UserDefaults.standard.stringArray(forKey: YourMusic.radioOnlyKey) ?? [])
@@ -881,27 +878,15 @@ extension YourMusic: RadioDownloads {
         return !track.isFromServer || downloads.isDownloaded(track.id)
     }
 
-    func prepare(_ song: HistorySong) {
-        guard !isDemo, let track = track(for: song).map(resolved), track.isFromServer else { return }
-        if isInYourMusic(track) {
-            guard !downloads.isDownloaded(track.id), !downloads.isDownloading(track.id) else { return }
-            noteRadioOnly(track.identity)
-            downloadForRadio([track])
-        } else {
-            noteRadioOnly(track.identity)
-            readyingForRadio.insert(track.identity)
-            guard !servers.isWaitingToKeep(track) else { return }
-            Task { _ = try? await servers.keep(track) }
-        }
+    func canGetReady(_ song: HistorySong) -> Bool {
+        guard let track = track(for: song).map(resolved) else { return false }
+        return track.isFromServer && isInYourMusic(track)
     }
 
-    /// Asks a song's server to keep it, and downloads it once it's in: for a song an Apple Music
-    /// playlist brings into one of yours.
-    func keepAndDownload(_ track: LocalTrack) {
-        guard !isDemo else { return }
-        readyingForRadio.insert(track.identity)
-        guard !servers.isWaitingToKeep(track) else { return }
-        Task { _ = try? await servers.keep(track) }
+    func prepare(_ song: HistorySong) {
+        guard !isDemo, let track = track(for: song).map(resolved), track.isFromServer, fetchUnasked(track) == .download else { return }
+        noteRadioOnly(track.identity)
+        downloadForRadio([track])
     }
 
     func finishedPlaying(_ song: HistorySong) -> Bool {
@@ -922,13 +907,8 @@ extension YourMusic: RadioDownloads {
         let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
         radioOnly.remove(identity)
         saveRadioOnly()
-        guard let track = track(for: song).map(resolved), track.isFromServer else { return }
-        if isInYourMusic(track) {
-            guard !downloads.isDownloaded(track.id), !downloads.isDownloading(track.id) else { return }
-            downloads.download([track])
-        } else {
-            keepAndDownload(track)
-        }
+        guard let track = track(for: song).map(resolved), track.isFromServer, fetchUnasked(track) == .download else { return }
+        downloads.download([track])
     }
 
     /// Whether a song was downloaded only to play on Tracks Radio, and goes after it plays.
@@ -947,7 +927,6 @@ extension YourMusic: RadioDownloads {
 
     func decline(_ song: HistorySong) {
         let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
-        readyingForRadio.remove(identity)
         let copies = index.tracks(withIdentity: identity).map(\.id)
         let downloading = copies.filter(downloads.isDownloading)
         if !downloading.isEmpty { downloads.cancel(Set(downloading)) }

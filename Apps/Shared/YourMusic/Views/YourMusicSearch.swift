@@ -626,13 +626,15 @@ struct AddFoundSongButton: View {
 
     var body: some View {
         let isFound = track.isFromServer && !music.isInYourMusic(track)
-        GetButton(
-            state: isFound ? music.getMore.state(ofSong: track.identity, track: track) : .owned,
-            subject: track.title,
-            showsProgress: false
-        ) {
-            Task {
-                if let problem = await music.getMore.get(track) { player.confirm(problem) }
+        if music.getMore.offersGet(track) {
+            GetButton(
+                state: isFound ? music.getMore.state(ofSong: track.identity, track: track) : .owned,
+                subject: track.title,
+                showsProgress: false
+            ) {
+                Task {
+                    if let problem = await music.getMore.get(track) { player.confirm(problem) }
+                }
             }
         }
     }

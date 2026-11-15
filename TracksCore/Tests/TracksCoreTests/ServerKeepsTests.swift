@@ -79,3 +79,22 @@ struct ServerKeepsTests {
         #expect(keeps == ServerKeeps())
     }
 }
+
+@Suite("Bringing a server's song down")
+struct ServerSongFetchTests {
+    @Test("a song the server has downloads, once, whoever asks", arguments: [false, true])
+    func inLibrary(tappedGet: Bool) {
+        #expect(ServerSongFetch.decide(isInLibrary: true, isOnDevice: false, isWaiting: false, tappedGet: tappedGet) == .download)
+        #expect(ServerSongFetch.decide(isInLibrary: true, isOnDevice: true, isWaiting: false, tappedGet: tappedGet) == .nothing)
+    }
+
+    @Test("a song the server doesn't have is asked for only when you tap Get, and only once")
+    func notInLibrary() {
+        for isOnDevice in [false, true] {
+            #expect(ServerSongFetch.decide(isInLibrary: false, isOnDevice: isOnDevice, isWaiting: false, tappedGet: false) == .nothing)
+            #expect(ServerSongFetch.decide(isInLibrary: false, isOnDevice: isOnDevice, isWaiting: true, tappedGet: false) == .nothing)
+            #expect(ServerSongFetch.decide(isInLibrary: false, isOnDevice: isOnDevice, isWaiting: true, tappedGet: true) == .nothing)
+        }
+        #expect(ServerSongFetch.decide(isInLibrary: false, isOnDevice: false, isWaiting: false, tappedGet: true) == .askServer)
+    }
+}

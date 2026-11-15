@@ -817,6 +817,11 @@ final class MusicServers {
 
     var canGetSongs: Bool { requestingServer != nil }
 
+    /// Whether a server gets songs it doesn't have when asked, as its `/me` says it does.
+    func getsSongs(_ serverID: String) -> Bool {
+        songRequests[serverID]?.isOffered == true
+    }
+
     /// Asks each server that offers it for songs it could get for a search.
     func findSongsToGet(_ query: String) async {
         let asked = onlineServers.compactMap { server -> (String, TracksideAcquisitions)? in

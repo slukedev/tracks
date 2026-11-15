@@ -307,9 +307,11 @@ struct GetSongRow: View {
                 )
             }
             .buttonStyle(.plain)
-            GetButton(state: music.getMore.state(ofSong: track.identity, track: track), subject: track.title) {
-                Task {
-                    if let problem = await music.getMore.get(track) { player.confirm(problem) }
+            if music.getMore.offersGet(track) {
+                GetButton(state: music.getMore.state(ofSong: track.identity, track: track), subject: track.title) {
+                    Task {
+                        if let problem = await music.getMore.get(track) { player.confirm(problem) }
+                    }
                 }
             }
         }

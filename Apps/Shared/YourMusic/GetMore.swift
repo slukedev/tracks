@@ -410,11 +410,31 @@ final class GetMore {
 
     // MARK: - Getting
 
-    /// Gets a song a server found for you: the server keeps it, fetching the file.
+    /// How Get asks a song's server for it.
+    func route(for track: LocalTrack) -> UnownedSong.GetRoute {
+        UnownedSong.getRoute(for: track, serverGetsSongs: track.serverID.map(music.servers.getsSongs) ?? false)
+    }
+
+    /// Whether Get shows for a song: not for one a Trackside server can't get.
+    func offersGet(_ track: LocalTrack) -> Bool {
+        route(for: track) != .unavailable
+    }
+
+    /// Gets a song a server found for you: the server keeps it, fetching the file, or a
+    /// Trackside server that doesn't have it is asked to get it.
     /// Returns what to tell the person when it couldn't.
     @discardableResult
     func get(_ track: LocalTrack) async -> String? {
         let key = Self.songKey(track.identity)
+        switch route(for: track) {
+        case .keep:
+            break
+        case .request(let asked):
+            guard let serverID = track.serverID else { return nil }
+            return await request(title: track.title, artist: track.artist, album: track.album, duration: track.duration, candidate: asked.candidate, from: serverID, key: key)
+        case .unavailable:
+            return nil
+        }
         requests[key] = Request(route: .server, songs: [track.identity], title: track.title, artist: track.artist, isAlbum: false, status: .asking)
         #if DEBUG
         if isDemo {
@@ -561,7 +581,14 @@ final class GetMore {
             requests[key]?.songs = Set(songs.map(\.identity) + offers.map(\.identity))
             var failures = 0
             for song in songs {
-                do { try await music.servers.keep(song) } catch { failures += 1 }
+                switch route(for: song) {
+                case .keep:
+                    do { try await music.servers.keep(song) } catch { failures += 1 }
+                case .request:
+                    if await get(song) != nil { failures += 1 }
+                case .unavailable:
+                    failures += 1
+                }
             }
             for offer in offers where await get(offer) != nil {
                 failures += 1
