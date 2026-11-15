@@ -90,4 +90,55 @@ struct AcquisitionTests {
         #expect(statuses["q1"]?.state == .done)
         #expect(statuses["q1"]?.songID == "s7m2")
     }
+
+    @Test("playing a song the server doesn't have asks it to play it without keeping it, never to get it")
+    func playsWithoutKeeping() async throws {
+        let stub = StubTracksideTransport(body: APIExamples.externalPlay)
+        let client = T.client(stub)
+        let acquisitions = TracksideAcquisitions(client: client, me: try T.decode(TracksideMe.self, APIExamples.me))
+        #expect(acquisitions.playsWithoutKeeping)
+        let candidate = try T.decode(TracksideCandidate.self, APIExamples.candidate)
+        let track = UnownedSong.track(candidate, on: "home")
+        #expect(UnownedSong.isUnowned(track))
+        #expect(track.title == candidate.title)
+        let stream = try #require(try await UnownedSong.stream(track, from: acquisitions, client: client, maxBitRate: nil, network: .wifi))
+        #expect(stream.url.absoluteString == "http://192.168.1.20:4747/api/v1/external/plays/x3n8b2v6c1m9q4w7e0r5t8y2/stream.m3u8?mt=eyJ1Ijoi")
+        #expect(stub.requests.map { $0.url?.path() } == ["/api/v1/external/play"])
+        let body = try JSONSerialization.jsonObject(with: try #require(stub.requests.first?.httpBody)) as? [String: Any]
+        #expect(body?["candidate"] as? String == candidate.token)
+        #expect(!stub.requests.contains { $0.url?.path() == "/api/v1/acquisitions" })
+    }
+
+    @Test("a suggestion by name plays the same way, and the library's copy when the server has it after all")
+    func playsByName() async throws {
+        let stub = StubTracksideTransport { request in
+            switch request.url?.path() {
+            case "/api/v1/external/play": (200, #"{"title": "Halo", "artist": "Beyoncé", "song_id": "s7m2k4q9x1v8b3n6c0de"}"#, [:])
+            default: (200, APIExamples.decision, [:])
+            }
+        }
+        let client = T.client(stub)
+        let acquisitions = TracksideAcquisitions(client: client, me: try T.decode(TracksideMe.self, APIExamples.me))
+        let track = UnownedSong.track(title: "Halo", artist: "Beyoncé", duration: 261.64, on: "home")
+        let request = try #require(UnownedSong.request(for: track))
+        #expect(request.title == "Halo" && request.durationMS == 261_640 && request.candidate == nil)
+        _ = try await UnownedSong.stream(track, from: acquisitions, client: client, maxBitRate: nil, network: .wifi)
+        #expect(stub.requests.map { $0.url?.path() } == ["/api/v1/external/play", "/api/v1/playback/decisions"])
+    }
+
+    @Test("without it, nothing is asked, and a library song isn't one the server doesn't have")
+    func noPlayWithoutKeeping() async throws {
+        let stub = StubTracksideTransport(body: APIExamples.externalPlay)
+        var me = try T.decode(TracksideMe.self, APIExamples.me)
+        me.features?.acquisition?.externalPlay = nil
+        let acquisitions = TracksideAcquisitions(client: T.client(stub), me: me)
+        #expect(acquisitions.isAvailable)
+        #expect(!acquisitions.playsWithoutKeeping)
+        await #expect(throws: TracksideError.featureUnavailable) { try await acquisitions.play(TracksideExternalPlayRequest(candidate: "x3n8")) }
+        #expect(stub.requests.isEmpty)
+        let owned = LocalTrack(origin: .server(serverID: "home", songID: "s7m2k4q9x1v8b3n6c0de"), title: "Halo", artist: "Beyoncé")
+        #expect(!UnownedSong.isUnowned(owned))
+        #expect(UnownedSong.request(for: owned) == nil)
+        #expect(try await UnownedSong.stream(owned, from: acquisitions, client: T.client(stub), maxBitRate: nil, network: .wifi) == nil)
+    }
 }

@@ -875,6 +875,18 @@ final class MusicServers {
         }
     }
 
+    /// The song an offer stands for, to play without keeping it, where its server can.
+    func unownedTrack(for offer: GetMore.Offer) -> LocalTrack? {
+        guard songRequests[offer.serverID]?.isOffered == true, trackside[offer.serverID]?.acquisitions.playsWithoutKeeping == true else { return nil }
+        return UnownedSong.track(offer.candidate, on: offer.serverID)
+    }
+
+    /// Streams a song its server doesn't have, without the server keeping it.
+    func streamWithoutKeeping(_ track: LocalTrack, maxBitRate: Int?, network: MusicNetwork) async -> MusicServerStream? {
+        guard case .server(let serverID, _) = track.origin, let connection = trackside[serverID] else { return nil }
+        return try? await UnownedSong.stream(track, from: connection.acquisitions, client: connection.client, maxBitRate: maxBitRate, network: network)
+    }
+
     /// The latest word on a song asked for, from the server's answers and events.
     func acquisition(_ id: String, on serverID: String) -> TracksideAcquisition? {
         songRequests[serverID]?.status(of: id)

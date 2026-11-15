@@ -144,7 +144,17 @@ enum APIExamples {
       "device": {"id": "d2c4...", "name": "Luke's iPhone"},
       "server": {"server_id": "5f0c...", "name": "Home", "version": "1.0.0", "urls": [
         {"url": "http://192.168.1.20:4747", "kind": "lan", "tls": false}]},
-      "features": {"acquisition": {"instant_play": true}}
+      "features": {"acquisition": {"instant_play": true, "external_play": true}}
+    }
+    """#
+
+    static let externalPlay = #"""
+    {
+      "title": "Halo",
+      "artist": "Beyoncé",
+      "duration_ms": 261000,
+      "stream": {"hls": "/api/v1/external/plays/x3n8b2v6c1m9q4w7e0r5t8y2/stream.m3u8",
+                 "progressive": "/api/v1/external/plays/x3n8b2v6c1m9q4w7e0r5t8y2/stream"}
     }
     """#
 
@@ -412,6 +422,7 @@ struct TracksideFixtureTests {
         if has("token"), has("expires_at") { return read(TracksideMediaToken.self) }
         if has("server_id"), has("time") { return read(TracksidePing.self) }
         if has("state"), has("title"), has("artist") { return read(TracksideAcquisition.self) }
+        if has("stream"), has("title"), has("artist") { return read(TracksideExternalPlay.self) }
         if has("acquisitions") { return read(TracksideAcquisitionList.self) }
         if has("state"), keys.isSubset(of: ["state", "result"]) { return read(TracksidePairPoll.self) }
         if has("album"), has("songs") { return read(TracksideAlbumPage.self) { $0.songs } }

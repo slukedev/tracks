@@ -193,7 +193,13 @@ final class YourMusic {
         let setting = StreamQuality.streaming(onExpensiveNetwork: network.isExpensive)
         let maxBitRate = setting.quality.maxBitRate
         let connection: MusicNetwork = network.isExpensive ? .cellular : .wifi
-        guard let stream = try? await client.stream(songID: songID, maxBitRate: maxBitRate, network: connection) else { return nil }
+        let asked: MusicServerStream?
+        if UnownedSong.isUnowned(track) {
+            asked = await servers.streamWithoutKeeping(track, maxBitRate: maxBitRate, network: connection)
+        } else {
+            asked = try? await client.stream(songID: songID, maxBitRate: maxBitRate, network: connection)
+        }
+        guard let stream = asked else { return nil }
         let playback = LocalPlayback(
             route: .stream(server: servers.server(serverID)?.name ?? "", network: setting.network, requestedBitRate: MusicServers.tracksideBitRate(for: maxBitRate)),
             original: track.format,
@@ -206,7 +212,7 @@ final class YourMusic {
     /// once and runs on from this one without a gap. Only Trackside makes copies ahead.
     func prepareUpcoming(_ tracks: [LocalTrack]) {
         let setting = StreamQuality.streaming(onExpensiveNetwork: network.isExpensive)
-        let streamed = tracks.map(resolved).filter { !downloads.isDownloaded($0.id) }
+        let streamed = tracks.map(resolved).filter { !downloads.isDownloaded($0.id) && !UnownedSong.isUnowned($0) }
         let byServer = Dictionary(grouping: streamed.compactMap { track -> (String, String)? in
             guard case .server(let serverID, let songID) = track.origin, servers.isTrackside(serverID) else { return nil }
             return (serverID, songID)
@@ -577,7 +583,7 @@ final class YourMusic {
     /// this iPhone: one in your music straight away, one found for you by asking its server to
     /// keep it first, and downloading it when a sync brings it in.
     func didStartPlaying(_ track: LocalTrack) {
-        guard AutomaticDownloads.isOn, !isDemo, track.isFromServer else { return }
+        guard AutomaticDownloads.isOn, !isDemo, track.isFromServer, !UnownedSong.isUnowned(track) else { return }
         let track = resolved(track)
         if isInYourMusic(track) {
             guard !downloads.isDownloaded(track.id), !downloads.isDownloading(track.id) else { return }

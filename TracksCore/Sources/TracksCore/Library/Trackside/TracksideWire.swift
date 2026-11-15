@@ -592,13 +592,17 @@ public struct TracksideMe: Codable, Sendable, Hashable {
 
     public struct Acquisition: Codable, Sendable, Hashable {
         public var instantPlay: Bool?
+        /// A song the server doesn't have can be played without being kept.
+        public var externalPlay: Bool?
 
-        public init(instantPlay: Bool? = nil) {
+        public init(instantPlay: Bool? = nil, externalPlay: Bool? = nil) {
             self.instantPlay = instantPlay
+            self.externalPlay = externalPlay
         }
 
         enum CodingKeys: String, CodingKey {
             case instantPlay = "instant_play"
+            case externalPlay = "external_play"
         }
     }
 }

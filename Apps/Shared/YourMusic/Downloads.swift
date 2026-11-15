@@ -148,7 +148,7 @@ final class Downloads {
     /// Downloads songs, as asked already: again after a change of setting, or a retry.
     private func start(_ tracks: [LocalTrack]) {
         let wanted = tracks.filter { track in
-            guard case .server = track.origin, items[track.id] == nil, progress[track.id] == nil else { return false }
+            guard case .server = track.origin, !UnownedSong.isUnowned(track), items[track.id] == nil, progress[track.id] == nil else { return false }
             // Claimed now, so a second call before the requests are ready doesn't start it twice.
             progress[track.id] = 0
             return true

@@ -462,6 +462,8 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         }
         guard repeatMode != .one, let next = nextIndex(after: index) else { return }
         let entry = entries[next]
+        // A song the server doesn't have is only asked for once it's the one playing.
+        guard !UnownedSong.isUnowned(entry.track) else { return }
         if music.needsDecision(entry.track) {
             let after = nextIndex(after: next).map { [entries[$0].track] } ?? []
             music.prepareUpcoming([entry.track] + after)
@@ -924,7 +926,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     /// so one heard offline still counts.
     private func scrobbleToServerIfDue() {
         let entry = entries[index]
-        guard case .server(let serverID, let songID) = entry.track.origin,
+        guard case .server(let serverID, let songID) = entry.track.origin, !UnownedSong.isUnowned(entry.track),
               // History paused: the server isn't told what played either.
               !CaptureService.isHistoryPaused,
               music.servers.reportsPlays(to: serverID)

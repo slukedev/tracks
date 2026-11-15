@@ -175,6 +175,47 @@ public struct TracksideAcquisitionRequest: Codable, Sendable, Hashable {
     }
 }
 
+/// A song the server doesn't have, to play without it being kept: a candidate a search
+/// found, or a song by name.
+public struct TracksideExternalPlayRequest: Codable, Sendable, Hashable {
+    public var candidate: String?
+    public var title: String?
+    public var artist: String?
+    public var album: String?
+    public var durationMS: Int?
+
+    public init(candidate: String) {
+        self.candidate = candidate
+    }
+
+    public init(title: String, artist: String, album: String? = nil, duration: TimeInterval? = nil) {
+        self.title = title
+        self.artist = artist
+        self.album = album
+        self.durationMS = duration.map { Int(($0 * 1_000).rounded()) }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case candidate, title, artist, album
+        case durationMS = "duration_ms"
+    }
+}
+
+/// Where to play a song the server doesn't have, or the library's copy when it has it after all.
+public struct TracksideExternalPlay: Codable, Sendable, Hashable {
+    public var title: String
+    public var artist: String
+    public var durationMS: Int?
+    public var songID: String?
+    public var stream: TracksideAcquisition.Stream?
+
+    enum CodingKeys: String, CodingKey {
+        case title, artist, stream
+        case durationMS = "duration_ms"
+        case songID = "song_id"
+    }
+}
+
 struct TracksideAcquisitionList: Codable, Sendable {
     let acquisitions: [TracksideAcquisition]
     let nextCursor: String?
@@ -194,12 +235,15 @@ public struct TracksideAcquisitions: Sendable {
     public let isAvailable: Bool
     /// The server can play a song while it's still getting it.
     public let offersInstantPlay: Bool
+    /// The server can play a song it doesn't have without keeping it.
+    public let playsWithoutKeeping: Bool
     private let client: TracksideClient
 
     public init(client: TracksideClient, features: TracksideMe.Features?) {
         self.client = client
         isAvailable = features?.acquisition != nil
         offersInstantPlay = features?.acquisition?.instantPlay == true
+        playsWithoutKeeping = isAvailable && features?.acquisition?.externalPlay == true
     }
 
     public init(client: TracksideClient, me: TracksideMe) {
@@ -257,6 +301,19 @@ public struct TracksideAcquisitions: Sendable {
         return client.mediaURL(path)
     }
 
+    /// Plays a song the server doesn't have without it being kept: nothing is asked for, and
+    /// nothing reaches the library.
+    public func play(_ request: TracksideExternalPlayRequest) async throws -> TracksideExternalPlay {
+        guard playsWithoutKeeping else { throw TracksideError.featureUnavailable }
+        return try await client.send("external/play", method: "POST", body: request)
+    }
+
+    /// Where to play it from, with the media token.
+    public func streamURL(for play: TracksideExternalPlay) -> URL? {
+        guard playsWithoutKeeping, let path = play.stream?.hls ?? play.stream?.progressive else { return nil }
+        return client.mediaURL(path)
+    }
+
     private func checkAvailable() throws {
         guard isAvailable else { throw TracksideError.featureUnavailable }
     }
@@ -276,4 +333,48 @@ public struct AcquisitionStatuses: Sendable, Equatable {
     }
 
     public subscript(id: String) -> TracksideAcquisition? { byID[id] }
+}
+
+/// A song a Trackside server doesn't have, as the player queues it: under the server, with an
+/// id no library song has, which says how to ask for it to be played without keeping it.
+public enum UnownedSong {
+    static let prefix = "unowned:"
+
+    public static func track(_ candidate: TracksideCandidate, on serverID: String) -> LocalTrack {
+        track(TracksideExternalPlayRequest(candidate: candidate.token), title: candidate.title, artist: candidate.artist, album: candidate.album, duration: candidate.durationMS.map { TimeInterval($0) / 1_000 }, on: serverID)
+    }
+
+    public static func track(title: String, artist: String, album: String? = nil, duration: TimeInterval? = nil, on serverID: String) -> LocalTrack {
+        track(TracksideExternalPlayRequest(title: title, artist: artist, album: album, duration: duration), title: title, artist: artist, album: album, duration: duration, on: serverID)
+    }
+
+    private static func track(_ request: TracksideExternalPlayRequest, title: String, artist: String, album: String?, duration: TimeInterval?, on serverID: String) -> LocalTrack {
+        let encoded = (try? JSONEncoder().encode(request)).map { $0.base64EncodedString() } ?? ""
+        return LocalTrack(origin: .server(serverID: serverID, songID: prefix + encoded), title: title, artist: artist, album: album, duration: duration)
+    }
+
+    /// What to ask the server, for a song it doesn't have. Nil for one it does.
+    public static func request(for track: LocalTrack) -> TracksideExternalPlayRequest? {
+        guard case .server(_, let songID) = track.origin, songID.hasPrefix(prefix),
+              let data = Data(base64Encoded: String(songID.dropFirst(prefix.count)))
+        else { return nil }
+        return try? JSONDecoder().decode(TracksideExternalPlayRequest.self, from: data)
+    }
+
+    public static func isUnowned(_ track: LocalTrack) -> Bool {
+        guard case .server(_, let songID) = track.origin else { return false }
+        return songID.hasPrefix(prefix)
+    }
+
+    /// Where the player gets it from: the server's stream of it, kept nowhere, or the
+    /// library's copy when the server has it after all. Never a request to get it.
+    public static func stream(_ track: LocalTrack, from acquisitions: TracksideAcquisitions, client: TracksideClient, maxBitRate: Int?, network: MusicNetwork) async throws -> MusicServerStream? {
+        guard let request = request(for: track) else { return nil }
+        let play = try await acquisitions.play(request)
+        if let songID = play.songID {
+            return try await client.stream(songID: songID, maxBitRate: maxBitRate, network: network)
+        }
+        guard let url = acquisitions.streamURL(for: play) else { return nil }
+        return MusicServerStream(url: url, delivered: nil, isTranscoded: true)
+    }
 }

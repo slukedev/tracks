@@ -317,8 +317,8 @@ struct GetSongRow: View {
     }
 }
 
-/// A song a Trackside server could get for you: it can't play until it's got, so the row is
-/// only what it is, and Get.
+/// A song a Trackside server could get for you. Where the server can, it plays without being
+/// kept; only Get keeps it.
 struct GetOfferRow: View {
     let offer: GetMore.Offer
     var showsAlbum = false
@@ -331,18 +331,32 @@ struct GetOfferRow: View {
     var body: some View {
         let candidate = offer.candidate
         HStack(spacing: 4) {
-            TrackRow(
-                title: candidate.title,
-                subtitle: subtitle,
-                cover: .url(nil, seed: candidate.album ?? candidate.title)
-            )
-            .accessibilityElement(children: .combine)
+            if let track = music.servers.unownedTrack(for: offer) {
+                Button {
+                    player.play(.local([track], startingAt: 0), from: .songs(candidate.title))
+                } label: {
+                    row(isCurrent: player.current?.local?.id == track.id)
+                }
+                .buttonStyle(.plain)
+            } else {
+                row(isCurrent: false)
+                    .accessibilityElement(children: .combine)
+            }
             GetButton(state: music.getMore.state(of: offer), subject: candidate.title) {
                 Task {
                     if let problem = await music.getMore.get(offer) { player.confirm(problem) }
                 }
             }
         }
+    }
+
+    private func row(isCurrent: Bool) -> some View {
+        TrackRow(
+            title: offer.candidate.title,
+            subtitle: subtitle,
+            cover: .url(nil, seed: offer.candidate.album ?? offer.candidate.title),
+            isCurrent: isCurrent
+        )
     }
 
     /// "Artist · Album · Lossless", as much of it as the row is for.
