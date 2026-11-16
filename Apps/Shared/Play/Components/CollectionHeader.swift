@@ -58,6 +58,8 @@ struct CollectionHeader<Cover: View, More: View>: View {
     @State private var shuffles = 0
     #if os(iOS)
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.collectionTitleTop) private var titleTop
+    @Environment(\.collectionTitleHandoff) private var titleHandoff
     #endif
 
     var body: some View {
@@ -182,6 +184,9 @@ struct CollectionHeader<Cover: View, More: View>: View {
                 Text(title)
                     .font(.title2.bold())
                     .lineLimit(3)
+                    .opacity(1 - titleHandoff)
+                    .scaleEffect(1 - titleHandoff * 0.08, anchor: .top)
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { titleTop?.wrappedValue = $0 }
                 subtitleView(onArt: onArt)
                     .padding(.top, 2)
                 if let facts {

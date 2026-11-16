@@ -13,27 +13,58 @@ extension View {
 
 private struct CollectionChrome: ViewModifier {
     let title: String
-    /// How far the header has gone under the bar: 0 still showing its title, 1 its title
-    /// gone, 2 the field gone.
-    @State private var phase = 0
-    @ScaledMetric(relativeTo: .title2) private var titleDepth: CGFloat = 300
+    @State private var isArtworkUnderBar = true
+    /// Where the header's title is in the list's frame, as it scrolls. The list's, not the
+    /// screen's: a zoom from a cover scales the whole page while it opens.
+    @State private var titleTop: CGFloat = .greatestFiniteMagnitude
+    @State private var barBottom: CGFloat = 0
+    @ScaledMetric(relativeTo: .title2) private var artworkDepth: CGFloat = 420
 
     func body(content: Content) -> some View {
+        let handoff = Self.handoff(titleTop: titleTop, barBottom: barBottom)
         content
+            .environment(\.collectionTitleTop, $titleTop)
+            .environment(\.collectionTitleHandoff, handoff)
             .listStyle(.plain)
             .ignoresSafeArea(edges: .top)
             .scrollEdgeEffectStyle(.soft, for: .top)
-            .onScrollGeometryChange(for: Int.self) { geometry in
-                let scrolled = geometry.contentOffset.y + geometry.contentInsets.top
-                if scrolled > titleDepth + 150 { return 2 }
-                return scrolled > titleDepth ? 1 : 0
-            } action: { _, phase in
-                self.phase = phase
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top < artworkDepth
+            } action: { _, under in
+                isArtworkUnderBar = under
             }
-            .navigationTitle(phase > 0 ? title : "")
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { barBottom = $0 }
+            .navigationTitle(title)
             .toolbarTitleDisplayMode(.inline)
-            .toolbarColorScheme(phase < 2 ? .dark : nil, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .opacity(handoff)
+                        .offset(y: (1 - handoff) * Self.rise)
+                        .accessibilityHidden(handoff < 0.5)
+                }
+            }
+            .toolbarColorScheme(isArtworkUnderBar ? .dark : nil, for: .navigationBar)
     }
+
+    /// How far the title has gone from the header into the bar: 0 while the header's title is
+    /// clear of the bar, 1 once it's passed under it, in twentieths so a slow scroll doesn't
+    /// redraw the bar every point.
+    static func handoff(titleTop: CGFloat, barBottom: CGFloat) -> Double {
+        let travelled = (barBottom + lead - titleTop) / travel
+        return (Double(min(1, max(0, travelled))) * 20).rounded() / 20
+    }
+
+    private static let lead: CGFloat = 24
+    private static let travel: CGFloat = 36
+    private static let rise: CGFloat = 8
+}
+
+extension EnvironmentValues {
+    @Entry var collectionTitleTop: Binding<CGFloat>?
+    @Entry var collectionTitleHandoff: Double = 0
 }
 #endif
 

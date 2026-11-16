@@ -87,6 +87,7 @@ extension View {
             PlayDestination(route: route)
                 .pageChrome()
         }
+        .albumZoomSpace()
     }
 }
 
@@ -97,7 +98,7 @@ private struct PlayDestination: View {
     var body: some View {
         switch route {
         case .mix(let id): MixDetailView(mixID: id)
-        case .album(let album): AlbumPage(album: album)
+        case .album(let album): AlbumPage(album: album).albumZoomDestination(album)
         case .playlist(let playlist): PlaylistPage(playlist: playlist)
         case .artist(let artist): ArtistPage(artist: artist)
         case .library(let section): LibraryListView(section: section)

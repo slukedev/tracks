@@ -71,6 +71,7 @@ private struct FeedLinkTile: View {
         NavigationLink(value: route) {
             TileLabel(title: item.title, subtitle: item.subtitle) { side in
                 CoverImage(cover: item.cover, size: side)
+                    .albumZoomSource(route)
             }
         }
         .buttonStyle(.pressable)

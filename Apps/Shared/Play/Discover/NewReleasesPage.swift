@@ -242,6 +242,7 @@ private struct FeaturedRelease: View {
         layout {
             Button { openRoute(.album(release.album)) } label: {
                 CoverImage(cover: cover, size: Self.side)
+                    .albumZoomSource(album: release.album)
                     .shadow(color: .black.opacity(0.3), radius: 18, y: 10)
             }
             .buttonStyle(.pressable)
@@ -353,6 +354,7 @@ struct ReleaseTile: View {
         NavigationLink(value: PlayRoute.album(release.album)) {
             VStack(alignment: .leading, spacing: 6) {
                 cover
+                    .albumZoomSource(album: release.album)
                     .overlay(alignment: .topLeading) {
                         if release.isUpcoming, let date = release.date {
                             Text(date.formatted(.dateTime.month(.abbreviated).day()))

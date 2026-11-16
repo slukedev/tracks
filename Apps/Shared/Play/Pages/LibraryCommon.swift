@@ -115,6 +115,7 @@ struct LibraryCoverTile<Cover: View, Menu: View>: View {
             VStack(alignment: .leading, spacing: LibraryTileMetrics.coverGap) {
                 cover(side)
                     .frame(width: side, height: side)
+                    .albumZoomSource(route)
                 LibraryTileText(title: title, subtitle: subtitle)
             }
             .frame(width: side, alignment: .leading)
