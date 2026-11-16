@@ -68,8 +68,6 @@ struct FullCoverBackdrop: View {
         let feathers = Self.feathers(rect: rect, shown: shown, in: size, art: art)
         return ZStack(alignment: .topLeading) {
             blurred(in: size, cover: rect)
-                .saturation(FullCoverDissolve.saturation)
-                .brightness(FullCoverDissolve.brightness)
             dimming(in: size, cover: rect)
             if !isLifted {
                 ZStack(alignment: .top) {
@@ -104,45 +102,80 @@ struct FullCoverBackdrop: View {
     /// further out to the blurred cover filling the screen.
     private func blurred(in size: CGSize, cover: CGRect) -> some View {
         let beside = Self.direction == .beside
-        let edge = beside ? art.softEdges.trailing : art.softEdges.foot
-        let reach = max(cover.width * 0.4, ((beside ? size.width - cover.maxX : size.height - cover.maxY)) * 0.9)
+        let remaining = beside ? size.width - cover.maxX : size.height - cover.maxY
         return ZStack(alignment: .topLeading) {
             Image(decorative: art.soft, scale: 1)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fill)
+                .saturation(FullCoverDissolve.saturation)
+                .brightness(FullCoverDissolve.brightness)
                 .frame(width: size.width, height: size.height)
                 .clipped()
-            ZStack(alignment: .topLeading) {
-                Image(decorative: art.soft, scale: 1)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: cover.width, height: cover.height)
-                    .offset(x: cover.minX, y: cover.minY)
-                if let edge {
-                    Image(decorative: edge, scale: 1)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: beside ? max(0, size.width - cover.maxX) : cover.width, height: beside ? cover.height : max(0, size.height - cover.maxY))
-                        .offset(x: beside ? cover.maxX : cover.minX, y: beside ? cover.minY : cover.maxY)
-                }
-            }
-            .frame(width: size.width, height: size.height, alignment: .topLeading)
-            .mask {
-                let length = beside ? size.width : size.height
-                let end = beside ? cover.maxX : cover.maxY
-                LinearGradient(
-                    stops: (0...12).map { step in
-                        let t = Double(step) / 12
-                        return .init(color: .black.opacity(1 - FullCoverDissolve.smootherstep(t)), location: min(1, (end + reach * t) / max(1, length)))
-                    },
-                    startPoint: beside ? .leading : .top,
-                    endPoint: beside ? .trailing : .bottom
-                )
-            }
+            carried(art.soft, edges: art.softEdges, in: size, cover: cover, reach: max(cover.width * 0.45, remaining * 0.6))
+            carried(art.clear, edges: art.clearEdges, in: size, cover: cover, reach: cover.width * 0.4)
         }
         .frame(width: size.width, height: size.height)
         .clipped()
+    }
+
+    /// A softened copy of the cover at its size and place, carried on past its edge as that
+    /// edge, softening along its length as it goes, and fading out over `reach` beyond it.
+    private func carried(_ picture: CGImage, edges: EdgeStrips, in size: CGSize, cover: CGRect, reach: CGFloat) -> some View {
+        let beside = Self.direction == .beside
+        let strip = CGRect(
+            x: beside ? cover.maxX : cover.minX,
+            y: beside ? cover.minY : cover.maxY,
+            width: beside ? max(0, size.width - cover.maxX) : cover.width,
+            height: beside ? cover.height : max(0, size.height - cover.maxY)
+        )
+        func edge(_ image: CGImage?) -> some View {
+            Group {
+                if let image {
+                    Image(decorative: image, scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: strip.width, height: strip.height)
+                }
+            }
+        }
+        let widening = cover.width * 0.15 / max(1, beside ? strip.width : strip.height)
+        return ZStack(alignment: .topLeading) {
+            Image(decorative: picture, scale: 1)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: cover.width, height: cover.height)
+                .offset(x: cover.minX, y: cover.minY)
+            ZStack {
+                edge(beside ? edges.trailing : edges.foot)
+                edge(beside ? edges.wideTrailing : edges.wideFoot)
+                    .mask {
+                        LinearGradient(
+                            stops: (0...8).map { step in
+                                let t = Double(step) / 8
+                                return .init(color: .black.opacity(FullCoverDissolve.smootherstep(t)), location: widening * t)
+                            },
+                            startPoint: beside ? .leading : .top,
+                            endPoint: beside ? .trailing : .bottom
+                        )
+                    }
+            }
+            .frame(width: strip.width, height: strip.height)
+            .offset(x: strip.minX, y: strip.minY)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .mask {
+            let length = beside ? size.width : size.height
+            let end = beside ? cover.maxX : cover.maxY
+            LinearGradient(
+                stops: (0...12).map { step in
+                    let t = Double(step) / 12
+                    return .init(color: .black.opacity(1 - FullCoverDissolve.smootherstep(t)), location: min(1, (end + reach * t) / max(1, length)))
+                },
+                startPoint: beside ? .leading : .top,
+                endPoint: beside ? .trailing : .bottom
+            )
+        }
     }
 
     /// Where the song's words sit, the blurred cover dimmed under white type or lightened under
@@ -154,8 +187,8 @@ struct FullCoverBackdrop: View {
         if amount > 0.005 {
             let colour: Color = ink == .light ? .black : .white
             let horizontal = Self.direction == .beside
-            let from = horizontal ? cover.maxX - cover.width * 0.3 : cover.maxY - cover.width * 0.3
-            let to = horizontal ? cover.maxX + cover.width * 0.15 : cover.maxY + cover.width * 0.15
+            let from = horizontal ? cover.maxX : cover.maxY
+            let to = from + max(140, cover.width * 0.35)
             let length = horizontal ? size.width : size.height
             LinearGradient(
                 stops: (0...10).map { step in

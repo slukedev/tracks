@@ -4,15 +4,19 @@ import Foundation
 /// that blurred cover is dimmed under the song's words.
 public nonisolated enum FullCoverDissolve {
     /// Where the sharp cover starts to dissolve, as a part of its side from its top (or from its
-    /// leading edge, beside the song): at 82% of the way, or lower, up to 88%, to keep what it's
-    /// of, `subjectEnd`, sharp, so the cover reads whole and its last eighth or so dissolves.
+    /// leading edge, beside the song): at 82% of the way, or just past what it's of,
+    /// `subjectEnd`, up to 90%, so a subject is never cut. One that runs on to the edge is crossed
+    /// instead, gently, from 72%, so it softens rather than being sliced.
     public static func start(subjectEnd: Double?) -> Double {
         guard let subjectEnd, subjectEnd.isFinite else { return earliest }
-        return min(latest, max(earliest, subjectEnd + 0.02))
+        if subjectEnd > reachesEdge { return crossing }
+        return min(latest, max(earliest, subjectEnd + 0.03))
     }
 
     static let earliest = 0.82
-    static let latest = 0.88
+    static let latest = 0.9
+    static let reachesEdge = 0.92
+    static let crossing = 0.72
 
     /// The blurred cover is a little richer and brighter than the sharp one, as glass is.
     public static let saturation = 1.15

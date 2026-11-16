@@ -4,12 +4,13 @@ import Foundation
 
 @Suite("Full Cover's dissolve")
 struct FullCoverDissolveTests {
-    @Test("It dissolves over the cover's last 12 to 18%, the subject only ever pushing it lower")
+    @Test("It dissolves below the subject, from 82% at the highest; a subject running to the edge is crossed gently from 72%")
     func startFollowsTheSubject() {
         #expect(FullCoverDissolve.start(subjectEnd: nil) == 0.82)
         #expect(FullCoverDissolve.start(subjectEnd: 0.3) == 0.82)
-        #expect(abs(FullCoverDissolve.start(subjectEnd: 0.84) - 0.86) < 1e-9)
-        #expect(FullCoverDissolve.start(subjectEnd: 1) == 0.88)
+        #expect(abs(FullCoverDissolve.start(subjectEnd: 0.85) - 0.88) < 1e-9)
+        #expect(FullCoverDissolve.start(subjectEnd: 0.9) == 0.9)
+        #expect(FullCoverDissolve.start(subjectEnd: 1) == 0.72)
         #expect(FullCoverDissolve.start(subjectEnd: .infinity) == 0.82)
     }
 

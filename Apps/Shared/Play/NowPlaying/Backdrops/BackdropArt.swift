@@ -17,9 +17,11 @@ struct BackdropArt: Sendable {
     let flowing: CGImage
     /// Well softened, to fill a screen out of focus.
     let soft: CGImage
-    /// The soft picture's foot and trailing edge, a pixel deep, softened along their length, for
-    /// Full Cover to carry on past the cover without bands.
-    let softEdges: (foot: CGImage?, trailing: CGImage?)
+    /// The soft picture's foot and trailing edge, a pixel deep, as they are and softened along
+    /// their length, for Full Cover to carry on past the cover without a step or bands.
+    let softEdges: EdgeStrips
+    /// The same for the lightly softened picture, which meets the sharp cover without a step.
+    let clearEdges: EdgeStrips
     /// The cover's colours as they look, most of it first. At least four.
     let colours: [Color]
     /// Its colours made deep enough for white type, at least four, for Halo and Stage.
@@ -51,6 +53,15 @@ struct BackdropArt: Sendable {
 
     /// The picture's side in pixels: enough for a pane of glass across a screen, and cheap.
     static let pixels = 96
+}
+
+/// A picture's foot and trailing edge, a pixel deep: as they are, and softened along their
+/// length.
+struct EdgeStrips: Sendable {
+    let foot: CGImage?
+    let wideFoot: CGImage?
+    let trailing: CGImage?
+    let wideTrailing: CGImage?
 }
 
 /// Readies covers for the backgrounds and keeps the last few, so a song's background is
@@ -126,7 +137,7 @@ final class BackdropArtStore {
     private static func make(_ cover: CoverArt) async -> BackdropArt? {
         guard let (picture, isStandIn) = await picture(of: cover) else { return nil }
         let pixels = BackdropArt.pixels
-        let prepared = await OffMainActor.run { () -> (CGImage, CGImage, CGImage, (CGImage?, CGImage?), [CoverPalette.Colour], CoverBleed?, LivingCoverGrade, (lightest: Double, darkest: Double)?)? in
+        let prepared = await OffMainActor.run { () -> (CGImage, CGImage, CGImage, EdgeStrips, EdgeStrips, [CoverPalette.Colour], CoverBleed?, LivingCoverGrade, (lightest: Double, darkest: Double)?)? in
             let rgba = CoverPixels.rgba(of: picture, side: pixels)
             let framed = CoverFrame(rgba: rgba, side: pixels).flatMap { picture.cropping(to: $0.inside(picture)) } ?? picture
             guard let clear = SoftCover.soften(picture, by: 1.5),
@@ -134,16 +145,18 @@ final class BackdropArtStore {
                   let soft = SoftCover.soften(picture, by: 8)
             else { return nil }
             let bleed = CoverBleed(rgba: rgba, side: pixels)
-            let last = soft.width - 1
-            let foot = soft.cropping(to: CGRect(x: 0, y: soft.height - 1, width: soft.width, height: 1)).flatMap { SoftCover.soften($0, by: 6) }
-            let trailing = soft.cropping(to: CGRect(x: last, y: 0, width: 1, height: soft.height)).flatMap { SoftCover.soften($0, by: 6) }
+            func edges(of image: CGImage) -> EdgeStrips {
+                let foot = image.cropping(to: CGRect(x: 0, y: image.height - 1, width: image.width, height: 1))
+                let trailing = image.cropping(to: CGRect(x: image.width - 1, y: 0, width: 1, height: image.height))
+                return EdgeStrips(foot: foot, wideFoot: foot.flatMap { SoftCover.soften($0, by: 24) }, trailing: trailing, wideTrailing: trailing.flatMap { SoftCover.soften($0, by: 24) })
+            }
             let grade = LivingCoverGrade(rgba: CoverPixels.rgba(of: flowing, side: 32))
             let underWords = FullCoverDissolve.extremes(rgba: CoverPixels.rgba(of: soft, side: pixels), side: pixels, region: wordsRegion).map { found in
                 (lightest: FullCoverDissolve.brightened(found.lightest), darkest: FullCoverDissolve.brightened(found.darkest))
             }
-            return (clear, flowing, soft, (foot, trailing), CoverPalette.colours(rgba: CoverPixels.rgba(of: picture, side: 24)), bleed, grade, underWords)
+            return (clear, flowing, soft, edges(of: soft), edges(of: clear), CoverPalette.colours(rgba: CoverPixels.rgba(of: picture, side: 24)), bleed, grade, underWords)
         }
-        guard let (clear, flowing, soft, softEdges, found, bleed, grade, underWords) = prepared else { return nil }
+        guard let (clear, flowing, soft, softEdges, clearEdges, found, bleed, grade, underWords) = prepared else { return nil }
         let colours = CoverPalette.filled(found, to: 4).map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
         let field = await CoverTint.color(for: cover) ?? found.first.map { colour in
             let deep = CoverTint.deepened((colour.red, colour.green, colour.blue))
@@ -153,7 +166,8 @@ final class BackdropArtStore {
             clear: clear,
             flowing: flowing,
             soft: soft,
-            softEdges: (foot: softEdges.0, trailing: softEdges.1),
+            softEdges: softEdges,
+            clearEdges: clearEdges,
             colours: colours.isEmpty ? [field] : colours,
             deep: CoverTint.deepPalette(found),
             lights: lights(from: CoverPalette.filled(found, to: 3)),
