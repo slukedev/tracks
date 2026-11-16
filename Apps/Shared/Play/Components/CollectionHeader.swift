@@ -54,6 +54,8 @@ struct CollectionHeader<Cover: View, More: View>: View {
     @ViewBuilder var cover: (CGFloat) -> Cover
 
     @State private var tint: Color?
+    @State private var plays = 0
+    @State private var shuffles = 0
     #if os(iOS)
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #endif
@@ -94,15 +96,17 @@ struct CollectionHeader<Cover: View, More: View>: View {
                         .padding(.top, 18)
                 }
             } else {
-                artwork
-                    .overlay(alignment: .bottom) {
-                        words(onArt: true)
-                            .padding(.top, 72)
-                            .background(alignment: .bottom) { ArtworkScrim() }
-                    }
+                VStack(spacing: 0) {
+                    artwork
+                        .overlay(alignment: .bottom) {
+                            words(onArt: true)
+                                .padding(.top, 72)
+                                .background(alignment: .bottom) { ArtworkScrim() }
+                        }
+                    spill
+                }
             }
         }
-        .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
@@ -132,6 +136,32 @@ struct CollectionHeader<Cover: View, More: View>: View {
             }
             .accessibilityHidden(true)
     }
+
+    // The cover's foot carried on a little, blurred and fading into the page, so the songs
+    // don't start at a hard line.
+    private var spill: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .top) {
+                art(proxy.size.width)
+                    .scaleEffect(x: 1, y: -1)
+                    .frame(width: proxy.size.width, height: proxy.size.width)
+                    .blur(radius: 30)
+                Color.black.opacity(0.6)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+            .clipped()
+            .mask {
+                LinearGradient(stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .clear, location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+            }
+        }
+        .frame(height: Self.spill)
+        .accessibilityHidden(true)
+    }
+
+    private static var spill: CGFloat { 36 }
 
     @ViewBuilder
     private func art(_ side: CGFloat) -> some View {
@@ -179,7 +209,7 @@ struct CollectionHeader<Cover: View, More: View>: View {
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, PlayMetrics.margin)
-        .padding(.bottom, 18)
+        .padding(.bottom, PlayMetrics.margin)
     }
 
     private func playRow(onArt: Bool) -> some View {
@@ -188,20 +218,28 @@ struct CollectionHeader<Cover: View, More: View>: View {
             : AnyLayout(HStackLayout(spacing: 12))
         return GlassEffectContainer(spacing: 12) {
             layout {
-                Button(action: play) {
+                Button {
+                    plays += 1
+                    play()
+                } label: {
                     Label("Play", systemImage: "play.fill")
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.glassProminent)
                 .tint((fieldTint ?? .accentColor).mix(with: .black, by: 0.3))
-                Button(action: shuffle) {
+                Button {
+                    shuffles += 1
+                    shuffle()
+                } label: {
                     Label("Shuffle", systemImage: "shuffle")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.glass)
             }
         }
+        .sensoryFeedback(.impact(weight: .medium), trigger: plays)
+        .sensoryFeedback(.impact(weight: .light), trigger: shuffles)
         .font(.headline)
         .controlSize(.large)
         .buttonBorderShape(.capsule)

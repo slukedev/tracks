@@ -22,6 +22,7 @@ private struct CollectionChrome: ViewModifier {
         content
             .listStyle(.plain)
             .ignoresSafeArea(edges: .top)
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .onScrollGeometryChange(for: Int.self) { geometry in
                 let scrolled = geometry.contentOffset.y + geometry.contentInsets.top
                 if scrolled > titleDepth + 150 { return 2 }

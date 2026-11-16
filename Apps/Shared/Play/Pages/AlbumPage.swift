@@ -57,7 +57,9 @@ struct AlbumPage: View {
                     .collectionRowInsets(hasCover: false)
                 }
             } footer: {
+                // Plain lists inset a footer 16 points; the rows above sit on the 20 point margin.
                 CollectionFooter(lines: footerLines(album))
+                    .padding(.horizontal, PlayMetrics.margin - 16)
             }
 
             if loadFailed {
@@ -183,15 +185,16 @@ struct AlbumPage: View {
                         songMenu(tracks[index])
                     }
                 }
-                let notes = [hiddenNote, album.copyright].compactMap(\.self)
+                let notes = footerLines(album)
                 if !notes.isEmpty {
-                    Text(notes.joined(separator: " · "))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, PlayMetrics.margin)
-                        .padding(.vertical, 8)
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(notes, id: \.self) { Text($0) }
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.top, 16)
                 }
             }
         }
@@ -338,6 +341,9 @@ struct AlbumPage: View {
             lines.append(date.formatted(date: .long, time: .omitted))
         }
         lines.append(TrackListFooter.summary(count: tracks.count, seconds: tracks.compactMap(\.duration).reduce(0, +)))
+        if let label = album.recordLabelName, !(album.copyright ?? "").localizedCaseInsensitiveContains(label) {
+            lines.append(label)
+        }
         if let copyright = album.copyright { lines.append(copyright) }
         if let hiddenNote { lines.append(hiddenNote) }
         return lines

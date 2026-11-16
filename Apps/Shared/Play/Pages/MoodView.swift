@@ -286,7 +286,6 @@ struct MoodView: View {
             VStack(alignment: .leading, spacing: 0) {
                 hero(style)
                 VStack(alignment: .leading, spacing: style.pace.sectionSpacing) {
-                    whenYouPlayIt(style)
                     signature(style)
                     yourSongs(style)
                     newToYou(style)
@@ -298,7 +297,7 @@ struct MoodView: View {
                         Shelf(title: String(localized: "Stations"), items: stations) { FeedTile(item: $0) }
                     }
                 }
-                .padding(.top, 28)
+                .padding(.top, 24)
             }
             .padding(.bottom, 32)
         }
@@ -578,18 +577,6 @@ struct MoodView: View {
     private func steer() {
         guard isOn, let current = player.current else { return }
         play(startingWith: MixSong(current))
-    }
-
-    /// When you play it, by the part of the day, once there are enough plays to say.
-    @ViewBuilder
-    private func whenYouPlayIt(_ style: RoomStyle) -> some View {
-        if let shares = room?.dayPartShares {
-            VStack(alignment: .leading, spacing: 10) {
-                RoomSectionHeader(title: String(localized: "When You Play It"))
-                DayPartBars(shares: shares, style: style)
-            }
-            .padding(.horizontal, PlayMetrics.margin)
-        }
     }
 
     /// Your songs that suit it, in a fresh order.

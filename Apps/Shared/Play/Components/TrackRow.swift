@@ -139,6 +139,8 @@ struct TrackRow: View {
             Group {
                 if isCurrent {
                     playingGlyph(.accentColor)
+                        .frame(width: numberWidth, height: numberWidth)
+                        .glassEffect(.regular, in: .circle)
                 } else {
                     Text(number, format: .number)
                         .font(.body)

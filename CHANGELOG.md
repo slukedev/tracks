@@ -113,14 +113,16 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
 
 - Mood pages open on the covers of what you'd hear, under the bar, with when you play it
   ("Mostly Sunday mornings"), a glass Play, Shuffle and timer, and More Upbeat, Calmer and Less
-  Vocal to steer it, even while it plays. When You Play It shows your plays by part of the day
+  Vocal to steer it, even while it plays
 - Genre pages read like Music's: the genre's name, how much you've played it and since when,
   then its station as a card of its covers, your essentials narrowed by kind, and the genres
   closest to it at the foot
 - Mood, genre and Handpicked tiles on Play are one family: the category's colour, its name in the
   system's type, and the cover of what you play most in it
 - Albums and playlists on iPhone open on their cover edge to edge from the top of the screen, with
-  glass Play and Shuffle over it. On the Mac the header sits on the plain window, as Music's does
+  glass Play and Shuffle over it, its foot fading into the songs. The page ends as Music's
+  does: release date, songs and length, label and copyright. On the Mac the header sits on the
+  plain window
 
 - Picks up where you left off: the song that was on when you closed Tracks waits, paused, for
   as long as you choose in Settings
