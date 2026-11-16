@@ -92,7 +92,7 @@ public nonisolated struct LivingCoverGrade: Equatable, Sendable {
         let darkening = Self.smoothstep(0.8, 0.35, lightness)
         let yellow = Self.bump(degrees, centre: 105, width: 25) * darkening
         hue -= yellow * 38 * .pi / 180
-        let muddy = Self.bump(degrees, centre: 70, width: 45) * (1 - Self.smoothstep(0.04, 0.1, colour.chroma)) * darkening
+        let muddy = Self.bump(degrees, centre: 75, width: 55) * (1 - Self.smoothstep(0.06, 0.16, colour.chroma)) * darkening
         chroma *= 1 - 0.6 * muddy
         chroma = min(chroma, 0.26)
 

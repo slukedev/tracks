@@ -164,7 +164,7 @@ float3 graded(float3 lab, float4 grade, float4 tone, float ceiling, float struct
     float darkening = smoothstep(0.8, 0.35, lightness);
     float yellow = bump(degrees, 105.0, 25.0) * darkening;
     hue -= yellow * 38.0 * M_PI_F / 180.0;
-    float muddy = bump(degrees, 70.0, 45.0) * (1.0 - smoothstep(0.04, 0.1, sourceChroma)) * darkening;
+    float muddy = bump(degrees, 75.0, 55.0) * (1.0 - smoothstep(0.06, 0.16, sourceChroma)) * darkening;
     chroma *= 1.0 - 0.6 * muddy;
     chroma = min(chroma, 0.26);
 
