@@ -103,11 +103,11 @@ struct FullPlayer: View {
         .ignoresSafeArea(edges: .top)
     }
 
-    private static let column: CGFloat = 380
+    static let column: CGFloat = 380
     /// The song's details and every control, stacked with their least spacing.
-    private static let columnHeight: CGFloat = 330
-    private static let gap: CGFloat = 56
-    private static let barInset: CGFloat = 18
+    static let columnHeight: CGFloat = 330
+    static let gap: CGFloat = 56
+    static let barInset: CGFloat = 18
 
     // MARK: - Top bar
 

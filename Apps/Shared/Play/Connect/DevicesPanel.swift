@@ -241,7 +241,7 @@ struct DevicesPanel: View {
             chooseHere()
         }
         ForEach(model.nearby.devices) { device in
-            let state = device.state
+            let state = model.nearby.shownState(of: device)
             DeviceRow(
                 symbol: device.kind.symbol,
                 name: device.name,
@@ -257,10 +257,10 @@ struct DevicesPanel: View {
             .contextMenu {
                 if state?.hasSong == true {
                     Button(state?.isPlaying == true ? "Pause" : "Play", systemImage: state?.isPlaying == true ? "pause" : "play") {
-                        model.nearby.send(.playPause, to: device)
+                        model.nearby.perform(state?.isPlaying == true ? .pause : .play, on: device)
                     }
                     Button("Next", systemImage: "forward") {
-                        model.nearby.send(.next, to: device)
+                        model.nearby.perform(.next, on: device)
                     }
                     .disabled(state?.canSkipForward != true)
                 }

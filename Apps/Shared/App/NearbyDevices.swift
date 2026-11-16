@@ -25,6 +25,9 @@ final class NearbyDevices {
         /// What it said it is, a ``NearbyDeviceKind``'s wire name.
         var kindName: String?
         var state: NearbyState?
+        /// The ``NearbyMessage/remoteVersion`` it understands. Nil for a device that only
+        /// takes the older play-pause toggle.
+        var remoteVersion: Int?
 
         var kind: NearbyDeviceKind { NearbyDeviceKind(platform: platform, kind: kindName) }
     }
@@ -49,8 +52,34 @@ final class NearbyDevices {
         devices.filter { $0.state?.hasSong == true }.sorted { ($0.state?.isPlaying ?? false) && !($1.state?.isPlaying ?? false) }
     }
 
+    /// Each device's player as this one shows it while controlling it: what it said, with the
+    /// asks it hasn't answered yet laid over it.
+    private(set) var remotes: [String: RemoteControl] = [:]
+
+    /// What a device is playing, as its controls here should show it.
+    func shownState(of device: Device) -> NearbyState? {
+        remotes[device.id]?.shown ?? device.state
+    }
+
+    /// A device that hasn't answered an ask in time.
+    func isUnreachable(_ device: Device) -> Bool {
+        remotes[device.id]?.isUnreachable == true
+    }
+
+    /// Waiting on a device to skip, so its song is about to change.
+    func isSkipping(_ device: Device) -> Bool {
+        remotes[device.id]?.isSkipping == true
+    }
+
     /// Another device asked this one to play, pause or skip.
     @ObservationIgnored var onCommand: ((TransportCommand) -> Void)?
+    /// Another device asked this one's player to do something, done at once, in the order
+    /// asked. Says whether it could.
+    @ObservationIgnored var onRequest: ((RemoteAction) -> RemoteReply.Outcome)?
+    /// Waits, briefly, for the player to show what was asked of it, so the answer has it.
+    @ObservationIgnored var settle: ((RemoteAction) async -> Void)?
+    /// What's playing here right now, for an answer: what was last told can be a moment old.
+    @ObservationIgnored var currentState: (() -> NearbyState?)?
     /// Another device took the song over: this one pauses.
     @ObservationIgnored var onPause: (() -> Void)?
     /// A device joined: it should hear what's playing here.
@@ -127,6 +156,9 @@ final class NearbyDevices {
     @ObservationIgnored private var lastState: NearbyState?
     @ObservationIgnored private var keyObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var isRunning = false
+    @ObservationIgnored private var ledger = RemoteLedger()
+    /// This run, for the asks it numbers.
+    @ObservationIgnored private let remoteSession = UUID()
 
     private static let serviceType = "_tracks._tcp"
     private nonisolated static let keyName = "nearbyKey"
@@ -222,16 +254,78 @@ final class NearbyDevices {
         }
         // With `-TracksSpeakersDemo` too, the Mac plays to a HomePod.
         let speakers = UserDefaults.standard.string(forKey: "TracksSpeakersDemo").map { _ in NearbySpeakers(kind: .homePod, names: ["Kitchen"]) }
-        devices = [Device(id: "sample", name: "Luke's MacBook Pro", platform: "Mac", kindName: "MacBook", state: NearbyState(
-            title: "Golden Moon", artist: "Nova Harbor", album: "Golden Moon",
-            isPlaying: mode != "paused", position: 84, duration: 212, speakers: speakers
-        ))]
+        // The Mac's other device is an iPhone, as it most often is; the iPhone's, a Mac.
+        #if os(macOS)
+        let other = (name: "Luke's iPhone", platform: "iPhone", kind: "iPhone")
+        #else
+        let other = (name: "Luke's MacBook Pro", platform: "Mac", kind: "MacBook")
+        #endif
+        let first = Self.sampleSongs[0]
+        devices = [Device(id: "sample", name: other.name, platform: other.platform, kindName: other.kind, state: NearbyState(
+            title: first.title, artist: first.artist, album: first.album, artworkURL: Self.sampleCover(0),
+            isPlaying: mode != "paused", position: 84, duration: first.duration, speakers: speakers
+        ), remoteVersion: NearbyMessage.remoteVersion)]
+        // `-TracksNearbyDemoLeaves 20`: the devices go away after that many seconds.
+        let leaves = UserDefaults.standard.double(forKey: "TracksNearbyDemoLeaves")
+        if leaves > 0 {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(leaves))
+                guard let self else { return }
+                for device in self.devices { self.remember(device) }
+                self.devices = []
+                self.remotes = [:]
+            }
+        }
         if mode == "many" {
             known.removeAll { $0.id == "sample-ipad" }
             devices.append(Device(id: "sample-ipad", name: "Luke's iPad", platform: "iPad", kindName: "iPad", state: NearbyState(
                 title: "Paper Parade", artist: "June Arcade", isPlaying: false, position: 30, duration: 190
             )))
             devices.append(Device(id: "sample-mini", name: "Living Room Mac mini", platform: "Mac", kindName: "Mac mini", state: nil))
+        }
+    }
+
+    private static let sampleSongs: [NearbySong] = [
+        NearbySong(title: "Golden Moon", artist: "Nova Harbor", album: "Golden Moon", duration: 212),
+        NearbySong(title: "Paper Parade", artist: "June Arcade", album: "Streetlight Hymns", duration: 190),
+        NearbySong(title: "Low Tide Radio", artist: "The Marlowes", album: "Coastline", duration: 236),
+    ]
+
+    /// The run's `-TracksDemoCovers`, one per song, when it has them.
+    private static func sampleCover(_ index: Int) -> String? {
+        let covers = UserDefaults.standard.string(forKey: "TracksDemoCovers")?.split(separator: "|").map(String.init) ?? []
+        return covers.isEmpty ? nil : covers[index % covers.count]
+    }
+
+    /// The sample device answers as a real one would, after a moment on the network.
+    /// `-TracksNearbyDemoUnreachable YES` has it never answer.
+    private func sampleAnswer(_ request: RemoteRequest, on id: String) {
+        guard !UserDefaults.standard.bool(forKey: "TracksNearbyDemoUnreachable") else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(request.action == .next || request.action == .previous ? 600 : 250))
+            guard let self, let index = self.devices.firstIndex(where: { $0.id == id }),
+                  var state = self.devices[index].state else { return }
+            let now = Date.now
+            state.position = state.position(at: now)
+            state.sentAt = now
+            let song = Self.sampleSongs.firstIndex { $0.title == state.title } ?? 0
+            switch request.action {
+            case .play: state.isPlaying = true
+            case .pause: state.isPlaying = false
+            case .seek(let position): state.position = position
+            case .next, .previous:
+                let step = request.action == .next ? 1 : (state.position ?? 0) > 3 ? 0 : -1
+                let next = (song + step + Self.sampleSongs.count) % Self.sampleSongs.count
+                let picked = Self.sampleSongs[next]
+                state.title = picked.title
+                state.artist = picked.artist
+                state.album = picked.album
+                state.duration = picked.duration
+                state.artworkURL = Self.sampleCover(next)
+                state.position = 0
+            }
+            self.devices[index].state = state
+            self.remotes[id]?.answer(RemoteReply(id: request.id, outcome: .done, state: state))
         }
     }
     #endif
@@ -370,6 +464,46 @@ final class NearbyDevices {
         send(.command(command), to: device.id)
     }
 
+    /// Has a device's player do something, shown here at once. A device that came before
+    /// remote control gets the older command, for its own next word to show.
+    func perform(_ action: RemoteAction, on device: Device) {
+        guard (device.remoteVersion ?? 0) >= 1 else {
+            performLegacy(action, on: device)
+            return
+        }
+        var control = remotes[device.id] ?? RemoteControl(session: remoteSession, reported: device.state)
+        let request = control.ask(action, at: .now)
+        remotes[device.id] = control
+        #if DEBUG
+        if isSample {
+            sampleAnswer(request, on: device.id)
+            expireSoon(device.id)
+            return
+        }
+        #endif
+        send(.request(request), to: device.id)
+        expireSoon(device.id)
+    }
+
+    private func performLegacy(_ action: RemoteAction, on device: Device) {
+        let isPlaying = device.state?.isPlaying == true
+        switch action {
+        case .play where !isPlaying, .pause where isPlaying: send(.playPause, to: device)
+        case .play, .pause: break
+        case .next: send(.next, to: device)
+        case .previous: send(.previous, to: device)
+        case .seek(let position): seek(device, to: position)
+        }
+    }
+
+    /// Notices, a moment after asking, that a device never answered.
+    private func expireSoon(_ id: String) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(RemoteControl.patience))
+            self?.remotes[id]?.expire(at: .now)
+        }
+    }
+
     /// Asks a device to pause, as its song moves here.
     func pause(_ device: Device) {
         send(.pause, to: device.id)
@@ -445,7 +579,7 @@ final class NearbyDevices {
                 guard let self, let link else { return }
                 switch state {
                 case .ready:
-                    self.send(.hello(id: self.myID, name: self.myName, platform: self.myPlatform, kind: Self.thisKind.wireName), on: link)
+                    self.send(.hello(id: self.myID, name: self.myName, platform: self.myPlatform, kind: Self.thisKind.wireName, remote: NearbyMessage.remoteVersion), on: link)
                     self.receive(on: link)
                 case .failed, .cancelled:
                     self.drop(link)
@@ -468,6 +602,7 @@ final class NearbyDevices {
         if let peerID = link.peerID, !links.values.contains(where: { $0.peerID == peerID }) {
             if let device = devices.first(where: { $0.id == peerID }) { remember(device) }
             devices.removeAll { $0.id == peerID }
+            remotes[peerID] = nil
             redialSoon()
         }
     }
@@ -498,7 +633,7 @@ final class NearbyDevices {
 
     private func handle(_ message: NearbyMessage, from link: Link) {
         switch message {
-        case .hello(let id, let name, let platform, let kind):
+        case .hello(let id, let name, let platform, let kind, let remote):
             link.peerID = id
             failedRedials = 0
             // Back on a new connection: the one from before it went away is let go, however
@@ -510,8 +645,9 @@ final class NearbyDevices {
             if let position = devices.firstIndex(where: { $0.id == id }) {
                 devices[position].name = name
                 devices[position].kindName = kind
+                devices[position].remoteVersion = remote
             } else {
-                devices.append(Device(id: id, name: name, platform: platform, kindName: kind))
+                devices.append(Device(id: id, name: name, platform: platform, kindName: kind, remoteVersion: remote))
             }
             if let device = devices.first(where: { $0.id == id }) { remember(device) }
             if let lastState { send(.state(lastState), on: link) }
@@ -520,6 +656,7 @@ final class NearbyDevices {
             guard let id = link.peerID, let position = devices.firstIndex(where: { $0.id == id }) else { return }
             let isNewSong = devices[position].state?.title != state.title
             devices[position].state = state
+            remotes[id]?.report(state)
             if isNewSong, state.hasSong { remember(devices[position]) }
         case .command(let command):
             onCommand?(command)
@@ -530,6 +667,32 @@ final class NearbyDevices {
         case .takeOver(let state):
             guard let id = link.peerID, let device = devices.first(where: { $0.id == id }) else { return }
             onTakeOver?(state, device)
+        case .request(let request):
+            answer(request, on: link)
+        case .reply(let reply):
+            guard let id = link.peerID else { return }
+            remotes[id]?.answer(reply)
+        }
+    }
+
+    /// Does what another device asked, once and in order, and says how it went, with what's
+    /// playing after.
+    private func answer(_ request: RemoteRequest, on link: Link) {
+        let playing = currentState?().flatMap { state in
+            state.title.map { SongIdentity.key(title: $0, artistName: state.artist ?? "") }
+        }
+        switch ledger.admit(request, playing: playing, at: .now) {
+        case .repeated:
+            send(.reply(RemoteReply(id: request.id, outcome: .done, state: currentState?())), on: link)
+        case .stale:
+            send(.reply(RemoteReply(id: request.id, outcome: .stale, state: currentState?())), on: link)
+        case .apply:
+            let outcome = onRequest?(request.action) ?? .unavailable
+            Task { [weak self, weak link] in
+                if outcome == .done { await self?.settle?(request.action) }
+                guard let self, let link else { return }
+                self.send(.reply(RemoteReply(id: request.id, outcome: outcome, state: self.currentState?())), on: link)
+            }
         }
     }
 

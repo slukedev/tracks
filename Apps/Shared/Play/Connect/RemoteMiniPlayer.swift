@@ -11,7 +11,7 @@ struct RemoteMiniPlayer: View {
     @State private var isShowingPanel = false
 
     var body: some View {
-        let state = device.state ?? NearbyState()
+        let state = model.nearby.shownState(of: device) ?? NearbyState()
         HStack(spacing: 10) {
             Button {
                 isShowingPanel = true

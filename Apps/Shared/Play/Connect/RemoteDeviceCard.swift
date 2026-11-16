@@ -14,7 +14,7 @@ struct RemoteDeviceCard: View {
     @State private var tint: Color?
 
     var body: some View {
-        let state = device.state ?? NearbyState()
+        let state = model.nearby.shownState(of: device) ?? NearbyState()
         let cover = CoverArt.url(state.artworkURL, seed: state.album ?? state.title ?? device.name)
         VStack(alignment: .leading, spacing: Metrics.spacing) {
             // At the largest text sizes the song goes under its cover, with room to wrap.

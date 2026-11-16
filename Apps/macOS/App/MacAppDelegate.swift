@@ -54,7 +54,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private func watchSpaceBar() {
         spaceMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.playsOrPauses(on: event) else { return event }
-            self.model.player.togglePlayPause()
+            self.model.mainPlayerPlayPause()
             return nil
         }
     }
@@ -62,7 +62,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private func playsOrPauses(on event: NSEvent) -> Bool {
         guard event.keyCode == 49, !event.isARepeat,
               event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
-              model.player.hasQueue,
+              model.mainPlayerHasSong,
               let window = event.window, window.isKeyWindow,
               window.attachedSheet == nil, window.sheetParent == nil
         else { return false }
@@ -107,15 +107,23 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// menu has.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let player = model.player
-        guard let track = player.current else { return nil }
+        let remote = model.controlledDevice.flatMap { model.nearby.shownState(of: $0) }
+        guard let title = remote?.title ?? player.current?.title else { return nil }
+        let artist = remote?.artist ?? player.current?.artistName ?? ""
+        let isPlaying = remote?.isPlaying ?? player.isPlaying
         let menu = NSMenu()
-        let song = NSMenuItem(title: String(localized: "\(track.title) by \(track.artistName)"), action: nil, keyEquivalent: "")
+        let song = NSMenuItem(title: String(localized: "\(title) by \(artist)"), action: nil, keyEquivalent: "")
         song.isEnabled = false
         menu.addItem(song)
+        if let device = model.controlledDevice {
+            let place = NSMenuItem(title: String(localized: "Playing on \(device.name)"), action: nil, keyEquivalent: "")
+            place.isEnabled = false
+            menu.addItem(place)
+        }
         menu.addItem(.separator())
-        menu.addItem(dockItem(player.isPlaying ? String(localized: "Pause") : String(localized: "Play"), #selector(dockPlayPause)))
+        menu.addItem(dockItem(isPlaying ? String(localized: "Pause") : String(localized: "Play"), #selector(dockPlayPause)))
         menu.addItem(dockItem(String(localized: "Next"), #selector(dockNext)))
-        if player.context?.isStation != true {
+        if model.mainPlayerCanGoBack {
             menu.addItem(dockItem(String(localized: "Previous"), #selector(dockPrevious)))
         }
         return menu
@@ -127,9 +135,9 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    @objc private func dockPlayPause() { model.player.togglePlayPause() }
-    @objc private func dockNext() { model.player.skipToNext() }
-    @objc private func dockPrevious() { model.player.skipToPrevious() }
+    @objc private func dockPlayPause() { model.mainPlayerPlayPause() }
+    @objc private func dockNext() { model.mainPlayerNext() }
+    @objc private func dockPrevious() { model.mainPlayerPrevious() }
 
     func applicationWillTerminate(_ notification: Notification) {
         model.player.saveSession()

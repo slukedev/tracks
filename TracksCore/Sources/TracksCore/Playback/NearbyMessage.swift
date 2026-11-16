@@ -153,8 +153,9 @@ extension NearbyState {
 /// What your devices say to each other.
 public enum NearbyMessage: Codable, Sendable, Equatable {
     /// The first thing each side says: who it is. `kind` is a ``NearbyDeviceKind``'s wire
-    /// name, missing from devices that came before it.
-    case hello(id: String, name: String, platform: String, kind: String? = nil)
+    /// name, and `remote` the ``NearbyMessage/remoteVersion`` it understands; both are
+    /// missing from devices that came before them.
+    case hello(id: String, name: String, platform: String, kind: String? = nil, remote: Int? = nil)
     case state(NearbyState)
     case command(TransportCommand)
     /// Asks the other to pause, as the song moves here.
@@ -164,6 +165,13 @@ public enum NearbyMessage: Codable, Sendable, Equatable {
     /// Hands the other this song to play from where it's got to, as music moves there. It
     /// answers with ``pause`` once it's playing, as a song brought across does.
     case takeOver(NearbyState)
+    /// Asks the other's player to do something, to be answered with ``reply(_:)``. Only sent
+    /// to a device whose hello says it understands them: one that doesn't would hang up.
+    case request(RemoteRequest)
+    case reply(RemoteReply)
+
+    /// The ``RemoteRequest``s this version understands.
+    public static let remoteVersion = 1
 }
 
 extension TransportCommand: Codable {}

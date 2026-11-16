@@ -49,7 +49,7 @@ private struct NearbyMenuRow: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let state = device.state ?? NearbyState()
+        let state = model.nearby.shownState(of: device) ?? NearbyState()
         HStack(spacing: 10) {
             ArtworkView(url: state.artworkURL, seed: state.album ?? state.title ?? device.name, size: 36)
             VStack(alignment: .leading, spacing: 1) {
@@ -66,7 +66,7 @@ private struct NearbyMenuRow: View {
             HStack(spacing: 4) {
                 control("Previous", "backward.fill", .previous)
                     .disabled(!state.canSkipBack)
-                control(state.isPlaying ? "Pause" : "Play", state.isPlaying ? "pause.fill" : "play.fill", .playPause)
+                control(state.isPlaying ? "Pause" : "Play", state.isPlaying ? "pause.fill" : "play.fill", state.isPlaying ? .pause : .play)
                 control("Next", "forward.fill", .next)
                     .disabled(!state.canSkipForward)
             }
@@ -74,8 +74,8 @@ private struct NearbyMenuRow: View {
         .accessibilityElement(children: .contain)
     }
 
-    private func control(_ title: LocalizedStringKey, _ symbol: String, _ command: TransportCommand) -> some View {
-        Button(title, systemImage: symbol) { model.nearby.send(command, to: device) }
+    private func control(_ title: LocalizedStringKey, _ symbol: String, _ action: RemoteAction) -> some View {
+        Button(title, systemImage: symbol) { model.nearby.perform(action, on: device) }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .frame(width: 24, height: 24)

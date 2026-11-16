@@ -14,7 +14,7 @@ struct RemoteTransport: View {
         HStack(spacing: size == .large ? 26 : 8) {
             button("Previous", "backward.fill", .previous, diameter: small)
                 .disabled(!state.canSkipBack)
-            button(state.isPlaying ? "Pause" : "Play", state.isPlaying ? "pause.fill" : "play.fill", .playPause, diameter: big)
+            button(state.isPlaying ? "Pause" : "Play", state.isPlaying ? "pause.fill" : "play.fill", state.isPlaying ? .pause : .play, diameter: big)
             button("Next", "forward.fill", .next, diameter: small)
                 .disabled(!state.canSkipForward)
         }
@@ -32,9 +32,9 @@ struct RemoteTransport: View {
         #endif
     }
 
-    private func button(_ title: LocalizedStringKey, _ symbol: String, _ command: TransportCommand, diameter: CGFloat) -> some View {
+    private func button(_ title: LocalizedStringKey, _ symbol: String, _ action: RemoteAction, diameter: CGFloat) -> some View {
         Button {
-            model.nearby.send(command, to: device)
+            model.nearby.perform(action, on: device)
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: diameter * 0.42, weight: .semibold))

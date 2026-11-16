@@ -64,6 +64,9 @@ struct MacRootView: View {
             .onChange(of: player.hasQueue) { _, hasQueue in
                 if !hasQueue { playerWindow.showsPanel = false }
             }
+            .onChange(of: model.controlledDevice?.id) { old, new in
+                if let old, new == nil { controlEnded(on: old) }
+            }
             // The popover is the bar's, and the full player covers the bar. It opens again on
             // the song's details, the cover face up.
             .onChange(of: isShowingFullPlayer) { _, isShowing in
@@ -80,8 +83,14 @@ struct MacRootView: View {
             .accessibilityHidden(isShowingFullPlayer)
             .overlay {
                 if isShowingFullPlayer {
-                    FullPlayer(window: playerWindow) { playerWindow.showsFullPlayer = false }
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 1.02)))
+                    Group {
+                        if let device = model.controlledDevice {
+                            RemoteFullPlayer(device: device) { playerWindow.showsFullPlayer = false }
+                        } else {
+                            FullPlayer(window: playerWindow) { playerWindow.showsFullPlayer = false }
+                        }
+                    }
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 1.02)))
                 }
             }
             #if DEBUG
@@ -199,7 +208,20 @@ struct MacRootView: View {
     }
 
     private var isShowingFullPlayer: Bool {
-        playerWindow.showsFullPlayer && model.player.hasQueue
+        playerWindow.showsFullPlayer && (model.player.hasQueue || model.controlledDevice != nil)
+    }
+
+    /// The full player was showing another device's song, and isn't any more. Brought here, or
+    /// handed back to this Mac's own song, it goes on as this Mac's player. With the device
+    /// gone, or nothing left playing, it closes, saying why when the device went.
+    private func controlEnded(on id: String) {
+        guard playerWindow.showsFullPlayer else { return }
+        let device = model.nearby.devices.first { $0.id == id }
+        if device != nil, model.player.hasQueue || model.arrivingFrom == id { return }
+        playerWindow.showsFullPlayer = false
+        if device == nil, let name = model.nearby.known.first(where: { $0.id == id })?.name {
+            model.player.confirm(String(localized: "Lost Connection to \(name)"))
+        }
     }
 
     /// The Search page with the cursor in its field, out of the full player.

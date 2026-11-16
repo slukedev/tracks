@@ -207,6 +207,9 @@ final class AppModel {
         }
         nearby.onJoin = { [weak self] in self?.tellNearby() }
         nearby.onSeek = { [weak player] position in player?.seek(to: position) }
+        nearby.onRequest = { [weak self] action in self?.perform(action) ?? .unavailable }
+        nearby.settle = { [weak self] action in await self?.settle(after: action) }
+        nearby.currentState = { [weak self] in self?.nearbyState }
         nearby.onTakeOver = { [weak self] state, device in
             Task { _ = await self?.play(state, from: device) }
         }
@@ -216,6 +219,37 @@ final class AppModel {
         nearby.showSample()
         if UserDefaults.standard.string(forKey: "TracksNearbyDemo") == "control" { controlledDeviceID = "sample" }
         #endif
+    }
+
+    /// What another of your devices asked this one's player to do, through the same calls as
+    /// its own buttons and the lock screen.
+    private func perform(_ action: RemoteAction) -> RemoteReply.Outcome {
+        guard player.hasQueue else { return .unavailable }
+        switch action {
+        case .play:
+            if !player.isPlaying { player.togglePlayPause() }
+        case .pause:
+            if player.isPlaying { player.togglePlayPause() }
+        case .next:
+            player.skipToNext()
+        case .previous:
+            guard player.context?.isStation != true else { return .unavailable }
+            player.skipToPrevious()
+        case .seek(let position):
+            guard let duration = player.current?.duration else { return .unavailable }
+            player.seek(to: min(duration, max(0, position)))
+        }
+        return .done
+    }
+
+    /// A skip lands a moment after it's asked: the answer waits for the next song, briefly.
+    private func settle(after action: RemoteAction) async {
+        // Previous part way into a song only starts it again.
+        guard action == .next || (action == .previous && player.playbackTime <= 3) else { return }
+        let before = player.current?.id
+        for _ in 0..<12 where player.current?.id == before {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
     }
 
     /// Tells your other devices what's playing here.
@@ -297,6 +331,9 @@ final class AppModel {
     /// Connect does. Nil for this device.
     var controlledDeviceID: String?
 
+    /// The device whose song is on its way here, while it's found and started.
+    private(set) var arrivingFrom: String?
+
     /// The device the main player controls, while it still has a song to control.
     var controlledDevice: NearbyDevices.Device? {
         guard let controlledDeviceID else { return nil }
@@ -311,6 +348,41 @@ final class AppModel {
             hasSongHere: player.hasQueue,
             peers: nearby.devices.map { MusicLocation.Peer(id: $0.id, hasSong: $0.state?.hasSong == true, isPlaying: $0.state?.isPlaying == true) }
         )
+    }
+
+    /// Whether the main player has a song to play or pause: its own, or the device it's showing.
+    var mainPlayerHasSong: Bool { controlledDevice != nil || player.hasQueue }
+
+    /// The main player's play and pause, from Space, the Controls menu and the Dock: for the
+    /// device it's showing, or this one.
+    func mainPlayerPlayPause() {
+        guard let device = controlledDevice else {
+            player.togglePlayPause()
+            return
+        }
+        nearby.perform(nearby.shownState(of: device)?.isPlaying == true ? .pause : .play, on: device)
+    }
+
+    func mainPlayerNext() {
+        guard let device = controlledDevice else {
+            player.skipToNext()
+            return
+        }
+        nearby.perform(.next, on: device)
+    }
+
+    func mainPlayerPrevious() {
+        guard let device = controlledDevice else {
+            player.skipToPrevious()
+            return
+        }
+        nearby.perform(.previous, on: device)
+    }
+
+    /// Whether the main player's Previous can go back: not on a station.
+    var mainPlayerCanGoBack: Bool {
+        if let device = controlledDevice { return nearby.shownState(of: device)?.canSkipBack == true }
+        return player.hasQueue && player.context?.isStation != true
     }
 
     /// Shows and controls another device's song in the main player.
@@ -344,6 +416,47 @@ final class AppModel {
         return lastNearbyArtwork?.song == song ? lastNearbyArtwork?.url : nil
     }
 
+    /// Another device's song as this one's player shows a song: known by name, as the
+    /// device sent it.
+    static func remoteTrack(_ state: NearbyState, on device: NearbyDevices.Device) -> PlayerTrack {
+        let title = state.title ?? ""
+        let artist = state.artist ?? ""
+        return PlayerTrack(
+            id: "remote.\(device.id).\(SongIdentity.key(title: title, artistName: artist))",
+            title: title,
+            artistName: artist,
+            albumTitle: state.album,
+            cover: .url(state.artworkURL, seed: state.album ?? title),
+            duration: state.duration,
+            isExplicit: false,
+            song: nil
+        )
+    }
+
+    /// The same song found in the music this device plays from, so Favorite, Go to Album and
+    /// the song's menu work on it as on a song playing here. Nil when it isn't there.
+    func resolve(_ track: PlayerTrack) async -> PlayerTrack? {
+        guard !isDemoLaunch,
+              let request = await request(for: track.title, by: track.artistName, album: track.albumTitle, duration: track.duration, in: musicSource)
+        else { return nil }
+        switch request {
+        case .songs(let songs, _):
+            guard let song = songs.first else { return nil }
+            return PlayerTrack(
+                id: track.id, title: track.title, artistName: track.artistName, albumTitle: track.albumTitle ?? song.albumTitle,
+                cover: track.cover, duration: track.duration, isExplicit: song.contentRating == .explicit, song: song
+            )
+        case .local(let tracks, _):
+            guard let local = tracks.first else { return nil }
+            return PlayerTrack(
+                id: track.id, title: track.title, artistName: track.artistName, albumTitle: track.albumTitle,
+                cover: track.cover, duration: track.duration, isExplicit: false, song: nil, local: local
+            )
+        default:
+            return nil
+        }
+    }
+
     /// Plays here what another device is playing, from where it's got to, and pauses it there:
     /// from the music Play is on, or, with Quick Switch, from the other if only it has the song.
     /// Returns whether it could.
@@ -361,6 +474,8 @@ final class AppModel {
     /// Bring Up Next on, what it was playing from and the songs after it come too.
     private func play(_ state: NearbyState, named name: String, pausing device: NearbyDevices.Device?) async -> Bool {
         guard let title = state.title, let artist = state.artist else { return false }
+        arrivingFrom = device?.id
+        defer { arrivingFrom = nil }
         if let device, controlledDeviceID == device.id { controlledDeviceID = nil }
         let carry = state.carry(bringsQueue: NearbyDevices.bringsQueue)
         var sources = [musicSource]

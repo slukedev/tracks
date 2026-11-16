@@ -296,6 +296,8 @@ otherwise have to write again:
 - **Scrobble service**: the Swift `ScrobbleService` on top of the Rust request builder and
   queue, so both platforms send the same scrobbles the same way.
 - **Your Devices messages**: the wire format between devices (`NearbyMessage`), if Android
-  is ever to see or control an Apple device, or the reverse.
+  is ever to see or control an Apple device, or the reverse. Remote control is numbered asks
+  and answers (`RemoteRequest`, `RemoteReply`, `RemoteLedger`, `RemoteControl` in
+  `NearbyRemote.swift`), sent only to a device whose hello says it understands them.
 - **SharePlay by code messages**: the sealed relay format (`SharePlayMessage`,
   `SharePlayRelay`), if an Android guest should ever join an iPhone's session.

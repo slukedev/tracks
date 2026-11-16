@@ -34,7 +34,7 @@ struct RemoteScrubber: View {
                                     dragFraction = min(1, max(0, value.location.x / max(1, proxy.size.width)))
                                 }
                                 .onEnded { _ in
-                                    if let dragFraction { model.nearby.seek(device, to: dragFraction * duration) }
+                                    if let dragFraction { model.nearby.perform(.seek(dragFraction * duration), on: device) }
                                     dragFraction = nil
                                 }
                         )
@@ -57,7 +57,7 @@ struct RemoteScrubber: View {
                 .accessibilityValue(Text("\(Scrubber.format(fraction * duration)) of \(Scrubber.format(duration))"))
                 .accessibilityAdjustableAction { direction in
                     let step: TimeInterval = direction == .increment ? 15 : -15
-                    model.nearby.seek(device, to: min(duration, max(0, fraction * duration + step)))
+                    model.nearby.perform(.seek(min(duration, max(0, fraction * duration + step))), on: device)
                 }
             }
         }

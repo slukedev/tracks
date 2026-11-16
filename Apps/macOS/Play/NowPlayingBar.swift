@@ -121,29 +121,34 @@ private struct NowPlayingBarPlacement: ViewModifier {
 private struct RemoteNowPlayingBar: View {
     let device: NearbyDevices.Device
     @Environment(AppModel.self) private var model
+    @Environment(PlayerModel.self) private var player
+    @Environment(\.openFullPlayer) private var openFullPlayer
     @State private var isMoving = false
 
     var body: some View {
-        let state = device.state ?? NearbyState()
+        let state = model.nearby.shownState(of: device) ?? NearbyState()
+        let track = AppModel.remoteTrack(state, on: device)
+        let isUnreachable = model.nearby.isUnreachable(device)
         HStack(spacing: 0) {
-            HStack(spacing: 10) {
-                CoverImage(cover: .url(state.artworkURL, seed: state.album ?? state.title ?? device.name), size: 44)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(state.title ?? "")
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(1)
-                    Label {
-                        Text("Playing on \(device.nameWithSpeakers)")
-                    } icon: {
-                        Image(systemName: device.kind.symbol)
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tint)
-                    .lineLimit(1)
+            BarSong(
+                track: track,
+                coverSize: 44,
+                action: { openFullPlayer() },
+                accessibilityLabel: Text("\(track.title), \(track.artistName), playing on \(device.nameWithSpeakers)")
+            ) {
+                Label {
+                    isUnreachable ? Text("Can't Reach \(device.name)") : Text("Playing on \(device.nameWithSpeakers)")
+                } icon: {
+                    Image(systemName: isUnreachable ? "exclamationmark.triangle.fill" : device.kind.symbol)
                 }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(isUnreachable ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+                .lineLimit(1)
             }
-            .padding(6)
             .frame(minWidth: 170, idealWidth: 230, maxWidth: .infinity, alignment: .leading)
+            .contextMenu {
+                NowPlayingMenuItems(track: track)
+            }
 
             VStack(spacing: 3) {
                 RemoteTransport(device: device, state: state)
@@ -155,8 +160,12 @@ private struct RemoteNowPlayingBar: View {
                 Button {
                     Task {
                         isMoving = true
-                        _ = await model.playHere(from: device)
+                        let moved = await model.playHere(from: device)
                         isMoving = false
+                        if !moved {
+                            model.control(device)
+                            player.confirm(String(localized: "Couldn't Find This Song Here"))
+                        }
                     }
                 } label: {
                     if isMoving {
@@ -167,6 +176,7 @@ private struct RemoteNowPlayingBar: View {
                     }
                 }
                 .buttonStyle(BarIconButtonStyle(diameter: 30))
+                .disabled(isMoving)
                 .help("Play on This Mac, from where it's got to")
                 Button {
                     model.control(nil)
@@ -284,7 +294,7 @@ struct NowPlayingBar: View {
 
     private func miniBar(_ track: PlayerTrack) -> some View {
         HStack(spacing: 6) {
-            BarSong(track: track, coverSize: 40, action: { openFullPlayer() })
+            BarSong(track: track, coverSize: 40, action: { openFullPlayer() }) { localSubtitle(track) }
                 .frame(minWidth: 120, idealWidth: 150, maxWidth: .infinity, alignment: .leading)
             BarTransport(showsPrevious: false)
             PanelToggle(page: .upNext, systemImage: "list.bullet", title: "Up Next", shortcut: "⌥⌘U", showsPanel: $showsPanel, current: $panelPage)
@@ -292,12 +302,25 @@ struct NowPlayingBar: View {
         .padding(.horizontal, 8)
     }
 
+    /// The quality beside the artist, as Music's player shows Lossless; the artist gives way
+    /// first in a narrow bar.
+    private func localSubtitle(_ track: PlayerTrack) -> some View {
+        HStack(spacing: 5) {
+            Text(track.artistName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            AudioQualityBadge(track: track, style: .bar)
+                .fixedSize()
+        }
+    }
+
     /// Three columns, the outer two the same width so the transport sits in the middle.
     private func bar(_ track: PlayerTrack, tier: Tier) -> some View {
         let canShuffle = tier == .full && player.context?.isStation != true && !player.isLive
         let side: CGFloat = tier == .full ? 250 : 190
         return HStack(spacing: 0) {
-            BarSong(track: track, coverSize: 46, action: { openFullPlayer() })
+            BarSong(track: track, coverSize: 46, action: { openFullPlayer() }) { localSubtitle(track) }
                 .frame(minWidth: side, idealWidth: side, maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 1) {
@@ -342,15 +365,17 @@ struct NowPlayingBar: View {
 
 /// The song, which opens the full player. Under the pointer it says so: a soft highlight
 /// gathers behind it, the cover lifts, and a chevron rises beside the title.
-private struct BarSong: View {
+private struct BarSong<Subtitle: View>: View {
     let track: PlayerTrack
     let coverSize: CGFloat
     let action: () -> Void
+    var accessibilityLabel: Text?
+    @ViewBuilder let subtitle: () -> Subtitle
     @State private var isHovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Between the cover and the highlight's edge.
-    private static let inset: CGFloat = 5
+    private static var inset: CGFloat { 5 }
 
     /// The highlight's corners follow the cover's, the inset out, rather than rounding off
     /// into a capsule the square cover sits awkwardly in.
@@ -372,16 +397,7 @@ private struct BarSong: View {
                             ExplicitBadge()
                         }
                     }
-                    // The quality beside the artist, as Music's player shows Lossless; the
-                    // artist gives way first in a narrow bar.
-                    HStack(spacing: 5) {
-                        Text(track.artistName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        AudioQualityBadge(track: track, style: .bar)
-                            .fixedSize()
-                    }
+                    subtitle()
                 }
                 .layoutPriority(-1)
                 Image(systemName: "chevron.up")
@@ -403,7 +419,7 @@ private struct BarSong: View {
             withAnimation(.snappy(duration: 0.2)) { isHovering = hovering }
         }
         .help("Show Full Player (⇧⌘F)")
-        .accessibilityLabel(Text("\(track.title), \(track.artistName)"))
+        .accessibilityLabel(accessibilityLabel ?? Text("\(track.title), \(track.artistName)"))
         .accessibilityHint("Shows the full player")
     }
 }

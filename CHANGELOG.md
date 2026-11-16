@@ -44,6 +44,11 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   playing on each, control it from the other, send the music there, or bring it here from
   where it's got to. Each says which speakers it's playing to, a HomePod or a group of rooms,
   and Play On lists your HomePods and AirPlay speakers beside your devices
+- On the Mac, what your iPhone is playing opens in the full player like a song of the Mac's
+  own: its cover, your Now Playing style and "Playing On" your iPhone at the top. Play,
+  pause, skip and scrub reach the iPhone and show at once, Space and the Controls menu
+  control it too, and Play on This Mac brings it over from where it's got to. If the iPhone
+  stops answering the player says so, and if it goes away the player closes
 
 ### SharePlay
 

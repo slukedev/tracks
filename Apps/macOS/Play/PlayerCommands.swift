@@ -198,26 +198,32 @@ private struct ControlsMenuItems: View {
     private var player: PlayerModel { model.player }
 
     var body: some View {
-        Button(player.isPlaying ? "Pause" : "Play", systemImage: player.isPlaying ? "pause" : "play") {
-            player.togglePlayPause()
+        let isPlaying = model.controlledDevice.map { model.nearby.shownState(of: $0)?.isPlaying == true } ?? player.isPlaying
+        Button(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause" : "play") {
+            model.mainPlayerPlayPause()
         }
-        .disabled(!player.hasQueue)
+        .disabled(!model.mainPlayerHasSong)
 
         // Music's Stop: the song paused and back at its start, ready to play again.
         Button("Stop", systemImage: "stop") {
+            if let device = model.controlledDevice {
+                model.nearby.perform(.pause, on: device)
+                model.nearby.perform(.seek(0), on: device)
+                return
+            }
             if player.isPlaying { player.togglePlayPause() }
             player.seek(to: 0)
         }
         .keyboardShortcut(".", modifiers: .command)
-        .disabled(!player.hasQueue || player.current?.duration == nil)
+        .disabled(model.controlledDevice.map { model.nearby.shownState(of: $0)?.duration == nil } ?? (!player.hasQueue || player.current?.duration == nil))
 
-        Button("Next", systemImage: "forward") { player.skipToNext() }
+        Button("Next", systemImage: "forward") { model.mainPlayerNext() }
             .keyboardShortcut(.rightArrow, modifiers: .command)
-            .disabled(!player.hasQueue)
+            .disabled(!model.mainPlayerHasSong)
 
-        Button("Previous", systemImage: "backward") { player.skipToPrevious() }
+        Button("Previous", systemImage: "backward") { model.mainPlayerPrevious() }
             .keyboardShortcut(.leftArrow, modifiers: .command)
-            .disabled(!player.hasQueue || player.context?.isStation == true)
+            .disabled(!model.mainPlayerCanGoBack)
 
         Button("Go to Current Song", systemImage: "arrow.forward.circle") { window?.goToCurrentSong() }
             .keyboardShortcut("l", modifiers: .command)
@@ -284,7 +290,7 @@ private struct ControlsMenuItems: View {
         }
         // Music's shortcut. ⌃⌘F is the window's own Enter Full Screen.
         .keyboardShortcut("f", modifiers: [.command, .shift])
-        .disabled(!player.hasQueue || window == nil)
+        .disabled(!model.mainPlayerHasSong || window == nil)
 
         Button("Stage", systemImage: "tv") {
             openWindow(id: StageWindow.id)
