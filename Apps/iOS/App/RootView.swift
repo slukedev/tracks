@@ -13,8 +13,7 @@ struct RootView: View {
     /// Where the app opens also decides where Play sits: first when it's where Tracks opens,
     /// last otherwise, so the opening tab is always far left.
     @AppStorage(OpeningTab.storageKey) private var openingTab: OpeningTab = .standard
-    @State private var showsNowPlaying = false
-    @State private var nowPlayingReopens = 0
+    @State private var handoff = PlayerHandoff.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var wasInBackground = false
     /// Made once: a new one on each redraw, as a tab switch makes, would redraw every song
@@ -55,15 +54,15 @@ struct RootView: View {
                 if let device = model.controlledDevice {
                     RemoteMiniPlayer(device: device)
                 } else {
-                    MiniPlayer(open: openNowPlaying)
+                    MiniPlayer(open: openNowPlaying, onNavigate: go(to:))
                 }
             }
-            .fullScreenCover(isPresented: $showsNowPlaying) {
-                NowPlayingView(onNavigate: go(to:), reopenRequests: nowPlayingReopens)
+            .fullScreenCover(isPresented: $handoff.isPresented) {
+                NowPlayingView(onNavigate: go(to:))
                     // Clear, so the tabs show above the player as it's pulled down.
                     .presentationBackground(.clear)
                     .songInfoSheet(model) { route in
-                        showsNowPlaying = false
+                        handoff.isPresented = false
                         go(to: .play(route))
                     }
             }
@@ -79,11 +78,11 @@ struct RootView: View {
             // Songs being added to a playlist, from a menu anywhere.
             .sheet(item: Bindable(model.yourMusic.playlists).picking) { PlaylistPickerSheet(pick: $0) }
             // Get Info, from any song's menu. Now Playing shows its own over itself.
-            .songInfoSheet(model, isActive: !showsNowPlaying) { go(to: .play($0)) }
+            .songInfoSheet(model, isActive: !handoff.isPresented) { go(to: .play($0)) }
             // Under Now Playing while it's open; it shows its own.
-            .playerFeedback(isActive: !showsNowPlaying)
+            .playerFeedback(isActive: !handoff.isPresented)
             // Someone else's SharePlay, joined from Messages.
-            .sharePlayGuestPage(closing: $showsNowPlaying)
+            .sharePlayGuestPage(closing: $handoff.isPresented)
             .opensDeepLinks(in: model)
             .onboarding(model)
             .modifier(TabMemory(model: model, selection: $selection))
@@ -244,13 +243,10 @@ struct RootView: View {
         }
     }
 
-    /// Without the system's animation: Now Playing slides itself up (see PullToClose), and
-    /// takes touches while it does. Tapped while it's still sliding away, it comes back.
+    /// Without the system's animation: Now Playing brings itself up from the mini player
+    /// (see PlayerHandoff). Tapped while it's still closing, it comes back.
     private func openNowPlaying() {
-        guard !showsNowPlaying else { return nowPlayingReopens += 1 }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { showsNowPlaying = true }
+        handoff.open()
     }
 
     /// After Now Playing closes: onto the Play tab's stack, or Summary's for your stats.

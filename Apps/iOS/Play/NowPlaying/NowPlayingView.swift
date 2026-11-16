@@ -8,7 +8,6 @@ import TracksCore
 /// the back of its sleeve with your whole history with it.
 struct NowPlayingView: View {
     @Environment(PlayerModel.self) private var player
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.isOnScreen) private var isOnScreen
@@ -29,18 +28,15 @@ struct NowPlayingView: View {
     @State private var detailsHeight: CGFloat = 0
     @State private var controlsHeight: CGFloat = 0
     @State private var isOpening = true
-    /// Taps on the close button, for the pull to close to slide the player away.
-    @State private var closeRequests = 0
-    /// Where to go once the cover has closed: Go to Album and the like.
+    /// Where to go as the player closes: Go to Album and the like.
     let onNavigate: (NowPlayingDestination) -> Void
-    /// Taps on the mini player while this slides away, which bring it back.
-    var reopenRequests = 0
 
     var body: some View {
         ZStack {
             Color.clear
             if let track = player.current {
                 content(track)
+                    .modifier(NowPlayingChromeFade())
                     .environment(\.colorScheme, ink(.bottom).colorScheme)
                     .foregroundStyle(.primary)
                     // Music stops growing its player here too: past it, the song's own name
@@ -52,7 +48,7 @@ struct NowPlayingView: View {
         // Lit from the cover, wherever the layout puts it.
         .nowPlayingBackdrop(cover: player.current?.cover, tint: tint, isPlaying: player.isPlaying)
         // Up Next's list scrolls first.
-        .pullToClose(yields: showsQueue, closeRequests: closeRequests, reopenRequests: reopenRequests)
+        .nowPlayingPresentation(yields: showsQueue, cover: player.current?.cover, isFullCover: isFullCover, sinks: coverSinks)
         .sheet(isPresented: $showsTuner) { RadioTunerSheet() }
         .sheet(isPresented: $showsDevices) {
             DevicesSheet { showsDevices = false }
@@ -65,7 +61,7 @@ struct NowPlayingView: View {
             withAnimation(.easeInOut(duration: 0.6)) { bleed = found }
         }
         .onChange(of: player.hasQueue) { _, hasQueue in
-            if !hasQueue { dismiss() }
+            if !hasQueue { PlayerHandoff.shared.isPresented = false }
         }
         // A new song starts face up.
         .onChange(of: player.current?.songIdentity) { showsBack = false }
@@ -98,6 +94,12 @@ struct NowPlayingView: View {
     }
 
     private var isFullCover: Bool { background == .fullCover }
+
+    /// Music's gesture: the cover sinks back while paused. Not while its back is up, which
+    /// is being read. Full Cover's cover is the background itself, which stays put.
+    private var coverSinks: Bool {
+        !player.isPlaying && !reduceMotion && !showsBack && !isFullCover
+    }
 
     /// The type past one of Full Cover's edges: dark on a light one. White on every other
     /// background, and on Full Cover's colour while Up Next is up.
@@ -146,7 +148,7 @@ struct NowPlayingView: View {
 
     private var topBar: some View {
         ZStack {
-            VStack(spacing: 1) {
+            VStack(alignment: isFullCover ? .trailing : .center, spacing: 1) {
                 if player.isOnAutoplayPick {
                     Text("Autoplay")
                         .font(.caption2.weight(.semibold))
@@ -165,15 +167,19 @@ struct NowPlayingView: View {
                         .lineLimit(1)
                 }
             }
-            // On Full Cover the bar may sit over the cover itself: on glass, as Music's is.
+            .multilineTextAlignment(isFullCover ? .trailing : .center)
+            // On Full Cover the bar may sit over the cover itself: on glass, as Music's is,
+            // and at its trailing edge, opposite the close button, off the picture's middle.
             .padding(.horizontal, isFullCover ? 14 : 0)
             .padding(.vertical, isFullCover ? 6 : 0)
             .glassEffect(isFullCover ? .regular : .identity, in: .capsule)
-            .padding(.horizontal, 56)
+            .frame(maxWidth: .infinity, alignment: isFullCover ? .trailing : .center)
+            .padding(.leading, 56)
+            .padding(.trailing, isFullCover ? 0 : 56)
             .accessibilityElement(children: .combine)
 
             HStack {
-                Button("Close", systemImage: "chevron.down") { closeRequests += 1 }
+                Button("Close", systemImage: "chevron.down") { PlayerHandoff.shared.close() }
                     .labelStyle(.iconOnly)
                     .font(.title3.weight(.semibold))
                     .frame(width: 44, height: 44)
@@ -202,9 +208,7 @@ struct NowPlayingView: View {
         // the bar, whose controls sit on glass over it. The room is what's marked.
         let lift = (available.width * Self.fullCoverLift).rounded()
         let fullHeight = max(0, min(available.width, room + lift))
-        // Music's gesture: the cover sinks back while paused. Not while its back is up, which
-        // is being read. Full Cover's cover is the background itself, which stays put.
-        let sinks = !player.isPlaying && !reduceMotion && !showsBack && !isFullCover
+        let sinks = coverSinks
         let shape = RoundedRectangle(cornerRadius: CoverImage.radius(for: side), style: .continuous)
         // A single tap on either side does nothing: the cover is where a thumb lands to swipe
         // Now Playing closed, and a short swipe mustn't read as a tap and turn it instead. A
@@ -213,14 +217,20 @@ struct NowPlayingView: View {
             Group {
                 if isFullCover {
                     // The background draws the cover; this marks where, and takes its gestures.
-                    Color.clear
+                    SkipSwipe(travel: available.width, follows: false) { _ in
+                        Color.clear
+                    }
                         .frame(width: available.width, height: fullHeight)
                         .contentShape(.rect)
                         .backdropFocus()
                         .padding(.top, -lift)
                 } else {
-                    CoverImage(cover: track.cover, size: side)
-                        .contentShape(shape)
+                    SkipSwipe(travel: proxy.size.width) { song in
+                        CoverImage(cover: song.cover, size: side)
+                    }
+                    .frame(width: side, height: side)
+                    .coverHandoffSource(isEnabled: !showsBack)
+                    .contentShape(shape)
                 }
             }
             .onTapGesture(count: 2, perform: turnSleeve)
@@ -367,7 +377,7 @@ struct NowPlayingView: View {
     }
 
     private func navigate(_ destination: NowPlayingDestination) {
-        dismiss()
+        PlayerHandoff.shared.close()
         onNavigate(destination)
     }
 }

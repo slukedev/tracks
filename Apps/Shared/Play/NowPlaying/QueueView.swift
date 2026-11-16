@@ -19,6 +19,7 @@ struct QueueView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 CoverImage(cover: track.cover, size: 56)
+                    .coverHandoffSource()
                 VStack(alignment: .leading, spacing: 2) {
                     Text(track.title).font(.headline).lineLimit(1)
                     Text(track.artistName).font(.subheadline).foregroundStyle(.white.opacity(0.7)).lineLimit(1)

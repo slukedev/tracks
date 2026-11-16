@@ -1146,6 +1146,10 @@ final class PlayerModel {
     @ObservationIgnored private var autoplayPicked: Set<String> = []
     /// The songs this queue has played, newest last, for Autoplay to follow on from.
     @ObservationIgnored private var queuePlayed: [PlayerTrack] = []
+
+    /// The song Previous goes back to, as far as Tracks knows: the last one this queue played.
+    var lastPlayedInQueue: PlayerTrack? { queuePlayed.last }
+
     /// Your own music, for Tracks Radio to start with songs on this iPhone and get its new
     /// finds ready behind them. Set by the app.
     @ObservationIgnored weak var radioDownloads: (any RadioDownloads)? {
