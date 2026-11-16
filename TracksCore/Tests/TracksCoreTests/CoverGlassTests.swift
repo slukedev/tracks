@@ -22,7 +22,7 @@ struct CoverGlassTests {
         return CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue), provider: CGDataProvider(data: Data(rgba) as CFData)!, decode: nil, shouldInterpolate: true, intent: .defaultIntent)!
     }
 
-    @Test("Under the song's name it reads for its type, on a light cover and a dark one; above where it starts it's clear", arguments: [CoverBleed.Ink.light, .dark])
+    @Test("Under the song's name its colours read for the type, on a light cover and a dark one; above where it starts it's clear, and it never quite gives way to the colours under it", arguments: [CoverBleed.Ink.light, .dark])
     func readsUnderTheWords(ink: CoverBleed.Ink) throws {
         let cover = Self.picture { x, y in ink == .light ? (UInt8(180 + x), 240, UInt8(200 + y / 2)) : (UInt8(x * 2), 20, UInt8(y)) }
         let size = CGSize(width: 402, height: 874)
@@ -34,10 +34,12 @@ struct CoverGlassTests {
         }
         func pixel(_ x: Int, _ y: Double) -> (colour: CoverBleed.Colour, alpha: UInt8) {
             let row = min(glass.height - 1, Int(y / 2)), index = (row * glass.width + x) * 4
-            return (CoverBleed.Colour(red: Double(rgba[index]) / 255, green: Double(rgba[index + 1]) / 255, blue: Double(rgba[index + 2]) / 255), rgba[index + 3])
+            let alpha = max(1, Double(rgba[index + 3])) / 255
+            return (CoverBleed.Colour(red: Double(rgba[index]) / 255 / alpha, green: Double(rgba[index + 1]) / 255 / alpha, blue: Double(rgba[index + 2]) / 255 / alpha), rgba[index + 3])
         }
         #expect(pixel(50, 100).alpha == 0)
         #expect(pixel(50, 380).alpha == 255)
+        #expect(pixel(50, 860).alpha > 100)
         let type: CoverBleed.Colour = ink == .light ? .white : CoverBleed.Colour(red: 0.07, green: 0.07, blue: 0.07)
         for y in stride(from: 402 * (1 + CoverGlass.settle), to: 874, by: 20) {
             for x in stride(from: 0, to: glass.width, by: 15) {

@@ -4,17 +4,18 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 
 /// How Full Cover's cover carries on below itself on iPhone: as liquid glass rather than a fade
-/// to colour. Below where it starts to dissolve, the cover goes on as itself and then as its own
-/// reflection, softening more the further down it is, a little brighter and richer, as glass
-/// is, with a faint light along the cover's edge; further down it deepens (or lifts) just as far
-/// as the song's name and the controls need, keeping its colours and its blur.
+/// to colour. Below where it starts to dissolve, the cover goes on as itself and then as the
+/// colours along its foot, each column running on down, softening more the further down it is
+/// until only colour is left, a little brighter and richer, as glass is, and easing into the
+/// colours under it; further down it deepens (or lifts) just as far as the song's name and the
+/// controls need, keeping its colours.
 ///
 /// Where it starts to dissolve follows what the cover is of: never above its subject (a face,
 /// a figure, the title), so the subject is always sharp.
 public nonisolated enum CoverGlass {
     /// Where the sharp cover starts to give way to its glass, as a part of its side from the top:
     /// at 88% for a cover whose subject ends higher, lower for one whose subject reaches down,
-    /// and at 97% at most, where only the reflection dissolves.
+    /// and at 97% at most, so a subject that runs to the foot stays sharp.
     public static func dissolve(subjectBottom: Double?) -> Double {
         guard let subjectBottom, subjectBottom.isFinite else { return earliest }
         return min(latest, max(earliest, subjectBottom + 0.03))
@@ -26,8 +27,8 @@ public nonisolated enum CoverGlass {
     /// How far below the cover the glass has deepened for the type, as a part of its side.
     public static let settle = 0.18
     /// The softening the glass reaches, as a part of the side, and how far down it takes to.
-    static let softest = 0.08
-    static let softening = 0.35
+    static let softest = 0.14
+    static let softening = 0.22
 
     /// The glass below a cover `side` points wide at the top of `size`, its sharp part ending
     /// at `start` (see ``dissolve(subjectBottom:)``), `pointsPerPixel` to a pixel, transparent
@@ -42,11 +43,7 @@ public nonisolated enum CoverGlass {
 
         let source = CIImage(cgImage: picture)
         let fit = CGAffineTransform(scaleX: sidePixels / source.extent.width, y: sidePixels / source.extent.height)
-        let cover = source.transformed(by: fit).transformed(by: CGAffineTransform(translationX: 0, y: top - sidePixels))
-        let reflection = source.transformed(by: fit)
-            .transformed(by: CGAffineTransform(scaleX: 1, y: -1))
-            .transformed(by: CGAffineTransform(translationX: 0, y: top - sidePixels))
-        let canvas = cover.composited(over: reflection).clampedToExtent()
+        let canvas = source.transformed(by: fit).transformed(by: CGAffineTransform(translationX: 0, y: top - sidePixels)).clampedToExtent()
 
         let dissolveY = top - CGFloat(start) * sidePixels
         let gradient = CIFilter.linearGradient()
@@ -85,7 +82,7 @@ public nonisolated enum CoverGlass {
                 continue
             }
             let toType = smooth(min(1, max(0, (y - edge) / (settled - edge))))
-            let light = 0.02 * exp(-pow((y - edge) / 8, 2))
+            let opacity = 1 - fieldShare * smooth(min(1, max(0, (y - edge) / (Double(size.height) - edge))))
             for column in 0..<width {
                 let index = base + column * 4
                 var colour = CoverBleed.Colour(red: Double(rgba[index]) / 255, green: Double(rgba[index + 1]) / 255, blue: Double(rgba[index + 2]) / 255)
@@ -97,15 +94,18 @@ public nonisolated enum CoverGlass {
                         blue: colour.blue + (legible.blue - colour.blue) * toType
                     )
                 }
-                rgba[index] = byte(colour.red + light)
-                rgba[index + 1] = byte(colour.green + light)
-                rgba[index + 2] = byte(colour.blue + light)
-                rgba[index + 3] = 255
+                rgba[index] = byte(colour.red * opacity)
+                rgba[index + 1] = byte(colour.green * opacity)
+                rgba[index + 2] = byte(colour.blue * opacity)
+                rgba[index + 3] = byte(opacity)
             }
         }
         guard let provider = CGDataProvider(data: Data(rgba) as CFData) else { return nil }
         return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
+
+    /// How much of the colours under it the glass gives way to by the screen's foot.
+    static let fieldShare = 0.5
 
     private static func smooth(_ t: Double) -> Double { t * t * (3 - 2 * t) }
 
