@@ -235,6 +235,9 @@ struct NowPlayingMenu: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.circle)
         }
+        // Read from the top, as written, wherever the menu opens: the button sits low on the
+        // screen, and the system's own order turned the menu upside down there.
+        .menuOrder(.fixed)
         .accessibilityLabel("More")
     }
 }
@@ -420,6 +423,7 @@ struct NowPlayingTitleMenu<Label: View>: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
+        .menuOrder(.fixed)
         .accessibilityHint("Shows the album, the artist, your stats and the song's info")
     }
 

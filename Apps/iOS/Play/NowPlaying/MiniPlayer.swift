@@ -39,6 +39,7 @@ struct MiniPlayer: View {
                 .contextMenu {
                     NowPlayingMenuItems(track: track, onNavigate: onNavigate)
                 }
+                .menuOrder(.fixed)
                 .accessibilityLabel(Text("\(track.title), \(track.artistName)"))
                 .accessibilityHint("Opens Now Playing")
                 .accessibilityAction(named: "Next") { player.skipToNext() }
