@@ -12,7 +12,7 @@ struct HandpickedTile: View {
         Button {
             showsPicker = true
         } label: {
-            CategoryTile(title: Handpicked.title, symbol: Handpicked.symbol, covers: covers, color: Handpicked.color, height: height)
+            CategoryLabel(subject: CategorySubject(title: Handpicked.title, symbol: Handpicked.symbol, color: Handpicked.color, covers: covers), height: height)
         }
         .buttonStyle(.pressable)
         .accessibilityLabel(Handpicked.title)

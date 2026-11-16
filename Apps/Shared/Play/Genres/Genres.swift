@@ -180,7 +180,7 @@ struct GenreShelf: View {
                     // music changes.
                     Color.clear.frame(height: 0)
                 } else {
-                    Shelf(title: String(localized: "Genres"), items: items) { EmptyView() } tile: { item in
+                    CategoryRow(title: String(localized: "Genres"), items: items, style: .current, featured: items.first?.id) { item in
                         GenreTile(item: item, height: height)
                     }
                 }
@@ -250,7 +250,7 @@ struct GenreTile: View {
 
     var body: some View {
         NavigationLink(value: PlayRoute.genre(item.genre)) {
-            CategoryTile(title: item.genre.title, symbol: item.genre.symbol, covers: item.covers, color: item.genre.color, height: height, fillsWidth: fillsWidth)
+            CategoryLabel(subject: CategorySubject(title: item.genre.title, symbol: item.genre.symbol, color: item.genre.color, covers: item.covers), height: height, fillsWidth: fillsWidth)
         }
         .buttonStyle(.pressable)
         .accessibilityLabel(item.genre.title)

@@ -153,7 +153,7 @@ struct MoodShelf: View {
 
     var body: some View {
         let height = min(height, 130)
-        Shelf(title: String(localized: "Find Your Mood"), items: MoodShelfItem.all) { EmptyView() } tile: { item in
+        CategoryRow(title: String(localized: "Find Your Mood"), items: MoodShelfItem.all, style: .current, featured: Mood.forNow(covers: covers).rawValue) { item in
             switch item {
             // Your own mood first: a station from songs you choose.
             case .handpicked: HandpickedTile(height: height, covers: Self.art(covers?.overall))
@@ -205,7 +205,7 @@ struct MoodTile: View {
     var body: some View {
         // Party opens its own page, for finding a party's playlist.
         NavigationLink(value: mood == .party ? PlayRoute.party : PlayRoute.mood(mood)) {
-            CategoryTile(title: mood.title, symbol: mood.symbol, covers: covers, color: mood.base, height: height, fillsWidth: fillsWidth)
+            CategoryLabel(subject: CategorySubject(title: mood.title, symbol: mood.symbol, color: mood.base, covers: covers), height: height, fillsWidth: fillsWidth)
         }
         .buttonStyle(.pressable)
         .accessibilityLabel(mood.title)
