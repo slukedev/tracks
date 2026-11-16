@@ -59,25 +59,23 @@ struct YourMusicMoodView: View {
 
     private func hero(canPlay: Bool, hasFinds: Bool) -> some View {
         let style = mood.style
-        return RoomHero(
-            style: style,
-            title: mood.title,
-            tagline: mood.tagline,
-            facts: yours.isEmpty ? nil : String(AttributedString(localized: "^[\(yours.count) song](inflect: true) in your music").characters),
-            covers: heroCovers(style),
-            isLoading: !hasLoaded
+        return MoodHero(
+            mood: mood,
+            covers: heroCovers,
+            line: hasLoaded ? mood.tagline : nil,
+            facts: yours.isEmpty ? nil : String(AttributedString(localized: "^[\(yours.count) song](inflect: true) in your music").characters)
         ) {
             VStack(alignment: .leading, spacing: 12) {
-                RoomPlayButtons(
-                    style: style,
-                    playTitle: isOn ? (player.isPlaying ? "Pause" : "Resume") : "Play",
-                    playSymbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
+                ArtworkPlayRow(
+                    title: isOn ? (player.isPlaying ? String(localized: "Pause") : String(localized: "Resume")) : String(localized: "Play"),
+                    symbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
+                    tint: style.base,
                     canPlay: canPlay,
                     shuffle: yours.isEmpty ? nil : { player.play(.local(yours), from: .songs(mood.title), shuffled: true) },
                     play: { isOn ? player.togglePlayPause() : play(startingWith: nil) }
                 ) {
                     if let session = mood.session {
-                        RoomRoundMenu(title: session.title, symbol: session.symbol, isOn: player.sleepTimer != nil) {
+                        ArtworkRoundMenu(title: session.title, symbol: session.symbol, isOn: player.sleepTimer != nil) {
                             if player.sleepTimer != nil {
                                 Button("Turn Off Timer", systemImage: "xmark") { player.setSleepTimer(nil) }
                                 Divider()
@@ -108,11 +106,11 @@ struct YourMusicMoodView: View {
         player.hasQueue && player.context == PlayContext(kind: .endless, title: mood.title)
     }
 
-    /// Your songs' covers, one per album, in the mood's arrangement.
-    private func heroCovers(_ style: RoomStyle) -> [CoverArt] {
+    /// Your songs' covers, one per album.
+    private var heroCovers: [CoverArt] {
         var seen = Set<String>()
         var covers: [CoverArt] = []
-        for track in yours where covers.count < CoverMosaic.count(for: style.covers) {
+        for track in yours where covers.count < 12 {
             if seen.insert(track.album ?? track.id).inserted {
                 covers.append(.url(music.artworkURL(track.artwork)?.absoluteString, seed: track.album ?? track.title))
             }

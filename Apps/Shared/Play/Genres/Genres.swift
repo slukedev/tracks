@@ -85,6 +85,15 @@ struct GenreTileItem: Identifiable {
     let genre: MusicGenre
     let covers: [CoverArt]
     var id: String { genre.id }
+
+    nonisolated static func oneEach<Song>(_ songs: some Sequence<Song>, album: (Song) -> String, limit: Int = 6) -> [Song] {
+        var seen = Set<String>()
+        var picked: [Song] = []
+        for song in songs where picked.count < limit {
+            if seen.insert(StatsCalculator.folded(album(song))).inserted { picked.append(song) }
+        }
+        return picked
+    }
 }
 
 /// The genres for Play's shelf, from the music playing: every genre with Apple Music, the ones
@@ -100,7 +109,7 @@ enum GenreShelfItems {
             return groups.map { group in
                 GenreTileItem(
                     genre: group.genre,
-                    covers: group.tracks.prefix(3).map { .url(music.artworkURL($0.artwork)?.absoluteString, seed: $0.album ?? $0.title) }
+                    covers: GenreTileItem.oneEach(group.tracks, album: { $0.album ?? $0.id }).map { .url(music.artworkURL($0.artwork)?.absoluteString, seed: $0.album ?? $0.title) }
                 )
             }
         }
@@ -109,7 +118,7 @@ enum GenreShelfItems {
         return profiles.map { profile in
             GenreTileItem(
                 genre: profile.genre,
-                covers: profile.songs.prefix(3).map { .url($0.artworkURL, seed: $0.albumTitle ?? $0.title) }
+                covers: GenreTileItem.oneEach(profile.songs, album: { $0.albumTitle ?? $0.title }).map { .url($0.artworkURL, seed: $0.albumTitle ?? $0.title) }
             )
         }
     }
@@ -182,7 +191,9 @@ struct GenreShelf: View {
         .task(id: key) {
             let key = key
             // Only the history moving on waits; another source or library looks at once.
-            if let loaded, loaded.key.source == key.source, loaded.key.songs == key.songs {
+            // A first look made before the history was read waits for nothing.
+            let hadHistory = items?.contains { !$0.covers.isEmpty } ?? false
+            if hadHistory, let loaded, loaded.key.source == key.source, loaded.key.songs == key.songs {
                 let due = loaded.at + Self.refreshInterval
                 if due > .now {
                     try? await Task.sleep(until: due)
@@ -232,89 +243,17 @@ private struct GenreKey: Equatable {
     let songs: Int
 }
 
-/// A genre's tile: its page's colours and its name in its page's type, with a record sliding
-/// out at the trailing edge, its label the cover of what you play most in it, or the genre's
-/// symbol on its colour. Moods show a symbol, a feeling; genres show a record, the music.
 struct GenreTile: View {
     let item: GenreTileItem
     let height: CGFloat
-    /// Fills its grid cell's width, rather than the shelf's fixed shape.
     var fillsWidth = false
 
     var body: some View {
-        let style = item.genre.style
         NavigationLink(value: PlayRoute.genre(item.genre)) {
-            ZStack(alignment: .bottomLeading) {
-                RoomTileField(style: style)
-                RecordDisc(label: item.covers.first, symbol: item.genre.symbol, labelColor: style.base.mix(with: .white, by: 0.22))
-                    .frame(width: height * 0.92, height: height * 0.92)
-                    .offset(x: height * 0.24)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .accessibilityHidden(true)
-                Text(item.genre.title)
-                    .font(style.title.font(size: MoodTile.nameSize))
-                    .tracking(style.title.tracking * 0.5)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .shadow(color: .black.opacity(0.25), radius: 6, y: 1)
-                    .padding(12)
-            }
-            .frame(width: fillsWidth ? nil : height * 1.75, height: height)
-            .frame(maxWidth: fillsWidth ? .infinity : nil)
-            .clipShape(.rect(cornerRadius: 16, style: .continuous))
-            .contentShape(.rect(cornerRadius: 16, style: .continuous))
+            CategoryTile(title: item.genre.title, symbol: item.genre.symbol, covers: item.covers, color: item.genre.color, height: height, fillsWidth: fillsWidth)
         }
         .buttonStyle(.pressable)
         .accessibilityLabel(item.genre.title)
-    }
-}
-
-/// A record: black vinyl with a few grooves catching the light, and its label, a cover or a
-/// symbol on a colour.
-struct RecordDisc: View {
-    let label: CoverArt?
-    let symbol: String
-    let labelColor: Color
-
-    var body: some View {
-        GeometryReader { proxy in
-            let side = min(proxy.size.width, proxy.size.height)
-            let labelSide = side * 0.42
-            ZStack {
-                Circle().fill(Color(white: 0.07).gradient)
-                ForEach([0.92, 0.8, 0.68, 0.56], id: \.self) { scale in
-                    Circle()
-                        .strokeBorder(.white.opacity(0.07), lineWidth: 0.75)
-                        .frame(width: side * scale, height: side * scale)
-                }
-                Circle()
-                    .fill(.white.opacity(0.08))
-                    .frame(width: side, height: side)
-                    .mask {
-                        AngularGradient(colors: [.clear, .white, .clear, .clear, .white, .clear], center: .center)
-                    }
-                Group {
-                    if let label {
-                        CoverImage(cover: label, size: labelSide, isBare: true)
-                    } else {
-                        ZStack {
-                            labelColor
-                            Image(systemName: symbol)
-                                .font(.system(size: labelSide * 0.42, weight: .bold))
-                                .foregroundStyle(.white.opacity(0.85))
-                        }
-                    }
-                }
-                .frame(width: labelSide, height: labelSide)
-                .clipShape(.circle)
-                Circle()
-                    .fill(Color(white: 0.07))
-                    .frame(width: side * 0.04, height: side * 0.04)
-            }
-            .frame(width: side, height: side)
-            .shadow(color: .black.opacity(0.3), radius: 6, x: -2, y: 2)
-        }
     }
 }
 

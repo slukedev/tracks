@@ -27,12 +27,6 @@ enum CollectionKind {
     }
 }
 
-/// The top of a collection's page: the cover standing on a field of its own colour, the
-/// title, who made it, its facts, and Play and Shuffle.
-///
-/// On iPhone it's the first row of the page's list, centred, and the field runs up under the
-/// navigation bar and fades into the page at its foot. On the Mac it sits beside the cover,
-/// over the page's table, and the field runs under the window's toolbar.
 struct CollectionHeader<Cover: View, More: View>: View {
     let kind: CollectionKind
     let title: String
@@ -46,7 +40,7 @@ struct CollectionHeader<Cover: View, More: View>: View {
     var note: String?
     /// How a Your Music album is encoded.
     var format: AudioFormat?
-    /// The cover the field takes its colour from.
+    /// The cover Play takes its colour from.
     let tintCover: CoverArt?
     var canPlay = true
     var download: DownloadSubject?
@@ -54,16 +48,13 @@ struct CollectionHeader<Cover: View, More: View>: View {
     var isLoading = false
     let play: () -> Void
     let shuffle: () -> Void
-    /// The page's More menu, drawn on the field on the Mac. iPhone keeps it in the toolbar.
+    /// The page's More menu, beside Play on the Mac. iPhone keeps it in the toolbar.
     @ViewBuilder var more: More
     /// The cover at the side it's given.
     @ViewBuilder var cover: (CGFloat) -> Cover
 
     @State private var tint: Color?
-    #if os(macOS)
-    /// The cover's colour at its most vivid, for the glow behind the header.
-    @State private var glow: Color?
-    #else
+    #if os(iOS)
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #endif
 
@@ -91,140 +82,150 @@ struct CollectionHeader<Cover: View, More: View>: View {
         .shadow(color: .black.opacity(0.35), radius: coverSide > 150 ? 24 : 12, y: coverSide > 150 ? 12 : 6)
     }
 
-    private var playButtons: some View {
-        playButtons(iconsOnly: false)
-    }
-
-    /// Play and Shuffle. Their words never wrap: where a narrow Mac window can't fit them, the
-    /// row steps down to their symbols.
-    private func playButtons(iconsOnly: Bool) -> some View {
-        Group {
-            Button(action: play) {
-                stageLabel("Play", systemImage: "play.fill", iconOnly: iconsOnly)
-                    .frame(maxWidth: equalWidths ? .infinity : nil)
-            }
-            .buttonStyle(.stagePrimary(tint: fieldTint))
-            .help("Play")
-            Button(action: shuffle) {
-                stageLabel("Shuffle", systemImage: "shuffle", iconOnly: iconsOnly)
-                    .frame(maxWidth: equalWidths ? .infinity : nil)
-            }
-            .buttonStyle(.stageSecondary)
-            .help("Shuffle")
-        }
-        .lineLimit(1)
-        .fixedSize(horizontal: !equalWidths, vertical: false)
-        .disabled(!canPlay || isLoading)
-    }
-
     #if os(iOS)
-    /// Smaller at accessibility sizes, so the title and Play still meet the eye on arrival.
-    private var coverSide: CGFloat { dynamicTypeSize.isAccessibilitySize ? 200 : 260 }
-    private var equalWidths: Bool { true }
+    private var coverSide: CGFloat { 220 }
 
     private var layout: some View {
-        VStack(spacing: 0) {
-            coverView
-                .padding(.bottom, 16)
-            VStack(spacing: 4) {
-                if isLoading {
-                    placeholderText(width: 180, height: 22)
-                    placeholderText(width: 120, height: 18)
-                } else {
-                    Text(title)
-                        .font(.title2.bold())
-                        .foregroundStyle(.white)
-                        .lineLimit(3)
-                    subtitleView
-                    if let facts {
-                        facts
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.7))
-                            .padding(.top, 2)
-                    }
-                    if let format {
-                        FormatBadge(format: format, onDark: true, showsDetail: true)
-                            .padding(.top, 6)
-                    }
-                    if let note, !note.isEmpty {
-                        Text(note)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.7))
-                            .lineLimit(3)
-                            .padding(.top, 6)
-                    }
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: 0) {
+                    artwork
+                    words(onArt: false)
+                        .padding(.top, 18)
                 }
+            } else {
+                artwork
+                    .overlay(alignment: .bottom) {
+                        words(onArt: true)
+                            .padding(.top, 72)
+                            .background(alignment: .bottom) { ArtworkScrim() }
+                    }
             }
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, PlayMetrics.margin)
-            let buttons = dynamicTypeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(spacing: 12))
-                : AnyLayout(HStackLayout(spacing: 12))
-            buttons {
-                playButtons
-            }
-            .padding(.horizontal, PlayMetrics.margin)
-            .padding(.top, 20)
         }
-        .padding(.top, 8)
-        .padding(.bottom, Self.fade)
+        .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
-        .background {
-            // Up under the navigation bar, and far enough past it that pulling the page down
-            // never shows the page behind.
-            CoverStage(tint: fieldTint, deepens: false)
-                .padding(.top, -Self.overscroll)
-                .overlay(alignment: .bottom) {
-                    // Eased, so the colour melts into the page rather than stopping at a line,
-                    // and starting under Play and Shuffle: their white words need the field.
-                    LinearGradient(
-                        stops: Self.easedStops.map { .init(color: Color.pageBackground.opacity($0.opacity), location: $0.location) },
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: Self.fadeReach)
-                }
-                .accessibilityHidden(true)
-        }
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
     }
 
-    /// The field's foot below the buttons, where the page shows through at last.
-    static var fade: CGFloat { 30 }
-    /// How far up the fade reaches: behind the lower half of the buttons, below their words,
-    /// so it's a long melt rather than a band, and the songs start close under the buttons.
-    private static var fadeReach: CGFloat { fade + 22 }
-    /// Smoothstep, so the fade has no start or end to see.
-    private static var easedStops: [(opacity: Double, location: Double)] {
-        (0...10).map { step in
-            let t = Double(step) / 10
-            return (opacity: t * t * (3 - 2 * t), location: t)
-        }
+    // Drawn a little larger than the square so the cover's rounded corners fall outside it;
+    // the blurred mirror above fills a pull past the top.
+    private var artwork: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                GeometryReader { proxy in
+                    let side = proxy.size.width
+                    ZStack(alignment: .top) {
+                        art(side)
+                            .scaleEffect(x: 1, y: -1)
+                            .blur(radius: 24)
+                            .frame(width: side, height: side)
+                            .clipped()
+                            .offset(y: -side)
+                        art(side)
+                            .frame(width: side, height: side)
+                            .clipped()
+                    }
+                }
+            }
+            .accessibilityHidden(true)
     }
-    private static var overscroll: CGFloat { 600 }
 
     @ViewBuilder
-    private var subtitleView: some View {
+    private func art(_ side: CGFloat) -> some View {
+        if isLoading {
+            Color.placeholderFill
+        } else {
+            cover(side + CoverImage.maximumRadius * 3)
+        }
+    }
+
+    private func words(onArt: Bool) -> some View {
+        VStack(spacing: 0) {
+            if isLoading {
+                placeholderText(width: 180, height: 22)
+                placeholderText(width: 120, height: 18)
+                    .padding(.top, 6)
+            } else {
+                Text(title)
+                    .font(.title2.bold())
+                    .lineLimit(3)
+                subtitleView(onArt: onArt)
+                    .padding(.top, 2)
+                if let facts {
+                    facts
+                        .font(.footnote)
+                        .foregroundStyle(onArt ? AnyShapeStyle(.white.opacity(0.75)) : AnyShapeStyle(.secondary))
+                        .padding(.top, 4)
+                }
+                if let format {
+                    FormatBadge(format: format, onDark: onArt, showsDetail: true)
+                        .padding(.top, 6)
+                }
+                if let note, !note.isEmpty {
+                    Text(note)
+                        .font(.footnote)
+                        .foregroundStyle(onArt ? AnyShapeStyle(.white.opacity(0.75)) : AnyShapeStyle(.secondary))
+                        .lineLimit(3)
+                        .padding(.top, 6)
+                }
+            }
+            playRow(onArt: onArt)
+                .padding(.top, 16)
+        }
+        .foregroundStyle(onArt ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, PlayMetrics.margin)
+        .padding(.bottom, 18)
+    }
+
+    private func playRow(onArt: Bool) -> some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 12))
+        return GlassEffectContainer(spacing: 12) {
+            layout {
+                Button(action: play) {
+                    Label("Play", systemImage: "play.fill")
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glassProminent)
+                .tint((fieldTint ?? .accentColor).mix(with: .black, by: 0.3))
+                Button(action: shuffle) {
+                    Label("Shuffle", systemImage: "shuffle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glass)
+            }
+        }
+        .font(.headline)
+        .controlSize(.large)
+        .buttonBorderShape(.capsule)
+        .lineLimit(1)
+        .disabled(!canPlay || isLoading)
+    }
+
+    @ViewBuilder
+    private func subtitleView(onArt: Bool) -> some View {
         if let subtitle, !subtitle.isEmpty {
+            let style = onArt ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.tint)
             if let onSubtitle {
                 Button(action: onSubtitle) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(subtitle)
-                            .font(.title3)
-                        Image(systemName: "chevron.forward")
-                            .font(.caption.bold())
-                    }
-                    .foregroundStyle(.white.opacity(0.85))
-                    .contentShape(.rect)
+                    Text(subtitle)
+                        .font(.title3)
+                        .foregroundStyle(style)
+                        .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Opens the artist")
             } else {
                 Text(subtitle)
                     .font(.title3)
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(style)
             }
         }
     }
@@ -287,14 +288,6 @@ struct CollectionHeader<Cover: View, More: View>: View {
         .padding(.top, 24)
         .padding(.bottom, 28)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(alignment: .top) {
-            // A colour already known is there from the first frame, rather than fading in.
-            CoverGlow(color: glow ?? tintCover.flatMap(CoverTint.knownGlow(for:)) ?? fieldTint)
-        }
-        .task(id: tintCover) {
-            guard let tintCover, let found = await CoverTint.glow(for: tintCover), !Task.isCancelled else { return }
-            withAnimation(PlayMotion.tint) { glow = found }
-        }
     }
 
     /// Play in the cover's colour, Shuffle and More beside it, with their words or, where

@@ -74,7 +74,7 @@ struct DayPartBars: View {
                         .monospacedDigit()
                         .foregroundStyle(isPeak ? AnyShapeStyle(style.ink) : AnyShapeStyle(.secondary))
                     UnevenRoundedRectangle(topLeadingRadius: 8, topTrailingRadius: 8, style: .continuous)
-                        .fill(isPeak ? AnyShapeStyle(style.base.gradient) : AnyShapeStyle(.fill.secondary))
+                        .fill(isPeak ? AnyShapeStyle(style.base) : AnyShapeStyle(.fill.tertiary))
                         .frame(height: max(6, Self.tallest * share / max(shares.max() ?? 1, 0.01)))
                     Image(systemName: part.symbol)
                         .font(.body.weight(.semibold))

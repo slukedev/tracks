@@ -72,15 +72,6 @@ extension Mood {
     var palette: [Color] { HueField.shades(of: base) }
 }
 
-/// A mood's field: its colour, lit a little from the top as Apple's tiles are.
-struct MoodField: View {
-    let mood: Mood
-
-    var body: some View {
-        HueField(color: mood.base)
-    }
-}
-
 /// One colour, lit a little from the top as Apple's own tiles are: a mood's field, and
 /// Handpicked's, each genre's and each party's.
 struct HueField: View {
@@ -93,53 +84,6 @@ struct HueField: View {
     /// A colour deep to light: darker for type over white, lighter for a highlight.
     static func shades(of color: Color) -> [Color] {
         [color.mix(with: .black, by: 0.3), color, color.mix(with: .white, by: 0.25)]
-    }
-}
-
-/// The colour behind a page's header, as a mood's, Handpicked's and each genre's have: its
-/// field with its symbol large and faint in the corner, up under the bar and into any pull
-/// past the top, melting into the page below the header's last button over a long, eased
-/// fade, as a collection's header does, rather than stopping at a line.
-struct HeroField: View {
-    let color: Color
-    let symbol: String
-
-    var body: some View {
-        HueField(color: color)
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: symbol)
-                    .font(.system(size: 220, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.1))
-                    .rotationEffect(.degrees(-12))
-                    .offset(x: 60, y: 10)
-                    .accessibilityHidden(true)
-            }
-            .clipped()
-            .mask {
-                VStack(spacing: 0) {
-                    Color.black
-                    LinearGradient(
-                        stops: Self.easedStops.map { .init(color: .black.opacity(1 - $0.opacity), location: $0.location) },
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: Self.fadeReach)
-                }
-            }
-            .padding(.top, -400)
-            .accessibilityHidden(true)
-    }
-
-    /// Below the header's last button, where the page shows through at last.
-    static let fade: CGFloat = 40
-    /// How far up the fade reaches: from behind the last button down, clear of the words
-    /// above it.
-    static let fadeReach: CGFloat = 150
-
-    /// Smoothstep, so the fade has no start or end to see.
-    private static let easedStops: [(opacity: Double, location: Double)] = (0...10).map { step in
-        let t = Double(step) / 10
-        return (opacity: t * t * (3 - 2 * t), location: t)
     }
 }
 
@@ -199,19 +143,33 @@ private struct HeroTitle: ViewModifier {
 
 // MARK: - On Play
 
-/// Find Your Mood, on Play: Handpicked, then every mood, in a row to scroll through.
+/// Find Your Mood, on Play: Handpicked, then every mood, in a row to scroll through, each
+/// tile made of the covers of what you play in it.
 struct MoodShelf: View {
+    @Environment(AppModel.self) private var model
+    @Environment(PlayerModel.self) private var player
     @ScaledMetric(relativeTo: .headline) private var height: CGFloat = Self.height
+    @State private var covers: RoomCovers?
 
     var body: some View {
         let height = min(height, 130)
         Shelf(title: String(localized: "Find Your Mood"), items: MoodShelfItem.all) { EmptyView() } tile: { item in
             switch item {
             // Your own mood first: a station from songs you choose.
-            case .handpicked: HandpickedTile(height: height)
-            case .mood(let mood): MoodTile(mood: mood, height: height)
+            case .handpicked: HandpickedTile(height: height, covers: Self.art(covers?.overall))
+            case .mood(let mood): MoodTile(mood: mood, height: height, covers: Self.art(covers?.byMood[mood]))
             }
         }
+        .task(id: model.library.revision) {
+            let (history, signals) = (model.library.history, player.signals)
+            let found = await OffMainActor.run { RoomCovers(history: history, signals: signals, limit: 6) }
+            guard !Task.isCancelled else { return }
+            covers = found
+        }
+    }
+
+    static func art(_ songs: [MixSong]?) -> [CoverArt] {
+        (songs ?? []).map { .url($0.artworkURL, seed: $0.albumTitle ?? $0.title) }
     }
 
     #if os(macOS)
@@ -236,49 +194,22 @@ enum MoodShelfItem: Identifiable {
     static let all: [MoodShelfItem] = [.handpicked] + Mood.allCases.map(MoodShelfItem.mood)
 }
 
-/// A mood on the shelf: its page's field, its symbol large and faint in the corner, and its
-/// name in its page's type, so the tile and the page read as one thing.
+/// A mood on the shelf, in the tile family Genres and Handpicked share.
 struct MoodTile: View {
     let mood: Mood
     let height: CGFloat
+    var covers: [CoverArt] = []
     /// Fills its grid cell's width, rather than the shelf's fixed shape.
     var fillsWidth = false
 
     var body: some View {
-        let style = mood.style
         // Party opens its own page, for finding a party's playlist.
         NavigationLink(value: mood == .party ? PlayRoute.party : PlayRoute.mood(mood)) {
-            ZStack(alignment: .bottomLeading) {
-                RoomTileField(style: style)
-                Image(systemName: mood.symbol)
-                    .font(.system(size: height * 0.72, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.2))
-                    .rotationEffect(.degrees(-12))
-                    .offset(x: height * 0.2, y: height * 0.14)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .accessibilityHidden(true)
-                Text(mood.title)
-                    .font(style.title.font(size: Self.nameSize))
-                    .tracking(style.title.tracking * 0.5)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .padding(12)
-            }
-            .frame(width: fillsWidth ? nil : height * 1.75, height: height)
-            .frame(maxWidth: fillsWidth ? .infinity : nil)
-            .clipShape(.rect(cornerRadius: 16, style: .continuous))
-            .contentShape(.rect(cornerRadius: 16, style: .continuous))
+            CategoryTile(title: mood.title, symbol: mood.symbol, covers: covers, color: mood.base, height: height, fillsWidth: fillsWidth)
         }
         .buttonStyle(.pressable)
         .accessibilityLabel(mood.title)
     }
-
-    #if os(macOS)
-    static let nameSize: CGFloat = 19
-    #else
-    static let nameSize: CGFloat = 20
-    #endif
 }
 
 // MARK: - The mood's page
@@ -367,12 +298,18 @@ struct MoodView: View {
                         Shelf(title: String(localized: "Stations"), items: stations) { FeedTile(item: $0) }
                     }
                 }
-                .padding(.top, 12)
+                .padding(.top, 28)
             }
             .padding(.bottom, 32)
         }
         .tint(style.ink)
         .heroTitle(mood.title)
+        .toolbar {
+            // Your own music has no new songs from Apple Music to mix in.
+            if model.musicSource == .appleMusic {
+                ToolbarItem(placement: .primaryAction) { flowMenu }
+            }
+        }
         #if DEBUG
         .launchScroll()
         #endif
@@ -388,31 +325,32 @@ struct MoodView: View {
     // MARK: Hero
 
     private func hero(_ style: RoomStyle) -> some View {
-        MoodHero(mood: mood, line: room.map { $0.habit?.line ?? mood.tagline }, facts: roomText?.facts) {
+        MoodHero(mood: mood, covers: heroCovers, line: room.map { $0.habit?.line ?? mood.tagline }, facts: roomText?.facts) {
             VStack(alignment: .leading, spacing: 12) {
-                MoodPlayRow(
-                    mood: mood,
-                    playTitle: playTitle,
-                    playSymbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
+                ArtworkPlayRow(
+                    title: playTitle,
+                    symbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
+                    tint: mood.base,
                     canPlay: canPlay,
-                    shuffle: yours.isEmpty ? nil : { shuffleYours() } as () -> Void,
+                    shuffle: yours.isEmpty ? nil : { shuffleYours() },
                     play: playOrPause
                 ) {
                     if let session = mood.session {
-                        RoomRoundMenu(title: session.title, symbol: session.symbol, isOn: player.sleepTimer != nil) {
+                        ArtworkRoundMenu(title: session.title, symbol: session.symbol, isOn: player.sleepTimer != nil) {
                             sessionItems(session)
                         }
                     }
                 }
                 MoodLeanChips(mood: mood, lean: $lean)
-                // Your own music has no new songs from Apple Music to mix in.
-                if model.musicSource == .appleMusic {
-                    flowMenu
-                }
             }
             .frame(maxWidth: Self.controlsWidth, alignment: .leading)
         }
         .onChange(of: lean) { steer() }
+    }
+
+    private var heroCovers: [CoverArt] {
+        if let room, !room.isEmpty { return room.covers(12) }
+        return newSongs.prefix(12).map { $0.song.artwork.map(CoverArt.artwork) ?? .url(nil, seed: $0.song.albumTitle ?? $0.song.title) }
     }
 
     @ViewBuilder
@@ -426,39 +364,25 @@ struct MoodView: View {
         }
     }
 
-    /// The choice of what Play mixes, as a menu under it: a setting, so it stays small.
     private var flowMenu: some View {
         Menu {
             Picker("Play", selection: $flow) {
                 ForEach(MoodFlow.allCases) { option in
-                    Text(option.title).tag(option)
+                    Text(option.summary).tag(option)
                 }
             }
             .pickerStyle(.inline)
         } label: {
-            // The chevron rides on the text's last line, so a long label wraps rather than
-            // pushing the page wider than the screen.
-            Text("\(Text(flow.summary)) \(Image(systemName: "chevron.up.chevron.down"))")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.88))
-                .multilineTextAlignment(.leading)
-                .frame(minHeight: Self.menuHeight)
-                .contentShape(.rect)
+            Label("Mix", systemImage: "slider.horizontal.3")
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel(Text("Mix"))
         .accessibilityValue(Text(flow.summary))
+        .help("Choose What Plays")
     }
 
     #if os(macOS)
     private static let controlsWidth: CGFloat = 520
-    private static let menuHeight: CGFloat = 22
     #else
     private static let controlsWidth: CGFloat = .infinity
-    private static let menuHeight: CGFloat = 32
     #endif
 
     /// The mood's flow is on, playing or paused.
@@ -467,7 +391,7 @@ struct MoodView: View {
     }
 
     private var playTitle: String {
-        guard isOn else { return String(localized: "Play \(mood.title)") }
+        guard isOn else { return String(localized: "Play") }
         return player.isPlaying ? String(localized: "Pause") : String(localized: "Resume")
     }
 

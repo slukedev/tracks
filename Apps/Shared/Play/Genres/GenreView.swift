@@ -30,18 +30,21 @@ struct GenreView: View {
     @State private var showsAllRising = false
     /// The kind of it your essentials are narrowed to, by its chip.
     @State private var kind: String?
+    @State private var neighborItems: [GenreTileItem] = []
 
     var body: some View {
         let style = genre.style
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                hero(style)
+                GenreHeader(genre: genre, line: heroLine, facts: facts)
+                    .padding(.top, Self.headerTop)
+                stationCard(style)
+                    .padding(.top, 18)
                 VStack(alignment: .leading, spacing: style.pace.sectionSpacing) {
                     if model.musicSource == .yourMusic {
                         localSongs(style)
                         localAlbumsShelf
                     } else {
-                        figures(style)
                         essentials(style)
                         if !artists.isEmpty {
                             Shelf(title: String(localized: "Your \(genre.title) Artists"), items: artists) { FavoriteArtistTile(artist: $0) }
@@ -60,7 +63,7 @@ struct GenreView: View {
                     }
                     neighbors
                 }
-                .padding(.top, 12)
+                .padding(.top, 32)
             }
             .padding(.bottom, 32)
         }
@@ -77,62 +80,58 @@ struct GenreView: View {
 
     // MARK: Hero
 
-    private func hero(_ style: RoomStyle) -> some View {
-        GenreHero(genre: genre, line: heroLine, covers: heroCovers, isLoading: !hasLoaded) {
-            RoomPlayButtons(
-                style: style,
-                playTitle: playTitle,
-                playSymbol: isOn && player.isPlaying ? "pause.fill" : "dot.radiowaves.left.and.right",
+    private func stationCard(_ style: RoomStyle) -> some View {
+        GenreStationCard(genre: genre, covers: heroCovers, note: stationNote) {
+            ArtworkPlayRow(
+                title: playTitle,
+                symbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
+                tint: genre.color,
                 canPlay: canPlay && !isStarting,
-                shuffle: canShuffle ? { shuffleYours() } as () -> Void : nil,
+                shuffle: canShuffle ? { shuffleYours() } : nil,
                 play: playOrPause
             )
             .frame(maxWidth: Self.controlsWidth, alignment: .leading)
         }
     }
 
-    /// When you play it where your history says, else what it is.
+    private var stationNote: String {
+        model.musicSource == .yourMusic
+            ? String(localized: "Your music in it, picked as it plays.")
+            : String(localized: "Your favorites and new finds, picked as it plays.")
+    }
+
     private var heroLine: String? {
         guard hasLoaded else { return nil }
-        // Your own music has no figures under the hero, so it says how much of it is yours.
-        if model.musicSource == .yourMusic { return facts ?? genre.tagline }
+        if model.musicSource == .yourMusic { return genre.tagline }
         return room?.habit?.line ?? genre.tagline
     }
 
-    /// Your plays, artists and first year in it, once there's enough to count.
-    @ViewBuilder
-    private func figures(_ style: RoomStyle) -> some View {
-        if let room, room.songs.count >= ListeningRoom.fewest {
-            VStack(alignment: .leading, spacing: 8) {
-                RoomSectionHeader(title: String(localized: "Your \(genre.title)"))
-                GenreFigures(plays: room.plays, artists: room.artistCount, since: room.first?.firstHeard, style: style)
-            }
-            .padding(.horizontal, PlayMetrics.margin)
-        }
-    }
-
-    /// The genres closest to it, to go on to.
     @ViewBuilder
     private var neighbors: some View {
-        if !genre.neighbors.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                RoomSectionHeader(title: String(localized: "Close to \(genre.title)"))
-                GenreNeighbors(genre: genre)
+        let items = genre.neighbors.map { neighbor in
+            neighborItems.first { $0.genre == neighbor } ?? GenreTileItem(genre: neighbor, covers: [])
+        }
+        if !items.isEmpty {
+            Shelf(title: String(localized: "Close to \(genre.title)"), items: items) { EmptyView() } tile: { item in
+                GenreTile(item: item, height: MoodShelf.height)
             }
-            .padding(.horizontal, PlayMetrics.margin)
         }
     }
 
-    /// How much of it is yours, and since when.
     private var facts: String? {
         if model.musicSource == .yourMusic {
             guard let count = local?.tracks.count, count > 0 else { return nil }
             return String(AttributedString(localized: "^[\(count) song](inflect: true) in your music").characters)
         }
-        guard let room, !room.isEmpty else { return nil }
-        let count = String(AttributedString(localized: "^[\(room.songs.count) song](inflect: true) of yours").characters)
-        guard let first = room.first else { return count }
-        return "\(count) · " + String(localized: "Since \(first.firstHeard.formatted(.dateTime.month(.wide).year()))")
+        guard let room, room.songs.count >= ListeningRoom.fewest else { return nil }
+        var parts = [
+            String(AttributedString(localized: "^[\(room.plays) play](inflect: true)").characters),
+            String(AttributedString(localized: "^[\(room.artistCount) artist](inflect: true)").characters),
+        ]
+        if let first = room.first {
+            parts.append(String(localized: "since \(first.firstHeard.formatted(.dateTime.year()))"))
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var heroCovers: [CoverArt] {
@@ -152,10 +151,10 @@ struct GenreView: View {
         player.hasQueue && player.context == genre.context
     }
 
-    private var playTitle: LocalizedStringKey {
-        if isStarting { return "Starting…" }
-        guard isOn else { return "Play Station" }
-        return player.isPlaying ? "Pause" : "Resume"
+    private var playTitle: String {
+        if isStarting { return String(localized: "Starting…") }
+        guard isOn else { return String(localized: "Play") }
+        return player.isPlaying ? String(localized: "Pause") : String(localized: "Resume")
     }
 
     private var canPlay: Bool {
@@ -169,6 +168,12 @@ struct GenreView: View {
     }
 
     private static let wallCovers = 16
+
+    #if os(macOS)
+    private static let headerTop: CGFloat = 20
+    #else
+    private static let headerTop: CGFloat = 4
+    #endif
 
     #if os(macOS)
     private static let controlsWidth: CGFloat = 520
@@ -491,6 +496,12 @@ struct GenreView: View {
             self.room = room
             artists = profile?.artists ?? []
             hasLoaded = true
+            let neighbors = genre.neighbors
+            neighborItems = await OffMainActor.run {
+                MusicGenre.profiles(in: history, signals: signals)
+                    .filter { neighbors.contains($0.genre) }
+                    .map { GenreTileItem(genre: $0.genre, covers: GenreTileItem.oneEach($0.songs, album: { $0.albumTitle ?? $0.title }).map { .url($0.artworkURL, seed: $0.albumTitle ?? $0.title) }) }
+            }
         }
         guard model.musicSource != .yourMusic, reach != .found else { return }
         await loadCharts()

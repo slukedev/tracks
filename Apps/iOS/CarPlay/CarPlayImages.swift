@@ -573,7 +573,7 @@ private struct CarMoodTile: View {
 
     var body: some View {
         ZStack {
-            MoodField(mood: mood)
+            HueField(color: mood.base)
             Image(systemName: mood.symbol)
                 .font(.system(size: side * 0.36, weight: .semibold))
                 .foregroundStyle(.white)

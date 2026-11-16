@@ -3,9 +3,9 @@ import TracksCore
 
 #if os(iOS)
 extension View {
-    /// A collection's page on iPhone: a plain list whose first row is the header's field. While
-    /// the field is under the navigation bar the bar is drawn for a dark field, and the title
-    /// joins the bar once the header's own title has scrolled under it, as Music's does.
+    /// A collection's page on iPhone: a plain list whose first row is the header's artwork, edge
+    /// to edge from the top of the screen. While the artwork is under the bar the bar is drawn
+    /// for it, and the title joins the bar once the header's own has scrolled under it.
     func collectionPage(title: String) -> some View {
         modifier(CollectionChrome(title: title))
     }
@@ -21,6 +21,7 @@ private struct CollectionChrome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .listStyle(.plain)
+            .ignoresSafeArea(edges: .top)
             .onScrollGeometryChange(for: Int.self) { geometry in
                 let scrolled = geometry.contentOffset.y + geometry.contentInsets.top
                 if scrolled > titleDepth + 150 { return 2 }
