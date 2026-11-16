@@ -86,15 +86,9 @@ public nonisolated struct LivingCoverGrade: Equatable, Sendable {
         var lightness = low + (high - low) * t
         lightness += texture * (high - low) * 1.2 * structure
 
-        var chroma = colour.chroma * self.chroma
-        var hue = colour.hue
-        let degrees = hue * 180 / .pi
-        let darkening = Self.smoothstep(0.8, 0.35, lightness)
-        let yellow = Self.bump(degrees, centre: 105, width: 25) * darkening
-        hue -= yellow * 38 * .pi / 180
-        let muddy = Self.bump(degrees, centre: 75, width: 55) * (1 - Self.smoothstep(0.06, 0.16, colour.chroma)) * darkening
-        chroma *= 1 - 0.6 * muddy
-        chroma = min(chroma, 0.26)
+        let cleaned = Self.cleaned(Oklab(lightness: lightness, chroma: colour.chroma * self.chroma, hue: colour.hue), sourceChroma: colour.chroma)
+        let chroma = min(cleaned.chroma, 0.26)
+        let hue = cleaned.hue
 
         let knee = ceiling - 0.1
         if lightness > knee {
@@ -102,6 +96,21 @@ public nonisolated struct LivingCoverGrade: Equatable, Sendable {
         }
         lightness = max(Self.floor, lightness)
         return Oklab(lightness: lightness, chroma: chroma, hue: hue).inGamut
+    }
+
+    /// A colour darkened to `colour`'s lightness kept from mud: yellows lean to amber rather
+    /// than olive, and pale warm colours and yellow-greens (`sourceChroma` low) lose colour to
+    /// become warm greys rather than brown or khaki. The darker it is, the more.
+    public static func cleaned(_ colour: Oklab, sourceChroma: Double) -> Oklab {
+        var chroma = colour.chroma
+        var hue = colour.hue
+        let degrees = hue * 180 / .pi
+        let darkening = smoothstep(0.8, 0.35, colour.lightness)
+        let yellow = bump(degrees, centre: 105, width: 25) * darkening
+        hue -= yellow * 38 * .pi / 180
+        let muddy = bump(degrees, centre: 75, width: 55) * (1 - smoothstep(0.06, 0.16, sourceChroma)) * darkening
+        chroma *= 1 - 0.6 * muddy
+        return Oklab(lightness: colour.lightness, chroma: chroma, hue: hue).inGamut
     }
 
     /// The colour drawn for a cover's sRGB colour.

@@ -119,6 +119,47 @@ struct CoverBleedTests {
     }
 }
 
+@Suite("Full Cover's top bar and colours")
+struct CoverBleedHeadTests {
+    @Test("A plain top needs no veil; lettering under the top bar gets just enough for its words to read", arguments: [false, true])
+    func headVeil(increasedContrast: Bool) throws {
+        #expect(try #require(CoverBleed(rgba: solid(20, 24, 40), side: 48)).headVeil(increasedContrast: increasedContrast) == 0)
+        #expect(try #require(CoverBleed(rgba: solid(250, 248, 240), side: 48)).headVeil(increasedContrast: increasedContrast) == 0)
+        let target = increasedContrast ? 7.0 : 4.5
+        let lettering: [[UInt8]] = [
+            cover { x, y in y < 4 && x % 6 < 3 ? (255, 255, 255, 255) : (15, 15, 20, 255) },
+            cover { x, y in y < 4 && x % 6 < 3 ? (10, 10, 10, 255) : (245, 240, 230, 255) },
+        ]
+        for rgba in lettering {
+            let bleed = try #require(CoverBleed(rgba: rgba, side: 48))
+            let veil = bleed.headVeil(increasedContrast: increasedContrast)
+            #expect(veil > 0 && veil < 1)
+            let ink = bleed.ink(.top)
+            let worst = ink == .light ? bleed.head.lightest : bleed.head.darkest
+            let veiled = CoverBleed.veiled(worst, by: veil, toward: ink)
+            let contrast = ink == .light ? 1.05 / (veiled + 0.05) : (veiled + 0.05) / 0.05
+            #expect(contrast >= target - 0.01)
+            let less = CoverBleed.veiled(worst, by: veil - 0.02, toward: ink)
+            #expect((ink == .light ? 1.05 / (less + 0.05) : (less + 0.05) / 0.05) < target)
+        }
+    }
+
+    @Test("Deepened for white type, a pale beige becomes a warm grey and a yellow amber, not brown or olive")
+    func deepeningWithoutMud() {
+        let beige = CoverBleed.Colour(red: 0.82, green: 0.72, blue: 0.6)
+        let plain = beige.luminance
+        let deep = CoverBleed.legible(beige, for: .light, increasedContrast: false)
+        #expect(deep.luminance <= CoverBleed.lightInkCeiling.standard + 0.001)
+        #expect(deep.luminance < plain)
+        let before = Oklab(red: beige.red, green: beige.green, blue: beige.blue)
+        let after = Oklab(red: deep.red, green: deep.green, blue: deep.blue)
+        #expect(after.chroma < before.chroma)
+        let yellow = CoverBleed.Colour(red: 0.95, green: 0.85, blue: 0.1)
+        let gold = CoverBleed.legible(yellow, for: .light, increasedContrast: false)
+        #expect(Oklab(red: gold.red, green: gold.green, blue: gold.blue).hue < Oklab(red: yellow.red, green: yellow.green, blue: yellow.blue).hue - 0.2)
+    }
+}
+
 @Suite("Full Cover's layout and field")
 struct CoverBleedFieldTests {
     let phone = CGSize(width: 402, height: 874)

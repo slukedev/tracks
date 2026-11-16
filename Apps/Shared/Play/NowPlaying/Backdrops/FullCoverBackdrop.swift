@@ -107,6 +107,9 @@ struct FullCoverBackdrop: View {
                 .offset(x: shown.minX, y: shown.minY)
             }
         }
+        .overlay(alignment: .top) {
+            headVeil(bleed, cover: rect)
+        }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .preference(key: FullCoverPictureKey.self, value: FullCoverPicture(
             shown: shown,
@@ -116,6 +119,29 @@ struct FullCoverBackdrop: View {
             leading: shape.feather(.leading),
             trailing: shape.feather(.trailing)
         ))
+    }
+
+    /// A wash under the top bar, black under white type and white under dark, as strong as
+    /// the cover's top needs for the bar's words to read over a title or a face there, easing
+    /// away below the bar. Nothing on a cover whose top is plain enough already.
+    @ViewBuilder
+    private func headVeil(_ bleed: CoverBleed, cover: CGRect) -> some View {
+        let veil = bleed.headVeil(increasedContrast: contrast == .increased)
+        if veil > 0.01 {
+            let colour: Color = bleed.ink(.top) == .light ? .black : .white
+            let solid = max(0, cover.minY) + cover.width * Self.featherElsewhere
+            let fade = cover.width * 0.14
+            LinearGradient(
+                stops: (0...6).map { step in
+                    let t = Double(step) / 6
+                    return .init(color: colour.opacity(veil * (1 - Self.smooth(t))), location: (solid + fade * t) / (solid + fade))
+                },
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: solid + fade)
+            .allowsHitTesting(false)
+        }
     }
 
     static var direction: CoverBleedLayout.Direction {
