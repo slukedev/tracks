@@ -75,7 +75,7 @@ struct FullCoverBackdrop: View {
             size: size,
             cover: shown,
             songEdge: songEdge,
-            featherToSong: Self.featherToSong(direction),
+            featherToSong: Self.featherToSong(direction, art: art),
             featherElsewhere: Self.featherElsewhere,
             settle: Self.settle(direction),
             pointsPerPixel: Self.pointsPerPixel,
@@ -154,8 +154,11 @@ struct FullCoverBackdrop: View {
 
     /// How far into the cover it fades, as a part of its side: furthest on the edge the song
     /// sits past, where it gives way to its colours, and only a little on the others.
-    static func featherToSong(_ direction: CoverBleedLayout.Direction) -> Double {
-        direction == .below ? 0.12 : 0.28
+    /// On iPhone, only below its subject, where its glass takes over (see ``CoverGlass``).
+    static func featherToSong(_ direction: CoverBleedLayout.Direction, art: BackdropArt) -> Double {
+        guard direction == .below else { return 0.28 }
+        let subjects = [art.subject, art.focus].compactMap { $0.map { Double($0.maxY) } }
+        return 1 - CoverGlass.dissolve(subjectBottom: subjects.max())
     }
     static let featherElsewhere = 0.07
     /// How far past the cover its edge's colours settle into one, as a part of its side.
@@ -280,6 +283,14 @@ final class BleedFieldCache {
         blend.backgroundImage = CIImage(cgImage: colours)
         blend.maskImage = CIImage(cgImage: weights)
         guard let output = blend.outputImage else { return colours }
+        // Under the song, the cover carries on below itself as glass, over the colours.
+        if shape.songEdge == .bottom, frame.minY <= 0.5,
+           let glass = CoverGlass.extend(picture: picture, size: shape.size, side: frame.width, start: 1 - shape.featherToSong, ink: bleed.ink(.bottom), increasedContrast: shape.increasedContrast, pointsPerPixel: shape.pointsPerPixel / 2, context: context) {
+            let glassImage = CIImage(cgImage: glass)
+            let finer = glassImage.extent
+            let colours = output.transformed(by: CGAffineTransform(scaleX: finer.width / extent.width, y: finer.height / extent.height))
+            return context.createCGImage(glassImage.composited(over: colours), from: finer, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) ?? glass
+        }
         return context.createCGImage(output, from: extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) ?? colours
     }
 
