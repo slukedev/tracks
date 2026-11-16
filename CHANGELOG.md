@@ -30,6 +30,9 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   colour gets a texture of its own, beiges and yellows never turn to mud, a framed cover flows
   from its picture, and the song's name and controls always read. It rests while you drag the
   player, and slows down when the device runs hot
+- Full Cover keeps the top bar and the status bar readable over a cover's own lettering or a
+  bright sky, with a soft wash only as strong as the cover needs, and its colours below the
+  cover never turn to mud
 - Top Songs, Top Artists and Top Albums travel through time: any day, week, month or year.
   Songs show when you listened, bar by bar, and a bar opens that day. Artists show who your
   listening went to. Albums show the record you went deepest into
