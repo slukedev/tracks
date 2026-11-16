@@ -67,6 +67,9 @@ struct NowPlayingView: View {
         .onChange(of: player.current?.songIdentity) { showsBack = false }
         .sensoryFeedback(.selection, trigger: turns)
         .playerFeedback()
+        // The status bar reads as the top bar does: dark over Full Cover's light tops, light
+        // over everything else, and the app's own once the player's on its way into the bar.
+        .background { StatusBarInk(scheme: ink(.top).colorScheme) }
         // Under Stage nothing here can be seen, so its background and clocks rest.
         // While the player slides up, a moving background redrawn every frame kept the main
         // thread waiting on the GPU and the opening stalled. It starts once the player is up.
@@ -379,5 +382,17 @@ struct NowPlayingView: View {
     private func navigate(_ destination: NowPlayingDestination) {
         PlayerHandoff.shared.close()
         onNavigate(destination)
+    }
+}
+
+/// Asks for the status bar in `scheme` while the player is more open than not. Its own view,
+/// so following the handoff never redraws the player.
+private struct StatusBarInk: View {
+    let scheme: ColorScheme
+    @State private var handoff = PlayerHandoff.shared
+
+    var body: some View {
+        Color.clear
+            .preferredColorScheme(handoff.progress < 0.5 ? scheme : nil)
     }
 }
