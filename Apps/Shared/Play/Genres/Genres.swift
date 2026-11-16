@@ -158,7 +158,8 @@ nonisolated enum LocalGenres {
 
 // MARK: - On Play
 
-/// Genres, on Play: every genre as chips in two rows to scroll through, the ones you play first.
+/// Genres, on Play: every genre in a row to scroll through, the ones you play first, each
+/// with the covers of what you play in it.
 struct GenreShelf: View {
     @Environment(AppModel.self) private var model
     @Environment(PlayFeed.self) private var feed
@@ -177,12 +178,12 @@ struct GenreShelf: View {
                     // music changes.
                     Color.clear.frame(height: 0)
                 } else {
-                    ChipShelf(title: String(localized: "Genres"), items: items) { item in
+                    Shelf(title: String(localized: "Genres"), items: items) { item in
                         GenreTile(item: item)
                     }
                 }
             } else {
-                ChipShelfPlaceholder(title: String(localized: "Genres"))
+                CategoryShelfPlaceholder(title: String(localized: "Genres"))
             }
         }
         .task(id: key) {
@@ -218,7 +219,7 @@ private struct GenreKey: Equatable {
     let songs: Int
 }
 
-/// A genre's chip, which opens its page.
+/// A genre's card, which opens its page.
 struct GenreTile: View {
     let item: GenreTileItem
     /// Fills its grid cell's width, as Search lays the genres out.
@@ -226,9 +227,9 @@ struct GenreTile: View {
 
     var body: some View {
         NavigationLink(value: PlayRoute.genre(item.genre)) {
-            CategoryChip(title: item.genre.title, symbol: item.genre.symbol, color: item.genre.color, fillsWidth: fillsWidth)
+            CategoryCard(title: item.genre.title, symbol: item.genre.symbol, color: item.genre.color, covers: item.covers, fillsWidth: fillsWidth)
         }
-        .buttonStyle(.categoryChip)
+        .buttonStyle(.categoryCard)
         .accessibilityLabel(item.genre.title)
         .accessibilityHint(Text("Opens songs in this genre"))
     }

@@ -143,20 +143,35 @@ private struct HeroTitle: ViewModifier {
 
 // MARK: - On Play
 
-/// Find Your Mood, on Play: Handpicked, then every mood, as chips in two rows to scroll through.
+/// Find Your Mood, on Play: Handpicked, then every mood, in a row to scroll through, each
+/// card holding the covers of what you play in it.
 struct MoodShelf: View {
+    @Environment(AppModel.self) private var model
+    @Environment(PlayerModel.self) private var player
+    @State private var covers: RoomCovers?
+
     var body: some View {
-        ChipShelf(title: String(localized: "Find Your Mood"), items: MoodShelfItem.all) { item in
+        Shelf(title: String(localized: "Find Your Mood"), items: MoodShelfItem.all) { item in
             switch item {
             // Your own mood first: a station from songs you choose.
-            case .handpicked: HandpickedTile()
-            case .mood(let mood): MoodTile(mood: mood)
+            case .handpicked: HandpickedTile(covers: Self.art(covers?.overall))
+            case .mood(let mood): MoodTile(mood: mood, covers: Self.art(covers?.byMood[mood]))
             }
         }
+        .task(id: model.library.revision) {
+            let (history, signals) = (model.library.history, player.signals)
+            let found = await OffMainActor.run { RoomCovers(history: history, signals: signals, limit: 3) }
+            guard !Task.isCancelled else { return }
+            covers = found
+        }
+    }
+
+    static func art(_ songs: [MixSong]?) -> [CoverArt] {
+        (songs ?? []).map { .url($0.artworkURL, seed: $0.albumTitle ?? $0.title) }
     }
 }
 
-/// A chip on Find Your Mood.
+/// A card on Find Your Mood.
 enum MoodShelfItem: Identifiable {
     case handpicked
     case mood(Mood)
@@ -171,18 +186,19 @@ enum MoodShelfItem: Identifiable {
     static let all: [MoodShelfItem] = [.handpicked] + Mood.allCases.map(MoodShelfItem.mood)
 }
 
-/// A mood's chip, which opens its page.
+/// A mood's card, which opens its page.
 struct MoodTile: View {
     let mood: Mood
+    var covers: [CoverArt] = []
     /// Fills its grid cell's width, as Search lays the moods out.
     var fillsWidth = false
 
     var body: some View {
         // Party opens its own page, for finding a party's playlist.
         NavigationLink(value: mood == .party ? PlayRoute.party : PlayRoute.mood(mood)) {
-            CategoryChip(title: mood.title, symbol: mood.symbol, color: mood.base, fillsWidth: fillsWidth)
+            CategoryCard(title: mood.title, symbol: mood.symbol, color: mood.base, covers: covers, fillsWidth: fillsWidth)
         }
-        .buttonStyle(.categoryChip)
+        .buttonStyle(.categoryCard)
         .accessibilityLabel(mood.title)
         .accessibilityHint(Text("Opens songs for this mood"))
     }

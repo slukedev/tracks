@@ -125,9 +125,10 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
 - Genre pages read like Music's: the genre's name, how much you've played it and since when,
   then its station as a card of its covers, your essentials narrowed by kind, and the genres
   closest to it at the foot
-- Moods, genres and Handpicked on Play are chips in two rows, as Control Center's modules are:
-  the category's symbol on a disc of its colour, then its name. Search and a genre's page use
-  the same chips, and on the Mac the rows page with arrows under the pointer
+- Moods, genres and Handpicked are cards in the style of Music's Browse categories: the
+  category's colour, its name in bold white, and a fanned stack of the covers you play in it,
+  or its symbol on a sleeve before you've played anything. Play, Search and a genre's page all
+  use them
 - Albums and playlists on iPhone open on their cover edge to edge from the top of the screen, with
   glass Play and Shuffle over it, its foot fading into the songs. The page ends as Music's
   does: release date, songs and length, label and copyright. On the Mac the header sits on the

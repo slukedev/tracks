@@ -96,9 +96,9 @@ struct BrowseSections: View {
                 // The genres' place, held while they're worked out.
                 section("Browse by Genre") {
                     ForEach(0..<(model.musicSource == .appleMusic ? MusicGenre.all.count : 4), id: \.self) { _ in
-                        Capsule()
+                        RoundedRectangle(cornerRadius: CategoryCardMetrics.radius, style: .continuous)
                             .fill(.quaternary)
-                            .frame(height: CategoryChipMetrics.height)
+                            .aspectRatio(CategoryCardMetrics.aspect, contentMode: .fit)
                     }
                 }
                 .accessibilityHidden(true)

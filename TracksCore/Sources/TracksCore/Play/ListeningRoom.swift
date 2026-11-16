@@ -332,3 +332,42 @@ public struct ListeningRoom: Sendable {
         public var id: Int { start }
     }
 }
+
+/// The songs whose covers stand for each mood on its tile, and for your music as a whole: your
+/// most played that suit it, one per album.
+public struct RoomCovers: Sendable {
+    public let byMood: [Mood: [MixSong]]
+    public let overall: [MixSong]
+
+    public init(
+        history: ListeningHistory,
+        signals: ListeningSignals = ListeningSignals(),
+        limit: Int = 8,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) {
+        let played = MixBuilder.aggregate(history, signals: signals, now: now, calendar: calendar)
+            .sorted { $0.dates.count == $1.dates.count ? $0.lastHeard > $1.lastHeard : $0.dates.count > $1.dates.count }
+        var byMood: [Mood: [MixSong]] = [:]
+        var albums: [Mood: Set<String>] = [:]
+        var overall: [MixSong] = []
+        var overallAlbums = Set<String>()
+        var suitsTag: [String: [Mood]] = [:]
+        for aggregate in played {
+            let album = aggregate.song.albumTitle.map(StatsCalculator.folded) ?? aggregate.identity
+            if overall.count < limit, overallAlbums.insert(album).inserted {
+                overall.append(aggregate.song)
+            }
+            guard let genre = history.songMetadata[aggregate.identity]?.genre else { continue }
+            let moods = suitsTag[genre] ?? Mood.allCases.filter { $0.suits(genre: genre) }
+            suitsTag[genre] = moods
+            for mood in moods where byMood[mood, default: []].count < limit {
+                if albums[mood, default: []].insert(album).inserted {
+                    byMood[mood, default: []].append(aggregate.song)
+                }
+            }
+        }
+        self.byMood = byMood
+        self.overall = overall
+    }
+}
