@@ -6,12 +6,12 @@ import CoreImage
 
 @Suite("Full Cover's glass")
 struct CoverGlassTests {
-    @Test("It starts to dissolve below the subject, never above 88% of the cover nor below 97%")
+    @Test("It starts to dissolve below the subject, never above 88% of the cover nor below 96%")
     func dissolveFollowsTheSubject() {
         #expect(CoverGlass.dissolve(subjectBottom: nil) == 0.88)
         #expect(CoverGlass.dissolve(subjectBottom: 0.4) == 0.88)
         #expect(abs(CoverGlass.dissolve(subjectBottom: 0.9) - 0.93) < 1e-9)
-        #expect(CoverGlass.dissolve(subjectBottom: 1) == 0.97)
+        #expect(CoverGlass.dissolve(subjectBottom: 1) == 0.96)
         #expect(CoverGlass.dissolve(subjectBottom: .nan) == 0.88)
     }
 

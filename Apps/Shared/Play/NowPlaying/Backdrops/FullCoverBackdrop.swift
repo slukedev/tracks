@@ -283,9 +283,10 @@ final class BleedFieldCache {
         blend.backgroundImage = CIImage(cgImage: colours)
         blend.maskImage = CIImage(cgImage: weights)
         guard let output = blend.outputImage else { return colours }
-        // Under the song, the cover carries on below itself as glass, over the colours.
+        // Under the song, the cover carries on below itself as glass, easing into the colours.
         if shape.songEdge == .bottom, frame.minY <= 0.5,
-           let glass = CoverGlass.extend(picture: picture, size: shape.size, side: frame.width, start: 1 - shape.featherToSong, ink: bleed.ink(.bottom), increasedContrast: shape.increasedContrast, pointsPerPixel: shape.pointsPerPixel / 2, context: context) {
+           let under = context.createCGImage(output, from: extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)),
+           let glass = CoverGlass.extend(picture: picture, under: under, size: shape.size, side: frame.width, start: 1 - shape.featherToSong, ink: bleed.ink(.bottom), increasedContrast: shape.increasedContrast, pointsPerPixel: shape.pointsPerPixel / 2, context: context) {
             let glassImage = CIImage(cgImage: glass)
             let finer = glassImage.extent
             let colours = output.transformed(by: CGAffineTransform(scaleX: finer.width / extent.width, y: finer.height / extent.height))
