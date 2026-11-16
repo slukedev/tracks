@@ -105,49 +105,6 @@ struct ArtworkHero<Content: View>: View {
     #endif
 }
 
-struct CategoryTile: View {
-    let title: String
-    let symbol: String
-    let covers: [CoverArt]
-    let color: Color
-    let height: CGFloat
-    var fillsWidth = false
-
-    var body: some View {
-        let side = (height * 0.72).rounded()
-        ZStack(alignment: .topLeading) {
-            color
-            Group {
-                if let cover = covers.first {
-                    CoverImage(cover: cover, size: side)
-                        .shadow(color: .black.opacity(0.3), radius: 8, y: 3)
-                } else {
-                    Image(systemName: symbol)
-                        .font(.system(size: side * 0.7, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.28))
-                        .frame(width: side, height: side)
-                }
-            }
-            .offset(x: side * 0.18, y: side * 0.22)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            .accessibilityHidden(true)
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-        }
-        .frame(width: fillsWidth ? nil : height * 1.75, height: height)
-        .frame(maxWidth: fillsWidth ? .infinity : nil)
-        .clipShape(.rect(cornerRadius: Self.radius, style: .continuous))
-        .contentShape(.rect(cornerRadius: Self.radius, style: .continuous))
-    }
-
-    static let radius: CGFloat = 14
-}
-
 struct ArtworkPlayRow<Extra: View>: View {
     let title: String
     let symbol: String

@@ -112,8 +112,8 @@ struct GenreView: View {
             neighborItems.first { $0.genre == neighbor } ?? GenreTileItem(genre: neighbor, covers: [])
         }
         if !items.isEmpty {
-            Shelf(title: String(localized: "Close to \(genre.title)"), items: items) { EmptyView() } tile: { item in
-                GenreTile(item: item, height: MoodShelf.height)
+            ChipShelf(title: String(localized: "Close to \(genre.title)"), items: items) { item in
+                GenreTile(item: item)
             }
         }
     }

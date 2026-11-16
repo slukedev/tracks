@@ -143,43 +143,20 @@ private struct HeroTitle: ViewModifier {
 
 // MARK: - On Play
 
-/// Find Your Mood, on Play: Handpicked, then every mood, in a row to scroll through, each
-/// tile made of the covers of what you play in it.
+/// Find Your Mood, on Play: Handpicked, then every mood, as chips in two rows to scroll through.
 struct MoodShelf: View {
-    @Environment(AppModel.self) private var model
-    @Environment(PlayerModel.self) private var player
-    @ScaledMetric(relativeTo: .headline) private var height: CGFloat = Self.height
-    @State private var covers: RoomCovers?
-
     var body: some View {
-        let height = min(height, 130)
-        CategoryRow(title: String(localized: "Find Your Mood"), items: MoodShelfItem.all, style: .current, featured: Mood.forNow(covers: covers).rawValue) { item in
+        ChipShelf(title: String(localized: "Find Your Mood"), items: MoodShelfItem.all) { item in
             switch item {
             // Your own mood first: a station from songs you choose.
-            case .handpicked: HandpickedTile(height: height, covers: Self.art(covers?.overall))
-            case .mood(let mood): MoodTile(mood: mood, height: height, covers: Self.art(covers?.byMood[mood]))
+            case .handpicked: HandpickedTile()
+            case .mood(let mood): MoodTile(mood: mood)
             }
         }
-        .task(id: model.library.revision) {
-            let (history, signals) = (model.library.history, player.signals)
-            let found = await OffMainActor.run { RoomCovers(history: history, signals: signals, limit: 6) }
-            guard !Task.isCancelled else { return }
-            covers = found
-        }
     }
-
-    static func art(_ songs: [MixSong]?) -> [CoverArt] {
-        (songs ?? []).map { .url($0.artworkURL, seed: $0.albumTitle ?? $0.title) }
-    }
-
-    #if os(macOS)
-    static let height: CGFloat = 96
-    #else
-    static let height: CGFloat = 86
-    #endif
 }
 
-/// A tile on Find Your Mood.
+/// A chip on Find Your Mood.
 enum MoodShelfItem: Identifiable {
     case handpicked
     case mood(Mood)
@@ -194,21 +171,20 @@ enum MoodShelfItem: Identifiable {
     static let all: [MoodShelfItem] = [.handpicked] + Mood.allCases.map(MoodShelfItem.mood)
 }
 
-/// A mood on the shelf, in the tile family Genres and Handpicked share.
+/// A mood's chip, which opens its page.
 struct MoodTile: View {
     let mood: Mood
-    let height: CGFloat
-    var covers: [CoverArt] = []
-    /// Fills its grid cell's width, rather than the shelf's fixed shape.
+    /// Fills its grid cell's width, as Search lays the moods out.
     var fillsWidth = false
 
     var body: some View {
         // Party opens its own page, for finding a party's playlist.
         NavigationLink(value: mood == .party ? PlayRoute.party : PlayRoute.mood(mood)) {
-            CategoryLabel(subject: CategorySubject(title: mood.title, symbol: mood.symbol, color: mood.base, covers: covers), height: height, fillsWidth: fillsWidth)
+            CategoryChip(title: mood.title, symbol: mood.symbol, color: mood.base, fillsWidth: fillsWidth)
         }
-        .buttonStyle(.pressable)
+        .buttonStyle(.categoryChip)
         .accessibilityLabel(mood.title)
+        .accessibilityHint(Text("Opens songs for this mood"))
     }
 }
 

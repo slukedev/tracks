@@ -1,315 +1,259 @@
 import SwiftUI
 import TracksCore
 
-enum CategoryTileStyle: String {
-    case colour
-    case chips = "a"
-    case albums = "b"
-    case now = "c"
-    case cards = "d"
-
-    static var current: CategoryTileStyle {
-        #if DEBUG
-        UserDefaults.standard.string(forKey: "TracksMoodTiles").flatMap(CategoryTileStyle.init) ?? .colour
-        #else
-        .colour
-        #endif
-    }
-}
-
-enum CategoryTileRole {
-    case colour, chip, album, feature, card
-}
-
-extension EnvironmentValues {
-    @Entry var categoryTileRole: CategoryTileRole = .colour
-}
-
-struct CategorySubject {
+struct CategoryChip: View {
     let title: String
     let symbol: String
     let color: Color
-    let covers: [CoverArt]
-}
-
-struct CategoryLabel: View {
-    let subject: CategorySubject
-    let height: CGFloat
     var fillsWidth = false
-    @Environment(\.categoryTileRole) private var role
+    @ScaledMetric(relativeTo: .subheadline) private var height = CategoryChipMetrics.height
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        switch role {
-        case .colour:
-            CategoryTile(title: subject.title, symbol: subject.symbol, covers: subject.covers, color: subject.color, height: height, fillsWidth: fillsWidth)
-        case .chip:
-            CategoryChip(subject: subject)
-        case .album:
-            TileLabel(title: subject.title, subtitle: nil) { side in
-                CategoryArt(subject: subject, side: side)
-            }
-        case .feature:
-            CategoryFeature(subject: subject)
-        case .card:
-            CategoryCard(subject: subject)
+        let height = min(height, CategoryChipMetrics.height * 2)
+        let disc = min(height - CategoryChipMetrics.inset * 2, CategoryChipMetrics.largestDisc)
+        HStack(spacing: CategoryChipMetrics.gap) {
+            Image(systemName: symbol)
+                .font(.system(size: (disc * 0.48).rounded(), weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: disc, height: disc)
+                .background(color, in: .circle)
+                .overlay {
+                    if colorScheme == .dark {
+                        Circle().strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                    }
+                }
+                .accessibilityHidden(true)
+            Text(title)
+                .font(CategoryChipMetrics.font)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .fixedSize(horizontal: !fillsWidth, vertical: false)
         }
+        .padding(.leading, (height - disc) / 2)
+        .padding(.trailing, CategoryChipMetrics.trailing)
+        .frame(height: height)
+        .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
     }
 }
 
-struct CategoryRow<Items: RandomAccessCollection, Tile: View>: View where Items.Element: Identifiable {
+enum CategoryChipMetrics {
+    #if os(macOS)
+    static let height: CGFloat = 40
+    static let inset: CGFloat = 6
+    static let trailing: CGFloat = 16
+    static let gap: CGFloat = 8
+    static let font = Font.body.weight(.semibold)
+    #else
+    static let height: CGFloat = 50
+    static let inset: CGFloat = 8
+    static let trailing: CGFloat = 20
+    static let gap: CGFloat = 10
+    static let font = Font.subheadline.weight(.semibold)
+    #endif
+    static let largestDisc: CGFloat = 48
+    static let spacing: CGFloat = 10
+}
+
+struct CategoryChipStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        CategoryChipBody(configuration: configuration)
+    }
+}
+
+private struct CategoryChipBody: View {
+    let configuration: ButtonStyleConfiguration
+    @State private var isHovering = false
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let isPressed = configuration.isPressed
+        configuration.label
+            .background(fill, in: .capsule)
+            .overlay {
+                if contrast == .increased {
+                    Capsule().strokeBorder(.primary.opacity(0.35), lineWidth: 1)
+                }
+            }
+            .contentShape(.capsule)
+            .scaleEffect(isPressed && !reduceMotion ? 0.96 : 1)
+            .animation(PlayMotion.press, value: isPressed)
+            #if os(macOS)
+            .contentShape(.focusEffect, .capsule)
+            .onHover { hovering in
+                withAnimation(PlayMotion.hover) { isHovering = hovering }
+            }
+            #else
+            .contentShape(.hoverEffect, .capsule)
+            #endif
+    }
+
+    private var fill: AnyShapeStyle {
+        if configuration.isPressed { return AnyShapeStyle(.fill) }
+        return isHovering ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.fill.tertiary)
+    }
+}
+
+extension ButtonStyle where Self == CategoryChipStyle {
+    static var categoryChip: CategoryChipStyle { CategoryChipStyle() }
+}
+
+struct ChipShelf<Items: RandomAccessCollection, Chip: View>: View where Items.Element: Identifiable {
     let title: String
     let items: Items
-    let style: CategoryTileStyle
-    var featured: Items.Element.ID?
-    @ViewBuilder var tile: (Items.Element) -> Tile
-    @ScaledMetric(relativeTo: .subheadline) private var chipHeight: CGFloat = CategoryChip.height
-    @ScaledMetric(relativeTo: .subheadline) private var cardHeight: CGFloat = CategoryCard.height
+    @ViewBuilder var chip: (Items.Element) -> Chip
 
     var body: some View {
-        switch style {
-        case .colour:
-            Shelf(title: title, items: items) { tile($0) }
-        case .albums:
-            Shelf(title: title, items: items) { tile($0).environment(\.categoryTileRole, .album) }
-        case .chips:
-            grid(rowHeight: min(chipHeight, 96), role: .chip, feature: nil)
-        case .cards:
-            grid(rowHeight: min(cardHeight, 120), role: .card, feature: nil)
-        case .now:
-            grid(rowHeight: min(chipHeight, 96), role: .chip, feature: items.first { $0.id == featured } ?? items.first)
-        }
-    }
-
-    private func grid(rowHeight: CGFloat, role: CategoryTileRole, feature: Items.Element?) -> some View {
-        let rows = Array(repeating: GridItem(.fixed(rowHeight), spacing: Self.rowSpacing), count: 2)
-        let rest = items.filter { $0.id != feature?.id }
-        return VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.title3.bold())
                 .accessibilityAddTraits(.isHeader)
                 .padding(.horizontal, PlayMetrics.margin)
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: Self.columnSpacing) {
-                    if let feature {
-                        tile(feature)
-                            .environment(\.categoryTileRole, .feature)
-                            .frame(width: ((rowHeight * 2 + Self.rowSpacing) * 1.5).rounded(), height: rowHeight * 2 + Self.rowSpacing)
-                    }
-                    LazyHGrid(rows: rows, spacing: Self.columnSpacing) {
-                        ForEach(rest) { item in
-                            tile(item)
-                                .environment(\.categoryTileRole, role)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                    }
-                    .scrollTargetLayout()
-                }
-            }
-            .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
-            .scrollTargetBehavior(.viewAligned)
-            .scrollIndicators(.hidden)
-        }
-    }
-
-    private static var rowSpacing: CGFloat { 10 }
-    private static var columnSpacing: CGFloat { 10 }
-}
-
-struct CategoryChip: View {
-    let subject: CategorySubject
-    @ScaledMetric(relativeTo: .subheadline) private var glyph: CGFloat = 30
-
-    var body: some View {
-        let glyph = min(glyph, 56)
-        HStack(spacing: 10) {
-            Image(systemName: subject.symbol)
-                .font(.system(size: (glyph * 0.48).rounded(), weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: glyph, height: glyph)
-                .background(subject.color, in: .circle)
-                .accessibilityHidden(true)
-            Text(subject.title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, 9)
-        .padding(.trailing, 16)
-        .frame(minWidth: Self.minimumWidth, maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(CategoryHover(shape: Capsule()))
-    }
-
-    static let height: CGFloat = 48
-    static let minimumWidth: CGFloat = 148
-}
-
-struct CategoryCard: View {
-    let subject: CategorySubject
-    @ScaledMetric(relativeTo: .subheadline) private var art: CGFloat = 48
-    @ScaledMetric(relativeTo: .subheadline) private var width: CGFloat = 216
-
-    var body: some View {
-        let art = min(art, 88)
-        HStack(spacing: 12) {
-            CategoryArt(subject: CategorySubject(title: subject.title, symbol: subject.symbol, color: subject.color, covers: Array(subject.covers.prefix(1))), side: art, showsBadge: false)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(subject.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                if !subject.covers.isEmpty {
-                    Image(systemName: subject.symbol)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(subject.color)
-                        .accessibilityHidden(true)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(8)
-        .frame(width: min(width, 360))
-        .frame(maxHeight: .infinity)
-        .modifier(CategoryHover(shape: RoundedRectangle(cornerRadius: CoverImage.radius(for: art) + 8, style: .continuous)))
-    }
-
-    static let height: CGFloat = 64
-}
-
-struct CategoryArt: View {
-    let subject: CategorySubject
-    let side: CGFloat
-    var showsBadge = true
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: CoverImage.radius(for: side), style: .continuous)
-        art
-            .frame(width: side, height: side)
-            .overlay(alignment: .bottomLeading) {
-                if showsBadge, !subject.covers.isEmpty {
-                    let badge = (side * 0.2).rounded()
-                    Image(systemName: subject.symbol)
-                        .font(.system(size: (badge * 0.5).rounded(), weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: badge, height: badge)
-                        .background(subject.color, in: .circle)
-                        .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                        .padding((side * 0.06).rounded())
-                }
-            }
-            .clipShape(shape)
-            .overlay { shape.stroke(.primary.opacity(0.08), lineWidth: 1) }
-            .accessibilityHidden(true)
-    }
-
-    @ViewBuilder
-    private var art: some View {
-        let covers = subject.covers
-        if covers.count >= 4 {
-            let half = side / 2
-            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
-                GridRow {
-                    CoverImage(cover: covers[0], size: half, isBare: true)
-                    CoverImage(cover: covers[1], size: half, isBare: true)
-                }
-                GridRow {
-                    CoverImage(cover: covers[2], size: half, isBare: true)
-                    CoverImage(cover: covers[3], size: half, isBare: true)
-                }
-            }
-        } else if let cover = covers.first {
-            CoverImage(cover: cover, size: side, isBare: true)
-        } else {
-            ZStack {
-                Rectangle().fill(subject.color.opacity(0.16))
-                Image(systemName: subject.symbol)
-                    .font(.system(size: (side * 0.38).rounded(), weight: .semibold))
-                    .foregroundStyle(subject.color)
-            }
-        }
-    }
-}
-
-struct CategoryFeature: View {
-    let subject: CategorySubject
-
-    var body: some View {
-        GeometryReader { proxy in
-            let size = proxy.size
-            let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-            ZStack(alignment: .bottomLeading) {
-                if subject.covers.isEmpty {
-                    Rectangle().fill(subject.color.opacity(0.16))
-                    Image(systemName: subject.symbol)
-                        .font(.system(size: (size.height * 0.42).rounded(), weight: .semibold))
-                        .foregroundStyle(subject.color)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                        .padding(14)
-                    name.foregroundStyle(.primary)
-                } else {
-                    mosaic(size: size)
-                    ArtworkScrim(reach: 0.7)
-                    name.foregroundStyle(.white)
-                }
-            }
-            .frame(width: size.width, height: size.height)
-            .clipShape(shape)
-            .overlay { shape.stroke(.primary.opacity(0.08), lineWidth: 1) }
-        }
-    }
-
-    private var name: some View {
-        Label {
-            Text(subject.title).lineLimit(1).minimumScaleFactor(0.7)
-        } icon: {
-            Image(systemName: subject.symbol).accessibilityHidden(true)
-        }
-        .font(.title3.bold())
-        .padding(12)
-    }
-
-    private func mosaic(size: CGSize) -> some View {
-        let side = size.width / 3
-        let covers = subject.covers
-        return VStack(spacing: 0) {
-            ForEach(0..<2, id: \.self) { row in
-                HStack(spacing: 0) {
-                    ForEach(0..<3, id: \.self) { column in
-                        CoverImage(cover: covers[(row * 3 + column) % covers.count], size: side, isBare: true)
+            ChipScroller {
+                ChipRows(spacing: CategoryChipMetrics.spacing) {
+                    ForEach(items) { item in
+                        chip(item)
                     }
                 }
             }
         }
-        .frame(width: size.width, height: size.height, alignment: .top)
-        .clipped()
-        .accessibilityHidden(true)
     }
 }
 
-private struct CategoryHover<S: Shape>: ViewModifier {
-    let shape: S
+struct ChipShelfPlaceholder: View {
+    let title: String
+    @ScaledMetric(relativeTo: .subheadline) private var height = CategoryChipMetrics.height
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.title3.bold())
+                .padding(.horizontal, PlayMetrics.margin)
+            ChipRows(spacing: CategoryChipMetrics.spacing) {
+                ForEach(Self.widths.indices, id: \.self) { index in
+                    Capsule()
+                        .fill(Color.placeholderFill)
+                        .frame(width: Self.widths[index], height: min(height, CategoryChipMetrics.height * 2))
+                }
+            }
+            .padding(.horizontal, PlayMetrics.margin)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
+        }
+        .accessibilityElement()
+        .accessibilityLabel(Text("Loading \(title)"))
+    }
+
+    private static let widths: [CGFloat] = [132, 112, 150, 124, 104, 140, 118, 128, 146, 110]
+}
+
+private struct ChipScroller<Content: View>: View {
+    @ViewBuilder var content: Content
+    #if os(macOS)
+    @State private var position = ScrollPosition()
+    @State private var reach = ScrollReach()
     @State private var isHovering = false
+    #endif
 
-    func body(content: Content) -> some View {
-        content
-            .background(isHovering ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.fill.tertiary), in: shape)
-            .contentShape(shape)
-            #if os(macOS)
-            .onHover { hovering in
-                withAnimation(PlayMotion.hover) { isHovering = hovering }
+    var body: some View {
+        ScrollView(.horizontal) {
+            content
+        }
+        .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
+        .scrollIndicators(.hidden)
+        #if os(macOS)
+        .scrollPosition($position)
+        .onScrollGeometryChange(for: ScrollReach.self, of: ScrollReach.init) { _, new in reach = new }
+        .overlay {
+            if isHovering {
+                arrows
             }
-            #endif
+        }
+        .onHover { hovering in
+            withAnimation(PlayMotion.hover) { isHovering = hovering }
+        }
+        #endif
     }
+
+    #if os(macOS)
+    private var arrows: some View {
+        HStack {
+            if reach.offset > reach.start + 1 {
+                ShelfArrow(systemImage: "chevron.backward", label: "Previous") {
+                    position.scrollTo(x: max(reach.start, reach.offset - reach.page))
+                }
+            }
+            Spacer()
+            if reach.offset < reach.end - 1 {
+                ShelfArrow(systemImage: "chevron.forward", label: "Next") {
+                    position.scrollTo(x: min(reach.end, reach.offset + reach.page))
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .transition(.opacity)
+    }
+    #endif
 }
 
-extension Mood {
-    static func forNow(_ date: Date = .now, calendar: Calendar = .current, covers: RoomCovers?) -> Mood {
-        let candidates: [Mood] = switch DayPart(hour: calendar.component(.hour, from: date)) {
-        case .morning: [.feelGood, .focus, .energy]
-        case .afternoon: [.focus, .energy, .workout]
-        case .evening: [.chill, .drive, .love]
-        case .night: [.sleep, .chill, .heartbreak]
+#if os(macOS)
+/// Where a sideways scroll stands, in its offsets, which begin before zero by the leading margin.
+private struct ScrollReach: Equatable {
+    var offset: CGFloat = 0
+    var start: CGFloat = 0
+    var end: CGFloat = 0
+    var page: CGFloat = 0
+
+    init() {}
+
+    init(_ geometry: ScrollGeometry) {
+        offset = geometry.contentOffset.x
+        start = -geometry.contentInsets.leading
+        end = max(start, geometry.contentSize.width + geometry.contentInsets.trailing - geometry.containerSize.width)
+        page = max(1, geometry.containerSize.width - geometry.contentInsets.leading - geometry.contentInsets.trailing - 80)
+    }
+}
+#endif
+
+struct ChipRows: Layout {
+    var rows = 2
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let arrangement = arrange(subviews)
+        for (subview, frame) in zip(subviews, arrangement.frames) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), proposal: ProposedViewSize(frame.size))
         }
-        return candidates.max { (covers?.byMood[$0]?.count ?? 0) < (covers?.byMood[$1]?.count ?? 0) } ?? candidates[0]
+    }
+
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? {
+        nil
+    }
+
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? {
+        nil
+    }
+
+    private func arrange(_ subviews: Subviews) -> (frames: [CGRect], size: CGSize) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let height = sizes.map(\.height).max() ?? 0
+        var ends = [CGFloat?](repeating: nil, count: rows)
+        var frames: [CGRect] = []
+        for size in sizes {
+            let row = ends.indices.min { (ends[$0] ?? -spacing) < (ends[$1] ?? -spacing) } ?? 0
+            let x = ends[row].map { $0 + spacing } ?? 0
+            frames.append(CGRect(x: x, y: CGFloat(row) * (height + spacing), width: size.width, height: height))
+            ends[row] = x + size.width
+        }
+        let used = ends.compactMap(\.self).count
+        let width = ends.compactMap(\.self).max() ?? 0
+        let totalHeight = used == 0 ? 0 : CGFloat(used) * height + CGFloat(used - 1) * spacing
+        return (frames, CGSize(width: width, height: totalHeight))
     }
 }

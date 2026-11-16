@@ -158,8 +158,7 @@ nonisolated enum LocalGenres {
 
 // MARK: - On Play
 
-/// Genres, on Play: every genre in a row to scroll through, the ones you play first, each
-/// with the covers of what you play in it.
+/// Genres, on Play: every genre as chips in two rows to scroll through, the ones you play first.
 struct GenreShelf: View {
     @Environment(AppModel.self) private var model
     @Environment(PlayFeed.self) private var feed
@@ -169,10 +168,8 @@ struct GenreShelf: View {
     /// them out goes through the whole history, so while music plays they're looked at again
     /// only every few minutes.
     @State private var loaded: (key: GenreKey, at: ContinuousClock.Instant)?
-    @ScaledMetric(relativeTo: .headline) private var height: CGFloat = MoodShelf.height
 
     var body: some View {
-        let height = min(height, 130)
         Group {
             if let items {
                 if items.isEmpty {
@@ -180,12 +177,12 @@ struct GenreShelf: View {
                     // music changes.
                     Color.clear.frame(height: 0)
                 } else {
-                    CategoryRow(title: String(localized: "Genres"), items: items, style: .current, featured: items.first?.id) { item in
-                        GenreTile(item: item, height: height)
+                    ChipShelf(title: String(localized: "Genres"), items: items) { item in
+                        GenreTile(item: item)
                     }
                 }
             } else {
-                placeholder(height: height)
+                ChipShelfPlaceholder(title: String(localized: "Genres"))
             }
         }
         .task(id: key) {
@@ -212,28 +209,6 @@ struct GenreShelf: View {
     private var key: GenreKey {
         GenreKey(source: model.musicSource, revision: model.library.revision, songs: model.yourMusic.index.tracks.count)
     }
-
-    /// The shelf's shape while the genres are worked out: its name, and plain tiles.
-    private func placeholder(height: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ShelfHeader(title: String(localized: "Genres")) { EmptyView() }
-                .padding(.horizontal, PlayMetrics.margin)
-            ScrollView(.horizontal) {
-                HStack(spacing: PlayMetrics.shelfSpacing) {
-                    ForEach(0..<6, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.placeholderFill)
-                            .frame(width: height * 1.75, height: height)
-                    }
-                }
-            }
-            .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
-            .scrollDisabled(true)
-            .scrollIndicators(.hidden)
-        }
-        .accessibilityElement()
-        .accessibilityLabel(Text("Loading Genres"))
-    }
 }
 
 /// What the genre shelves are worked out from: a change to any works them out again.
@@ -243,17 +218,19 @@ private struct GenreKey: Equatable {
     let songs: Int
 }
 
+/// A genre's chip, which opens its page.
 struct GenreTile: View {
     let item: GenreTileItem
-    let height: CGFloat
+    /// Fills its grid cell's width, as Search lays the genres out.
     var fillsWidth = false
 
     var body: some View {
         NavigationLink(value: PlayRoute.genre(item.genre)) {
-            CategoryLabel(subject: CategorySubject(title: item.genre.title, symbol: item.genre.symbol, color: item.genre.color, covers: item.covers), height: height, fillsWidth: fillsWidth)
+            CategoryChip(title: item.genre.title, symbol: item.genre.symbol, color: item.genre.color, fillsWidth: fillsWidth)
         }
-        .buttonStyle(.pressable)
+        .buttonStyle(.categoryChip)
         .accessibilityLabel(item.genre.title)
+        .accessibilityHint(Text("Opens songs in this genre"))
     }
 }
 

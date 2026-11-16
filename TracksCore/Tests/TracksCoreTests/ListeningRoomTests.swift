@@ -413,26 +413,3 @@ extension ListeningRoomTests {
         #expect(MoodLean.instrumental.factor(genre: "Classical") > MoodLean.instrumental.factor(genre: "Pop"))
     }
 }
-
-
-struct RoomCoversTests {
-    @Test("a mood's covers are its most played songs that suit it, one per album")
-    func moodCovers() {
-        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
-        let plays: [(String, String, String, Int)] = [
-            ("Calm", "Ambient", "Quiet", 3), ("Calmer", "Ambient", "Quiet", 2),
-            ("Smooth", "Jazz", "Blue", 1), ("Loud", "Metal", "Noise", 5),
-        ]
-        var stats: [CaptureStat] = []
-        var metadata: [String: SongMetadata] = [:]
-        for (title, genre, album, count) in plays {
-            for day in 0..<count {
-                stats.append(CaptureStat(songKey: title, songID: title, title: title, artistName: "Artist", albumTitle: album, capturedAt: now.addingTimeInterval(-Double(day + 1) * 86_400)))
-            }
-            metadata[SongIdentity.key(title: title, artistName: "Artist")] = SongMetadata(genre: genre, releaseYear: nil)
-        }
-        let covers = RoomCovers(history: ListeningHistory(stats).with(artistArtwork: [:], songMetadata: metadata), now: now)
-        #expect(covers.byMood[.chill]?.map(\.title) == ["Calm", "Smooth"])
-        #expect(covers.overall.map(\.title) == ["Loud", "Calm", "Smooth"])
-    }
-}

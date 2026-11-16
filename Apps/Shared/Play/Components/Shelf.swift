@@ -127,7 +127,7 @@ private struct ShelfPaging<ID: Hashable>: ViewModifier {
 
 #if os(macOS)
 /// A round glass arrow at the end of a shelf.
-private struct ShelfArrow: View {
+struct ShelfArrow: View {
     let systemImage: String
     let label: LocalizedStringKey
     let action: () -> Void

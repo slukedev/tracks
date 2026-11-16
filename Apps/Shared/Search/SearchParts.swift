@@ -81,14 +81,14 @@ struct BrowseSections: View {
         VStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
             section("Browse by Mood") {
                 ForEach(Mood.allCases) { mood in
-                    MoodTile(mood: mood, height: Self.tileHeight, fillsWidth: true)
+                    MoodTile(mood: mood, fillsWidth: true)
                 }
             }
             if let genres {
                 if !genres.isEmpty {
                     section("Browse by Genre") {
                         ForEach(genres) { item in
-                            GenreTile(item: item, height: Self.tileHeight, fillsWidth: true)
+                            GenreTile(item: item, fillsWidth: true)
                         }
                     }
                 }
@@ -96,9 +96,9 @@ struct BrowseSections: View {
                 // The genres' place, held while they're worked out.
                 section("Browse by Genre") {
                     ForEach(0..<(model.musicSource == .appleMusic ? MusicGenre.all.count : 4), id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        Capsule()
                             .fill(.quaternary)
-                            .frame(height: Self.tileHeight)
+                            .frame(height: CategoryChipMetrics.height)
                     }
                 }
                 .accessibilityHidden(true)
@@ -125,7 +125,6 @@ struct BrowseSections: View {
     #else
     private static let tileWidth: CGFloat = 150
     #endif
-    private static let tileHeight: CGFloat = 84
 }
 
 private struct GenresKey: Equatable {
