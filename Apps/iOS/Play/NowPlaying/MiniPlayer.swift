@@ -121,7 +121,6 @@ struct MiniPlayer: View {
         return CGRect(x: row.minX, y: row.midY - coverSide / 2, width: coverSide, height: coverSide)
     }
 
-    /// Up from the mini player opens Now Playing under the finger, as far as it's pushed.
     private func pushUp(_ value: PanGesture.Value, hasEnded: Bool) {
         let height = value.translation.height
         if !hasEnded, !opensUnderFinger {

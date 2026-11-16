@@ -221,8 +221,6 @@ final class AppModel {
         #endif
     }
 
-    /// What another of your devices asked this one's player to do, through the same calls as
-    /// its own buttons and the lock screen.
     private func perform(_ action: RemoteAction) -> RemoteReply.Outcome {
         guard player.hasQueue else { return .unavailable }
         switch action {
@@ -331,7 +329,6 @@ final class AppModel {
     /// Connect does. Nil for this device.
     var controlledDeviceID: String?
 
-    /// The device whose song is on its way here, while it's found and started.
     private(set) var arrivingFrom: String?
 
     /// The device the main player controls, while it still has a song to control.
@@ -350,11 +347,8 @@ final class AppModel {
         )
     }
 
-    /// Whether the main player has a song to play or pause: its own, or the device it's showing.
     var mainPlayerHasSong: Bool { controlledDevice != nil || player.hasQueue }
 
-    /// The main player's play and pause, from Space, the Controls menu and the Dock: for the
-    /// device it's showing, or this one.
     func mainPlayerPlayPause() {
         guard let device = controlledDevice else {
             player.togglePlayPause()
@@ -379,7 +373,6 @@ final class AppModel {
         nearby.perform(.previous, on: device)
     }
 
-    /// Whether the main player's Previous can go back: not on a station.
     var mainPlayerCanGoBack: Bool {
         if let device = controlledDevice { return nearby.shownState(of: device)?.canSkipBack == true }
         return player.hasQueue && player.context?.isStation != true
@@ -416,8 +409,6 @@ final class AppModel {
         return lastNearbyArtwork?.song == song ? lastNearbyArtwork?.url : nil
     }
 
-    /// Another device's song as this one's player shows a song: known by name, as the
-    /// device sent it.
     static func remoteTrack(_ state: NearbyState, on device: NearbyDevices.Device) -> PlayerTrack {
         let title = state.title ?? ""
         let artist = state.artist ?? ""
@@ -433,8 +424,6 @@ final class AppModel {
         )
     }
 
-    /// The same song found in the music this device plays from, so Favorite, Go to Album and
-    /// the song's menu work on it as on a song playing here. Nil when it isn't there.
     func resolve(_ track: PlayerTrack) async -> PlayerTrack? {
         guard !isDemoLaunch,
               let request = await request(for: track.title, by: track.artistName, album: track.albumTitle, duration: track.duration, in: musicSource)

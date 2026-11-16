@@ -96,7 +96,6 @@ extension Mood {
         }
     }
 
-    /// How many of your songs suit it.
     func facts(for room: ListeningRoom) -> String? {
         guard !room.isEmpty else { return nil }
         return String(AttributedString(localized: "^[\(room.songs.count) song](inflect: true) of yours").characters)
@@ -124,7 +123,6 @@ extension DayPart {
 }
 
 extension ListeningRoom.Habit {
-    /// When you play it, as a line: "Mostly Sunday mornings", "Mostly on weekends".
     var line: String {
         switch (days, part) {
         case (.weekday(let day)?, let part?):

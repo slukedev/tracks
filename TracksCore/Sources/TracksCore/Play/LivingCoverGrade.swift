@@ -4,24 +4,13 @@ import Foundation
 /// shader to every one it draws: in Oklab, so lightness, colour and hue move separately and
 /// a darkened colour keeps the hue the eye sees.
 ///
-/// The cover's own range of lightness is moved into a band chosen for it: a white cover sits
-/// light and a black one dark, both with room to show their flow, and white type always
-/// reads. A cover with almost no range of its own, one flat colour, is given a texture of
-/// its own colour so the flow still shows. Greys stay grey. Warm colours that would turn to
-/// mud as they darken are kept from it: a pale beige becomes a warm grey rather than brown,
-/// and a yellow leans to gold rather than olive.
-///
 /// `shade` is the shader's arithmetic, so the rules can be checked here.
 public nonisolated struct LivingCoverGrade: Equatable, Sendable {
-    /// The cover's darkest and lightest, ignoring the extremes, as Oklab lightness.
     public var sourceLow: Double
     public var sourceHigh: Double
-    /// Where they land.
     public var low: Double
     public var high: Double
-    /// How much richer its colours are drawn.
     public var chroma: Double
-    /// How much texture of its own a flat cover is given, 0 to 1.
     public var texture: Double
 
     public init(sourceLow: Double, sourceHigh: Double, low: Double, high: Double, chroma: Double, texture: Double) {
@@ -42,7 +31,6 @@ public nonisolated struct LivingCoverGrade: Equatable, Sendable {
     /// The darkest it goes, so the flow still shows on a black cover.
     public static let floor = 0.1
 
-    /// From a cover's pixels, sRGB, four bytes each, alpha last.
     public init(rgba: [UInt8]) {
         let count = rgba.count / 4
         guard count > 0 else {
@@ -79,8 +67,6 @@ public nonisolated struct LivingCoverGrade: Equatable, Sendable {
         )
     }
 
-    /// A colour of the cover as it's drawn, under `ceiling`, its lightness nudged by
-    /// `structure`, -0.5 to 0.5, where the flow folds: only felt on a flat cover.
     public func shade(_ colour: Oklab, ceiling: Double, structure: Double = 0) -> Oklab {
         let t = min(max((colour.lightness - sourceLow) / max(sourceHigh - sourceLow, 0.05), -0.25), 1.25)
         var lightness = low + (high - low) * t
@@ -98,9 +84,6 @@ public nonisolated struct LivingCoverGrade: Equatable, Sendable {
         return Oklab(lightness: lightness, chroma: chroma, hue: hue).inGamut
     }
 
-    /// A colour darkened to `colour`'s lightness kept from mud: yellows lean to amber rather
-    /// than olive, and pale warm colours and yellow-greens (`sourceChroma` low) lose colour to
-    /// become warm greys rather than brown or khaki. The darker it is, the more.
     public static func cleaned(_ colour: Oklab, sourceChroma: Double) -> Oklab {
         var chroma = colour.chroma
         var hue = colour.hue
@@ -113,7 +96,6 @@ public nonisolated struct LivingCoverGrade: Equatable, Sendable {
         return Oklab(lightness: colour.lightness, chroma: chroma, hue: hue).inGamut
     }
 
-    /// The colour drawn for a cover's sRGB colour.
     public func shade(red: Double, green: Double, blue: Double, ceiling: Double) -> (red: Double, green: Double, blue: Double) {
         shade(Oklab(red: red, green: green, blue: blue), ceiling: ceiling).srgb
     }
@@ -130,7 +112,6 @@ public nonisolated struct LivingCoverGrade: Equatable, Sendable {
     }
 }
 
-/// A colour in Oklab: lightness 0 to 1, and how far and which way it is from grey.
 public nonisolated struct Oklab: Equatable, Sendable {
     public var lightness: Double
     public var a: Double
@@ -146,7 +127,6 @@ public nonisolated struct Oklab: Equatable, Sendable {
         self.init(lightness: lightness, a: chroma * cos(hue), b: chroma * sin(hue))
     }
 
-    /// From sRGB, each 0 to 1.
     public init(red: Double, green: Double, blue: Double) {
         let (r, g, b) = (Self.linear(red), Self.linear(green), Self.linear(blue))
         let l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
@@ -178,7 +158,6 @@ public nonisolated struct Oklab: Equatable, Sendable {
         return (Self.encoded(r), Self.encoded(g), Self.encoded(b))
     }
 
-    /// The same lightness and hue, its chroma brought in until sRGB can show it.
     public var inGamut: Oklab {
         func fits(_ colour: Oklab) -> Bool {
             let (r, g, b) = colour.linearRGB
@@ -193,7 +172,6 @@ public nonisolated struct Oklab: Equatable, Sendable {
         return Oklab(lightness: lightness, a: a * inside, b: b * inside)
     }
 
-    /// Relative luminance, as contrast ratios use it.
     public var luminance: Double {
         let (r, g, b) = linearRGB
         return 0.2126 * min(max(r, 0), 1) + 0.7152 * min(max(g, 0), 1) + 0.0722 * min(max(b, 0), 1)

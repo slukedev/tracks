@@ -12,7 +12,6 @@ extension PlayRoute {
 }
 
 extension View {
-    /// An album's cover that its page zooms out of on iPhone, and back into when it's closed.
     func albumZoomSource(_ route: PlayRoute) -> some View {
         modifier(AlbumZoomSource(id: route.albumZoomID))
     }
@@ -25,7 +24,6 @@ extension View {
         modifier(AlbumZoomDestination(id: album.id))
     }
 
-    /// Where a stack's covers and the album pages pushed onto it meet.
     func albumZoomSpace() -> some View {
         modifier(AlbumZoomSpace())
     }

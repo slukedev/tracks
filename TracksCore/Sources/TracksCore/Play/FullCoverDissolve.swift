@@ -1,7 +1,5 @@
 import Foundation
 
-/// How Full Cover's sharp cover gives way to the same cover blurred behind it, and how far
-/// that blurred cover is dimmed under the song's words.
 public nonisolated enum FullCoverDissolve {
     /// Where the sharp cover starts to dissolve, as a part of its side from its top (or from its
     /// leading edge, beside the song): at 82% of the way, or just past what it's of,
@@ -57,8 +55,6 @@ public nonisolated enum FullCoverDissolve {
         return CoverBleed.Colour.linear(blended)
     }
 
-    /// The lightest and darkest luminance of a picture's pixels (RGBA, `side` square) inside
-    /// `region` (parts of the side, from the top left), a hundredth either way left out.
     public static func extremes(rgba: [UInt8], side: Int, region: CGRect) -> (lightest: Double, darkest: Double)? {
         guard side > 0, rgba.count >= side * side * 4 else { return nil }
         let columns = max(0, Int(region.minX * Double(side)))..<min(side, Int((region.maxX * Double(side)).rounded(.up)))
@@ -75,7 +71,6 @@ public nonisolated enum FullCoverDissolve {
         return (values[values.count - 1 - values.count / 100], values[values.count / 100])
     }
 
-    /// A luminance as the blurred cover shows it, `brightness` lighter.
     public static func brightened(_ luminance: Double) -> Double {
         CoverBleed.Colour.linear(min(1, CoverBleed.Colour.gamma(luminance) + brightness))
     }

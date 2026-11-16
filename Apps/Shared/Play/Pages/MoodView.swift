@@ -18,7 +18,6 @@ extension Mood {
         }
     }
 
-    /// What the mood is for, plainly, for when your history can't say when you play it.
     var tagline: String {
         switch self {
         case .feelGood: String(localized: "Songs you can't help singing along to.")
@@ -143,8 +142,6 @@ private struct HeroTitle: ViewModifier {
 
 // MARK: - On Play
 
-/// Find Your Mood, on Play: Handpicked, then every mood, in a row to scroll through, each
-/// card holding the covers of what you play in it.
 struct MoodShelf: View {
     @Environment(AppModel.self) private var model
     @Environment(PlayerModel.self) private var player
@@ -171,7 +168,6 @@ struct MoodShelf: View {
     }
 }
 
-/// A card on Find Your Mood.
 enum MoodShelfItem: Identifiable {
     case handpicked
     case mood(Mood)
@@ -186,11 +182,9 @@ enum MoodShelfItem: Identifiable {
     static let all: [MoodShelfItem] = [.handpicked] + Mood.allCases.map(MoodShelfItem.mood)
 }
 
-/// A mood's card, which opens its page.
 struct MoodTile: View {
     let mood: Mood
     var covers: [CoverArt] = []
-    /// Fills its grid cell's width, as Search lays the moods out.
     var fillsWidth = false
 
     var body: some View {
@@ -269,7 +263,6 @@ struct MoodView: View {
     @State private var showsAllNew = false
     @State private var showsAllSignature = false
     @State private var lean: MoodLean?
-    /// The genre the list of your songs is narrowed to, by its chip.
     @State private var kind: String?
 
     var body: some View {
@@ -564,8 +557,6 @@ struct MoodView: View {
         }
     }
 
-    /// A new way to steer it, while it plays: the mix is made again leaning that way, and the
-    /// song on carries on into it.
     private func steer() {
         guard isOn, let current = player.current else { return }
         play(startingWith: MixSong(current))

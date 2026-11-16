@@ -16,7 +16,6 @@ public struct RemoteRequest: Codable, Sendable, Equatable {
     public var id: UUID
     /// The asking app's run. Numbers start again each time it opens.
     public var session: UUID
-    /// Counts up through a run.
     public var number: Int
     public var action: RemoteAction
     /// The song on show when it was asked, as a ``SongIdentity`` key: a place in one song
@@ -34,13 +33,10 @@ public struct RemoteRequest: Codable, Sendable, Equatable {
     }
 }
 
-/// The answer to a ``RemoteRequest``: whether it was done, and what's playing after it.
 public struct RemoteReply: Codable, Sendable, Equatable {
     public enum Outcome: String, Sendable {
         case done
-        /// Overtaken by a later ask, too old, or about a song no longer on.
         case stale
-        /// Nothing to do it to, such as Previous on a station.
         case unavailable
     }
 
@@ -58,12 +54,9 @@ public struct RemoteReply: Codable, Sendable, Equatable {
     }
 }
 
-/// The asks a device has taken, so each is done once, in order, and only while it still means
-/// what it meant.
 public struct RemoteLedger: Sendable {
     public enum Verdict: Equatable, Sendable {
         case apply
-        /// The latest ask from that run again: answered, not done twice.
         case repeated
         case stale
     }
@@ -71,7 +64,6 @@ public struct RemoteLedger: Sendable {
     /// Older than this, an ask held up on its way is let go. Generous, since two devices'
     /// clocks can differ by a second or two.
     public static let oldest: TimeInterval = 30
-    /// Runs remembered, latest last.
     static let sessionsKept = 16
 
     private var latest: [(session: UUID, number: Int)] = []
@@ -98,9 +90,6 @@ public struct RemoteLedger: Sendable {
     }
 }
 
-/// Another device's player as this one shows it: what it last said, with this one's asks laid
-/// over it until it answers, so a click shows at once. An ask unanswered for long means the
-/// device can't be reached.
 public struct RemoteControl: Sendable, Equatable {
     /// How long an ask may go unanswered. The device that plays may wait a moment for its
     /// player to settle before it answers.
@@ -122,7 +111,6 @@ public struct RemoteControl: Sendable, Equatable {
         self.reported = reported
     }
 
-    /// Makes the ask to send, and shows it from now.
     public mutating func ask(_ action: RemoteAction, at now: Date) -> RemoteRequest {
         lastNumber += 1
         let song = reported.flatMap { state in
@@ -133,7 +121,6 @@ public struct RemoteControl: Sendable, Equatable {
         return request
     }
 
-    /// What the device says it's playing, unasked. Older news than what's shown is let go.
     public mutating func report(_ state: NearbyState) {
         isUnreachable = false
         if let reported, state.sentAt < reported.sentAt { return }
@@ -149,7 +136,6 @@ public struct RemoteControl: Sendable, Equatable {
         }
     }
 
-    /// Lets go of asks unanswered past ``patience``. Returns whether any were.
     @discardableResult
     public mutating func expire(at now: Date) -> Bool {
         let before = pending.count
@@ -159,15 +145,12 @@ public struct RemoteControl: Sendable, Equatable {
         return true
     }
 
-    /// Waiting on a skip: the song on show is about to change.
     public var isSkipping: Bool {
         pending.contains { $0.request.action == .next || $0.request.action == .previous }
     }
 
     public var isWaiting: Bool { !pending.isEmpty }
 
-    /// The player as it should look now: what it last said, with every ask still unanswered
-    /// done to it, in order.
     public var shown: NearbyState? {
         guard var state = reported else { return nil }
         for ask in pending {

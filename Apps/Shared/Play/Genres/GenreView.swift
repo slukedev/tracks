@@ -28,7 +28,6 @@ struct GenreView: View {
     @State private var showsAllYours = false
     @State private var showsAllNew = false
     @State private var showsAllRising = false
-    /// The kind of it your essentials are narrowed to, by its chip.
     @State private var kind: String?
     @State private var neighborItems: [GenreTileItem] = []
 

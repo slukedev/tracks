@@ -52,31 +52,23 @@ final class NearbyDevices {
         devices.filter { $0.state?.hasSong == true }.sorted { ($0.state?.isPlaying ?? false) && !($1.state?.isPlaying ?? false) }
     }
 
-    /// Each device's player as this one shows it while controlling it: what it said, with the
-    /// asks it hasn't answered yet laid over it.
     private(set) var remotes: [String: RemoteControl] = [:]
 
-    /// What a device is playing, as its controls here should show it.
     func shownState(of device: Device) -> NearbyState? {
         remotes[device.id]?.shown ?? device.state
     }
 
-    /// A device that hasn't answered an ask in time.
     func isUnreachable(_ device: Device) -> Bool {
         remotes[device.id]?.isUnreachable == true
     }
 
-    /// Waiting on a device to skip, so its song is about to change.
     func isSkipping(_ device: Device) -> Bool {
         remotes[device.id]?.isSkipping == true
     }
 
     /// Another device asked this one to play, pause or skip.
     @ObservationIgnored var onCommand: ((TransportCommand) -> Void)?
-    /// Another device asked this one's player to do something, done at once, in the order
-    /// asked. Says whether it could.
     @ObservationIgnored var onRequest: ((RemoteAction) -> RemoteReply.Outcome)?
-    /// Waits, briefly, for the player to show what was asked of it, so the answer has it.
     @ObservationIgnored var settle: ((RemoteAction) async -> Void)?
     /// What's playing here right now, for an answer: what was last told can be a moment old.
     @ObservationIgnored var currentState: (() -> NearbyState?)?
@@ -157,7 +149,6 @@ final class NearbyDevices {
     @ObservationIgnored private var keyObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var isRunning = false
     @ObservationIgnored private var ledger = RemoteLedger()
-    /// This run, for the asks it numbers.
     @ObservationIgnored private let remoteSession = UUID()
 
     private static let serviceType = "_tracks._tcp"
@@ -254,7 +245,6 @@ final class NearbyDevices {
         }
         // With `-TracksSpeakersDemo` too, the Mac plays to a HomePod.
         let speakers = UserDefaults.standard.string(forKey: "TracksSpeakersDemo").map { _ in NearbySpeakers(kind: .homePod, names: ["Kitchen"]) }
-        // The Mac's other device is an iPhone, as it most often is; the iPhone's, a Mac.
         #if os(macOS)
         let other = (name: "Luke's iPhone", platform: "iPhone", kind: "iPhone")
         #else
@@ -265,7 +255,6 @@ final class NearbyDevices {
             title: first.title, artist: first.artist, album: first.album, artworkURL: Self.sampleCover(0),
             isPlaying: mode != "paused", position: 84, duration: first.duration, speakers: speakers
         ), remoteVersion: NearbyMessage.remoteVersion)]
-        // `-TracksNearbyDemoLeaves 20`: the devices go away after that many seconds.
         let leaves = UserDefaults.standard.double(forKey: "TracksNearbyDemoLeaves")
         if leaves > 0 {
             Task { [weak self] in
@@ -291,14 +280,11 @@ final class NearbyDevices {
         NearbySong(title: "Low Tide Radio", artist: "The Marlowes", album: "Coastline", duration: 236),
     ]
 
-    /// The run's `-TracksDemoCovers`, one per song, when it has them.
     private static func sampleCover(_ index: Int) -> String? {
         let covers = UserDefaults.standard.string(forKey: "TracksDemoCovers")?.split(separator: "|").map(String.init) ?? []
         return covers.isEmpty ? nil : covers[index % covers.count]
     }
 
-    /// The sample device answers as a real one would, after a moment on the network.
-    /// `-TracksNearbyDemoUnreachable YES` has it never answer.
     private func sampleAnswer(_ request: RemoteRequest, on id: String) {
         guard !UserDefaults.standard.bool(forKey: "TracksNearbyDemoUnreachable") else { return }
         Task { [weak self] in
@@ -496,7 +482,6 @@ final class NearbyDevices {
         }
     }
 
-    /// Notices, a moment after asking, that a device never answered.
     private func expireSoon(_ id: String) {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(RemoteControl.patience))
@@ -675,8 +660,6 @@ final class NearbyDevices {
         }
     }
 
-    /// Does what another device asked, once and in order, and says how it went, with what's
-    /// playing after.
     private func answer(_ request: RemoteRequest, on link: Link) {
         let playing = currentState?().flatMap { state in
             state.title.map { SongIdentity.key(title: $0, artistName: state.artist ?? "") }

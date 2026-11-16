@@ -147,15 +147,11 @@ enum SongFeel: Sendable, Hashable {
     nonisolated(unsafe) private static let key = /\sin\s[a-g](\s(flat|sharp))?\s(major|minor)\s/
 }
 
-/// Which way to steer a mood as it plays, by what each song's genre says of it.
 public enum MoodLean: String, CaseIterable, Sendable, Identifiable {
     case calmer, livelier, instrumental
 
     public var id: String { rawValue }
 
-    /// How much likelier a song in this genre is: up to several times for one that leans the
-    /// way asked, down to a fraction for one that leans the other way. Even for a song whose
-    /// genre says nothing either way.
     public func factor(genre: String?) -> Double {
         guard let genre else { return 1 }
         switch self {

@@ -1,8 +1,6 @@
 import SwiftUI
 import TracksCore
 
-/// A click opens the sheet to pick songs for a station, as making a station from songs is a
-/// short task, not a place.
 struct HandpickedTile: View {
     var covers: [CoverArt] = []
     @State private var showsPicker = false

@@ -17,8 +17,6 @@ enum BackdropFrameRate {
     }
 }
 
-/// Whether Low Power Mode is on, and how hot the device is running, for views to read as
-/// they change. Hot, moving backgrounds draw fewer frames; at its hottest they hold still.
 @Observable
 final class LowPowerMode {
     static let shared = LowPowerMode()
@@ -29,7 +27,6 @@ final class LowPowerMode {
     var isHot: Bool { thermalState == .serious || thermalState == .critical }
     var isOverheated: Bool { thermalState == .critical }
 
-    /// The most frames a second a moving background should draw, or nil for every frame.
     func cappedFrameRate(_ frameRate: Double?) -> Double? {
         if isOn { return min(frameRate ?? 20, 20) }
         if isHot { return min(frameRate ?? 30, 30) }

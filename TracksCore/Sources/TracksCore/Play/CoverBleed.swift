@@ -329,14 +329,6 @@ public nonisolated enum CoverBleedLayout {
     /// The cover's square, in a container of `size`, for a player that marks where its cover
     /// is with `focus`.
     ///
-    /// Under the song, as on iPhone, the whole cover sits at the very top, the container's
-    /// width, under the status bar and the top bar, never moved, cropped or inset for what's
-    /// on it; the colours carry on below it. Only its foot is cut short, fading out, when the
-    /// player's room for it ends above it (see ``shownFrame(of:focus:)``). Beside it, as on
-    /// the Mac, the cover reaches back to the screen's edge and runs a little past the player's
-    /// own, toward the song, as large as fits: cut off at the far edge only if the player's
-    /// cover is close to it.
-    ///
     /// Beside, a cover shorter than the window `standsOnFloor` when what it's of runs off its
     /// foot: it sits on the window's bottom edge, rather than in the middle with colour under
     /// a figure cut off at the waist. One that `fillsHeight` is the window's height, top to

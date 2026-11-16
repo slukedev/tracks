@@ -1,9 +1,6 @@
 import Foundation
 
-/// A plain border all the way round a cover, a white frame or a printed edge, found so what
-/// flows from the cover is the picture inside it rather than the border.
 public nonisolated struct CoverFrame: Equatable, Sendable {
-    /// Each edge's depth, as a part of the side.
     public var top: Double
     public var leading: Double
     public var bottom: Double
@@ -16,8 +13,6 @@ public nonisolated struct CoverFrame: Equatable, Sendable {
         self.trailing = trailing
     }
 
-    /// The border of a square cover's pixels, sRGB, four bytes each, alpha last: nil unless
-    /// every edge has one, of one colour all round, and the picture inside is left whole.
     public init?(rgba: [UInt8], side: Int) {
         guard side >= 16, rgba.count == side * side * 4 else { return nil }
         func colour(_ x: Int, _ y: Int) -> Oklab {
@@ -52,8 +47,6 @@ public nonisolated struct CoverFrame: Equatable, Sendable {
         ]
         let least = max(2, side / 50)
         guard edges.allSatisfy({ $0 >= least && $0 < deepest }) else { return nil }
-        // A frame gives way to the picture all along each edge at once; a figure on a plain
-        // ground only touches in where it reaches furthest.
         let inner = [
             (0..<side).map { colour($0, edges[0]) },
             (0..<side).map { colour(edges[1], $0) },

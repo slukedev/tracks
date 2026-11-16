@@ -3,9 +3,6 @@ import TracksCore
 
 #if os(iOS)
 extension View {
-    /// A collection's page on iPhone: a plain list whose first row is the header's artwork, edge
-    /// to edge from the top of the screen. While the artwork is under the bar the bar is drawn
-    /// for it, and the title joins the bar once the header's own has scrolled under it.
     func collectionPage(title: String) -> some View {
         modifier(CollectionChrome(title: title))
     }

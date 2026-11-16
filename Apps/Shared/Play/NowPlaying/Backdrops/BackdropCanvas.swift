@@ -195,7 +195,6 @@ final class BackdropCanvasView: NSView {
 
     private func applyFrameRate() {
         guard let link else { return }
-        // Low Power Mode keeps the motion, at fewer frames, and so does a Mac running hot.
         let process = ProcessInfo.processInfo
         let frameRate = process.isLowPowerModeEnabled ? min(frameRate ?? 20, 20)
             : process.thermalState == .serious || process.thermalState == .critical ? min(frameRate ?? 30, 30)

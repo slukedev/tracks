@@ -9,7 +9,6 @@ struct PanGesture: UIGestureRecognizerRepresentable {
         var translation: CGSize
         var velocity: CGSize
 
-        /// Where a flick let go now would come to rest, as SwiftUI's drag predicts it.
         var predictedEndTranslation: CGSize {
             CGSize(width: translation.width + velocity.width * 0.25, height: translation.height + velocity.height * 0.25)
         }

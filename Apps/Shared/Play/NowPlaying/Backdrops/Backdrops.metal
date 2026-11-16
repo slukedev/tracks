@@ -132,7 +132,6 @@ bool fits(float3 lab) {
     return all(c >= -0.0005) && all(c <= 1.0005);
 }
 
-// Back to sRGB, its chroma brought in until sRGB can show it, keeping lightness and hue.
 float3 encodedFromOklab(float3 lab) {
     if (!fits(lab)) {
         float inside = 0.0, outside = 1.0;
@@ -174,8 +173,6 @@ float3 graded(float3 lab, float4 grade, float4 tone, float ceiling, float struct
     return float3(lightness, chroma * cos(hue), chroma * sin(hue));
 }
 
-// How much a point is where the words are: below the cover on a tall screen, beside it on a
-// wide one, and everywhere when the cover's place isn't known.
 float wordsAt(float2 unit, float2 size, float4 frame) {
     if (frame.z <= frame.x) return 1.0;
     if (size.y > size.x * 1.1) return smoothstep(frame.w - 0.01, frame.w + 0.05, unit.y);
@@ -212,7 +209,6 @@ half4 livingCover(float2 position, float2 size, float4 phases, float4 feel, floa
     float over = smoothstep(0.35, 0.75, backdrop::fbm(p * 1.4 - r * 2.0 + 7.1 - t * 0.025));
     float3 colour = mix(mix(first, second, blend), third, over * 0.7);
 
-    // Where the flow folds, for a flat cover's texture of its own colour.
     float structure = (q.x - 0.5) * 1.4 + (r.y - 0.5) * 0.8;
     float2 unit = position / size;
     float ceiling = mix(tone.z, tone.w, wordsAt(unit, size, frame));

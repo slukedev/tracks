@@ -211,9 +211,6 @@ struct MacRootView: View {
         playerWindow.showsFullPlayer && (model.player.hasQueue || model.controlledDevice != nil)
     }
 
-    /// The full player was showing another device's song, and isn't any more. Brought here, or
-    /// handed back to this Mac's own song, it goes on as this Mac's player. With the device
-    /// gone, or nothing left playing, it closes, saying why when the device went.
     private func controlEnded(on id: String) {
         guard playerWindow.showsFullPlayer else { return }
         let device = model.nearby.devices.first { $0.id == id }

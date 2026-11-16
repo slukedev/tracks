@@ -67,9 +67,6 @@ public struct ListeningRoom: Sendable {
 
     static let enoughToTell = 12
 
-    /// When you play it, as far as the plays say: a day of the week that holds far more than
-    /// its share, or the weekend, and a part of the day. Nil until there are enough plays to
-    /// tell, or when they're spread too evenly to say.
     public var habit: Habit? {
         guard plays >= Self.enoughToTell else { return nil }
         var byDay = [Int](repeating: 0, count: 7)
@@ -297,9 +294,6 @@ public struct ListeningRoom: Sendable {
         return decades.count >= 2 ? decades : []
     }
 
-    /// The genres its songs are filed under, the most played first: the kinds of a genre, as
-    /// Trap and Alternative Rap are of Hip-Hop, or what a mood is made of. Empty unless there
-    /// are two or more.
     public func kinds() -> [Kind] {
         var byName: [String: [Song]] = [:]
         for song in songs {
@@ -313,7 +307,6 @@ public struct ListeningRoom: Sendable {
         return kinds.count >= 2 ? kinds : []
     }
 
-    /// The songs filed under one genre name.
     public struct Kind: Sendable, Identifiable, Equatable {
         public let name: String
         public let songs: [Song]
@@ -321,7 +314,6 @@ public struct ListeningRoom: Sendable {
         public var plays: Int { songs.reduce(0) { $0 + $1.plays } }
     }
 
-    /// How many artists it holds songs by.
     public var artistCount: Int { Set(songs.map(\.song.artistKey)).count }
 
     /// Ten years of songs, like the 1990s.
@@ -333,8 +325,6 @@ public struct ListeningRoom: Sendable {
     }
 }
 
-/// The songs whose covers stand for each mood on its tile, and for your music as a whole: your
-/// most played that suit it, one per album.
 public struct RoomCovers: Sendable {
     public let byMood: [Mood: [MixSong]]
     public let overall: [MixSong]

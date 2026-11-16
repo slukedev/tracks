@@ -40,7 +40,6 @@ struct CollectionHeader<Cover: View, More: View>: View {
     var note: String?
     /// How a Your Music album is encoded.
     var format: AudioFormat?
-    /// The cover Play takes its colour from.
     let tintCover: CoverArt?
     var canPlay = true
     var download: DownloadSubject?
@@ -48,7 +47,6 @@ struct CollectionHeader<Cover: View, More: View>: View {
     var isLoading = false
     let play: () -> Void
     let shuffle: () -> Void
-    /// The page's More menu, beside Play on the Mac. iPhone keeps it in the toolbar.
     @ViewBuilder var more: More
     /// The cover at the side it's given.
     @ViewBuilder var cover: (CGFloat) -> Cover
@@ -139,8 +137,6 @@ struct CollectionHeader<Cover: View, More: View>: View {
             .accessibilityHidden(true)
     }
 
-    // The cover's foot carried on a little, blurred and fading into the page, so the songs
-    // don't start at a hard line.
     private var spill: some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {

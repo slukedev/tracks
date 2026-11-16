@@ -106,7 +106,6 @@ struct YourMusicMoodView: View {
         player.hasQueue && player.context == PlayContext(kind: .endless, title: mood.title)
     }
 
-    /// Your songs' covers, one per album.
     private var heroCovers: [CoverArt] {
         var seen = Set<String>()
         var covers: [CoverArt] = []

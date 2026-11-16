@@ -189,7 +189,6 @@ struct GenreShelf: View {
         .task(id: key) {
             let key = key
             // Only the history moving on waits; another source or library looks at once.
-            // A first look made before the history was read waits for nothing.
             let hadHistory = items?.contains { !$0.covers.isEmpty } ?? false
             if hadHistory, let loaded, loaded.key.source == key.source, loaded.key.songs == key.songs {
                 let due = loaded.at + Self.refreshInterval
@@ -219,10 +218,8 @@ private struct GenreKey: Equatable {
     let songs: Int
 }
 
-/// A genre's card, which opens its page.
 struct GenreTile: View {
     let item: GenreTileItem
-    /// Fills its grid cell's width, as Search lays the genres out.
     var fillsWidth = false
 
     var body: some View {

@@ -1,9 +1,6 @@
 import SwiftUI
 import TracksCore
 
-/// A row of chips on a room's page, to choose one of a few, as a genre's kinds and decades, or
-/// what a mood is made of. The chosen one wears the room's colour; tapping it again lets it go
-/// where `allowsNone` says it can.
 struct RoomChips<Item: Identifiable>: View where Item.ID: Hashable {
     let items: [Item]
     let chosen: Item.ID?
@@ -14,7 +11,6 @@ struct RoomChips<Item: Identifiable>: View where Item.ID: Hashable {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        // Deep in light, lifted in dark, so the chosen one stands off either page.
         let chosenFill = colorScheme == .dark ? style.base.mix(with: .white, by: 0.18) : style.base.mix(with: .black, by: 0.2)
         ScrollView(.horizontal) {
             HStack(spacing: 8) {

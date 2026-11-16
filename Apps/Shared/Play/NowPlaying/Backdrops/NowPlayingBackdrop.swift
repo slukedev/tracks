@@ -178,7 +178,6 @@ struct NowPlayingBackdrop: View {
     private func follow(_ cover: CoverArt?) async {
         guard let cover else { return }
         await place(cover)
-        // What the cover is of follows, a moment later on a cover readied just now.
         guard let refined = await BackdropArtStore.shared.refined(cover), !Task.isCancelled,
               layer.cover == cover, layer.art != nil else { return }
         withAnimation(.smooth(duration: 0.5)) { layer.art = refined }

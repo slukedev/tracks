@@ -1,19 +1,6 @@
 import SwiftUI
 import TracksCore
 
-/// Now Playing's opening and closing, as one continuous motion between the player and the mini
-/// player, driven by the finger.
-///
-/// One number says where it is: `progress`, 0 with the player open and 1 with it gathered into
-/// the mini player. Dragging sets it directly; letting go springs it on at the finger's speed.
-/// Everything that moves reads it: the player slides with the finger and fades as it nears
-/// the foot of the screen, and its cover is lifted out and drawn above everything, travelling
-/// from its place in the player to the mini player's, growing or shrinking and rounding as it
-/// goes, so it lands exactly where the mini player draws its own. Full Cover's picture, edge
-/// to edge, shrinks the same way, its fade into the player's colours sharpening as it goes.
-///
-/// With no mini player to land in (another device's song, or none showing) the player slides
-/// off the screen whole, cover and all. Under Reduce Motion it follows the finger and fades.
 @MainActor
 @Observable
 final class PlayerHandoff {
@@ -27,28 +14,21 @@ final class PlayerHandoff {
     }
 
     private(set) var progress: CGFloat = 1
-    /// Under Reduce Motion the player fades in and out in place instead.
     private(set) var fade: CGFloat = 0
-    /// The cover is drawn above the player rather than in it.
     private(set) var isLifted = false
     /// Whether this opening or closing carries the cover into the mini player, decided as it
     /// starts so nothing changes shape part way.
     private(set) var travels = false
     private(set) var isClosing = false
     private(set) var isDragging = false
-    /// Counts closings by a pull that ended in the mini player, for the haptic as it lands.
     private(set) var landings = 0
     /// Counts the times the lifted cover was first drawn, so the mini player hides its own
     /// only once there's one to see.
     private(set) var isLiftedCoverDrawn = false
 
-    /// The mini player's cover and the whole bar, on the screen.
     var miniCover: CGRect?
     var miniBar: CGRect?
-    /// Where the player's cover sits, measured from the player's content at rest.
     var source: Source?
-    /// The player's content on the screen, inside the safe area, which every place here is
-    /// measured from, and the safe area around it.
     var screen: CGRect = .zero
     var safeArea = EdgeInsets()
     var reducesMotion = false
@@ -66,7 +46,6 @@ final class PlayerHandoff {
         case cover(CGRect)
         case fullCover(FullCoverPicture)
 
-        /// The square that travels, at rest.
         var square: CGRect {
             switch self {
             case .cover(let rect): rect
@@ -86,7 +65,6 @@ final class PlayerHandoff {
             }
         }
 
-        /// The part of it drawn at rest.
         var drawn: CGRect {
             switch self {
             case .cover(let rect): rect
@@ -97,20 +75,15 @@ final class PlayerHandoff {
 
     // MARK: - Geometry
 
-    /// The mini player's cover in the player's space.
     var target: CGRect? {
         miniCover.map { $0.offsetBy(dx: -screen.minX, dy: -screen.minY) }
     }
 
-    /// The mini player's bar in the player's space, which the player grows out of and
-    /// gathers back into.
     var bar: CGRect? {
         guard travels else { return nil }
         return miniBar.map { $0.offsetBy(dx: -screen.minX, dy: -screen.minY) }
     }
 
-    /// How far the finger travels between open and closed: the player's top edge goes from
-    /// the screen's top to the mini player's with it. Sliding off, the screen's height.
     var distance: CGFloat {
         let slide = max(screen.height + safeArea.top + safeArea.bottom, 400) + 40
         guard let bar else { return slide }
@@ -145,7 +118,6 @@ final class PlayerHandoff {
         withTransaction(transaction) { isPresented = true }
     }
 
-    /// Once the player has been laid out, its cover's place known: up it comes.
     func playerDidLayOut() {
         guard awaitsOpening, !isDragging else { return }
         awaitsOpening = false
@@ -156,7 +128,6 @@ final class PlayerHandoff {
         }
     }
 
-    /// Tapped while it closes: back up from wherever it's got to.
     func reopen() {
         guard isPresented, isClosing else { return }
         generation += 1
@@ -187,7 +158,6 @@ final class PlayerHandoff {
 
     // MARK: - Dragging
 
-    /// A drag on the player, or up from the mini player, takes hold from wherever it is.
     func beginDrag(fromMiniPlayer: Bool = false) {
         generation += 1
         settling = nil
@@ -213,20 +183,15 @@ final class PlayerHandoff {
         setWithoutAnimation { progress = shownProgress }
     }
 
-    /// `translation` is the finger's way down the screen since it took hold.
     func drag(_ translation: CGFloat) {
         guard isDragging else { return }
         let next = min(1, max(0, dragBase + translation / distance))
         setWithoutAnimation { progress = next }
     }
 
-    /// A flick decides; without one, how far it's gone and where it was headed. A pull from
-    /// the open player closes after a short way, as Music's does; one up from the mini player
-    /// opens after the same.
     func endDrag(translation: CGFloat, predicted: CGFloat, velocity: CGFloat) {
         guard isDragging else { return }
         isDragging = false
-        // Where it was headed, as a share of the way.
         let headedTo = progress + (predicted - translation) / distance
         let closes: Bool
         if velocity > 350 {
@@ -253,7 +218,6 @@ final class PlayerHandoff {
         }
     }
 
-    /// A drag the system took away: back to where it's nearest.
     func cancelDrag() {
         guard isDragging else { return }
         isDragging = false
@@ -359,8 +323,6 @@ final class PlayerHandoff {
 
 // MARK: - The presentation
 
-/// Applied to Now Playing's content: moves it with ``PlayerHandoff``, takes the pull that
-/// closes it, and draws the cover on its way between the player and the mini player.
 struct NowPlayingPresentation: ViewModifier {
     /// Waits for the player's own gestures to give up first, as Up Next's list needs to scroll.
     /// Otherwise the pull runs alongside them: waiting for the cover's double tap to fail held
@@ -368,7 +330,6 @@ struct NowPlayingPresentation: ViewModifier {
     let yields: Bool
     let cover: CoverArt?
     let isFullCover: Bool
-    /// The cover sinks back while paused, its shadow with it.
     let sinks: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var handoff = PlayerHandoff.shared
@@ -397,8 +358,6 @@ struct NowPlayingPresentation: ViewModifier {
             }
             .onPreferenceChange(FullCoverPictureKey.self) { picture in
                 guard isFullCover else { return }
-                // The backdrop runs to the screen's edges; the rest is measured from inside
-                // the safe area.
                 handoff.place(picture.map { picture in
                     var picture = picture
                     picture.shown = picture.shown.offsetBy(dx: -handoff.safeArea.leading, dy: -handoff.safeArea.top)
@@ -426,8 +385,6 @@ struct NowPlayingPresentation: ViewModifier {
                 }
             }
             .overlay {
-                // Mid-flight, it can be caught: a drag takes it from where it is, and a tap
-                // on the mini player brings it back.
                 if handoff.isLifted || handoff.isClosing, !handoff.isDragging {
                     Color.clear
                         .contentShape(.rect)
@@ -503,10 +460,6 @@ extension View {
     }
 }
 
-/// The player itself, moved by the handoff. With a mini player to go to, it's a window onto
-/// the player that shrinks from the screen into the mini player's bar, its corners rounding
-/// from the screen's into the bar's, the player's top riding its top edge, and its colours
-/// handing over to the bar's glass as it arrives. Without one it slides off the screen whole.
 /// Only the offset, clip and opacity change each frame, never the player's layout.
 private struct CardMotion: ViewModifier, Animatable {
     var progress: CGFloat
@@ -541,7 +494,6 @@ private struct CardMotion: ViewModifier, Animatable {
             window = lerp(screen, bar, p)
             shift = CGSize(width: window.midX - screen.midX, height: window.minY - screen.minY)
             radius = p > 0.0005 ? lerp(Self.screenRadius, bar.height / 2, p) : 0
-            // Its colours stay until it's nearly the bar, then give way to the bar's own.
             opacity = 1 - smoothstep(p, from: 0.78, to: 1)
         } else {
             shift = CGSize(width: 0, height: p * distance)
@@ -556,8 +508,6 @@ private struct CardMotion: ViewModifier, Animatable {
     }
 }
 
-/// The player's controls and words, which give way to the mini player's quickly as the player
-/// gathers into it, while its colours carry on to the bar.
 struct NowPlayingChromeFade: ViewModifier {
     @State private var handoff = PlayerHandoff.shared
 
@@ -579,7 +529,6 @@ private struct ChromeOpacity: ViewModifier, Animatable {
     }
 }
 
-/// The app behind the player, dimmed while the player's over it.
 private struct Scrim: View, Animatable {
     var progress: CGFloat
     var fade: CGFloat
@@ -594,8 +543,6 @@ private struct Scrim: View, Animatable {
     }
 }
 
-/// A rounded window, in the player's own space, which reaches past the safe area its content
-/// keeps to.
 private nonisolated struct CardShape: Shape {
     let area: CGRect
     let radius: CGFloat
@@ -657,7 +604,6 @@ private struct LiftedCover: View, Animatable {
         CoverImage(cover: cover, size: source.square.width, isBare: true)
     }
 
-    /// Full Cover's fade into its colours, as the backdrop draws it, easing away as it shrinks.
     @ViewBuilder
     private func feather(_ p: CGFloat) -> some View {
         if case .fullCover(let picture) = source, p < 1 {

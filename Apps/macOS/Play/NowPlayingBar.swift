@@ -302,8 +302,6 @@ struct NowPlayingBar: View {
         .padding(.horizontal, 8)
     }
 
-    /// The quality beside the artist, as Music's player shows Lossless; the artist gives way
-    /// first in a narrow bar.
     private func localSubtitle(_ track: PlayerTrack) -> some View {
         HStack(spacing: 5) {
             Text(track.artistName)

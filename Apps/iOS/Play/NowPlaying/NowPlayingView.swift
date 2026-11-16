@@ -28,7 +28,6 @@ struct NowPlayingView: View {
     @State private var detailsHeight: CGFloat = 0
     @State private var controlsHeight: CGFloat = 0
     @State private var isOpening = true
-    /// Where to go as the player closes: Go to Album and the like.
     let onNavigate: (NowPlayingDestination) -> Void
 
     var body: some View {

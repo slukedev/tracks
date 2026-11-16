@@ -170,7 +170,6 @@ public enum NearbyMessage: Codable, Sendable, Equatable {
     case request(RemoteRequest)
     case reply(RemoteReply)
 
-    /// The ``RemoteRequest``s this version understands.
     public static let remoteVersion = 1
 }
 

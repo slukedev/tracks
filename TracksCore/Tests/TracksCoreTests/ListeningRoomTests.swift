@@ -356,7 +356,6 @@ extension ListeningRoomTests {
         #expect(Set(room.mornings().map(\.song.title)) == ["Half", "Early", "Mid"])
     }
 
-    /// Days before now that fall on a weekday, as the calendar numbers it (1 is Sunday).
     func days(onWeekday weekday: Int, count: Int) -> [Double] {
         (1...70).map(Double.init).filter { calendar.component(.weekday, from: now.addingTimeInterval(-$0 * 86_400)) == weekday }.prefix(count).map(\.self)
     }
@@ -413,7 +412,6 @@ extension ListeningRoomTests {
         #expect(MoodLean.instrumental.factor(genre: "Classical") > MoodLean.instrumental.factor(genre: "Pop"))
     }
 }
-
 
 struct RoomCoversTests {
     @Test("a mood's covers are its most played songs that suit it, one per album")

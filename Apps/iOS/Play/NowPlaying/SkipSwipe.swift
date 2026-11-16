@@ -1,17 +1,8 @@
 import SwiftUI
 import TracksCore
 
-/// The song on, pushed aside with a finger to skip: left for the next song, right for the one
-/// before, or back to the start past the first few seconds, as Previous does. The song follows
-/// the finger and the one it goes to slides in behind it; with nowhere to go (the end of the
-/// queue, a station that can't go back) it gives a little and springs back. The flick
-/// decides, felt as it commits.
-///
-/// Only sideways: what starts up or down goes to `onVertical`, or to the player's own pull.
 struct SkipSwipe<Item: View>: View {
-    /// How far a song moves to be out of the way.
     let travel: CGFloat
-    /// Whether the song moves with the finger, or the swipe only skips.
     var follows = true
     /// Shared where the swipe is read further out: in the tab bar's accessory a pan only
     /// begins on the row itself.
@@ -43,18 +34,13 @@ struct SkipSwipe<Item: View>: View {
     }
 }
 
-/// Where a ``SkipSwipe`` is, and what a pan on it does.
 @MainActor
 @Observable
 final class SkipSwipeState {
-    /// The mini player's.
     static let mini = SkipSwipeState()
 
     private(set) var offset: CGFloat = 0
-    /// The two songs while one slides out and the other in, kept as they were, whenever the
-    /// player catches up.
     private(set) var held: (outgoing: PlayerTrack, incoming: PlayerTrack?)?
-    /// The song slid in, shown until the player says it's on.
     private(set) var arriving: PlayerTrack?
     /// The song slid away, kept off until the player moves on from it, when a live mix
     /// hadn't picked the next one yet.
@@ -62,12 +48,10 @@ final class SkipSwipeState {
     private(set) var commits = 0
     @ObservationIgnored private var axis: Axis?
 
-    /// Reads a swipe: sideways skips, anything else goes to `onVertical`.
     func pan(player: PlayerModel, travel: CGFloat, moves: Bool, isEnabled: Bool = true, onVertical: ((PanGesture.Value, _ hasEnded: Bool) -> Void)? = nil) -> PanGesture {
         PanGesture(isEnabled: isEnabled) { [self] value in
             let width = value.translation.width
             let height = value.translation.height
-            // Which way it's going is decided once it's gone somewhere.
             if axis == nil {
                 guard max(abs(width), abs(height)) >= 4 else { return }
                 axis = abs(width) > abs(height) ? .horizontal : .vertical
@@ -100,8 +84,6 @@ final class SkipSwipeState {
         leaving = nil
     }
 
-    /// Where a swipe this way goes: the next song to the left, the one before (or this one
-    /// again) to the right.
     func neighbour(toward offset: CGFloat, in player: PlayerModel) -> PlayerTrack? {
         guard let current = player.current else { return nil }
         if offset < 0 { return player.upNext.first }
@@ -149,7 +131,6 @@ final class SkipSwipeState {
         withAnimation(.interpolatingSpring(duration: 0.4, bounce: 0.15, initialVelocity: speed)) { offset = 0 }
     }
 
-    /// Gives less the further it's pulled, toward a third of the way.
     private func rubberBand(_ x: CGFloat, travel: CGFloat) -> CGFloat {
         let limit = travel * 0.3
         let given = (1 - 1 / (abs(x) * 0.55 / limit + 1)) * limit

@@ -174,7 +174,6 @@ struct ArtworkBackdrop: View {
 struct LivingCoverBackdrop: View {
     let art: BackdropArt
     let isMoving: Bool
-    /// Where the cover sits, in this view's space, so the colours stay deepest by the words.
     var focus: CGRect?
     @Environment(PlayerModel.self) private var player: PlayerModel?
     @Environment(\.backdropLevels) private var sharedLevels
@@ -198,8 +197,6 @@ struct LivingCoverBackdrop: View {
         .listensToAudio(dances)
     }
 
-    /// The grade's numbers as the shader takes them: the grade, then its chroma, texture and
-    /// ceilings, lower with Increase Contrast.
     private var grading: (grade: SIMD4<Float>, tone: SIMD4<Float>, window: SIMD4<Float>) {
         let grade = art.grade
         let deeper = contrast == .increased ? 0.06 : 0
@@ -219,7 +216,6 @@ struct LivingCoverBackdrop: View {
         return SIMD4(Float(0.5 + (subject.midX - 0.5) * 0.5), Float(0.5 + (subject.midY - 0.5) * 0.5), 0.8, 0)
     }
 
-    /// Where the cover sits, in parts of `size`, or nothing when it isn't known.
     private static func frame(_ focus: CGRect?, in size: CGSize) -> SIMD4<Float> {
         guard let focus, size.width > 0, size.height > 0 else { return .zero }
         return SIMD4(Float(focus.minX / size.width), Float(focus.minY / size.height), Float(focus.maxX / size.width), Float(focus.maxY / size.height))
