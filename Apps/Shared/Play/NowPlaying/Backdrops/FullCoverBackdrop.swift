@@ -121,13 +121,14 @@ struct FullCoverBackdrop: View {
         ))
     }
 
-    /// A wash under the top bar, black under white type and white under dark, as strong as
-    /// the cover's top needs for the bar's words to read over a title or a face there, easing
-    /// away below the bar. Nothing on a cover whose top is plain enough already.
+    /// A wash under the top bar and the status bar, black under white type and white under
+    /// dark, as strong as the cover's top needs for their words to read over a title or a face
+    /// there, easing away below the bar. Nothing on a cover whose top is plain enough already,
+    /// nor on the Mac, whose top bar sits on glass.
     @ViewBuilder
     private func headVeil(_ bleed: CoverBleed, cover: CGRect) -> some View {
         let veil = bleed.headVeil(increasedContrast: contrast == .increased)
-        if veil > 0.01 {
+        if Self.direction == .below, veil > 0.01 {
             let colour: Color = bleed.ink(.top) == .light ? .black : .white
             let solid = max(0, cover.minY) + cover.width * Self.featherElsewhere
             let fade = cover.width * 0.14
