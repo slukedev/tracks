@@ -18,7 +18,7 @@ struct BackdropTimeline<Content: View>: View {
 
     var body: some View {
         // Low Power Mode keeps the motion, at fewer frames: at these speeds it barely shows.
-        let interval = LowPowerMode.shared.isOn ? 1 / min(frameRate ?? 20, 20) : frameRate.map { 1 / $0 }
+        let interval = LowPowerMode.shared.cappedFrameRate(frameRate).map { 1 / $0 }
         TimelineView(.animation(minimumInterval: interval, paused: isAtRest || !isOnScreen)) { context in
             content(clock?.phase(at: context.date.timeIntervalSinceReferenceDate) ?? start)
         }
@@ -174,6 +174,8 @@ struct ArtworkBackdrop: View {
 struct LivingCoverBackdrop: View {
     let art: BackdropArt
     let isMoving: Bool
+    /// Where the cover sits, in this view's space, so the colours stay deepest by the words.
+    var focus: CGRect?
     @Environment(PlayerModel.self) private var player: PlayerModel?
     @Environment(\.backdropLevels) private var sharedLevels
     @Environment(\.colorSchemeContrast) private var contrast
@@ -193,29 +195,54 @@ struct LivingCoverBackdrop: View {
             .transition(.asymmetric(insertion: .opacity, removal: .opacity.animation(.linear(duration: 0.05).delay(0.6))))
         }
         .animation(.easeInOut(duration: 0.6), value: dances)
-        .overlay {
-            LinearGradient(stops: [
-                .init(color: .black.opacity(0), location: 0.4),
-                .init(color: .black.opacity(0.3), location: 1),
-            ], startPoint: .top, endPoint: .bottom)
-        }
         .listensToAudio(dances)
+    }
+
+    /// The grade's numbers as the shader takes them: the grade, then its chroma, texture and
+    /// ceilings, lower with Increase Contrast.
+    private var grading: (grade: SIMD4<Float>, tone: SIMD4<Float>, window: SIMD4<Float>) {
+        let grade = art.grade
+        let deeper = contrast == .increased ? 0.06 : 0
+        return (
+            SIMD4(Float(grade.sourceLow), Float(grade.sourceHigh), Float(grade.low), Float(grade.high)),
+            SIMD4(Float(grade.chroma), Float(grade.texture), Float(LivingCoverGrade.readableCeiling - deeper), Float(LivingCoverGrade.textCeiling - deeper)),
+            Self.window(art)
+        )
+    }
+
+    /// The part of the cover it flows from: toward who or what it's of, when that's a small
+    /// part of it, so a figure on a wide plain ground gives its colours rather than the ground.
+    private static func window(_ art: BackdropArt) -> SIMD4<Float> {
+        guard let subject = art.focus ?? art.subject, subject.width * subject.height < 0.45, subject.width > 0.05, subject.height > 0.05 else {
+            return SIMD4(0.5, 0.5, 1, 0)
+        }
+        return SIMD4(Float(0.5 + (subject.midX - 0.5) * 0.5), Float(0.5 + (subject.midY - 0.5) * 0.5), 0.8, 0)
+    }
+
+    /// Where the cover sits, in parts of `size`, or nothing when it isn't known.
+    private static func frame(_ focus: CGRect?, in size: CGSize) -> SIMD4<Float> {
+        guard let focus, size.width > 0, size.height > 0 else { return .zero }
+        return SIMD4(Float(focus.minX / size.width), Float(focus.minY / size.height), Float(focus.maxX / size.width), Float(focus.maxY / size.height))
     }
 
     /// Every frame the display shows: a beat's push lands with the beat.
     @ViewBuilder private var moving: some View {
         let listening = dances ? sharedLevels.map { Listening(player: player, energy: songEnergy(player?.current), levels: $0, feel: feel, contrast: contrast) } : nil
+        let grading = grading
         #if os(macOS)
-        BackdropCanvasTimeline(isMoving: isMoving, rate: FlowRate.of(player), start: art.start, frameRate: nil, factor: 4) { [art, isMoving] time, moment in
+        BackdropCanvasTimeline(isMoving: isMoving, rate: FlowRate.of(player), start: art.start, frameRate: nil, factor: 4) { [art, isMoving, focus] time, moment in
             // At the frame's own moment, as Stage's visualizer hears it, so both share one.
             let frame = listening.map { Self.felt($0, art: art, isMoving: isMoving, at: moment.time) } ?? Self.calm(at: time)
-            return Self.drawing(cover: art.flowing, frame: frame)
+            return Self.drawing(cover: art.flowing, frame: frame, grading: grading, place: Self.frame(focus, in: moment.size))
         }
         #else
-        BackdropTimeline(isMoving: isMoving, rate: FlowRate.of(player), start: art.start, frameRate: nil) { time in
-            let frame = listening.map { Self.felt($0, art: art, isMoving: isMoving, at: Date.now.timeIntervalSinceReferenceDate) } ?? Self.calm(at: time)
-            StretchedBackdrop(factor: 4) { size in
-                Rectangle().fill(Self.shader(size: size, cover: art.flowing, frame: frame))
+        GeometryReader { proxy in
+            let place = Self.frame(focus, in: proxy.size)
+            BackdropTimeline(isMoving: isMoving, rate: FlowRate.of(player), start: art.start, frameRate: nil) { time in
+                let frame = listening.map { Self.felt($0, art: art, isMoving: isMoving, at: Date.now.timeIntervalSinceReferenceDate) } ?? Self.calm(at: time)
+                StretchedBackdrop(factor: 4) { size in
+                    Rectangle().fill(Self.shader(size: size, cover: art.flowing, frame: frame, grading: grading, place: place))
+                }
             }
         }
         #endif
@@ -264,23 +291,32 @@ struct LivingCoverBackdrop: View {
     private static func phase(_ value: Double) -> Double { value.truncatingRemainder(dividingBy: 20_000) }
 
     #if os(macOS)
-    private static func drawing(cover: CGImage, frame: LivingCoverFeel.Frame) -> BackdropDrawing {
+    private static func drawing(cover: CGImage, frame: LivingCoverFeel.Frame, grading: (grade: SIMD4<Float>, tone: SIMD4<Float>, window: SIMD4<Float>), place: SIMD4<Float>) -> BackdropDrawing {
         BackdropDrawing(function: "livingCoverFragment", inputs: [
             SIMD4(Float(phase(frame.deep)), Float(phase(frame.middle)), Float(phase(frame.top)), Float(phase(frame.flow))),
             SIMD4(Float(frame.swell), Float(frame.thump), Float(frame.twist), Float(frame.shimmer)),
             SIMD4(Float(frame.body), Float(frame.churn), Float(frame.breath), Float(frame.warmth)),
             SIMD4(Float(frame.lift), 0, 0, 0),
+            grading.grade,
+            grading.tone,
+            place,
+            grading.window,
         ], picture: cover)
     }
     #endif
 
-    private static func shader(size: CGSize, cover: CGImage, frame: LivingCoverFeel.Frame) -> Shader {
+    private static func shader(size: CGSize, cover: CGImage, frame: LivingCoverFeel.Frame, grading: (grade: SIMD4<Float>, tone: SIMD4<Float>, window: SIMD4<Float>), place: SIMD4<Float>) -> Shader {
+        func float4(_ v: SIMD4<Float>) -> Shader.Argument { .float4(v.x, v.y, v.z, v.w) }
         var shader = ShaderLibrary.livingCover(
             .float2(size),
             .float4(phase(frame.deep), phase(frame.middle), phase(frame.top), phase(frame.flow)),
             .float4(frame.swell, frame.thump, frame.twist, frame.shimmer),
             .float4(frame.body, frame.churn, frame.breath, frame.warmth),
             .float(frame.lift),
+            float4(grading.grade),
+            float4(grading.tone),
+            float4(place),
+            float4(grading.window),
             .image(Image(decorative: cover, scale: 1))
         )
         shader.dithersColor = true

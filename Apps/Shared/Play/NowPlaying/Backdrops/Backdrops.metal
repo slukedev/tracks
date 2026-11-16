@@ -90,9 +90,99 @@ float2 centred(float2 position, float2 size) {
 // how much the flow folds, more for a crowded mix; a quiet passage's slow breath; and the
 // highlights' warmth. `lift` opens the cover out as the music jumps to loud. With every phase
 // the same time and the rest zero, it flows calmly on its own.
+//
+// Its colours are graded in Oklab as `LivingCoverGrade` describes, `grade` and `tone` its
+// numbers and the ceilings. `frame` is where the cover sits, in parts of the size, so the
+// colours stay deepest where the words are; `window` the part of the cover it flows from.
 namespace backdrop {
 
-half4 livingCover(float2 position, float2 size, float4 phases, float4 feel, float4 mood, float lift, texture2d<half> cover) {
+float3 linearFromEncoded(float3 c) {
+    c = max(c, 0.0);
+    return select(pow((c + 0.055) / 1.055, 2.4), c / 12.92, c <= 0.04045);
+}
+
+float3 encodedFromLinear(float3 c) {
+    c = saturate(c);
+    return select(1.055 * pow(c, 1.0 / 2.4) - 0.055, c * 12.92, c <= 0.0031308);
+}
+
+float3 oklab(float3 encoded) {
+    float3 c = linearFromEncoded(encoded);
+    float3 lms = float3(dot(c, float3(0.4122214708, 0.5363325363, 0.0514459929)),
+                        dot(c, float3(0.2119034982, 0.6806995451, 0.1073969566)),
+                        dot(c, float3(0.0883024619, 0.2817188376, 0.6299787005)));
+    lms = sign(lms) * pow(abs(lms), 1.0 / 3.0);
+    return float3(dot(lms, float3(0.2104542553, 0.7936177850, -0.0040720468)),
+                  dot(lms, float3(1.9779984951, -2.4285922050, 0.4505937099)),
+                  dot(lms, float3(0.0259040371, 0.7827717662, -0.8086757660)));
+}
+
+float3 linearFromOklab(float3 lab) {
+    float3 lms = float3(lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z,
+                        lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z,
+                        lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z);
+    lms = lms * lms * lms;
+    return float3(dot(lms, float3(4.0767416621, -3.3077115913, 0.2309699292)),
+                  dot(lms, float3(-1.2684380046, 2.6097574011, -0.3413193965)),
+                  dot(lms, float3(-0.0041960863, -0.7034186147, 1.7076147010)));
+}
+
+bool fits(float3 lab) {
+    float3 c = linearFromOklab(lab);
+    return all(c >= -0.0005) && all(c <= 1.0005);
+}
+
+// Back to sRGB, its chroma brought in until sRGB can show it, keeping lightness and hue.
+float3 encodedFromOklab(float3 lab) {
+    if (!fits(lab)) {
+        float inside = 0.0, outside = 1.0;
+        for (int step = 0; step < 6; step++) {
+            float middle = (inside + outside) * 0.5;
+            if (fits(float3(lab.x, lab.yz * middle))) inside = middle; else outside = middle;
+        }
+        lab.yz *= inside;
+    }
+    return encodedFromLinear(linearFromOklab(lab));
+}
+
+float bump(float degrees, float centre, float width) {
+    float distance = abs(degrees - centre);
+    distance = distance > 180.0 ? 360.0 - distance : distance;
+    return 1.0 - smoothstep(0.0, width, distance);
+}
+
+// `LivingCoverGrade.shade`.
+float3 graded(float3 lab, float4 grade, float4 tone, float ceiling, float structure) {
+    float t = clamp((lab.x - grade.x) / max(grade.y - grade.x, 0.05), -0.25, 1.25);
+    float lightness = grade.z + (grade.w - grade.z) * t;
+    lightness += tone.y * (grade.w - grade.z) * 1.2 * structure;
+
+    float sourceChroma = length(lab.yz);
+    float chroma = sourceChroma * tone.x;
+    float hue = atan2(lab.z, lab.y);
+    float degrees = hue * 180.0 / M_PI_F;
+    float darkening = smoothstep(0.8, 0.35, lightness);
+    float yellow = bump(degrees, 105.0, 25.0) * darkening;
+    hue -= yellow * 38.0 * M_PI_F / 180.0;
+    float muddy = bump(degrees, 70.0, 45.0) * (1.0 - smoothstep(0.04, 0.1, sourceChroma)) * darkening;
+    chroma *= 1.0 - 0.6 * muddy;
+    chroma = min(chroma, 0.26);
+
+    float knee = ceiling - 0.1;
+    if (lightness > knee) lightness = knee + 0.1 * (1.0 - exp(-(lightness - knee) / 0.1));
+    lightness = max(0.1, lightness);
+    return float3(lightness, chroma * cos(hue), chroma * sin(hue));
+}
+
+// How much a point is where the words are: below the cover on a tall screen, beside it on a
+// wide one, and everywhere when the cover's place isn't known.
+float wordsAt(float2 unit, float2 size, float4 frame) {
+    if (frame.z <= frame.x) return 1.0;
+    if (size.y > size.x * 1.1) return smoothstep(frame.w - 0.01, frame.w + 0.05, unit.y);
+    return smoothstep(frame.z - 0.01, frame.z + 0.05, unit.x);
+}
+
+half4 livingCover(float2 position, float2 size, float4 phases, float4 feel, float4 mood, float lift, float4 grade, float4 tone, float4 frame, float4 window, texture2d<half> cover) {
     constexpr sampler art(address::mirrored_repeat, filter::linear);
     float swell = feel.x, thump = feel.y, twist = feel.z, glint = feel.w;
     float depth = mood.x, churn = mood.y, breath = mood.z, warmth = mood.w;
@@ -113,24 +203,32 @@ half4 livingCover(float2 position, float2 size, float4 phases, float4 feel, floa
     float2 a = backdrop::rotation(phases.x * 0.02) * p * 0.8 + warp;
     float2 b = backdrop::rotation(-phases.y * 0.025 + 2.1) * (p + float2(0.14, -0.1)) * 1.2 + warp * 1.3;
     float2 c = backdrop::rotation(phases.z * 0.015 + 4.2) * (p - float2(0.12, 0.16)) * 0.55 - warp * 0.8;
-    float3 first = float3(cover.sample(art, 0.5 + a).rgb);
-    float3 second = float3(cover.sample(art, 0.5 + b).rgb);
-    float3 third = float3(cover.sample(art, 0.5 + c).rgb);
+    float2 middle = window.xy, reach = float2(window.z);
+    float3 first = float3(cover.sample(art, middle + a * reach).rgb);
+    float3 second = float3(cover.sample(art, middle + b * reach).rgb);
+    float3 third = float3(cover.sample(art, middle + c * reach).rgb);
 
     float blend = smoothstep(0.3, 0.7, backdrop::fbm(p * 1.2 + q * 2.0 + t * 0.03));
     float over = smoothstep(0.35, 0.75, backdrop::fbm(p * 1.4 - r * 2.0 + 7.1 - t * 0.025));
     float3 colour = mix(mix(first, second, blend), third, over * 0.7);
 
-    // A touch more contrast, so its colours stand apart rather than meet in grey, and a
-    // little deeper toward the edges, as a room is lit from the middle. Loud, both a little
-    // more: the colours deepen as a chorus does, and richer still as the music lifts.
-    colour = max(float3(0.0), (colour - 0.3) * (1.1 + 0.1 * depth) + 0.3);
-    colour *= 1.0 - (0.14 + 0.08 * depth) * smoothstep(0.3, 0.8, length(p));
-    colour = backdrop::readable(colour, 1.45 + 0.3 * depth + 0.3 * lift, 0.47);
+    // Where the flow folds, for a flat cover's texture of its own colour.
+    float structure = (q.x - 0.5) * 1.4 + (r.y - 0.5) * 0.8;
+    float2 unit = position / size;
+    float ceiling = mix(tone.z, tone.w, wordsAt(unit, size, frame));
+    float3 lab = graded(oklab(colour), grade, tone, ceiling, structure);
+
+    // A little deeper toward the edges, as a room is lit from the middle, and toward the foot,
+    // where the controls are. Loud, a little deeper and richer: a chorus deepens the colours,
+    // and they're richer still as the music lifts.
+    lab.x *= 1.0 - (0.1 + 0.06 * depth) * smoothstep(0.3, 0.8, length(p));
+    lab.x *= 1.0 - 0.12 * smoothstep(0.45, 1.0, unit.y);
+    lab.yz *= 1.0 + 0.15 * depth + 0.2 * lift;
+    colour = encodedFromOklab(lab);
 
     // Only the highlights take the song's warmth and the cymbals' glint, so the deep
     // colours under the words stay where they are.
-    float highlight = smoothstep(0.18, 0.42, backdrop::luma(colour));
+    float highlight = smoothstep(0.32, 0.5, lab.x);
     float3 tint = warmth > 0.0 ? float3(1.06, 1.0, 0.9) : float3(0.93, 0.99, 1.07);
     colour *= mix(float3(1.0), tint, abs(warmth) * 0.55 * highlight);
     float speck = backdrop::noise(p * 13.0 + float2(t * 0.5, -t * 0.4)) * backdrop::noise(p * 9.0 - float2(t * 0.3, t * 0.45));
@@ -142,8 +240,8 @@ half4 livingCover(float2 position, float2 size, float4 phases, float4 feel, floa
 
 }
 
-[[ stitchable ]] half4 livingCover(float2 position, float2 size, float4 phases, float4 feel, float4 mood, float lift, texture2d<half> cover) {
-    return backdrop::livingCover(position, size, phases, feel, mood, lift, cover);
+[[ stitchable ]] half4 livingCover(float2 position, float2 size, float4 phases, float4 feel, float4 mood, float lift, float4 grade, float4 tone, float4 frame, float4 window, texture2d<half> cover) {
+    return backdrop::livingCover(position, size, phases, feel, mood, lift, grade, tone, frame, window, cover);
 }
 
 // Reeded Glass: the cover behind a pane of ribbed glass. Each reed is a lens that shows a
@@ -295,7 +393,7 @@ float softLine(float d, float width, float radius) {
 }
 
 fragment half4 livingCoverFragment(BackdropPixel in [[stage_in]], constant float4 *u [[buffer(0)]], texture2d<half> cover [[texture(0)]]) {
-    half4 colour = backdrop::livingCover(backdrop::point(in, u), u[0].xy, u[1], u[2], u[3], u[4].x, cover);
+    half4 colour = backdrop::livingCover(backdrop::point(in, u), u[0].xy, u[1], u[2], u[3], u[4].x, u[5], u[6], u[7], u[8], cover);
     return backdrop::dithered(colour, in.position.xy);
 }
 

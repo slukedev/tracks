@@ -119,6 +119,7 @@ final class BackdropCanvasView: NSView {
         layer?.contentsGravity = .resize
         layer?.actions = ["contents": NSNull()]
         NotificationCenter.default.addObserver(self, selector: #selector(powerChanged), name: .NSProcessInfoPowerStateDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(powerChanged), name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
     }
 
     @available(*, unavailable)
@@ -194,8 +195,11 @@ final class BackdropCanvasView: NSView {
 
     private func applyFrameRate() {
         guard let link else { return }
-        // Low Power Mode keeps the motion, at fewer frames.
-        let frameRate = ProcessInfo.processInfo.isLowPowerModeEnabled ? min(frameRate ?? 20, 20) : frameRate
+        // Low Power Mode keeps the motion, at fewer frames, and so does a Mac running hot.
+        let process = ProcessInfo.processInfo
+        let frameRate = process.isLowPowerModeEnabled ? min(frameRate ?? 20, 20)
+            : process.thermalState == .serious || process.thermalState == .critical ? min(frameRate ?? 30, 30)
+            : frameRate
         if let frameRate {
             let rate = Float(frameRate)
             link.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)

@@ -9,7 +9,7 @@ enum BackdropFrameRate {
     /// as often as it refreshes, up to 120 times a second on ProMotion. Low Power Mode keeps
     /// the motion at 20.
     static var everyFrame: Double? {
-        LowPowerMode.shared.isOn ? 1 / 20 : nil
+        LowPowerMode.shared.cappedFrameRate(nil).map { 1 / $0 }
     }
 
     static func interval(reduceMotion: Bool) -> Double? {
@@ -17,18 +17,38 @@ enum BackdropFrameRate {
     }
 }
 
-/// Whether Low Power Mode is on, for views to read as it changes.
+/// Whether Low Power Mode is on, and how hot the device is running, for views to read as
+/// they change. Hot, moving backgrounds draw fewer frames; at its hottest they hold still.
 @Observable
 final class LowPowerMode {
     static let shared = LowPowerMode()
     private(set) var isOn = ProcessInfo.processInfo.isLowPowerModeEnabled
-    @ObservationIgnored private var observer: (any NSObjectProtocol)?
+    private(set) var thermalState = ProcessInfo.processInfo.thermalState
+    @ObservationIgnored private var observers: [any NSObjectProtocol] = []
+
+    var isHot: Bool { thermalState == .serious || thermalState == .critical }
+    var isOverheated: Bool { thermalState == .critical }
+
+    /// The most frames a second a moving background should draw, or nil for every frame.
+    func cappedFrameRate(_ frameRate: Double?) -> Double? {
+        if isOn { return min(frameRate ?? 20, 20) }
+        if isHot { return min(frameRate ?? 30, 30) }
+        return frameRate
+    }
 
     private init() {
-        observer = NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: nil) { _ in
-            Task { @MainActor in
-                LowPowerMode.shared.isOn = ProcessInfo.processInfo.isLowPowerModeEnabled
-            }
-        }
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: nil) { _ in
+                Task { @MainActor in
+                    LowPowerMode.shared.isOn = ProcessInfo.processInfo.isLowPowerModeEnabled
+                }
+            },
+            center.addObserver(forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: nil) { _ in
+                Task { @MainActor in
+                    LowPowerMode.shared.thermalState = ProcessInfo.processInfo.thermalState
+                }
+            },
+        ]
     }
 }

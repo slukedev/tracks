@@ -37,6 +37,8 @@ struct BackdropArt: Sendable {
     let focus: CGRect?
     /// Where its flow starts, in seconds, so no two songs' backgrounds start alike.
     let start: Double
+    /// How Living Cover colours it.
+    let grade: LivingCoverGrade
     /// Made from a stand-in because the cover's picture wouldn't come, this time: not kept,
     /// so it's looked for again the next time it's asked for.
     var isStandIn = false
@@ -107,15 +109,18 @@ final class BackdropArtStore {
         // A larger copy for Vision, which can't find a small figure in a few dozen pixels.
         let looked = await CoverTint.smallImage(for: cover, pixels: CoverSubject.pixels) ?? picture
         let pixels = BackdropArt.pixels
-        let prepared = await OffMainActor.run { () -> (CGImage, CGImage, CGImage, [CoverPalette.Colour], CoverBleed?, CGRect?, CGRect?)? in
+        let prepared = await OffMainActor.run { () -> (CGImage, CGImage, CGImage, [CoverPalette.Colour], CoverBleed?, CGRect?, CGRect?, LivingCoverGrade)? in
+            let rgba = CoverPixels.rgba(of: picture, side: pixels)
+            let framed = CoverFrame(rgba: rgba, side: pixels).flatMap { picture.cropping(to: $0.inside(picture)) } ?? picture
             guard let clear = SoftCover.soften(picture, by: 1.5),
-                  let flowing = SoftCover.soften(picture, by: 3.5),
+                  let flowing = SoftCover.soften(framed, by: 3.5),
                   let soft = SoftCover.soften(picture, by: 8)
             else { return nil }
-            let bleed = CoverBleed(rgba: CoverPixels.rgba(of: picture, side: pixels), side: pixels)
-            return (clear, flowing, soft, CoverPalette.colours(rgba: CoverPixels.rgba(of: picture, side: 24)), bleed, CoverSubject.bounds(in: looked), CoverSubject.focus(in: looked))
+            let bleed = CoverBleed(rgba: rgba, side: pixels)
+            let grade = LivingCoverGrade(rgba: CoverPixels.rgba(of: flowing, side: 32))
+            return (clear, flowing, soft, CoverPalette.colours(rgba: CoverPixels.rgba(of: picture, side: 24)), bleed, CoverSubject.bounds(in: looked), CoverSubject.focus(in: looked), grade)
         }
-        guard let (clear, flowing, soft, found, bleed, subject, focus) = prepared else { return nil }
+        guard let (clear, flowing, soft, found, bleed, subject, focus, grade) = prepared else { return nil }
         let colours = CoverPalette.filled(found, to: 4).map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
         let field = await CoverTint.color(for: cover) ?? found.first.map { colour in
             let deep = CoverTint.deepened((colour.red, colour.green, colour.blue))
@@ -133,6 +138,7 @@ final class BackdropArtStore {
             subject: subject,
             focus: focus,
             start: Double(UInt(bitPattern: cover.hashValue) % 600),
+            grade: grade,
             isStandIn: isStandIn
         )
     }
@@ -269,6 +275,16 @@ nonisolated enum CoverSubject {
             if Double(standing) / Double(side) > 0.02 { return CGFloat(row) / CGFloat(side) }
         }
         return nil
+    }
+}
+
+extension CoverFrame {
+    /// The picture inside the frame, a pixel in from it, in the picture's pixels.
+    nonisolated func inside(_ picture: CGImage) -> CGRect {
+        let (width, height) = (CGFloat(picture.width), CGFloat(picture.height))
+        let left = (leading * width).rounded(.up) + 1, top = (self.top * height).rounded(.up) + 1
+        let right = (trailing * width).rounded(.up) + 1, bottom = (self.bottom * height).rounded(.up) + 1
+        return CGRect(x: left, y: top, width: max(1, width - left - right), height: max(1, height - top - bottom))
     }
 }
 

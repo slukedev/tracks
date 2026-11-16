@@ -89,6 +89,7 @@ struct NowPlayingBackdrop: View {
     @AppStorage(BackdropChange.storageKey) private var change = BackdropChange.crossfade
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.playerIsMoving) private var playerIsMoving
     @State private var layer: Layer
 
     init(cover: CoverArt?, tint: Color?, isPlaying: Bool, style: NowPlayingBackground? = nil, focus: CGRect? = nil) {
@@ -147,7 +148,7 @@ struct NowPlayingBackdrop: View {
 
     @ViewBuilder
     private func content(_ layer: Layer) -> some View {
-        let isMoving = isPlaying && !reduceMotion
+        let isMoving = isPlaying && !reduceMotion && !playerIsMoving && !LowPowerMode.shared.isOverheated
         let field = layer.art?.field ?? tint
         switch (layer.style, layer.art) {
         case (.fullCover, let art?):
@@ -159,7 +160,7 @@ struct NowPlayingBackdrop: View {
         case (.artwork, let art?):
             ArtworkBackdrop(art: art, isMoving: isMoving)
         case (.living, let art?):
-            LivingCoverBackdrop(art: art, isMoving: isMoving)
+            LivingCoverBackdrop(art: art, isMoving: isMoving, focus: focus)
         case (.glass, let art?):
             ReededGlassBackdrop(art: art, isMoving: isMoving)
         case (.aurora, let art?):
