@@ -89,6 +89,9 @@ nonisolated struct Handpick: Hashable, Identifiable, Sendable {
 final class HandpickedSelection {
     private(set) var list = HandpickedPicks<Handpick>(limit: Handpicked.limit)
     var suggestions: [Handpick] = []
+    var isStarting = false
+    @ObservationIgnored var start: () -> Void = {}
+    @ObservationIgnored var cancel: () -> Void = {}
 
     var picks: [Handpick] { list.all }
     var isFull: Bool { list.isFull }

@@ -38,6 +38,7 @@ struct PickRowID: Hashable {
 
 struct PickRow: View {
     let pick: Handpick
+    var isCompact = false
     @Environment(HandpickedSelection.self) private var selection
     /// Counts picks made here, so the tap is felt.
     @State private var toggles = 0
@@ -49,10 +50,14 @@ struct PickRow: View {
         let isPicked = selection.contains(pick.identity)
         let isBlocked = !isPicked && selection.isFull
         #if os(macOS)
-        HStack(spacing: 10) {
-            PreviewCover(pick: pick, size: 36, showsControl: isHovering)
-            titles
-            Spacer(minLength: 8)
+        HStack(spacing: 12) {
+            PreviewCover(pick: pick, size: isCompact ? 34 : 32, showsControl: isHovering)
+            if isCompact {
+                titles
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                columns
+            }
             Button(action: toggle) {
                 pickSymbol(isPicked: isPicked)
                     .frame(width: 24, height: 24)
@@ -92,6 +97,24 @@ struct PickRow: View {
         .contextMenu { PickMenu(pick: pick) }
         #endif
     }
+
+    #if os(macOS)
+    private var columns: some View {
+        Group {
+            Text(pick.title)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(pick.artistName)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(pick.albumTitle ?? "")
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    #endif
 
     private var titles: some View {
         VStack(alignment: .leading, spacing: 2) {

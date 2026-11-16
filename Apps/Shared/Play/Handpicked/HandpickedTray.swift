@@ -2,25 +2,44 @@ import SwiftUI
 import TracksCore
 
 extension View {
-    func pickedTray() -> some View {
-        modifier(PickedTrayInset())
+    func pickerBar() -> some View {
+        modifier(PickerBar())
     }
 }
 
-private struct PickedTrayInset: ViewModifier {
+private struct PickerBar: ViewModifier {
     @Environment(HandpickedSelection.self) private var selection
     @Environment(HandpickedPreview.self) private var preview
+    @Namespace private var glass
     @State private var showsPicked = false
-    @State private var trayHeight: CGFloat = 0
 
     func body(content: Content) -> some View {
-        let showsTray = !selection.picks.isEmpty
+        #if os(macOS)
+        VStack(spacing: 0) {
+            content
+            bar
+        }
+        #else
         content
-            .contentMargins(.bottom, showsTray ? trayHeight : 0, for: .scrollContent)
-            .overlay(alignment: .bottom) {
-                if showsTray {
+            .safeAreaBar(edge: .bottom, spacing: 0) { bar }
+            .navigationDestination(isPresented: $showsPicked) { PickedList() }
+        #endif
+    }
+
+    private var bar: some View {
+        let hasPicks = !selection.picks.isEmpty
+        return GlassEffectContainer(spacing: 10) {
+            HStack(spacing: 10) {
+                #if os(macOS)
+                Button("Cancel", role: .cancel) { selection.cancel() }
+                    .buttonStyle(.glass)
+                    .controlSize(.large)
+                    .keyboardShortcut(.cancelAction)
+                #endif
+                if hasPicks {
                     PickedTray { showsPicked = true }
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { trayHeight = $0 }
+                        .glassEffect(.regular, in: .capsule)
+                        .glassEffectID("tray", in: glass)
                         #if os(macOS)
                         .popover(isPresented: $showsPicked, arrowEdge: .top) {
                             PickedList()
@@ -28,15 +47,66 @@ private struct PickedTrayInset: ViewModifier {
                                 .environment(preview)
                         }
                         #endif
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
+                #if os(macOS)
+                if !hasPicks {
+                    Spacer(minLength: 0)
+                }
+                StartButton()
+                    .glassEffectID("start", in: glass)
+                #endif
             }
-            .animation(PlayMotion.panel, value: showsTray)
-            #if os(iOS)
-            .navigationDestination(isPresented: $showsPicked) { PickedList() }
-            #endif
+        }
+        .padding(.horizontal, Self.margin)
+        .padding(.top, 8)
+        .padding(.bottom, Self.bottom)
+        .animation(.smooth(duration: 0.35), value: hasPicks)
+    }
+
+    private static var margin: CGFloat {
+        #if os(macOS)
+        16
+        #else
+        20
+        #endif
+    }
+
+    private static var bottom: CGFloat {
+        #if os(macOS)
+        16
+        #else
+        4
+        #endif
     }
 }
+
+#if os(macOS)
+private struct StartButton: View {
+    @Environment(HandpickedSelection.self) private var selection
+
+    var body: some View {
+        Button {
+            selection.start()
+        } label: {
+            Group {
+                if selection.isStarting {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Starting Station")
+                } else {
+                    Label("Start Station", systemImage: "play.fill")
+                }
+            }
+            .frame(minWidth: 112)
+        }
+        .buttonStyle(.glassProminent)
+        .controlSize(.large)
+        .disabled(selection.picks.isEmpty || selection.isStarting)
+        .keyboardShortcut(.return, modifiers: .command)
+        .help("Start Station (\u{2318}\u{21A9})")
+    }
+}
+#endif
 
 struct PickedTray: View {
     let openList: () -> Void
@@ -44,7 +114,7 @@ struct PickedTray: View {
 
     var body: some View {
         let picks = selection.picks
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Button(action: openList) {
                 HStack(spacing: 4) {
                     Text("^[\(picks.count) Song](inflect: true)")
@@ -52,12 +122,12 @@ struct PickedTray: View {
                         .monospacedDigit()
                         .contentTransition(.numericText(value: Double(picks.count)))
                     Image(systemName: Self.chevron)
-                        .font(.caption.weight(.bold))
+                        .font(.caption2.weight(.bold))
                         .foregroundStyle(.secondary)
                 }
                 .fixedSize()
-                .padding(.leading, 6)
-                .frame(minHeight: 44)
+                .padding(.leading, 16)
+                .frame(maxHeight: .infinity)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -68,31 +138,30 @@ struct PickedTray: View {
             #endif
 
             ScrollView(.horizontal) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(picks) { pick in
                         TrayCover(pick: pick)
-                            .transition(.scale(scale: 0.6).combined(with: .opacity))
+                            .transition(.scale(scale: 0.5).combined(with: .opacity))
                     }
                 }
                 .padding(.vertical, 6)
                 .padding(.trailing, 6)
             }
             .scrollIndicators(.hidden)
-            .defaultScrollAnchor(.trailing)
+            .defaultScrollAnchor(.leading, for: .alignment)
+            .defaultScrollAnchor(.trailing, for: .sizeChanges)
+            .clipShape(.capsule)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        // A material, not clear glass: rows scroll behind it and mustn't read through.
-        .background(.regularMaterial, in: .rect(cornerRadius: 26, style: .continuous))
-        .clipShape(.rect(cornerRadius: 26, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .strokeBorder(.separator.opacity(0.6), lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .frame(height: Self.height)
         .animation(PlayMotion.row, value: picks.map(\.identity))
+    }
+
+    private static var height: CGFloat {
+        #if os(macOS)
+        44
+        #else
+        50
+        #endif
     }
 
     private static var chevron: String {
@@ -119,10 +188,10 @@ private struct TrayCover: View {
                 .overlay(alignment: .topTrailing) {
                     if showsRemove {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 16))
+                            .font(.system(size: 14))
                             .symbolRenderingMode(.palette)
                             .foregroundStyle(.white, .black.opacity(0.6))
-                            .offset(x: 5, y: -5)
+                            .offset(x: 3, y: -3)
                             .transition(.opacity)
                     }
                 }
@@ -148,9 +217,9 @@ private struct TrayCover: View {
 
     private static var size: CGFloat {
         #if os(macOS)
-        34
+        32
         #else
-        40
+        38
         #endif
     }
 }
@@ -184,7 +253,9 @@ struct PickedList: View {
                 }
                 focus = []
             }
-            .frame(width: 340, height: 420)
+            .frame(width: 360, height: 440)
+            .scrollContentBackground(.hidden)
+            .background(.background)
         #else
         List { rows }
         #endif
@@ -213,7 +284,7 @@ struct PickedList: View {
         if !suggestions.isEmpty {
             Section(PickSection.suggestions.title) {
                 ForEach(suggestions) { pick in
-                    PickRow(pick: pick)
+                    PickRow(pick: pick, isCompact: true)
                 }
             }
         }

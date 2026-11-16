@@ -20,7 +20,6 @@ struct HandpickedPicker: View {
     @State private var hasLoaded = false
     @State private var selection = HandpickedSelection()
     @State private var preview = HandpickedPreview()
-    @State private var isStarting = false
     #if os(macOS)
     @State private var focus: Set<PickRowID> = []
     #endif
@@ -33,25 +32,22 @@ struct HandpickedPicker: View {
                 .navigationTitle(Handpicked.title)
                 .navigationBarTitleDisplayMode(.inline)
                 .searchable(text: $query, prompt: "Songs")
-                #else
-                .safeAreaInset(edge: .top, spacing: 0) { MacPickerHeader(query: $query) }
-                #endif
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel", role: .cancel) { dismiss() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
-                        if isStarting {
+                        if selection.isStarting {
                             ProgressView()
-                                .controlSize(.small)
                                 .accessibilityLabel("Starting Station")
                         } else {
-                            Button("Start", role: .confirm, action: start)
+                            Button("Start", systemImage: "play.fill", role: .confirm, action: start)
                                 .disabled(selection.picks.isEmpty)
                         }
                     }
                 }
-                .pickedTray()
+                #endif
+                .pickerBar()
                 .navigationDestination(for: PickerPlaylist.self) { playlist in
                     PickerPlaylistSongs(playlist: playlist)
                 }
@@ -61,13 +57,17 @@ struct HandpickedPicker: View {
         }
         .environment(selection)
         .environment(preview)
+        .onAppear {
+            selection.start = start
+            selection.cancel = { dismiss() }
+        }
         .background { PreviewGuard(preview: preview) }
         .onDisappear { preview.stop() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { preview.stop() }
         }
         #if os(macOS)
-        .frame(minWidth: 480, idealWidth: 560, minHeight: 560, idealHeight: 680)
+        .frame(minWidth: 760, idealWidth: 820, maxWidth: 1100, minHeight: 560, idealHeight: 720, maxHeight: 1000)
         #endif
     }
 
@@ -76,7 +76,20 @@ struct HandpickedPicker: View {
     @ViewBuilder
     private func list(source: MusicSource) -> some View {
         #if os(macOS)
+        VStack(spacing: 0) {
+            MacPickerHeader(query: $query)
+            macList(source: source)
+        }
+        #else
+        List { content(source: source) }
+            .listStyle(.insetGrouped)
+        #endif
+    }
+
+    #if os(macOS)
+    private func macList(source: MusicSource) -> some View {
         List(selection: $focus) { content(source: source) }
+            .listStyle(.inset)
             .contextMenu(forSelectionType: PickRowID.self) { rows in
                 if rows.count == 1, let row = rows.first, let pick = pick(for: row) {
                     PickMenu(pick: pick)
@@ -91,11 +104,8 @@ struct HandpickedPicker: View {
                 preview.toggle(pick, source: source, music: music, player: player)
                 return .handled
             }
-        #else
-        List { content(source: source) }
-            .listStyle(.insetGrouped)
-        #endif
     }
+    #endif
 
     @ViewBuilder
     private func content(source: MusicSource) -> some View {
@@ -190,7 +200,8 @@ struct HandpickedPicker: View {
     // MARK: Starting
 
     private func start() {
-        isStarting = true
+        guard !selection.isStarting, !selection.picks.isEmpty else { return }
+        selection.isStarting = true
         preview.stop(resumingSong: false)
         let picks = selection.picks
         Task {
@@ -366,17 +377,17 @@ private struct MacPickerHeader: View {
     @FocusState private var isSearching: Bool
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 16) {
             Text(Handpicked.title)
-                .font(.title2.weight(.semibold))
+                .font(.title2.weight(.bold))
                 .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 12)
+            Spacer(minLength: 16)
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
-                TextField("Songs", text: $query, prompt: Text("Songs"))
+                TextField("Search Songs", text: $query, prompt: Text("Search Songs"))
                     .textFieldStyle(.plain)
                     .focused($isSearching)
                     .onKeyPress(.escape) {
@@ -391,18 +402,14 @@ private struct MacPickerHeader: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(width: 240, height: 28)
-            .background(.quaternary.opacity(0.6), in: .rect(cornerRadius: 8, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isSearching ? Color.accentColor.opacity(0.6) : .clear, lineWidth: 2)
-            }
+            .padding(.horizontal, 12)
+            .frame(width: 260, height: 32)
+            .glassEffect(.regular.interactive(), in: .capsule)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 10)
-        .background(.background)
+        .padding(.leading, 20)
+        .padding(.trailing, 16)
+        .padding(.top, 18)
+        .padding(.bottom, 12)
         .background {
             Button("Find") { isSearching = true }
                 .keyboardShortcut("f")
@@ -547,7 +554,7 @@ private struct PickerPlaylistSongs: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .pickedTray()
+        .pickerBar()
         .task { await load() }
     }
 
