@@ -32,10 +32,13 @@ struct FullCoverBackdrop: View {
     @AppStorage(MotionCovers.storageKey) private var playsMotion = true
     @State private var fields = BleedFieldCache()
     @State private var motion: URL?
+    /// Whether the player has said where its cover is yet: the first time, the cover is simply
+    /// there, rather than fading in a beat after the player opens.
+    @State private var hasPlacedCover = false
 
     var body: some View {
         ZStack {
-            CoverStage(tint: art.field)
+            CoverStage(tint: art.bleed.map { $0.floor(CoverBleedLayout.edge(for: Self.direction)).swiftUI } ?? art.field)
             if let bleed = art.bleed, let focus {
                 GeometryReader { proxy in
                     bled(bleed, in: proxy.size, focus: focus)
@@ -43,7 +46,10 @@ struct FullCoverBackdrop: View {
                 .transition(.opacity)
             }
         }
-        .animation(PlayMotion.panel, value: focus == nil)
+        .animation(hasPlacedCover ? PlayMotion.panel : nil, value: focus == nil)
+        .onChange(of: focus == nil) { _, isNil in
+            if !isNil { hasPlacedCover = true }
+        }
         .task(id: MotionKey(cover: cover, isOn: allowsMotion && playsMotion)) {
             guard allowsMotion, playsMotion, let track = player?.current, track.cover == cover else {
                 motion = nil
@@ -193,9 +199,10 @@ struct FullCoverBackdrop: View {
     static func smooth(_ t: Double) -> Double { t * t * (3 - 2 * t) }
 }
 
-/// The last field drawn, kept until the shape around the cover changes. The first is drawn
-/// at once, so the cover never shows without its colours; after that, a new shape (a window
-/// being resized) is drawn off the main thread, the last one stretched to fit meanwhile.
+/// The last field drawn, kept until the shape around the cover changes. A new cover's is drawn
+/// at once, coarsely, so the cover never shows without its colours, then finely off the main
+/// thread; a new shape (a window being resized) is drawn off the main thread, the last one
+/// stretched to fit meanwhile.
 @MainActor
 @Observable
 final class BleedFieldCache {
@@ -217,9 +224,11 @@ final class BleedFieldCache {
         // laid out at its size for the first time, can't.
         let isStep = bleed == self.bleed && picture === self.picture && self.shape.map { Self.isSmallStep(from: $0, to: shape) } == true
         (self.shape, self.bleed, self.picture, self.frame) = (shape, bleed, picture, frame)
-        guard image != nil, isStep else {
-            image = Self.draw(shape, bleed: bleed, picture: picture, at: frame)
-            return image
+        if image == nil || !isStep {
+            // Drawn finely here, a window's field held the main thread for a third of a second.
+            var coarse = shape
+            coarse.pointsPerPixel *= Self.coarseness
+            image = Self.draw(coarse, bleed: bleed, picture: picture, at: frame)
         }
         drawing?.cancel()
         drawing = Task { [weak self] in
@@ -230,6 +239,8 @@ final class BleedFieldCache {
         }
         return image
     }
+
+    private static let coarseness = 4.0
 
     private static func isSmallStep(from old: CoverBleedField.Shape, to new: CoverBleedField.Shape) -> Bool {
         guard old.size.width > 1, old.size.height > 1 else { return false }
