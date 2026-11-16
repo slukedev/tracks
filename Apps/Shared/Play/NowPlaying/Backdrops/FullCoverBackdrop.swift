@@ -28,6 +28,7 @@ struct FullCoverBackdrop: View {
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(PlayerModel.self) private var player: PlayerModel?
     @Environment(YourMusic.self) private var music: YourMusic?
+    @Environment(\.liftsFullCover) private var isLifted
     @AppStorage(MotionCovers.storageKey) private var playsMotion = true
     @State private var fields = BleedFieldCache()
     @State private var motion: URL?
@@ -92,19 +93,29 @@ struct FullCoverBackdrop: View {
                     .interpolation(.high)
                     .frame(width: size.width, height: size.height)
             }
-            ZStack(alignment: .top) {
-                CoverImage(cover: cover, size: rect.width, isBare: true)
-                if let motion {
-                    MotionCoverView(url: motion, isPlaying: isPlaying)
-                        .frame(width: rect.width, height: rect.height)
+            if !isLifted {
+                ZStack(alignment: .top) {
+                    CoverImage(cover: cover, size: rect.width, isBare: true)
+                    if let motion {
+                        MotionCoverView(url: motion, isPlaying: isPlaying)
+                            .frame(width: rect.width, height: rect.height)
+                    }
                 }
-            }
                 .frame(width: rect.width, height: shown.height, alignment: .top)
                 .clipped()
                 .mask { Self.feather(shape) }
                 .offset(x: shown.minX, y: shown.minY)
+            }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .preference(key: FullCoverPictureKey.self, value: FullCoverPicture(
+            shown: shown,
+            side: rect.width,
+            top: shape.feather(.top),
+            bottom: shape.feather(.bottom),
+            leading: shape.feather(.leading),
+            trailing: shape.feather(.trailing)
+        ))
     }
 
     static var direction: CoverBleedLayout.Direction {
@@ -133,7 +144,7 @@ struct FullCoverBackdrop: View {
 
     /// Opaque in the middle, easing to clear over `start` at the start and `end` at the end,
     /// along a smooth curve so the fade has no visible line where it begins.
-    private static func ramp(start: Double, end: Double, axis: Axis) -> LinearGradient {
+    static func ramp(start: Double, end: Double, axis: Axis) -> LinearGradient {
         var stops: [Gradient.Stop] = []
         let steps = 6
         if start > 0 {
@@ -157,7 +168,7 @@ struct FullCoverBackdrop: View {
             : LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
     }
 
-    private static func smooth(_ t: Double) -> Double { t * t * (3 - 2 * t) }
+    static func smooth(_ t: Double) -> Double { t * t * (3 - 2 * t) }
 }
 
 /// The last field drawn, kept until the shape around the cover changes. The first is drawn
