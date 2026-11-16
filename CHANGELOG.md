@@ -25,6 +25,11 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   edge flowing on into its own colours with the type light or dark to suit, the artwork itself, Living Colour, the cover's colours flowing while the music plays, or Pulse, the
   cover's colours beating with the song, quick for lively songs and slow for calm ones.
   Choose how it changes between songs too: crossfade, slide or bloom
+- Living Cover looks good on any cover: its colours are worked out in Oklab for each cover, so
+  white and pale covers stay light without going flat grey, black ones show their flow, a flat
+  colour gets a texture of its own, beiges and yellows never turn to mud, a framed cover flows
+  from its picture, and the song's name and controls always read. It rests while you drag the
+  player, and slows down when the device runs hot
 - Top Songs, Top Artists and Top Albums travel through time: any day, week, month or year.
   Songs show when you listened, bar by bar, and a bar opens that day. Artists show who your
   listening went to. Albums show the record you went deepest into
