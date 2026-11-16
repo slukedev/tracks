@@ -80,9 +80,12 @@ public nonisolated struct CoverBleed: Sendable, Equatable {
     /// A plain edge simply carries on as its colour; a textured one carries on as a soft
     /// copy of itself first, so it doesn't stop dead into a flat field.
     public let textures: [Double]
-    /// The lightest and darkest of the band under the player's top bar, as luminance, ignoring
-    /// the extremes: a title or a face there decides whether its type needs a veil to read.
+    /// The lightest and darkest of the band under the status bar, as luminance, ignoring the
+    /// extremes: a title or a face there decides whether its type needs a veil to read.
     public let head: (lightest: Double, darkest: Double)
+    /// How deep that band is, as a part of the cover's side: the status bar's height over a
+    /// cover the width of a phone.
+    public static let headDepth = 0.13
 
     /// Light type on a background whose luminance is at most this. Above it, dark type has
     /// the better of it: at 0.3 black reads at 7:1, white at only 2.6:1.
@@ -107,7 +110,7 @@ public nonisolated struct CoverBleed: Sendable, Equatable {
             && lhs.textures == rhs.textures && lhs.head == rhs.head
     }
 
-    /// How strongly the top bar's type needs the cover under it veiled, 0 to 1: a wash of black
+    /// How strongly the status bar's type needs the cover under it veiled, 0 to 1: a wash of black
     /// under white type, or of white under dark, just strong enough for the lightest (or
     /// darkest) of what's there to read at 4.5 to 1, or 7 to 1 with Increase Contrast.
     public func headVeil(increasedContrast: Bool = false) -> Double {
@@ -282,10 +285,11 @@ private nonisolated struct EdgeReader {
     /// border doesn't decide it, and not so deep that what's inside the cover does.
     private var depth: Int { max(2, Int((Double(side) * 0.07).rounded())) }
 
-    /// The lightest and darkest of the band the top bar's type sits over, its top tenth, as
-    /// luminance: a twentieth of it either way is left out, so a stray pixel doesn't decide.
+    /// The lightest and darkest of the band the status bar sits over (see
+    /// ``CoverBleed/headDepth``), as luminance: a hundredth of it either way is left out, so a
+    /// stray pixel doesn't decide.
     func head() -> (lightest: Double, darkest: Double)? {
-        let rows = max(2, side / 10)
+        let rows = max(2, Int((Double(side) * CoverBleed.headDepth).rounded()))
         var values: [Double] = []
         for y in 0..<rows {
             for x in 0..<side {
@@ -297,7 +301,7 @@ private nonisolated struct EdgeReader {
         }
         guard !values.isEmpty else { return nil }
         values.sort()
-        return (values[values.count - 1 - values.count / 20], values[values.count / 20])
+        return (values[values.count - 1 - values.count / 100], values[values.count / 100])
     }
 
     /// How much the edge's band varies in lightness around each stretch's own typical
@@ -448,14 +452,13 @@ public nonisolated enum CoverBleedLayout {
     /// The cover's square, in a container of `size`, for a player that marks where its cover
     /// is with `focus`.
     ///
-    /// Under the cover, the player marks the room it leaves for it, as wide as the screen and as
-    /// tall as it can give. The cover is the room's width, its top at the room's top, never cut
-    /// off there; where the room is shorter than the cover, the cover's foot runs on past it,
-    /// under the song's name, and only as much of it shows as ``shownFrame(of:focus:)`` says,
-    /// fading out there. Only with far too little room (the largest text) is it the room's
-    /// height instead, whole, its colours carrying on either side. Beside it, as on the Mac, the cover reaches back to the
-    /// screen's edge and runs a little past the player's own, toward the song, as large as
-    /// fits: cut off at the far edge only if the player's cover is close to it.
+    /// Under the song, as on iPhone, the whole cover sits at the very top, the container's
+    /// width, under the status bar and the top bar, never moved, cropped or inset for what's
+    /// on it; the colours carry on below it. Only its foot is cut short, fading out, when the
+    /// player's room for it ends above it (see ``shownFrame(of:focus:)``). Beside it, as on
+    /// the Mac, the cover reaches back to the screen's edge and runs a little past the player's
+    /// own, toward the song, as large as fits: cut off at the far edge only if the player's
+    /// cover is close to it.
     ///
     /// Beside, a cover shorter than the window `standsOnFloor` when what it's of runs off its
     /// foot: it sits on the window's bottom edge, rather than in the middle with colour under
@@ -465,11 +468,7 @@ public nonisolated enum CoverBleedLayout {
         guard size.width > 0, size.height > 0 else { return .zero }
         switch direction {
         case .below:
-            let focus = focus ?? CGRect(x: 0, y: 0, width: size.width, height: size.width)
-            let wide = min(size.width, focus.width)
-            let side = focus.height >= wide * shortestRoom ? wide : min(wide, focus.height)
-            let x = min(max(0, focus.midX - side / 2), size.width - side)
-            return CGRect(x: x, y: focus.minY, width: side, height: side)
+            return CGRect(x: 0, y: 0, width: size.width, height: size.width)
         case .beside:
             let focus = focus ?? CGRect(x: 0, y: 0, width: size.height * 0.9, height: size.height)
             let end = focus.maxX + size.width * gap
@@ -477,33 +476,6 @@ public nonisolated enum CoverBleedLayout {
             let y = standsOnFloor ? size.height - side : min(max(0, focus.midY - side / 2), size.height - side)
             return CGRect(x: end - side, y: y, width: side, height: side)
         }
-    }
-
-    /// A cover under the song brought a little closer to its subject: one whose subject is small
-    /// (a figure on a sea) is drawn up to `most` larger, and slid sideways so the subject sits
-    /// nearer the middle, its sides running off the screen's. Never so far that the subject
-    /// (`subject`, parts of the side from the top left) comes within `margin` of the screen's
-    /// sides, and never a cover that doesn't already span the screen. Its top stays put.
-    public static func framed(_ cover: CGRect, subject: CGRect?, in size: CGSize, most: CGFloat = 0.15, margin: CGFloat = 16) -> CGRect {
-        guard let subject, cover.width >= size.width - 0.5, cover.minX <= 0.5 else { return cover }
-        let smallness = 1 - min(1, (subject.width * subject.height) / 0.2)
-        let side = cover.width * (1 + most * smallness)
-        guard side > cover.width + 0.5 else { return cover }
-        let x = min(0, max(size.width - side, size.width / 2 - subject.midX * side))
-        guard x + subject.minX * side >= margin, x + subject.maxX * side <= size.width - margin else { return cover }
-        return CGRect(x: x, y: cover.minY, width: side, height: side)
-    }
-
-    /// How far a cover under the song rises from the top of the room, up under the player's top
-    /// bar, instead of having its foot cut short (`cutShort`, how much of it runs past the
-    /// room's end): as far as its subject (`subject`, in parts of the side from the top left)
-    /// stays `margin` below the bar's foot (`ceiling`), and never above the screen's top. A
-    /// figure low on a sea rises and shows all of itself; a cover with its title at the top
-    /// stays put and loses its foot instead. One with nothing that stands out is all backdrop.
-    public static func rise(subject: CGRect?, side: CGFloat, top: CGFloat, ceiling: CGFloat, cutShort: CGFloat, margin: CGFloat = 12) -> CGFloat {
-        let most = max(0, min(top, cutShort))
-        guard let subject else { return most }
-        return max(0, min(most, top + subject.minY * side - (ceiling + margin)))
     }
 
     /// The part of the cover that shows: all of it, unless its foot runs past the room under
@@ -515,8 +487,6 @@ public nonisolated enum CoverBleedLayout {
         return CGRect(x: cover.minX, y: cover.minY, width: cover.width, height: max(0, end - cover.minY))
     }
 
-    /// The least room, as a part of the cover's width, for it to stay the screen's width.
-    static let shortestRoom = 0.75
     /// How far a cover cut short at its foot shows past the room under it.
     static let overrun = 0.02
 

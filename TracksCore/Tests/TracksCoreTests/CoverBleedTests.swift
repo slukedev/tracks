@@ -164,53 +164,18 @@ struct CoverBleedHeadTests {
 struct CoverBleedFieldTests {
     let phone = CGSize(width: 402, height: 874)
 
-    @Test("Under the song, the cover is the screen's width, top never cut, foot cut short when room is")
-    func belowFollowsTheRoom() {
-        // Room for all of it.
-        let roomy = CGRect(x: 0, y: 90, width: 402, height: 402)
-        #expect(CoverBleedLayout.frame(in: phone, focus: roomy, direction: .below) == roomy)
-        #expect(CoverBleedLayout.shownFrame(of: roomy, focus: roomy) == roomy)
-        // A little short: still full width from the room's top, its foot shown only a little
-        // past the room.
-        let short = CGRect(x: 0, y: 90, width: 402, height: 355)
-        let cover = CoverBleedLayout.frame(in: phone, focus: short, direction: .below)
-        #expect(cover == CGRect(x: 0, y: 90, width: 402, height: 402))
-        let shown = CoverBleedLayout.shownFrame(of: cover, focus: short)
-        #expect(shown.minY == 90 && shown.width == 402)
+    @Test("Under the song, the whole cover sits at the screen's top, its width, whatever the room; only its foot is cut short when the room ends above it")
+    func belowSitsAtTheTop() {
+        let top = CGRect(x: 0, y: 0, width: 402, height: 402)
+        for room in [CGRect(x: 0, y: 82, width: 402, height: 402), CGRect(x: 0, y: 90, width: 402, height: 355), CGRect(x: 0, y: 90, width: 402, height: 200)] {
+            #expect(CoverBleedLayout.frame(in: phone, focus: room, direction: .below) == top)
+        }
+        #expect(CoverBleedLayout.frame(in: phone, focus: nil, direction: .below) == top)
+        #expect(CoverBleedLayout.shownFrame(of: top, focus: CGRect(x: 0, y: 82, width: 402, height: 402)) == top)
+        let short = CGRect(x: 0, y: 60, width: 402, height: 300)
+        let shown = CoverBleedLayout.shownFrame(of: top, focus: short)
+        #expect(shown.minY == 0 && shown.width == 402)
         #expect(shown.maxY > short.maxY && shown.maxY < short.maxY + 12)
-        // Far too short, at the largest text: whole, at the room's height.
-        let tiny = CGRect(x: 0, y: 90, width: 402, height: 200)
-        #expect(CoverBleedLayout.frame(in: phone, focus: tiny, direction: .below) == CGRect(x: 101, y: 90, width: 200, height: 200))
-    }
-
-    @Test("Under the song, a cover rises under the top bar rather than lose its foot, if its subject stays clear")
-    func risesBySubject() {
-        // A figure low on a sea: up by all that was cut short.
-        #expect(CoverBleedLayout.rise(subject: CGRect(x: 0.4, y: 0.55, width: 0.2, height: 0.2), side: 402, top: 83, ceiling: 111, cutShort: 39) == 39)
-        // Never past the screen's top.
-        #expect(CoverBleedLayout.rise(subject: nil, side: 402, top: 20, ceiling: 48, cutShort: 39) == 20)
-        // A title across the top: stays where it is.
-        #expect(CoverBleedLayout.rise(subject: CGRect(x: 0.2, y: 0.08, width: 0.6, height: 0.8), side: 402, top: 83, ceiling: 111, cutShort: 39) == 0)
-        // In between: just far enough that the subject's top sits 12 points under the bar.
-        let partway = CoverBleedLayout.rise(subject: CGRect(x: 0.3, y: 0.11, width: 0.4, height: 0.6), side: 402, top: 83, ceiling: 111, cutShort: 39)
-        #expect(partway > 0 && partway < 39)
-        #expect(abs((83 - partway) + 0.11 * 402 - (111 + 12)) < 0.001)
-        // Nothing cut short: nowhere to go.
-        #expect(CoverBleedLayout.rise(subject: nil, side: 402, top: 83, ceiling: 111, cutShort: 0) == 0)
-    }
-
-    @Test("Under the song, a small subject is brought a little closer, never cut at the sides")
-    func zoomsToSubject() {
-        let cover = CGRect(x: 0, y: 83, width: 402, height: 402)
-        // A small figure right of middle: up to 15% larger, slid toward the middle, still
-        // spanning the screen, top unmoved.
-        let zoomed = CoverBleedLayout.framed(cover, subject: CGRect(x: 0.45, y: 0.55, width: 0.1, height: 0.12), in: phone)
-        #expect(zoomed.width > 402 && zoomed.width <= 402 * 1.15 + 0.001)
-        #expect(zoomed.minX <= 0 && zoomed.maxX >= 402 && zoomed.minY == 83)
-        // A subject filling the cover: left as it is.
-        #expect(CoverBleedLayout.framed(cover, subject: CGRect(x: 0.05, y: 0.05, width: 0.9, height: 0.9), in: phone) == cover)
-        // A small one hard against a side, which zooming would cut: left as it is.
-        #expect(CoverBleedLayout.framed(cover, subject: CGRect(x: 0.0, y: 0.4, width: 0.1, height: 0.1), in: phone) == cover)
     }
 
     @Test("Beside the song, the cover reaches the window's edge and runs past the player's")

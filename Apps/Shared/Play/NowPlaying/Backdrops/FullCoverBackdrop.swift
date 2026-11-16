@@ -62,21 +62,14 @@ struct FullCoverBackdrop: View {
 
     private func bled(_ bleed: CoverBleed, in size: CGSize, focus: CGRect) -> some View {
         let direction = Self.direction
-        var rect = CoverBleedLayout.frame(in: size, focus: focus, direction: direction, standsOnFloor: art.subjectReachesFoot, fillsHeight: art.fillsHeight)
-        if direction == .below {
-            rect = CoverBleedLayout.framed(rect, subject: art.focus, in: size)
-            // The player tucks the room's top under its bar by as much as a cover fades there.
-            let ceiling = focus.minY + (focus.width * Self.featherElsewhere).rounded()
-            let cutShort = rect.maxY - CoverBleedLayout.shownFrame(of: rect, focus: focus).maxY
-            rect.origin.y -= CoverBleedLayout.rise(subject: art.subject, side: rect.width, top: rect.minY, ceiling: ceiling, cutShort: cutShort)
-        }
+        let rect = CoverBleedLayout.frame(in: size, focus: focus, direction: direction, standsOnFloor: art.subjectReachesFoot, fillsHeight: art.fillsHeight)
         let shown = direction == .below ? CoverBleedLayout.shownFrame(of: rect, focus: focus) : rect
         let songEdge = CoverBleedLayout.edge(for: direction)
         var shape = CoverBleedField.Shape(
             size: size,
             cover: shown,
             songEdge: songEdge,
-            featherToSong: Self.featherToSong,
+            featherToSong: Self.featherToSong(direction),
             featherElsewhere: Self.featherElsewhere,
             settle: Self.settle,
             pointsPerPixel: Self.pointsPerPixel,
@@ -121,17 +114,17 @@ struct FullCoverBackdrop: View {
         ))
     }
 
-    /// A wash under the top bar and the status bar, black under white type and white under
-    /// dark, as strong as the cover's top needs for their words to read over a title or a face
-    /// there, easing away below the bar. Nothing on a cover whose top is plain enough already,
-    /// nor on the Mac, whose top bar sits on glass.
+    /// A wash under the status bar, black under white type and white under dark, as strong as
+    /// the cover's top needs for its words to read over a title or a face there, easing away
+    /// below it. Nothing on a cover whose top is plain enough already, nor on the Mac. The top
+    /// bar's own controls sit on glass.
     @ViewBuilder
     private func headVeil(_ bleed: CoverBleed, cover: CGRect) -> some View {
         let veil = bleed.headVeil(increasedContrast: contrast == .increased)
         if Self.direction == .below, veil > 0.01 {
             let colour: Color = bleed.ink(.top) == .light ? .black : .white
-            let solid = max(0, cover.minY) + cover.width * Self.featherElsewhere
-            let fade = cover.width * 0.14
+            let solid = max(0, cover.minY) + cover.width * CoverBleed.headDepth
+            let fade = cover.width * 0.1
             LinearGradient(
                 stops: (0...6).map { step in
                     let t = Double(step) / 6
@@ -155,7 +148,9 @@ struct FullCoverBackdrop: View {
 
     /// How far into the cover it fades, as a part of its side: furthest on the edge the song
     /// sits past, where it gives way to its colours, and only a little on the others.
-    static let featherToSong = 0.28
+    static func featherToSong(_ direction: CoverBleedLayout.Direction) -> Double {
+        direction == .below ? 0.12 : 0.28
+    }
     static let featherElsewhere = 0.07
     /// How far past the cover its edge's colours settle into one, as a part of its side.
     private static let settle = 0.32
