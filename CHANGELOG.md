@@ -126,7 +126,7 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   then its station as a card of its covers, your essentials narrowed by kind, and the genres
   closest to it at the foot
 - Moods, genres and Handpicked are cards in the style of Music's Browse categories: the
-  category's colour, its name in bold white with its symbol large beneath it, and a fanned stack of the covers
+  category's colour, its name in bold white at the top and its symbol large in the bottom corner, and a fanned stack of the covers
   you play in it, or pale sleeves in their place before you've played anything. Play, Search
   and a genre's page all use them
 - Albums and playlists on iPhone open on their cover edge to edge from the top of the screen, with

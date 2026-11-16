@@ -22,6 +22,11 @@ struct CategoryCard: View {
                 GeometryReader { proxy in
                     ZStack(alignment: .topLeading) {
                         CategoryArtwork(color: color, covers: covers, size: proxy.size)
+                        if !typeSize.isAccessibilitySize {
+                            glyph
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                                .padding(CategoryCardMetrics.padding)
+                        }
                         name
                             .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
                             .frame(width: proxy.size.width * nameShare - CategoryCardMetrics.padding * (typeSize.isAccessibilitySize ? 2 : 1), alignment: .leading)
@@ -32,25 +37,24 @@ struct CategoryCard: View {
             .clipShape(.rect(cornerRadius: CategoryCardMetrics.radius, style: .continuous))
     }
 
-    @ViewBuilder
-    private var name: some View {
-        let line = min(glyphHeight, CategoryCardMetrics.glyphHeight * 1.3)
-        let glyph = Image(systemName: symbol)
+    private var glyph: some View {
+        let line = min(glyphHeight, CategoryCardMetrics.glyphHeight * 1.2)
+        return Image(systemName: symbol)
             .font(.system(size: (line * 0.82).rounded(), weight: .bold))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(.white)
             .frame(height: line, alignment: .leading)
+            .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
             .accessibilityHidden(true)
-        let text = Text(title)
+    }
+
+    private var name: some View {
+        Text(title)
             .font(CategoryCardMetrics.font)
             .foregroundStyle(.white)
             .lineLimit(2)
             .minimumScaleFactor(typeSize.isAccessibilitySize ? 0.6 : 0.8)
             .multilineTextAlignment(.leading)
-        VStack(alignment: .leading, spacing: 6) {
-            text
-            glyph
-        }
     }
 }
 
