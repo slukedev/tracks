@@ -77,7 +77,7 @@ struct FullCoverBackdrop: View {
             songEdge: songEdge,
             featherToSong: Self.featherToSong(direction),
             featherElsewhere: Self.featherElsewhere,
-            settle: Self.settle,
+            settle: Self.settle(direction),
             pointsPerPixel: Self.pointsPerPixel,
             increasedContrast: contrast == .increased
         )
@@ -159,7 +159,9 @@ struct FullCoverBackdrop: View {
     }
     static let featherElsewhere = 0.07
     /// How far past the cover its edge's colours settle into one, as a part of its side.
-    private static let settle = 0.32
+    private static func settle(_ direction: CoverBleedLayout.Direction) -> Double {
+        direction == .below ? 0.18 : 0.32
+    }
     /// The colours around the cover are soft: worked out four points to a pixel, stretched.
     private static let pointsPerPixel = 4.0
 

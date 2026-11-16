@@ -133,9 +133,13 @@ private nonisolated struct Painter {
             // Halfway to the one colour already: the softened cover carries the edge's own
             // detail across, and what's left of it here only has to hint at it. Left whole, a
             // patch of sky at the corner of a cover ran down the screen's side as a stripe.
-            stops[edge] = bleed.legible(edge, increasedContrast: shape.increasedContrast).map { stop in
-                Self.colour(Self.mix(Self.rgb(stop), Self.rgb(floor), Self.towardFloor))
-            }
+            // The song's edge carries on as the cover itself is there, so its fade has no step,
+            // and deepens or lifts for the type only on the way down to it.
+            stops[edge] = edge == shape.songEdge
+                ? bleed.stops(edge)
+                : bleed.legible(edge, increasedContrast: shape.increasedContrast).map { stop in
+                    Self.colour(Self.mix(Self.rgb(stop), Self.rgb(floor), Self.towardFloor))
+                }
             floors[edge] = Self.rgb(floor)
         }
         func first(_ edge: CoverBleed.Edge) -> RGB { Self.rgb(stops[edge]?.first ?? .black) }
