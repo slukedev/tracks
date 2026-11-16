@@ -34,11 +34,12 @@ struct CategoryCard: View {
 
     @ViewBuilder
     private var name: some View {
+        let line = min(glyphHeight, CategoryCardMetrics.glyphHeight * 1.3)
         let glyph = Image(systemName: symbol)
-            .font(CategoryCardMetrics.font)
-            .foregroundStyle(.white.opacity(0.92))
-            .imageScale(typeSize.isAccessibilitySize ? .small : .medium)
-            .frame(height: min(glyphHeight, CategoryCardMetrics.glyphHeight * 1.5), alignment: .leading)
+            .font(.system(size: (line * 0.82).rounded(), weight: .bold))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(.white)
+            .frame(height: line, alignment: .leading)
             .accessibilityHidden(true)
         let text = Text(title)
             .font(CategoryCardMetrics.font)
@@ -46,9 +47,9 @@ struct CategoryCard: View {
             .lineLimit(2)
             .minimumScaleFactor(typeSize.isAccessibilitySize ? 0.6 : 0.8)
             .multilineTextAlignment(.leading)
-        VStack(alignment: .leading, spacing: 4) {
-            glyph
+        VStack(alignment: .leading, spacing: 6) {
             text
+            glyph
         }
     }
 }
@@ -59,13 +60,13 @@ enum CategoryCardMetrics {
     static let radius: CGFloat = 12
     static let padding: CGFloat = 14
     static let font = Font.title3.bold()
-    static let glyphHeight: CGFloat = 20
+    static let glyphHeight: CGFloat = 31
     #else
     static let height: CGFloat = 120
     static let radius: CGFloat = 14
     static let padding: CGFloat = 12
     static let font = Font.headline.bold()
-    static let glyphHeight: CGFloat = 22
+    static let glyphHeight: CGFloat = 34
     #endif
     static let aspect: CGFloat = 1.6
 }
@@ -76,8 +77,8 @@ private struct CategoryArtwork: View {
     let size: CGSize
 
     var body: some View {
-        let side = (size.height * 0.74).rounded()
-        let front = CGPoint(x: size.width - side * 0.3, y: size.height * 0.8)
+        let side = (size.height * 0.7).rounded()
+        let front = CGPoint(x: size.width - side * 0.28, y: size.height * 0.82)
         ZStack {
             color
             ForEach(Self.angles.indices.reversed(), id: \.self) { index in
