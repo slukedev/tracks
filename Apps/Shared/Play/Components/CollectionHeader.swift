@@ -167,7 +167,7 @@ struct CollectionHeader<Cover: View, More: View>: View {
             .padding(.top, 20)
         }
         .padding(.top, 8)
-        .padding(.bottom, 24 + Self.fade)
+        .padding(.bottom, Self.fade)
         .frame(maxWidth: .infinity)
         .background {
             // Up under the navigation bar, and far enough past it that pulling the page down
@@ -192,9 +192,10 @@ struct CollectionHeader<Cover: View, More: View>: View {
     }
 
     /// The field's foot below the buttons, where the page shows through at last.
-    static var fade: CGFloat { 40 }
-    /// How far up the fade reaches: to the middle of the buttons, where it's still faint.
-    private static var fadeReach: CGFloat { 100 }
+    static var fade: CGFloat { 30 }
+    /// How far up the fade reaches: behind the lower half of the buttons, below their words,
+    /// so it's a long melt rather than a band, and the songs start close under the buttons.
+    private static var fadeReach: CGFloat { fade + 22 }
     /// Smoothstep, so the fade has no start or end to see.
     private static var easedStops: [(opacity: Double, location: Double)] {
         (0...10).map { step in

@@ -50,6 +50,7 @@ extension LiveMix {
         finds: [LocalTrack] = [],
         history: ListeningHistory,
         signals: ListeningSignals = ListeningSignals(),
+        lean: MoodLean? = nil,
         now: Date = .now,
         seed: UInt64
     ) -> LiveMix {
@@ -62,7 +63,9 @@ extension LiveMix {
         return local(
             suited + fitting, played: played, metadata: history.songMetadata, signals: signals, now: now, seed: seed,
             newShare: finds.isEmpty ? 0.3 : 0.4
-        ) { _, _ in 1 }
+        ) { track, _ in
+            lean?.factor(genre: track.genre ?? history.songMetadata[track.identity]?.genre) ?? 1
+        }
         .following(history, now: now)
     }
 

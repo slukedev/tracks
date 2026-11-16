@@ -111,6 +111,16 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
 
 ### Play
 
+- Every mood has a page made for a feeling: its sky moves at the mood's own pace, slow for
+  Sleep and quick for Energy, and stays still with Reduce Motion. It says when you play it
+  ("Mostly Sunday mornings"), shows your plays by the part of the day, and one big Play with
+  More Upbeat, Calmer and Less Vocal to steer it, even while it plays
+- Every genre has a page made for its scene: a wall of your covers in it, its station up
+  front, how much of it you've played and since when, its kinds to narrow your songs to, and
+  the genres closest to it
+- Genres on Play are records sliding out of their sleeves, and Handpicked is signed by hand
+- Albums start closer under Play and Shuffle, with the cover's colour melting into the songs
+
 - Picks up where you left off: the song that was on when you closed Tracks waits, paused, for
   as long as you choose in Settings
 - A new Play tab plays Apple Music inside Tracks: your library, live radio, stations you've

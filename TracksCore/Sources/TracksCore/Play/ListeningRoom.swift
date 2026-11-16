@@ -20,6 +20,8 @@ public struct ListeningRoom: Sendable {
         public let months: Int
         /// Plays in each part of the day, by ``DayPart`` raw value.
         public let partPlays: [Int]
+        /// Plays on each day of the week, Sunday first, as the calendar numbers them less one.
+        public let weekdayPlays: [Int]
         /// Plays heard inside a drive Tracks noticed.
         public let drivePlays: Int
         public let genre: String?
@@ -65,6 +67,48 @@ public struct ListeningRoom: Sendable {
 
     static let enoughToTell = 12
 
+    /// When you play it, as far as the plays say: a day of the week that holds far more than
+    /// its share, or the weekend, and a part of the day. Nil until there are enough plays to
+    /// tell, or when they're spread too evenly to say.
+    public var habit: Habit? {
+        guard plays >= Self.enoughToTell else { return nil }
+        var byDay = [Int](repeating: 0, count: 7)
+        for song in songs {
+            for (index, count) in song.weekdayPlays.enumerated() { byDay[index] += count }
+        }
+        let total = Double(plays)
+        let weekend = Double(byDay[0] + byDay[6]) / total
+        let busiest = byDay.indices.max { byDay[$0] < byDay[$1] }
+        // Both weekend days, rather than one of them, when each has a fair part of it.
+        let bothWeekendDays = min(byDay[0], byDay[6]) * 4 >= byDay[0] + byDay[6]
+        let days: Habit.Days? = if weekend >= Self.weekend, bothWeekendDays {
+            .weekends
+        } else if let busiest, Double(byDay[busiest]) / total >= Self.oneDay {
+            .weekday(busiest + 1)
+        } else {
+            nil
+        }
+        guard days != nil || peak != nil else { return nil }
+        return Habit(days: days, part: peak)
+    }
+
+    /// A day of the week holding this share of the plays is one you play it on: more than
+    /// twice its seventh.
+    static let oneDay = 0.3
+    /// The weekend holding this share is more than half again its two sevenths.
+    static let weekend = 0.5
+
+    public struct Habit: Sendable, Equatable {
+        public enum Days: Sendable, Equatable {
+            /// As the calendar numbers it: 1 is Sunday.
+            case weekday(Int)
+            case weekends
+        }
+
+        public let days: Days?
+        public let part: DayPart?
+    }
+
     public init(songs: [Song], now: Date) {
         self.songs = songs
         self.now = now
@@ -98,7 +142,9 @@ public struct ListeningRoom: Sendable {
             for slot in aggregate.slots { parts[Int(slot) / 2] += 1 }
             var days: [Date: Int] = [:]
             var months = Set<DateComponents>()
+            var weekdays = [Int](repeating: 0, count: 7)
             for date in aggregate.dates {
+                weekdays[calendar.component(.weekday, from: date) - 1] += 1
                 days[calendar.startOfDay(for: date), default: 0] += 1
                 months.insert(calendar.dateComponents([.year, .month], from: date))
             }
@@ -121,6 +167,7 @@ public struct ListeningRoom: Sendable {
                 bestDay: days.values.max() ?? 0,
                 months: months.count,
                 partPlays: parts,
+                weekdayPlays: weekdays,
                 drivePlays: drives.isEmpty ? 0 : aggregate.dates.count { drives.contains($0) },
                 genre: genre,
                 releaseYear: metadata?.releaseYear
@@ -249,6 +296,33 @@ public struct ListeningRoom: Sendable {
         }
         return decades.count >= 2 ? decades : []
     }
+
+    /// The genres its songs are filed under, the most played first: the kinds of a genre, as
+    /// Trap and Alternative Rap are of Hip-Hop, or what a mood is made of. Empty unless there
+    /// are two or more.
+    public func kinds() -> [Kind] {
+        var byName: [String: [Song]] = [:]
+        for song in songs {
+            guard let genre = song.genre else { continue }
+            byName[genre, default: []].append(song)
+        }
+        let kinds: [Kind] = byName.map { name, songs in Kind(name: name, songs: songs) }
+            .sorted { (lhs: Kind, rhs: Kind) -> Bool in
+                lhs.plays == rhs.plays ? lhs.name < rhs.name : lhs.plays > rhs.plays
+            }
+        return kinds.count >= 2 ? kinds : []
+    }
+
+    /// The songs filed under one genre name.
+    public struct Kind: Sendable, Identifiable, Equatable {
+        public let name: String
+        public let songs: [Song]
+        public var id: String { name }
+        public var plays: Int { songs.reduce(0) { $0 + $1.plays } }
+    }
+
+    /// How many artists it holds songs by.
+    public var artistCount: Int { Set(songs.map(\.song.artistKey)).count }
 
     /// Ten years of songs, like the 1990s.
     public struct Decade: Sendable, Identifiable, Equatable {

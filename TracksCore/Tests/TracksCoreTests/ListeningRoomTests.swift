@@ -355,4 +355,62 @@ extension ListeningRoomTests {
         )
         #expect(Set(room.mornings().map(\.song.title)) == ["Half", "Early", "Mid"])
     }
+
+    /// Days before now that fall on a weekday, as the calendar numbers it (1 is Sunday).
+    func days(onWeekday weekday: Int, count: Int) -> [Double] {
+        (1...70).map(Double.init).filter { calendar.component(.weekday, from: now.addingTimeInterval(-$0 * 86_400)) == weekday }.prefix(count).map(\.self)
+    }
+
+    @Test("a room says the day and the part of the day you play it, once one stands out")
+    func habitOnOneDay() throws {
+        let sundays = days(onWeekday: 1, count: 8)
+        let plays = sundays.flatMap { [Play(title: "Song", genre: "Jazz", daysAgo: $0, hour: 9), Play(title: "Other", genre: "Jazz", daysAgo: $0, hour: 10)] }
+        let room = ListeningRoom.genre(try #require(MusicGenre.of(genre: "Jazz")), in: history(plays), now: now, calendar: calendar)
+        #expect(room.habit == ListeningRoom.Habit(days: .weekday(1), part: .morning))
+    }
+
+    @Test("Saturdays and Sundays together make a weekend habit")
+    func habitOnWeekends() throws {
+        let plays = (days(onWeekday: 7, count: 7) + days(onWeekday: 1, count: 7)).map { Play(title: "Song", genre: "Jazz", daysAgo: $0, hour: $0.truncatingRemainder(dividingBy: 2) == 0 ? 9 : 15) }
+        let room = ListeningRoom.genre(try #require(MusicGenre.of(genre: "Jazz")), in: history(plays), now: now, calendar: calendar)
+        #expect(room.habit?.days == .weekends)
+    }
+
+    @Test("plays spread across the week and the day say nothing, and a handful are too few to tell")
+    func noHabit() throws {
+        let jazz = try #require(MusicGenre.of(genre: "Jazz"))
+        let spread = (1...28).map { Play(title: "Song", genre: "Jazz", daysAgo: Double($0), hour: [8, 13, 19, 23][$0 % 4]) }
+        #expect(ListeningRoom.genre(jazz, in: history(spread), now: now, calendar: calendar).habit == nil)
+        let few = days(onWeekday: 1, count: 3).map { Play(title: "Song", genre: "Jazz", daysAgo: $0, hour: 9) }
+        #expect(ListeningRoom.genre(jazz, in: history(few), now: now, calendar: calendar).habit == nil)
+    }
+
+    @Test("a room's kinds are its genre names, the most played first, and need two to show")
+    func kinds() throws {
+        let hipHop = try #require(MusicGenre.of(genre: "Hip-Hop/Rap"))
+        let room = ListeningRoom.genre(hipHop, in: history([
+            Play(title: "A", genre: "Hip-Hop/Rap", daysAgo: 1), Play(title: "A", genre: "Hip-Hop/Rap", daysAgo: 2),
+            Play(title: "B", genre: "Trap", daysAgo: 1),
+        ]), now: now, calendar: calendar)
+        #expect(room.kinds().map(\.name) == ["Hip-Hop/Rap", "Trap"])
+        #expect(room.kinds().map(\.plays) == [2, 1])
+        let single = ListeningRoom.genre(hipHop, in: history([Play(title: "A", genre: "Hip-Hop/Rap", daysAgo: 1)]), now: now, calendar: calendar)
+        #expect(single.kinds().isEmpty)
+    }
+
+    @Test("steering a mood livelier or calmer moves the odds between its songs by their genres")
+    func lean() throws {
+        let plays = [Play(title: "Rock", genre: "Rock", daysAgo: 1), Play(title: "Club", genre: "Electronic", daysAgo: 1)]
+        func ratio(_ lean: MoodLean?) throws -> Double {
+            let mix = LiveMix.mood(.energy, from: history(plays), lean: lean, now: now, seed: 1)
+            let club = try #require(mix.candidates.first { $0.song.title == "Club" })
+            let rock = try #require(mix.candidates.first { $0.song.title == "Rock" })
+            return club.weight / rock.weight
+        }
+        let even = try ratio(nil)
+        #expect(try ratio(.livelier) > even)
+        #expect(try ratio(.calmer) < even)
+        #expect(MoodLean.instrumental.factor(genre: "Classical") > MoodLean.instrumental.factor(genre: "Pop"))
+    }
 }
+

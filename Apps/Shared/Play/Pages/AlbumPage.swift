@@ -69,6 +69,8 @@ struct AlbumPage: View {
                 }
             }
         }
+        // The songs start where the header's colour has faded, not a section's gap below it.
+        .listSectionSpacing(0)
         .collectionPage(title: CollectionKind.of(album).title)
         .toolbar {
             if downloadIsOn {

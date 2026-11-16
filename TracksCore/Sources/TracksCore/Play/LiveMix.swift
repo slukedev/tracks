@@ -1013,13 +1013,17 @@ extension LiveMix {
         from history: ListeningHistory,
         signals: ListeningSignals = ListeningSignals(),
         newFinds: [MixSong] = [],
+        lean: MoodLean? = nil,
         now: Date = .now,
         seed: UInt64
     ) -> LiveMix {
         let rested = now.addingTimeInterval(-restPeriod)
         let yours = MoodMix.scored(for: mood, in: history, signals: signals, now: now).map { song, score in
             let metadata = history.songMetadata[song.songIdentity]
-            return Candidate(song: song, weight: score, isResting: song.lastHeard >= rested, genre: metadata?.genre, releaseYear: metadata?.releaseYear)
+            return Candidate(
+                song: song, weight: score * (lean?.factor(genre: metadata?.genre) ?? 1), isResting: song.lastHeard >= rested,
+                genre: metadata?.genre, releaseYear: metadata?.releaseYear
+            )
         }
         let share = switch yours.count {
         case 0: 1.0
@@ -1027,7 +1031,8 @@ extension LiveMix {
         default: 0.25
         }
         let finds = new(MoodMix.fitting(newFinds, mood), besides: yours, signals: signals, now: now).map { candidate in
-            mood.fit(genre: candidate.genre) == .suits ? candidate : candidate.weighted(Self.unnamedFit)
+            let fit = mood.fit(genre: candidate.genre) == .suits ? 1 : Self.unnamedFit
+            return candidate.weighted(fit * (lean?.factor(genre: candidate.genre) ?? 1))
         }
         return LiveMix(candidates: yours + finds, newShare: share, seed: seed)
             .following(history, now: now)

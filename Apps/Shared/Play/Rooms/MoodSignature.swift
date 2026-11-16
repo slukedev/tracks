@@ -96,13 +96,10 @@ extension Mood {
         }
     }
 
-    /// The facts line under the mood's name: how many of your songs suit it, and when you play
-    /// it most where one part of the day stands out.
+    /// How many of your songs suit it.
     func facts(for room: ListeningRoom) -> String? {
         guard !room.isEmpty else { return nil }
-        let count = String(AttributedString(localized: "^[\(room.songs.count) song](inflect: true) of yours").characters)
-        guard let peak = room.peak else { return count }
-        return "\(count) · \(peak.mostlyLine)"
+        return String(AttributedString(localized: "^[\(room.songs.count) song](inflect: true) of yours").characters)
     }
 }
 
@@ -122,6 +119,49 @@ extension DayPart {
         case .afternoon: String(localized: "Mostly in the afternoon")
         case .evening: String(localized: "Mostly in the evening")
         case .night: String(localized: "Mostly at night")
+        }
+    }
+}
+
+extension ListeningRoom.Habit {
+    /// When you play it, as a line: "Mostly Sunday mornings", "Mostly on weekends".
+    var line: String {
+        switch (days, part) {
+        case (.weekday(let day)?, let part?):
+            let name = Calendar.current.standaloneWeekdaySymbols[day - 1]
+            return switch part {
+            case .morning: String(localized: "Mostly \(name) mornings")
+            case .afternoon: String(localized: "Mostly \(name) afternoons")
+            case .evening: String(localized: "Mostly \(name) evenings")
+            case .night: String(localized: "Mostly late on \(name) nights")
+            }
+        case (.weekends?, let part?):
+            return switch part {
+            case .morning: String(localized: "Mostly weekend mornings")
+            case .afternoon: String(localized: "Mostly weekend afternoons")
+            case .evening: String(localized: "Mostly weekend evenings")
+            case .night: String(localized: "Mostly late on weekend nights")
+            }
+        case (.weekday(let day)?, nil):
+            return String(localized: "Mostly on \(Self.plural(ofWeekday: day))")
+        case (.weekends?, nil):
+            return String(localized: "Mostly on weekends")
+        case (nil, let part?):
+            return part.mostlyLine
+        case (nil, nil):
+            return ""
+        }
+    }
+
+    private static func plural(ofWeekday day: Int) -> String {
+        switch day {
+        case 1: String(localized: "Sundays")
+        case 2: String(localized: "Mondays")
+        case 3: String(localized: "Tuesdays")
+        case 4: String(localized: "Wednesdays")
+        case 5: String(localized: "Thursdays")
+        case 6: String(localized: "Fridays")
+        default: String(localized: "Saturdays")
         }
     }
 }

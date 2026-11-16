@@ -232,8 +232,9 @@ private struct GenreKey: Equatable {
     let songs: Int
 }
 
-/// A genre's tile: its page's field and its name in its page's type, with the covers of what
-/// you play in it fanned at the top, or its symbol, large and faint, when you play none of it.
+/// A genre's tile: its page's colours and its name in its page's type, with a record sliding
+/// out at the trailing edge, its label the cover of what you play most in it, or the genre's
+/// symbol on its colour. Moods show a symbol, a feeling; genres show a record, the music.
 struct GenreTile: View {
     let item: GenreTileItem
     let height: CGFloat
@@ -245,27 +246,18 @@ struct GenreTile: View {
         NavigationLink(value: PlayRoute.genre(item.genre)) {
             ZStack(alignment: .bottomLeading) {
                 RoomTileField(style: style)
-                if item.covers.isEmpty {
-                    Image(systemName: item.genre.symbol)
-                        .font(.system(size: height * 0.62, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.2))
-                        .rotationEffect(.degrees(-12))
-                        .offset(x: height * 0.16, y: height * 0.12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                        .accessibilityHidden(true)
-                } else {
-                    CoverFan(covers: item.covers, height: height)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                        .padding(.top, 10)
-                        .padding(.trailing, 12)
-                        .accessibilityHidden(true)
-                }
+                RecordDisc(label: item.covers.first, symbol: item.genre.symbol, labelColor: style.base.mix(with: .white, by: 0.22))
+                    .frame(width: height * 0.92, height: height * 0.92)
+                    .offset(x: height * 0.24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .accessibilityHidden(true)
                 Text(item.genre.title)
                     .font(style.title.font(size: MoodTile.nameSize))
                     .tracking(style.title.tracking * 0.5)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                    .shadow(color: .black.opacity(0.25), radius: 6, y: 1)
                     .padding(12)
             }
             .frame(width: fillsWidth ? nil : height * 1.75, height: height)
@@ -278,21 +270,50 @@ struct GenreTile: View {
     }
 }
 
-/// A few covers fanned like a hand of records, the first in front, for a tile's top corner.
-struct CoverFan: View {
-    let covers: [CoverArt]
-    /// The tile's height; the covers take a little under half of it.
-    let height: CGFloat
+/// A record: black vinyl with a few grooves catching the light, and its label, a cover or a
+/// symbol on a colour.
+struct RecordDisc: View {
+    let label: CoverArt?
+    let symbol: String
+    let labelColor: Color
 
     var body: some View {
-        let side = (height * 0.44).rounded()
-        ZStack(alignment: .topTrailing) {
-            ForEach(covers.prefix(3).enumerated().reversed(), id: \.offset) { index, cover in
-                CoverImage(cover: cover, size: side)
-                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                    .rotationEffect(.degrees(-Double(index) * 8), anchor: .bottom)
-                    .offset(x: -CGFloat(index) * side * 0.42)
+        GeometryReader { proxy in
+            let side = min(proxy.size.width, proxy.size.height)
+            let labelSide = side * 0.42
+            ZStack {
+                Circle().fill(Color(white: 0.07).gradient)
+                ForEach([0.92, 0.8, 0.68, 0.56], id: \.self) { scale in
+                    Circle()
+                        .strokeBorder(.white.opacity(0.07), lineWidth: 0.75)
+                        .frame(width: side * scale, height: side * scale)
+                }
+                Circle()
+                    .fill(.white.opacity(0.08))
+                    .frame(width: side, height: side)
+                    .mask {
+                        AngularGradient(colors: [.clear, .white, .clear, .clear, .white, .clear], center: .center)
+                    }
+                Group {
+                    if let label {
+                        CoverImage(cover: label, size: labelSide, isBare: true)
+                    } else {
+                        ZStack {
+                            labelColor
+                            Image(systemName: symbol)
+                                .font(.system(size: labelSide * 0.42, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.85))
+                        }
+                    }
+                }
+                .frame(width: labelSide, height: labelSide)
+                .clipShape(.circle)
+                Circle()
+                    .fill(Color(white: 0.07))
+                    .frame(width: side * 0.04, height: side * 0.04)
             }
+            .frame(width: side, height: side)
+            .shadow(color: .black.opacity(0.3), radius: 6, x: -2, y: 2)
         }
     }
 }

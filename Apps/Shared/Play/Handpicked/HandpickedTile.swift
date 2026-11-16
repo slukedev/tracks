@@ -21,11 +21,12 @@ struct HandpickedTile: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .accessibilityHidden(true)
                 Text(Handpicked.title)
-                    .font(.headline)
+                    .font(Self.signature)
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .padding(12)
+                    .minimumScaleFactor(0.7)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
             }
             .frame(width: height * 1.75, height: height)
             .clipShape(.rect(cornerRadius: 16, style: .continuous))
@@ -38,4 +39,11 @@ struct HandpickedTile: View {
             HandpickedPicker()
         }
     }
+
+    /// Signed rather than set: the one mood on the row you make yourself.
+    #if os(macOS)
+    private static let signature = Font.custom("SnellRoundhand-Bold", fixedSize: 30)
+    #else
+    private static let signature = Font.custom("SnellRoundhand-Bold", fixedSize: 31)
+    #endif
 }

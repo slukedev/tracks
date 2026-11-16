@@ -18,19 +18,19 @@ extension Mood {
         }
     }
 
-    /// One line on what the mood is for, under its name.
+    /// What the mood is for, plainly, for when your history can't say when you play it.
     var tagline: String {
         switch self {
-        case .feelGood: String(localized: "Bright, easy songs to lift the day.")
-        case .energy: String(localized: "Loud, fast and full of it.")
-        case .workout: String(localized: "Hard-hitting songs to keep you moving.")
-        case .focus: String(localized: "Calm, steady music to think to.")
-        case .chill: String(localized: "Laid-back songs to slow down to.")
-        case .love: String(localized: "For the one you can't stop thinking about.")
-        case .drive: String(localized: "Windows down, and the long way home.")
-        case .heartbreak: String(localized: "For when it hurts, and for getting over it.")
+        case .feelGood: String(localized: "Songs you can't help singing along to.")
+        case .energy: String(localized: "Fast and loud.")
+        case .workout: String(localized: "Songs to run to.")
+        case .focus: String(localized: "Music with fewer words.")
+        case .chill: String(localized: "Slow songs for an easy evening.")
+        case .love: String(localized: "Songs for someone.")
+        case .drive: String(localized: "Songs for the car.")
+        case .heartbreak: String(localized: "Songs for after a breakup.")
         case .party: String(localized: "Big songs for a full room.")
-        case .sleep: String(localized: "Soft, quiet music to drift off to.")
+        case .sleep: String(localized: "Quiet music for lights out.")
         }
     }
 
@@ -345,6 +345,9 @@ struct MoodView: View {
     @State private var showsAllYours = false
     @State private var showsAllNew = false
     @State private var showsAllSignature = false
+    @State private var lean: MoodLean?
+    /// The genre the list of your songs is narrowed to, by its chip.
+    @State private var kind: String?
 
     var body: some View {
         let style = mood.style
@@ -352,6 +355,7 @@ struct MoodView: View {
             VStack(alignment: .leading, spacing: 0) {
                 hero(style)
                 VStack(alignment: .leading, spacing: style.pace.sectionSpacing) {
+                    whenYouPlayIt(style)
                     signature(style)
                     yourSongs(style)
                     newToYou(style)
@@ -384,17 +388,10 @@ struct MoodView: View {
     // MARK: Hero
 
     private func hero(_ style: RoomStyle) -> some View {
-        RoomHero(
-            style: style,
-            title: mood.title,
-            tagline: mood.tagline,
-            facts: roomText?.facts,
-            covers: heroCovers(style),
-            isLoading: room == nil
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                RoomPlayButtons(
-                    style: style,
+        MoodHero(mood: mood, line: room.map { $0.habit?.line ?? mood.tagline }, facts: roomText?.facts) {
+            VStack(alignment: .leading, spacing: 12) {
+                MoodPlayRow(
+                    mood: mood,
                     playTitle: playTitle,
                     playSymbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
                     canPlay: canPlay,
@@ -407,6 +404,7 @@ struct MoodView: View {
                         }
                     }
                 }
+                MoodLeanChips(mood: mood, lean: $lean)
                 // Your own music has no new songs from Apple Music to mix in.
                 if model.musicSource == .appleMusic {
                     flowMenu
@@ -414,13 +412,7 @@ struct MoodView: View {
             }
             .frame(maxWidth: Self.controlsWidth, alignment: .leading)
         }
-    }
-
-    /// The covers of your songs that suit it; of new songs for it when you have none.
-    private func heroCovers(_ style: RoomStyle) -> [CoverArt] {
-        let count = CoverMosaic.count(for: style.covers)
-        if let covers = roomText?.covers { return covers }
-        return newSongs.prefix(count).map { $0.song.artwork.map(CoverArt.artwork) ?? .url(nil, seed: $0.song.albumTitle ?? $0.song.title) }
+        .onChange(of: lean) { steer() }
     }
 
     @ViewBuilder
@@ -474,9 +466,9 @@ struct MoodView: View {
         player.hasQueue && player.context == PlayContext(kind: .endless, title: mood.title)
     }
 
-    private var playTitle: LocalizedStringKey {
-        guard isOn else { return "Play" }
-        return player.isPlaying ? "Pause" : "Resume"
+    private var playTitle: String {
+        guard isOn else { return String(localized: "Play \(mood.title)") }
+        return player.isPlaying ? String(localized: "Pause") : String(localized: "Resume")
     }
 
     private var yours: [ListeningRoom.Song] { room?.songs ?? [] }
@@ -528,8 +520,16 @@ struct MoodView: View {
                         symbol: mood.symbol
                     )
                 } else {
-                    let songs = room.songs
+                    let kinds = Array(room.kinds().prefix(8))
+                    let songs = kinds.first { $0.name == kind }?.songs ?? room.songs
                     let shown = Array(songs.prefix(showsAllYours ? 25 : style.pace.rows))
+                    if !kinds.isEmpty {
+                        RoomChips(items: kinds, chosen: kind, style: style, title: \.name, allowsNone: true) { chosen in
+                            kind = chosen
+                            showsAllYours = false
+                        }
+                        .padding(.bottom, 6)
+                    }
                     RoomColumns(items: shown) { song in
                         historyRow(song, detail: PlayCountMemo.short(song.plays)) {
                             play(startingWith: song.song, flow: .yours)
@@ -643,8 +643,28 @@ struct MoodView: View {
     private func play(startingWith first: MixSong?, flow: MoodFlow? = nil) {
         let flow = flow ?? self.flow
         let found = reach == .found ? MoodCatalog.Found(stations: stations, playlists: playlists, newSongs: newSongs.map(\.song)) : nil
+        let lean = lean
         Task {
-            await MoodPlayback.start(mood, model: model, flow: flow, found: found, startingWith: first)
+            await MoodPlayback.start(mood, model: model, flow: flow, found: found, lean: lean, startingWith: first)
+        }
+    }
+
+    /// A new way to steer it, while it plays: the mix is made again leaning that way, and the
+    /// song on carries on into it.
+    private func steer() {
+        guard isOn, let current = player.current else { return }
+        play(startingWith: MixSong(current))
+    }
+
+    /// When you play it, by the part of the day, once there are enough plays to say.
+    @ViewBuilder
+    private func whenYouPlayIt(_ style: RoomStyle) -> some View {
+        if let shares = room?.dayPartShares {
+            VStack(alignment: .leading, spacing: 10) {
+                RoomSectionHeader(title: String(localized: "When You Play It"))
+                DayPartBars(shares: shares, style: style)
+            }
+            .padding(.horizontal, PlayMetrics.margin)
         }
     }
 
@@ -842,6 +862,7 @@ enum MoodPlayback {
         model: AppModel,
         flow: MoodFlow = .both,
         found: MoodCatalog.Found? = nil,
+        lean: MoodLean? = nil,
         startingWith first: MixSong? = nil
     ) async {
         let player = model.player
@@ -849,7 +870,7 @@ enum MoodPlayback {
         if model.musicSource == .yourMusic {
             let (tracks, history, signals) = (model.yourMusic.playableTracks, model.library.history, player.signals)
             let mix = await OffMainActor.run {
-                LiveMix.mood(mood, from: tracks, history: history, signals: signals, seed: .random(in: 0...UInt64.max))
+                LiveMix.mood(mood, from: tracks, history: history, signals: signals, lean: lean, seed: .random(in: 0...UInt64.max))
             }
             guard !mix.isEmpty else {
                 player.problem = .failed(String(localized: "None of your music suits \(mood.title) yet. Tracks goes by each song's genre."))
@@ -863,7 +884,7 @@ enum MoodPlayback {
         let history = flow == .new ? ListeningHistory([]) : model.library.history
         let signals = player.signals
         let mix = await OffMainActor.run {
-            LiveMix.mood(mood, from: history, signals: signals, newFinds: newFinds, seed: .random(in: 0...UInt64.max))
+            LiveMix.mood(mood, from: history, signals: signals, newFinds: newFinds, lean: lean, seed: .random(in: 0...UInt64.max))
                 .playable(isDemo: isDemo)
         }
 
@@ -879,14 +900,12 @@ enum MoodPlayback {
 }
 
 /// What a mood's page shows of your songs beyond the rows: the signature's songs, in its own
-/// order, and their facts, the hero's line and covers. Sorting and inflecting them cost more
+/// order, their facts, and the hero's count. Sorting and inflecting them cost more
 /// than the rows that show them, so they're made once per room rather than on every draw.
 private struct RoomText {
     let signature: [ListeningRoom.Song]
     let signatureDetails: [ListeningRoom.Song.ID: String?]
     let facts: String?
-    /// Nil when none of your songs suit it, so the hero shows new songs' covers instead.
-    let covers: [CoverArt]?
 
     init(_ room: ListeningRoom, mood: Mood) {
         let signature = mood.signature
@@ -894,6 +913,5 @@ private struct RoomText {
         self.signature = songs
         signatureDetails = Dictionary(songs.map { ($0.id, signature.detail($0)) }, uniquingKeysWith: { first, _ in first })
         facts = mood.facts(for: room)
-        covers = room.isEmpty ? nil : room.covers(CoverMosaic.count(for: mood.style.covers))
     }
 }

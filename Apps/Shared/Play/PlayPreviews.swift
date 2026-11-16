@@ -23,16 +23,24 @@ enum PreviewMusic {
     }
 }
 
+/// A model on sample data. The flag goes in a volatile domain, so it never reaches the real
+/// app's defaults, and a preview never opens the real store.
+@MainActor
+private let previewModel: AppModel = {
+    UserDefaults.standard.setVolatileDomain(["TracksDemoData": true], forName: UserDefaults.argumentDomain)
+    return AppModel()
+}()
+
 @MainActor
 private func previewEnvironment<Content: View>(_ content: Content) -> some View {
-    let player = PlayerModel(engine: DemoPlayerEngine { [] }, isDemo: true)
-    let feed = PlayFeed(isDemo: true)
+    let model = previewModel
     return content
-        .environment(player)
-        .environment(feed)
-        .environment(Discovery(feed: feed, player: player, isDemo: true))
-        .environment(YourMusic(isDemo: true))
-        .environment(Lidarr(isDemo: true))
+        .environment(model)
+        .environment(model.player)
+        .environment(model.playFeed)
+        .environment(model.discovery)
+        .environment(model.yourMusic)
+        .environment(model.lidarr)
 }
 
 #Preview("Album") {

@@ -28,6 +28,8 @@ struct GenreView: View {
     @State private var showsAllYours = false
     @State private var showsAllNew = false
     @State private var showsAllRising = false
+    /// The kind of it your essentials are narrowed to, by its chip.
+    @State private var kind: String?
 
     var body: some View {
         let style = genre.style
@@ -39,22 +41,24 @@ struct GenreView: View {
                         localSongs(style)
                         localAlbumsShelf
                     } else {
-                        decades(style)
+                        figures(style)
                         essentials(style)
-                        rising(style)
-                        newToYou(style)
-                        artistsToDiscover
                         if !artists.isEmpty {
                             Shelf(title: String(localized: "Your \(genre.title) Artists"), items: artists) { FavoriteArtistTile(artist: $0) }
                         }
+                        newToYou(style)
                         if !charts.albums.isEmpty {
                             Shelf(title: String(localized: "Top Albums"), items: charts.albums) { FeedTile(item: $0) }
                         }
+                        artistsToDiscover
+                        decades(style)
+                        rising(style)
                         if !charts.playlists.isEmpty {
                             Shelf(title: String(localized: "Playlists"), items: charts.playlists) { FeedTile(item: $0) }
                         }
                         whereItStarted(style)
                     }
+                    neighbors
                 }
                 .padding(.top, 12)
             }
@@ -74,23 +78,48 @@ struct GenreView: View {
     // MARK: Hero
 
     private func hero(_ style: RoomStyle) -> some View {
-        RoomHero(
-            style: style,
-            title: genre.title,
-            tagline: genre.tagline,
-            facts: facts,
-            covers: heroCovers(style),
-            isLoading: !hasLoaded
-        ) {
+        GenreHero(genre: genre, line: heroLine, covers: heroCovers, isLoading: !hasLoaded) {
             RoomPlayButtons(
                 style: style,
                 playTitle: playTitle,
-                playSymbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
+                playSymbol: isOn && player.isPlaying ? "pause.fill" : "dot.radiowaves.left.and.right",
                 canPlay: canPlay && !isStarting,
                 shuffle: canShuffle ? { shuffleYours() } as () -> Void : nil,
                 play: playOrPause
             )
             .frame(maxWidth: Self.controlsWidth, alignment: .leading)
+        }
+    }
+
+    /// When you play it where your history says, else what it is.
+    private var heroLine: String? {
+        guard hasLoaded else { return nil }
+        // Your own music has no figures under the hero, so it says how much of it is yours.
+        if model.musicSource == .yourMusic { return facts ?? genre.tagline }
+        return room?.habit?.line ?? genre.tagline
+    }
+
+    /// Your plays, artists and first year in it, once there's enough to count.
+    @ViewBuilder
+    private func figures(_ style: RoomStyle) -> some View {
+        if let room, room.songs.count >= ListeningRoom.fewest {
+            VStack(alignment: .leading, spacing: 8) {
+                RoomSectionHeader(title: String(localized: "Your \(genre.title)"))
+                GenreFigures(plays: room.plays, artists: room.artistCount, since: room.first?.firstHeard, style: style)
+            }
+            .padding(.horizontal, PlayMetrics.margin)
+        }
+    }
+
+    /// The genres closest to it, to go on to.
+    @ViewBuilder
+    private var neighbors: some View {
+        if !genre.neighbors.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                RoomSectionHeader(title: String(localized: "Close to \(genre.title)"))
+                GenreNeighbors(genre: genre)
+            }
+            .padding(.horizontal, PlayMetrics.margin)
         }
     }
 
@@ -106,8 +135,8 @@ struct GenreView: View {
         return "\(count) · " + String(localized: "Since \(first.firstHeard.formatted(.dateTime.month(.wide).year()))")
     }
 
-    private func heroCovers(_ style: RoomStyle) -> [CoverArt] {
-        let count = CoverMosaic.count(for: style.covers)
+    private var heroCovers: [CoverArt] {
+        let count = Self.wallCovers
         if model.musicSource == .yourMusic {
             return localAlbums.prefix(count).map { album in
                 .url(music.artworkURL(album.artwork)?.absoluteString, seed: album.title)
@@ -139,6 +168,8 @@ struct GenreView: View {
         model.musicSource == .yourMusic ? !(local?.tracks.isEmpty ?? true) : !(room?.isEmpty ?? true)
     }
 
+    private static let wallCovers = 16
+
     #if os(macOS)
     private static let controlsWidth: CGFloat = 520
     private static let risingRows = 6
@@ -165,7 +196,7 @@ struct GenreView: View {
                         play(songs, title: chosen.title, shuffled: true)
                     }
                 }
-                DecadePicker(decades: decades, chosen: chosen.start, style: style) { start in
+                RoomChips(items: decades, chosen: chosen.start, style: style, title: \.title) { start in
                     decade = start
                     showsAllDecade = false
                 }
@@ -194,13 +225,22 @@ struct GenreView: View {
                         symbol: genre.symbol
                     )
                 } else {
-                    let shown = Array(room.songs.prefix(showsAllYours ? 25 : style.pace.rows))
+                    let kinds = Array(room.kinds().prefix(8))
+                    let songs = kinds.first { $0.name == kind }?.songs ?? room.songs
+                    let shown = Array(songs.prefix(showsAllYours ? 25 : style.pace.rows))
+                    if !kinds.isEmpty {
+                        RoomChips(items: kinds, chosen: kind, style: style, title: \.name, allowsNone: true) { chosen in
+                            kind = chosen
+                            showsAllYours = false
+                        }
+                        .padding(.bottom, 6)
+                    }
                     RoomColumns(items: shown) { song in
                         historyRow(song, detail: PlayCountText.short(song.plays)) {
-                            play(room.songs, startingAt: song, title: String(localized: "Your \(genre.title) Essentials"))
+                            play(songs, startingAt: song, title: String(localized: "Your \(genre.title) Essentials"))
                         }
                     }
-                    if room.songs.count > style.pace.rows {
+                    if songs.count > style.pace.rows {
                         RoomShowMore(isShowingAll: $showsAllYours, ink: style.ink)
                     }
                 }
@@ -476,53 +516,4 @@ struct GenreView: View {
 extension ListeningRoom.Decade {
     /// "1990s", as the decade is said.
     var title: String { String(localized: "\(String(start))s") }
-}
-
-/// The decades a genre's songs of yours came out in, as a row of capsules to choose one, the
-/// chosen one in the genre's colour.
-struct DecadePicker: View {
-    let decades: [ListeningRoom.Decade]
-    let chosen: Int
-    let style: RoomStyle
-    let choose: (Int) -> Void
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        // Deep in light, lifted in dark, so the chosen one stands off either page.
-        let chosenFill = colorScheme == .dark ? style.base.mix(with: .white, by: 0.18) : style.base.mix(with: .black, by: 0.2)
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                ForEach(decades) { decade in
-                    let isChosen = decade.start == chosen
-                    Button {
-                        choose(decade.start)
-                    } label: {
-                        Text(decade.title)
-                            .font(.subheadline.weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(isChosen ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: Self.height)
-                            .background(isChosen ? AnyShapeStyle(chosenFill) : AnyShapeStyle(.fill.tertiary), in: .capsule)
-                            .padding(.vertical, Self.reach)
-                            .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(isChosen ? .isSelected : [])
-                }
-            }
-        }
-        .scrollIndicators(.hidden)
-        .scrollClipDisabled()
-        .sensoryFeedback(.selection, trigger: chosen)
-    }
-
-    #if os(macOS)
-    private static let height: CGFloat = 28
-    private static let reach: CGFloat = 0
-    #else
-    private static let height: CGFloat = 36
-    /// Above and below, so a finger's target is 44 points tall.
-    private static let reach: CGFloat = 4
-    #endif
 }

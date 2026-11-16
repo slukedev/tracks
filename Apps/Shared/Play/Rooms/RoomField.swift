@@ -5,9 +5,11 @@ import SwiftUI
 /// eased fade, so nothing white sits on a faded part.
 struct RoomField: View {
     let style: RoomStyle
+    /// Where the blend's seams sit; a mood's sky moves them as it breathes.
+    var points = Self.points
 
     var body: some View {
-        MeshGradient(width: 3, height: 3, points: Self.points, colors: style.field)
+        MeshGradient(width: 3, height: 3, points: points, colors: style.field)
             .mask {
                 VStack(spacing: 0) {
                     Color.black
@@ -27,7 +29,7 @@ struct RoomField: View {
     static let fade: CGFloat = 72
 
     /// A little off the grid, so the blend has no straight seams.
-    private static let points: [SIMD2<Float>] = [
+    static let points: [SIMD2<Float>] = [
         [0, 0], [0.55, 0], [1, 0],
         [0, 0.45], [0.62, 0.52], [1, 0.4],
         [0, 1], [0.45, 1], [1, 1],
