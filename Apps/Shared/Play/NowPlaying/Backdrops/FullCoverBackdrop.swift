@@ -1,16 +1,12 @@
 import SwiftUI
 import TracksCore
-import CoreImage
-import CoreImage.CIFilterBuiltins
 
-/// Full Cover: the cover itself, as wide as the player, running out past the player's own
-/// cover and giving way to its colours, which carry on to the screen's edges (see
-/// ``CoverBleed``). Music's full-bleed artwork.
-///
-/// The cover fades out over its last few rows into a softened copy of itself, drawn on past its
-/// edges as its edge pixels stretched out, which in turn gives way to the edges' colours, which
-/// settle into one, deep enough for white type or light enough for dark. Sharp to soft to
-/// colour, with no line anywhere. Still: nothing here moves, so it costs nothing while it plays.
+/// Full Cover: the cover itself, as wide as the player, over the same cover blurred to fill the
+/// screen, as Music's full-screen artwork is. The sharp cover dissolves into its blurred self
+/// along a tall, soft fade that starts below what it's of (see ``FullCoverDissolve``), so there's
+/// no seam, step or line: both are the same picture. Where the song's words sit, the blurred
+/// cover is dimmed (or lightened) only as far as they need, softly. Still: nothing here moves,
+/// so it costs nothing while it plays.
 ///
 /// Where your music server has the album's animated cover (some find Apple Music's), it plays
 /// in the cover's place, looping silently, while the music plays.
@@ -30,7 +26,6 @@ struct FullCoverBackdrop: View {
     @Environment(YourMusic.self) private var music: YourMusic?
     @Environment(\.liftsFullCover) private var isLifted
     @AppStorage(MotionCovers.storageKey) private var playsMotion = true
-    @State private var fields = BleedFieldCache()
     @State private var motion: URL?
     /// Whether the player has said where its cover is yet: the first time, the cover is simply
     /// there, rather than fading in a beat after the player opens.
@@ -38,10 +33,10 @@ struct FullCoverBackdrop: View {
 
     var body: some View {
         ZStack {
-            CoverStage(tint: art.bleed.map { $0.floor(CoverBleedLayout.edge(for: Self.direction)).swiftUI } ?? art.field)
-            if let bleed = art.bleed, let focus {
+            CoverStage(tint: art.field)
+            if let focus {
                 GeometryReader { proxy in
-                    bled(bleed, in: proxy.size, focus: focus)
+                    placed(in: proxy.size, focus: focus)
                 }
                 .transition(.opacity)
             }
@@ -66,32 +61,16 @@ struct FullCoverBackdrop: View {
         let isOn: Bool
     }
 
-    private func bled(_ bleed: CoverBleed, in size: CGSize, focus: CGRect) -> some View {
+    private func placed(in size: CGSize, focus: CGRect) -> some View {
         let direction = Self.direction
         let rect = CoverBleedLayout.frame(in: size, focus: focus, direction: direction, standsOnFloor: art.subjectReachesFoot, fillsHeight: art.fillsHeight)
         let shown = direction == .below ? CoverBleedLayout.shownFrame(of: rect, focus: focus) : rect
-        let songEdge = CoverBleedLayout.edge(for: direction)
-        var shape = CoverBleedField.Shape(
-            size: size,
-            cover: shown,
-            songEdge: songEdge,
-            featherToSong: Self.featherToSong(direction, art: art),
-            featherElsewhere: Self.featherElsewhere,
-            settle: Self.settle(direction),
-            pointsPerPixel: Self.pointsPerPixel,
-            increasedContrast: contrast == .increased
-        )
-        // A plain edge (a backdrop, a flat colour) is its colour already, and hands over at
-        // once; a textured one (a sea, a crowd, a painting) carries on as itself, softened,
-        // further, so the texture fades out rather than stopping at a line.
-        shape.reach = 0.06 + 0.16 * bleed.texture(songEdge)
+        let feathers = Self.feathers(rect: rect, shown: shown, in: size, art: art)
         return ZStack(alignment: .topLeading) {
-            if let field = fields.image(for: shape, bleed: bleed, picture: art.clear, at: rect) {
-                Image(decorative: field, scale: 1)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: size.width, height: size.height)
-            }
+            blurred(in: size, cover: rect)
+                .saturation(FullCoverDissolve.saturation)
+                .brightness(FullCoverDissolve.brightness)
+            dimming(in: size, cover: rect)
             if !isLifted {
                 ZStack(alignment: .top) {
                     CoverImage(cover: cover, size: rect.width, isBare: true)
@@ -102,44 +81,92 @@ struct FullCoverBackdrop: View {
                 }
                 .frame(width: rect.width, height: shown.height, alignment: .top)
                 .clipped()
-                .mask { Self.feather(shape) }
+                .mask {
+                    Self.ramp(start: feathers.top, end: feathers.bottom, axis: .vertical)
+                        .mask { Self.ramp(start: feathers.leading, end: feathers.trailing, axis: .horizontal) }
+                }
                 .offset(x: shown.minX, y: shown.minY)
             }
-        }
-        .overlay(alignment: .top) {
-            headVeil(bleed, cover: rect)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .preference(key: FullCoverPictureKey.self, value: FullCoverPicture(
             shown: shown,
             side: rect.width,
-            top: shape.feather(.top),
-            bottom: shape.feather(.bottom),
-            leading: shape.feather(.leading),
-            trailing: shape.feather(.trailing)
+            top: feathers.top,
+            bottom: feathers.bottom,
+            leading: feathers.leading,
+            trailing: feathers.trailing
         ))
     }
 
-    /// A wash under the status bar, black under white type and white under dark, as strong as
-    /// the cover's top needs for its words to read over a title or a face there, easing away
-    /// below it. Nothing on a cover whose top is plain enough already, nor on the Mac. The top
-    /// bar's own controls sit on glass.
+    /// The cover blurred: right under the sharp one, at its size and place, so the sharp one
+    /// dissolves into exactly itself, carrying on past it as its own edge, and giving way
+    /// further out to the blurred cover filling the screen.
+    private func blurred(in size: CGSize, cover: CGRect) -> some View {
+        let beside = Self.direction == .beside
+        let edge = beside ? art.softEdges.trailing : art.softEdges.foot
+        let reach = max(cover.width * 0.4, ((beside ? size.width - cover.maxX : size.height - cover.maxY)) * 0.9)
+        return ZStack(alignment: .topLeading) {
+            Image(decorative: art.soft, scale: 1)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fill)
+                .frame(width: size.width, height: size.height)
+                .clipped()
+            ZStack(alignment: .topLeading) {
+                Image(decorative: art.soft, scale: 1)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: cover.width, height: cover.height)
+                    .offset(x: cover.minX, y: cover.minY)
+                if let edge {
+                    Image(decorative: edge, scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: beside ? max(0, size.width - cover.maxX) : cover.width, height: beside ? cover.height : max(0, size.height - cover.maxY))
+                        .offset(x: beside ? cover.maxX : cover.minX, y: beside ? cover.minY : cover.maxY)
+                }
+            }
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .mask {
+                let length = beside ? size.width : size.height
+                let end = beside ? cover.maxX : cover.maxY
+                LinearGradient(
+                    stops: (0...12).map { step in
+                        let t = Double(step) / 12
+                        return .init(color: .black.opacity(1 - FullCoverDissolve.smootherstep(t)), location: min(1, (end + reach * t) / max(1, length)))
+                    },
+                    startPoint: beside ? .leading : .top,
+                    endPoint: beside ? .trailing : .bottom
+                )
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipped()
+    }
+
+    /// Where the song's words sit, the blurred cover dimmed under white type or lightened under
+    /// dark, only as far as they need to read, easing in softly from the cover.
     @ViewBuilder
-    private func headVeil(_ bleed: CoverBleed, cover: CGRect) -> some View {
-        let veil = bleed.headVeil(increasedContrast: contrast == .increased)
-        if Self.direction == .below, veil > 0.01 {
-            let colour: Color = bleed.ink(.top) == .light ? .black : .white
-            let solid = max(0, cover.minY) + cover.width * CoverBleed.headDepth
-            let fade = cover.width * 0.1
+    private func dimming(in size: CGSize, cover: CGRect) -> some View {
+        let ink = art.bleed?.ink(CoverBleedLayout.edge(for: Self.direction)) ?? .light
+        let amount = FullCoverDissolve.dimming(under: art.underWords, ink: ink, increasedContrast: contrast == .increased)
+        if amount > 0.005 {
+            let colour: Color = ink == .light ? .black : .white
+            let horizontal = Self.direction == .beside
+            let from = horizontal ? cover.maxX - cover.width * 0.3 : cover.maxY - cover.width * 0.3
+            let to = horizontal ? cover.maxX + cover.width * 0.15 : cover.maxY + cover.width * 0.15
+            let length = horizontal ? size.width : size.height
             LinearGradient(
-                stops: (0...6).map { step in
-                    let t = Double(step) / 6
-                    return .init(color: colour.opacity(veil * (1 - Self.smooth(t))), location: (solid + fade * t) / (solid + fade))
+                stops: (0...10).map { step in
+                    let t = Double(step) / 10
+                    let location = (from + (to - from) * t) / max(1, length)
+                    return .init(color: colour.opacity(amount * FullCoverDissolve.smootherstep(t)), location: min(1, max(0, location)))
                 },
-                startPoint: .top,
-                endPoint: .bottom
+                startPoint: horizontal ? .leading : .top,
+                endPoint: horizontal ? .trailing : .bottom
             )
-            .frame(height: solid + fade)
+            .frame(width: size.width, height: size.height)
             .allowsHitTesting(false)
         }
     }
@@ -152,34 +179,30 @@ struct FullCoverBackdrop: View {
         #endif
     }
 
-    /// How far into the cover it fades, as a part of its side: furthest on the edge the song
-    /// sits past, where it gives way to its colours, and only a little on the others.
-    /// On iPhone, only below its subject, where its glass takes over (see ``CoverGlass``).
-    static func featherToSong(_ direction: CoverBleedLayout.Direction, art: BackdropArt) -> Double {
-        guard direction == .below else { return 0.28 }
-        let subjects = [art.subject, art.focus].compactMap { $0.map { Double($0.maxY) } }
-        return 1 - CoverGlass.dissolve(subjectBottom: subjects.max())
+    /// How far into the cover it dissolves at each edge, as a part of its side: on the song's
+    /// side from below its subject (see ``FullCoverDissolve``), a little on any other edge with
+    /// screen past it, and not at all where it meets the screen's edge.
+    static func feathers(rect: CGRect, shown: CGRect, in size: CGSize, art: BackdropArt) -> (top: Double, bottom: Double, leading: Double, trailing: Double) {
+        let songSide = direction == .below
+            ? [art.subject, art.focus].compactMap { $0.map { Double($0.maxY) } }.max()
+            : [art.subject, art.focus].compactMap { $0.map { Double($0.maxX) } }.max()
+        let song = 1 - FullCoverDissolve.start(subjectEnd: songSide)
+        func elsewhere(_ hasRoom: Bool) -> Double { hasRoom ? featherElsewhere : 0 }
+        switch direction {
+        case .below:
+            return (elsewhere(shown.minY > 0.5), song, elsewhere(shown.minX > 0.5), elsewhere(shown.maxX < size.width - 0.5))
+        case .beside:
+            return (elsewhere(shown.minY > 0.5), elsewhere(shown.maxY < size.height - 0.5), elsewhere(shown.minX > 0.5), song)
+        }
     }
-    static let featherElsewhere = 0.07
-    /// How far past the cover its edge's colours settle into one, as a part of its side.
-    private static func settle(_ direction: CoverBleedLayout.Direction) -> Double {
-        direction == .below ? 0.18 : 0.32
-    }
-    /// The colours around the cover are soft: worked out four points to a pixel, stretched.
-    private static let pointsPerPixel = 4.0
 
-    /// The cover's alpha: whole inside, easing to nothing at each edge that has the screen
-    /// past it, so it gives way to its own colours there.
-    private static func feather(_ shape: CoverBleedField.Shape) -> some View {
-        ramp(start: shape.feather(.top), end: shape.feather(.bottom), axis: .vertical)
-            .mask { ramp(start: shape.feather(.leading), end: shape.feather(.trailing), axis: .horizontal) }
-    }
+    static let featherElsewhere = 0.07
 
     /// Opaque in the middle, easing to clear over `start` at the start and `end` at the end,
-    /// along a smooth curve so the fade has no visible line where it begins.
+    /// along a smootherstep, so the fade has no visible line where it begins or ends.
     static func ramp(start: Double, end: Double, axis: Axis) -> LinearGradient {
         var stops: [Gradient.Stop] = []
-        let steps = 6
+        let steps = 12
         if start > 0 {
             for step in 0...steps {
                 let t = Double(step) / Double(steps)
@@ -201,133 +224,7 @@ struct FullCoverBackdrop: View {
             : LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
     }
 
-    static func smooth(_ t: Double) -> Double { t * t * (3 - 2 * t) }
-}
-
-/// The last field drawn, kept until the shape around the cover changes. A new cover's is drawn
-/// at once, coarsely, so the cover never shows without its colours, then finely off the main
-/// thread; a new shape (a window being resized) is drawn off the main thread, the last one
-/// stretched to fit meanwhile.
-@MainActor
-@Observable
-final class BleedFieldCache {
-    /// Counts the fields finished off the main thread, for the view to redraw with each.
-    private(set) var drawn = 0
-    @ObservationIgnored private var shape: CoverBleedField.Shape?
-    @ObservationIgnored private var bleed: CoverBleed?
-    @ObservationIgnored private var picture: CGImage?
-    @ObservationIgnored private var frame: CGRect?
-    @ObservationIgnored private var image: CGImage?
-    @ObservationIgnored private var drawing: Task<Void, Never>?
-
-    /// `frame` is where the whole picture lies, which runs past the part that shows when its
-    /// foot is cut short.
-    func image(for shape: CoverBleedField.Shape, bleed: CoverBleed, picture: CGImage, at frame: CGRect) -> CGImage? {
-        _ = drawn
-        guard shape != self.shape || bleed != self.bleed || picture !== self.picture || frame != self.frame else { return image }
-        // A small step, as a resize takes each frame, can wait; a new cover, or the player
-        // laid out at its size for the first time, can't.
-        let isStep = bleed == self.bleed && picture === self.picture && self.shape.map { Self.isSmallStep(from: $0, to: shape) } == true
-        (self.shape, self.bleed, self.picture, self.frame) = (shape, bleed, picture, frame)
-        if image == nil || !isStep {
-            // Drawn finely here, a window's field held the main thread for a third of a second.
-            var coarse = shape
-            coarse.pointsPerPixel *= Self.coarseness
-            image = Self.draw(coarse, bleed: bleed, picture: picture, at: frame)
-        }
-        drawing?.cancel()
-        drawing = Task { [weak self] in
-            let made = await OffMainActor.run { Self.draw(shape, bleed: bleed, picture: picture, at: frame) }
-            guard !Task.isCancelled, let self else { return }
-            self.image = made
-            self.drawn += 1
-        }
-        return image
-    }
-
-    private static let coarseness = 4.0
-
-    private static func isSmallStep(from old: CoverBleedField.Shape, to new: CoverBleedField.Shape) -> Bool {
-        guard old.size.width > 1, old.size.height > 1 else { return false }
-        let width = new.size.width / old.size.width
-        let height = new.size.height / old.size.height
-        return abs(width - 1) < 0.25 && abs(height - 1) < 0.25
-    }
-
-    private nonisolated static let context = CIContext(options: [.useSoftwareRenderer: false])
-
-    /// The field, with the cover softened and drawn on past its edges over it where the field
-    /// says, at the field's own size.
-    nonisolated private static func draw(_ shape: CoverBleedField.Shape, bleed: CoverBleed, picture: CGImage, at frame: CGRect) -> CGImage? {
-        let field = CoverBleedField(bleed: bleed, shape: shape)
-        guard let colours = Self.picture(field), let weights = Self.weights(field) else { return nil }
-        let extent = CGRect(x: 0, y: 0, width: field.width, height: field.height)
-        // The cover's square in the field's pixels, Core Image's way up (from the bottom).
-        let scale = CGFloat(field.width) / max(1, shape.size.width)
-        let cover = CGRect(
-            x: frame.minX * scale,
-            y: CGFloat(field.height) - frame.maxY * scale,
-            width: frame.width * scale,
-            height: frame.height * scale
-        )
-        let source = CIImage(cgImage: picture)
-        // Its edge pixels drawn on outward forever, then softened, so past the edge it carries
-        // on as streaks of its own colours that blur together, as Music's does.
-        let carried = source.clampedToExtent()
-            .transformed(by: CGAffineTransform(scaleX: cover.width / source.extent.width, y: cover.height / source.extent.height)
-                .concatenating(CGAffineTransform(translationX: cover.minX, y: cover.minY)))
-            .applyingGaussianBlur(sigma: Double(cover.width) * (0.02 + 0.03 * shape.reach / 0.22))
-            .cropped(to: extent)
-        let blend = CIFilter.blendWithMask()
-        blend.inputImage = carried
-        blend.backgroundImage = CIImage(cgImage: colours)
-        blend.maskImage = CIImage(cgImage: weights)
-        guard let output = blend.outputImage else { return colours }
-        // Under the song, the cover carries on below itself as glass, easing into the colours.
-        if shape.songEdge == .bottom, frame.minY <= 0.5,
-           let under = context.createCGImage(output, from: extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)),
-           let glass = CoverGlass.extend(picture: picture, under: under, size: shape.size, side: frame.width, start: 1 - shape.featherToSong, ink: bleed.ink(.bottom), increasedContrast: shape.increasedContrast, pointsPerPixel: shape.pointsPerPixel / 2, context: context) {
-            let glassImage = CIImage(cgImage: glass)
-            let finer = glassImage.extent
-            let colours = output.transformed(by: CGAffineTransform(scaleX: finer.width / extent.width, y: finer.height / extent.height))
-            return context.createCGImage(glassImage.composited(over: colours), from: finer, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) ?? glass
-        }
-        return context.createCGImage(output, from: extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) ?? colours
-    }
-
-    nonisolated private static func weights(_ field: CoverBleedField) -> CGImage? {
-        guard let provider = CGDataProvider(data: Data(field.continuation) as CFData) else { return nil }
-        return CGImage(
-            width: field.width,
-            height: field.height,
-            bitsPerComponent: 8,
-            bitsPerPixel: 8,
-            bytesPerRow: field.width,
-            space: CGColorSpaceCreateDeviceGray(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
-            provider: provider,
-            decode: nil,
-            shouldInterpolate: true,
-            intent: .defaultIntent
-        )
-    }
-
-    nonisolated private static func picture(_ field: CoverBleedField) -> CGImage? {
-        guard let provider = CGDataProvider(data: Data(field.rgba) as CFData) else { return nil }
-        return CGImage(
-            width: field.width,
-            height: field.height,
-            bitsPerComponent: 8,
-            bitsPerPixel: 32,
-            bytesPerRow: field.width * 4,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
-            provider: provider,
-            decode: nil,
-            shouldInterpolate: true,
-            intent: .defaultIntent
-        )
-    }
+    static func smooth(_ t: Double) -> Double { FullCoverDissolve.smootherstep(t) }
 }
 
 extension BackdropArt {

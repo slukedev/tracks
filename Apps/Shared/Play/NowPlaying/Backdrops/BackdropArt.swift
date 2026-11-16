@@ -17,6 +17,9 @@ struct BackdropArt: Sendable {
     let flowing: CGImage
     /// Well softened, to fill a screen out of focus.
     let soft: CGImage
+    /// The soft picture's foot and trailing edge, a pixel deep, softened along their length, for
+    /// Full Cover to carry on past the cover without bands.
+    let softEdges: (foot: CGImage?, trailing: CGImage?)
     /// The cover's colours as they look, most of it first. At least four.
     let colours: [Color]
     /// Its colours made deep enough for white type, at least four, for Halo and Stage.
@@ -31,14 +34,17 @@ struct BackdropArt: Sendable {
     let bleed: CoverBleed?
     /// Where what the cover is of sits in it (a face, a figure, a title), as Vision's attention
     /// finds it: parts of the side, from the top left. Nil when nothing stands out.
-    let subject: CGRect?
+    var subject: CGRect?
     /// Who or what the cover is of, to bring closer: its people, as Vision finds them, or
     /// failing those its most object-like thing. Parts of the side, from the top left.
-    let focus: CGRect?
+    var focus: CGRect?
     /// Where its flow starts, in seconds, so no two songs' backgrounds start alike.
     let start: Double
     /// How Living Cover colours it.
     let grade: LivingCoverGrade
+    /// The lightest and darkest of the blurred cover where Full Cover's words sit over it, as
+    /// luminance (see ``FullCoverDissolve/dimming(under:ink:increasedContrast:)``).
+    let underWords: (lightest: Double, darkest: Double)?
     /// Made from a stand-in because the cover's picture wouldn't come, this time: not kept,
     /// so it's looked for again the next time it's asked for.
     var isStandIn = false
@@ -57,6 +63,7 @@ final class BackdropArtStore {
     /// Most recently used last.
     private var order: [CoverArt] = []
     private var loading: [CoverArt: Task<BackdropArt?, Never>] = [:]
+    private var refining: [CoverArt: Task<BackdropArt, Never>] = [:]
     private static let kept = 12
 
     func cached(_ cover: CoverArt?) -> BackdropArt? {
@@ -80,8 +87,20 @@ final class BackdropArtStore {
         if let art, !art.isStandIn {
             ready[cover] = art
             touch(cover)
+            refining[cover] = Task {
+                let refined = await Self.refine(art, cover: cover)
+                if ready[cover] != nil { ready[cover] = refined }
+                refining[cover] = nil
+                return refined
+            }
         }
         return art
+    }
+
+    /// The cover readied with what it's of, once Vision has found it: at once if it has.
+    func refined(_ cover: CoverArt) async -> BackdropArt? {
+        if let task = refining[cover] { return await task.value }
+        return ready[cover]
     }
 
     /// Readies these covers ahead, one after another, in the background.
@@ -106,10 +125,8 @@ final class BackdropArtStore {
 
     private static func make(_ cover: CoverArt) async -> BackdropArt? {
         guard let (picture, isStandIn) = await picture(of: cover) else { return nil }
-        // A larger copy for Vision, which can't find a small figure in a few dozen pixels.
-        let looked = await CoverTint.smallImage(for: cover, pixels: CoverSubject.pixels) ?? picture
         let pixels = BackdropArt.pixels
-        let prepared = await OffMainActor.run { () -> (CGImage, CGImage, CGImage, [CoverPalette.Colour], CoverBleed?, CGRect?, CGRect?, LivingCoverGrade)? in
+        let prepared = await OffMainActor.run { () -> (CGImage, CGImage, CGImage, (CGImage?, CGImage?), [CoverPalette.Colour], CoverBleed?, LivingCoverGrade, (lightest: Double, darkest: Double)?)? in
             let rgba = CoverPixels.rgba(of: picture, side: pixels)
             let framed = CoverFrame(rgba: rgba, side: pixels).flatMap { picture.cropping(to: $0.inside(picture)) } ?? picture
             guard let clear = SoftCover.soften(picture, by: 1.5),
@@ -117,10 +134,16 @@ final class BackdropArtStore {
                   let soft = SoftCover.soften(picture, by: 8)
             else { return nil }
             let bleed = CoverBleed(rgba: rgba, side: pixels)
+            let last = soft.width - 1
+            let foot = soft.cropping(to: CGRect(x: 0, y: soft.height - 1, width: soft.width, height: 1)).flatMap { SoftCover.soften($0, by: 6) }
+            let trailing = soft.cropping(to: CGRect(x: last, y: 0, width: 1, height: soft.height)).flatMap { SoftCover.soften($0, by: 6) }
             let grade = LivingCoverGrade(rgba: CoverPixels.rgba(of: flowing, side: 32))
-            return (clear, flowing, soft, CoverPalette.colours(rgba: CoverPixels.rgba(of: picture, side: 24)), bleed, CoverSubject.bounds(in: looked), CoverSubject.focus(in: looked), grade)
+            let underWords = FullCoverDissolve.extremes(rgba: CoverPixels.rgba(of: soft, side: pixels), side: pixels, region: wordsRegion).map { found in
+                (lightest: FullCoverDissolve.brightened(found.lightest), darkest: FullCoverDissolve.brightened(found.darkest))
+            }
+            return (clear, flowing, soft, (foot, trailing), CoverPalette.colours(rgba: CoverPixels.rgba(of: picture, side: 24)), bleed, grade, underWords)
         }
-        guard let (clear, flowing, soft, found, bleed, subject, focus, grade) = prepared else { return nil }
+        guard let (clear, flowing, soft, softEdges, found, bleed, grade, underWords) = prepared else { return nil }
         let colours = CoverPalette.filled(found, to: 4).map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
         let field = await CoverTint.color(for: cover) ?? found.first.map { colour in
             let deep = CoverTint.deepened((colour.red, colour.green, colour.blue))
@@ -130,17 +153,44 @@ final class BackdropArtStore {
             clear: clear,
             flowing: flowing,
             soft: soft,
+            softEdges: (foot: softEdges.0, trailing: softEdges.1),
             colours: colours.isEmpty ? [field] : colours,
             deep: CoverTint.deepPalette(found),
             lights: lights(from: CoverPalette.filled(found, to: 3)),
             field: field,
             bleed: bleed,
-            subject: subject,
-            focus: focus,
+            subject: nil,
+            focus: nil,
             start: Double(UInt(bitPattern: cover.hashValue) % 600),
             grade: grade,
+            underWords: underWords,
             isStandIn: isStandIn
         )
+    }
+
+    /// Where Full Cover's words sit over the blurred cover filling the screen, in parts of the
+    /// cover: below the cover on iPhone, across the middle of a tall screen; beside it on the
+    /// Mac, across the middle of a wide window.
+    nonisolated private static var wordsRegion: CGRect {
+        #if os(macOS)
+        CGRect(x: 0.55, y: 0.2, width: 0.3, height: 0.6)
+        #else
+        CGRect(x: 0.27, y: 0.5, width: 0.46, height: 0.5)
+        #endif
+    }
+
+    /// What the cover is of, found by Vision, added to art made without it: the slowest part of
+    /// readying a cover, so the cover shows first and this follows.
+    private static func refine(_ art: BackdropArt, cover: CoverArt) async -> BackdropArt {
+        // A larger copy for Vision, which can't find a small figure in a few dozen pixels.
+        var looked = await CoverTint.smallImage(for: cover, pixels: CoverSubject.pixels)
+        if looked == nil { looked = await picture(of: cover)?.0 }
+        guard let looked else { return art }
+        let (subject, focus) = await OffMainActor.run { (CoverSubject.bounds(in: looked), CoverSubject.focus(in: looked)) }
+        var refined = art
+        refined.subject = subject
+        refined.focus = focus
+        return refined
     }
 
     private static func lights(from colours: [CoverPalette.Colour]) -> [Color] {

@@ -49,13 +49,6 @@ public nonisolated struct CoverBleed: Sendable, Equatable {
             self.init(red: Self.gamma(linear.0), green: Self.gamma(linear.1), blue: Self.gamma(linear.2))
         }
 
-        /// Further from grey by `factor`, about its own brightness, kept within 0 and 1.
-        func saturated(by factor: Double) -> Colour {
-            let grey = (red + green + blue) / 3
-            func push(_ value: Double) -> Double { min(1, max(0, grey + (value - grey) * factor)) }
-            return Colour(red: push(red), green: push(green), blue: push(blue))
-        }
-
         public static let white = Colour(red: 1, green: 1, blue: 1)
         public static let black = Colour(red: 0, green: 0, blue: 0)
     }
@@ -80,64 +73,17 @@ public nonisolated struct CoverBleed: Sendable, Equatable {
     /// A plain edge simply carries on as its colour; a textured one carries on as a soft
     /// copy of itself first, so it doesn't stop dead into a flat field.
     public let textures: [Double]
-    /// The lightest and darkest of the band under the status bar, as luminance, ignoring the
-    /// extremes: a title or a face there decides whether its type needs a veil to read.
-    public let head: (lightest: Double, darkest: Double)
-    /// How deep that band is, as a part of the cover's side: the status bar's height over a
-    /// cover the width of a phone.
-    public static let headDepth = 0.13
 
     /// Light type on a background whose luminance is at most this. Above it, dark type has
     /// the better of it: at 0.3 black reads at 7:1, white at only 2.6:1.
     static let darkInkAbove = 0.3
-    /// The most a background under white type may be, for 4.6:1, or 7:1 with Increase Contrast.
-    static let lightInkCeiling = (standard: 0.18, increased: 0.1)
-    /// The least a background under dark type may be, for 7:1, or 10:1 with Increase Contrast.
-    static let darkInkFloor = (standard: 0.3, increased: 0.45)
 
-    public init(top: [Colour], bottom: [Colour], leading: [Colour], trailing: [Colour], textures: [Double] = [0, 0, 0, 0], head: (lightest: Double, darkest: Double)? = nil) {
+    public init(top: [Colour], bottom: [Colour], leading: [Colour], trailing: [Colour], textures: [Double] = [0, 0, 0, 0]) {
         self.top = top
         self.bottom = bottom
         self.leading = leading
         self.trailing = trailing
         self.textures = textures.count == 4 ? textures : [0, 0, 0, 0]
-        let luminances = top.map(\.luminance)
-        self.head = head ?? (luminances.max() ?? 0, luminances.min() ?? 0)
-    }
-
-    public static func == (lhs: CoverBleed, rhs: CoverBleed) -> Bool {
-        lhs.top == rhs.top && lhs.bottom == rhs.bottom && lhs.leading == rhs.leading && lhs.trailing == rhs.trailing
-            && lhs.textures == rhs.textures && lhs.head == rhs.head
-    }
-
-    /// How strongly the status bar's type needs the cover under it veiled, 0 to 1: a wash of black
-    /// under white type, or of white under dark, just strong enough for the lightest (or
-    /// darkest) of what's there to read at 4.5 to 1, or 7 to 1 with Increase Contrast.
-    public func headVeil(increasedContrast: Bool = false) -> Double {
-        let ink = ink(.top)
-        let target = increasedContrast ? 7.0 : 4.5
-        func reads(_ luminance: Double) -> Bool {
-            switch ink {
-            case .light: 1.05 / (luminance + 0.05) >= target
-            case .dark: (luminance + 0.05) / 0.05 >= target
-            }
-        }
-        let worst = ink == .light ? head.lightest : head.darkest
-        guard !reads(worst) else { return 0 }
-        var (low, high) = (0.0, 1.0)
-        for _ in 0..<16 {
-            let veil = (low + high) / 2
-            if reads(Self.veiled(worst, by: veil, toward: ink)) { high = veil } else { low = veil }
-        }
-        return high
-    }
-
-    /// A luminance under a veil of `amount`, black under light type and white under dark, as
-    /// an sRGB layer at that opacity lays it over.
-    static func veiled(_ luminance: Double, by amount: Double, toward ink: Ink) -> Double {
-        let encoded = Colour.gamma(luminance)
-        let blended = ink == .light ? encoded * (1 - amount) : encoded + (1 - encoded) * amount
-        return Colour.linear(blended)
     }
 
     public func texture(_ edge: Edge) -> Double {
@@ -154,7 +100,7 @@ public nonisolated struct CoverBleed: Sendable, Equatable {
         guard !seen.isEmpty else { return nil }
         // An edge that's see-through all along carries on in the colour of those that aren't.
         let stand = Array(repeating: Self.average(seen.flatMap(\.self)), count: stops)
-        self.init(top: read[0] ?? stand, bottom: read[1] ?? stand, leading: read[2] ?? stand, trailing: read[3] ?? stand, textures: Edge.allCases.map { reader.texture($0) }, head: reader.head())
+        self.init(top: read[0] ?? stand, bottom: read[1] ?? stand, leading: read[2] ?? stand, trailing: read[3] ?? stand, textures: Edge.allCases.map { reader.texture($0) })
     }
 
     public func stops(_ edge: Edge) -> [Colour] {
@@ -213,56 +159,6 @@ public nonisolated struct CoverBleed: Sendable, Equatable {
         return Colour(linear: firstCount >= points.count - firstCount ? first : second)
     }
 
-    /// The edge's colours as drawn past it: deepened under white type, or lifted under dark,
-    /// just as far as the type needs to read, and no further.
-    public func legible(_ edge: Edge, increasedContrast: Bool = false) -> [Colour] {
-        let ink = ink(edge)
-        return stops(edge).map { Self.legible($0, for: ink, increasedContrast: increasedContrast) }
-    }
-
-    /// The one colour the background settles into, far from the edge, where the type is.
-    public func floor(_ edge: Edge, increasedContrast: Bool = false) -> Colour {
-        Self.legible(average(edge), for: ink(edge), increasedContrast: increasedContrast)
-    }
-
-    static func legible(_ colour: Colour, for ink: Ink, increasedContrast: Bool) -> Colour {
-        let luminance = colour.luminance
-        switch ink {
-        case .light:
-            let ceiling = increasedContrast ? lightInkCeiling.increased : lightInkCeiling.standard
-            guard luminance > ceiling else { return colour }
-            // Darkening in light scales luminance with it, so the hue stays. A deeper colour
-            // looks greyer than the lighter one it came from, so it's made a little richer
-            // the further it goes, as a lit colour in shadow looks.
-            let scale = ceiling / luminance
-            let (r, g, b) = colour.linear
-            let deep = Self.unmuddied(Colour(linear: (r * scale, g * scale, b * scale)).saturated(by: 1 + 0.6 * (1 - scale)), from: colour)
-            let after = deep.luminance
-            guard after > ceiling else { return deep }
-            let (dr, dg, db) = deep.linear
-            let trim = ceiling / after
-            return Colour(linear: (dr * trim, dg * trim, db * trim))
-        case .dark:
-            let floor = increasedContrast ? darkInkFloor.increased : darkInkFloor.standard
-            guard luminance < floor else { return colour }
-            // Toward white, in light, by just enough.
-            let lift = (floor - luminance) / max(0.0001, 1 - luminance)
-            let (r, g, b) = colour.linear
-            return Colour(linear: (r + (1 - r) * lift, g + (1 - g) * lift, b + (1 - b) * lift))
-        }
-    }
-
-    /// A colour deepened from `source` kept from mud, as Living Cover keeps its own (see
-    /// ``LivingCoverGrade``): a pale warm colour becomes a warm grey rather than brown, and a
-    /// yellow leans to amber rather than olive.
-    static func unmuddied(_ deep: Colour, from source: Colour) -> Colour {
-        let before = Oklab(red: source.red, green: source.green, blue: source.blue)
-        let after = Oklab(red: deep.red, green: deep.green, blue: deep.blue)
-        let cleaned = LivingCoverGrade.cleaned(after, sourceChroma: before.chroma)
-        let (r, g, b) = cleaned.srgb
-        return Colour(red: r, green: g, blue: b)
-    }
-
     static func average(_ colours: [Colour]) -> Colour {
         guard !colours.isEmpty else { return .black }
         var sum = (0.0, 0.0, 0.0)
@@ -284,25 +180,6 @@ private nonisolated struct EdgeReader {
     /// How deep a band each edge is read from: a few pixels, so one row of noise or a hairline
     /// border doesn't decide it, and not so deep that what's inside the cover does.
     private var depth: Int { max(2, Int((Double(side) * 0.07).rounded())) }
-
-    /// The lightest and darkest of the band the status bar sits over (see
-    /// ``CoverBleed/headDepth``), as luminance: a hundredth of it either way is left out, so a
-    /// stray pixel doesn't decide.
-    func head() -> (lightest: Double, darkest: Double)? {
-        let rows = max(2, Int((Double(side) * CoverBleed.headDepth).rounded()))
-        var values: [Double] = []
-        for y in 0..<rows {
-            for x in 0..<side {
-                let index = (y * side + x) * 4
-                let alpha = Double(rgba[index + 3]) / 255
-                guard alpha > 0.5 else { continue }
-                values.append(CoverBleed.Colour(red: min(1, Double(rgba[index]) / 255 / alpha), green: min(1, Double(rgba[index + 1]) / 255 / alpha), blue: min(1, Double(rgba[index + 2]) / 255 / alpha)).luminance)
-            }
-        }
-        guard !values.isEmpty else { return nil }
-        values.sort()
-        return (values[values.count - 1 - values.count / 100], values[values.count / 100])
-    }
 
     /// How much the edge's band varies in lightness around each stretch's own typical
     /// lightness, as the eye has it (L*): the median of how far each pixel is from it, scaled

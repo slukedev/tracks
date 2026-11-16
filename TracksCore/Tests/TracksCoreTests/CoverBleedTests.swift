@@ -62,32 +62,6 @@ struct CoverBleedTests {
         #expect(bleed.ink(.bottom) == example.ink)
     }
 
-    @Test("Whatever the cover, the type on its colours reads", arguments: [false, true])
-    func typeAlwaysReads(increasedContrast: Bool) throws {
-        // A sweep of colours, light, dark and in between, of every hue.
-        for r in stride(from: 0, through: 255, by: 51) {
-            for g in stride(from: 0, through: 255, by: 51) {
-                for b in stride(from: 0, through: 255, by: 51) {
-                    let bleed = try #require(CoverBleed(rgba: solid(UInt8(r), UInt8(g), UInt8(b)), side: 16))
-                    let ink: CoverBleed.Colour = bleed.ink(.bottom) == .dark ? .black : .white
-                    let least = bleed.ink(.bottom) == .dark ? (increasedContrast ? 10.0 : 7.0) : (increasedContrast ? 7.0 : 4.5)
-                    let floor = bleed.floor(.bottom, increasedContrast: increasedContrast)
-                    #expect(floor.contrast(with: ink) >= least - 0.05, "rgb(\(r), \(g), \(b))")
-                    for stop in bleed.legible(.bottom, increasedContrast: increasedContrast) {
-                        #expect(stop.contrast(with: ink) >= least - 0.05, "rgb(\(r), \(g), \(b))")
-                    }
-                }
-            }
-        }
-    }
-
-    @Test("A colour that already reads is left as it is")
-    func readableColoursUntouched() throws {
-        let navy = try #require(CoverBleed(rgba: solid(10, 20, 60), side: 16))
-        let colour = try #require(navy.bottom.first)
-        #expect(distance(navy.floor(.bottom), colour) < 0.005)
-    }
-
     @Test("Settles into the colour most of the edge is, not a muddy mix")
     func floorIsTheDominantColour() throws {
         // Three quarters of the bottom is a blue sky, a quarter a warm shoulder.
@@ -119,49 +93,8 @@ struct CoverBleedTests {
     }
 }
 
-@Suite("Full Cover's top bar and colours")
-struct CoverBleedHeadTests {
-    @Test("A plain top needs no veil; lettering under the top bar gets just enough for its words to read", arguments: [false, true])
-    func headVeil(increasedContrast: Bool) throws {
-        #expect(try #require(CoverBleed(rgba: solid(20, 24, 40), side: 48)).headVeil(increasedContrast: increasedContrast) == 0)
-        #expect(try #require(CoverBleed(rgba: solid(250, 248, 240), side: 48)).headVeil(increasedContrast: increasedContrast) == 0)
-        let target = increasedContrast ? 7.0 : 4.5
-        let lettering: [[UInt8]] = [
-            cover { x, y in y < 4 && x % 6 < 3 ? (255, 255, 255, 255) : (15, 15, 20, 255) },
-            cover { x, y in y < 4 && x % 6 < 3 ? (10, 10, 10, 255) : (245, 240, 230, 255) },
-        ]
-        for rgba in lettering {
-            let bleed = try #require(CoverBleed(rgba: rgba, side: 48))
-            let veil = bleed.headVeil(increasedContrast: increasedContrast)
-            #expect(veil > 0 && veil < 1)
-            let ink = bleed.ink(.top)
-            let worst = ink == .light ? bleed.head.lightest : bleed.head.darkest
-            let veiled = CoverBleed.veiled(worst, by: veil, toward: ink)
-            let contrast = ink == .light ? 1.05 / (veiled + 0.05) : (veiled + 0.05) / 0.05
-            #expect(contrast >= target - 0.01)
-            let less = CoverBleed.veiled(worst, by: veil - 0.02, toward: ink)
-            #expect((ink == .light ? 1.05 / (less + 0.05) : (less + 0.05) / 0.05) < target)
-        }
-    }
-
-    @Test("Deepened for white type, a pale beige becomes a warm grey and a yellow amber, not brown or olive")
-    func deepeningWithoutMud() {
-        let beige = CoverBleed.Colour(red: 0.82, green: 0.72, blue: 0.6)
-        let plain = beige.luminance
-        let deep = CoverBleed.legible(beige, for: .light, increasedContrast: false)
-        #expect(deep.luminance <= CoverBleed.lightInkCeiling.standard + 0.001)
-        #expect(deep.luminance < plain)
-        let before = Oklab(red: beige.red, green: beige.green, blue: beige.blue)
-        let after = Oklab(red: deep.red, green: deep.green, blue: deep.blue)
-        #expect(after.chroma < before.chroma)
-        let yellow = CoverBleed.Colour(red: 0.95, green: 0.85, blue: 0.1)
-        let gold = CoverBleed.legible(yellow, for: .light, increasedContrast: false)
-        #expect(Oklab(red: gold.red, green: gold.green, blue: gold.blue).hue < Oklab(red: yellow.red, green: yellow.green, blue: yellow.blue).hue - 0.2)
-    }
-}
-
-@Suite("Full Cover's layout and field")
-struct CoverBleedFieldTests {
+@Suite("Full Cover's layout")
+struct CoverBleedLayoutTests {
     let phone = CGSize(width: 402, height: 874)
 
     @Test("Under the song, the whole cover sits at the screen's top, its width, whatever the room; only its foot is cut short when the room ends above it")
@@ -193,64 +126,5 @@ struct CoverBleedFieldTests {
         // A photo running to its edges fills the window's height.
         let tall = CoverBleedLayout.frame(in: window, focus: slot, direction: .beside, fillsHeight: true)
         #expect(tall.minY == 0 && tall.height == window.height && tall.maxX > slot.maxX)
-    }
-
-    private func gradientBleed() throws -> CoverBleed {
-        // Every edge different: the hardest case for meeting at the corners.
-        try #require(CoverBleed(rgba: cover { x, y in
-            (UInt8(x * 5), UInt8(y * 5), UInt8(255 - x * 3), 255)
-        }, side: 48))
-    }
-
-    private func shape(_ size: CGSize, _ rect: CGRect, songEdge: CoverBleed.Edge) -> CoverBleedField.Shape {
-        .init(size: size, cover: rect, songEdge: songEdge, featherToSong: 0.2, featherElsewhere: 0.07, settle: 0.32, pointsPerPixel: 4, increasedContrast: false)
-    }
-
-    @Test("The colours round the cover have no seam anywhere, corners included")
-    func fieldIsContinuous() throws {
-        let bleed = try gradientBleed()
-        let window = CGSize(width: 1280, height: 820)
-        let rect = CGRect(x: 0, y: 80, width: 660, height: 660)
-        let field = shape(window, rect, songEdge: .trailing)
-        // Walk a loop round the cover, past its corners, a point at a time.
-        let margin: CGFloat = 40
-        let loop = CGRect(x: rect.minX + 1, y: rect.minY - margin, width: rect.width + margin, height: rect.height + 2 * margin)
-        var points: [CGPoint] = []
-        for x in stride(from: loop.minX, through: loop.maxX, by: 1) { points.append(CGPoint(x: x, y: loop.minY)) }
-        for y in stride(from: loop.minY, through: loop.maxY, by: 1) { points.append(CGPoint(x: loop.maxX, y: y)) }
-        for x in stride(from: loop.maxX, through: loop.minX, by: -1) { points.append(CGPoint(x: x, y: loop.maxY)) }
-        let colour = CoverBleedField.sampler(bleed: bleed, shape: field)
-        var worst = 0.0
-        for (a, b) in zip(points, points.dropFirst()) {
-            let step = distance(colour(a), colour(b))
-            worst = max(worst, step)
-        }
-        // A point's step on the screen is never a visible jump in colour.
-        #expect(worst < 0.02)
-        // And crossing the cover's edge, where it fades out, there's no jump either.
-        let inside = colour(CGPoint(x: rect.maxX - 0.5, y: rect.midY))
-        let outside = colour(CGPoint(x: rect.maxX + 0.5, y: rect.midY))
-        #expect(distance(inside, outside) < 0.02)
-    }
-
-    @Test("Far from the cover it's one colour, the one the type was chosen for")
-    func settlesIntoTheFloor() throws {
-        let bleed = try gradientBleed()
-        let rect = CGRect(x: 0, y: 90, width: 402, height: 402)
-        let field = shape(phone, rect, songEdge: .bottom)
-        let colour = CoverBleedField.sampler(bleed: bleed, shape: field)
-        let far = colour(CGPoint(x: 30, y: 860))
-        let alsoFar = colour(CGPoint(x: 380, y: 860))
-        #expect(distance(far, bleed.floor(.bottom)) < 0.01)
-        #expect(distance(alsoFar, far) < 0.01)
-    }
-
-    @Test("The picture is the container's size, a few points to a pixel")
-    func pictureSize() throws {
-        let bleed = try gradientBleed()
-        let field = CoverBleedField(bleed: bleed, shape: shape(phone, CGRect(x: 0, y: 90, width: 402, height: 402), songEdge: .bottom))
-        #expect(field.width == 101)
-        #expect(field.height == 219)
-        #expect(field.rgba.count == field.width * field.height * 4)
     }
 }

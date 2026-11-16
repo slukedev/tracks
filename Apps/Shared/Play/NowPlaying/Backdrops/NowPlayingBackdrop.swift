@@ -177,6 +177,14 @@ struct NowPlayingBackdrop: View {
     /// is if that's within a second, and otherwise to its colour first, then to it.
     private func follow(_ cover: CoverArt?) async {
         guard let cover else { return }
+        await place(cover)
+        // What the cover is of follows, a moment later on a cover readied just now.
+        guard let refined = await BackdropArtStore.shared.refined(cover), !Task.isCancelled,
+              layer.cover == cover, layer.art != nil else { return }
+        withAnimation(.smooth(duration: 0.5)) { layer.art = refined }
+    }
+
+    private func place(_ cover: CoverArt) async {
         if layer.cover == cover, layer.art != nil { return }
         if let art = BackdropArtStore.shared.cached(cover) {
             show(cover, art)
