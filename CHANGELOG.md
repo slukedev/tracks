@@ -396,6 +396,11 @@ Last.fm scrobbling to iPhone and Mac.
 ### iPhone
 
 - Summary, History, Charts and Search, each a tap away
+- Now Playing grows out of the mini player and gathers back into it, under your finger: pull
+  it down and it shrinks into the bar, its cover landing on the mini player's, Full Cover's
+  picture included. Push the mini player up to open it, catch it part way, or flick it
+- Push the mini player or Now Playing's cover sideways to skip to the next song, or back to
+  the one before. Hold the mini player for the song's menu
 - With Background App Refresh, Motif catches up while it's closed, recovering songs, adding
   covers and sending scrobbles. Settings shows when it last did
 - Settings is a list of pages (Play, History, Radio, Apple Music, Last.fm and iCloud), each
