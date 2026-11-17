@@ -301,7 +301,7 @@ struct AddAudioToLibraryIntent: AppIntent {
 struct PlayPlaylistIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Playlist"
     static let description = IntentDescription(
-        "Plays one of your playlists, from Tracks or Apple Music.",
+        "Plays one of your playlists, from Tracks or your music library.",
         categoryName: "Playback",
         searchKeywords: ["playlist", "shuffle"]
     )
