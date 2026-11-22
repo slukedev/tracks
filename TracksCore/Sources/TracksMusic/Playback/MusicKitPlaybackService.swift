@@ -27,13 +27,8 @@ public struct MusicKitPlaybackService: PlaybackService {
         let ordered = try await Self.songs(for: songIDs)
         guard !ordered.isEmpty else { throw PlaybackError.nothingToPlay }
 
-        let player = Player.shared
-        player.queue = Player.Queue(for: ordered)
-        // Needed for the play to reach listening history, on either player.
-        player.queue.affectsListeningHistory = true
-
         do {
-            try await player.play()
+            try await Self.start(ordered)
         } catch {
             Log.playback.error("MusicKit couldn't start playback: \(String(describing: error), privacy: .public)")
             throw PlaybackError.failed(PlaybackFailure(error).words)
@@ -83,10 +78,23 @@ public struct MusicKitPlaybackService: PlaybackService {
         return ordered
     }
 
+    /// On the main actor, as every touch of a MusicKit player is: MediaPlayer's player behind
+    /// it isn't safe to use from more than one thread.
+    @MainActor
+    private static func start(_ songs: [Song]) async throws {
+        let player = Player.shared
+        player.queue = Player.Queue(for: songs)
+        // Needed for the play to reach listening history, on either player.
+        player.queue.affectsListeningHistory = true
+        try await player.play()
+    }
+
+    @MainActor
     public func pause() async {
         Player.shared.pause()
     }
 
+    @MainActor
     public func skipToNext() async throws {
         try await Player.shared.skipToNextEntry()
     }

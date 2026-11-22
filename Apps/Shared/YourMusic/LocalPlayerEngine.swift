@@ -783,7 +783,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     private func interruptionEnded(shouldResume: Bool) {
         // Paused by hand during the interruption: it stays paused.
         if wasPlayingBeforeInterruption, isMeantToPlay, shouldResume {
-            try? AVAudioSession.sharedInstance().setActive(true)
+            PlaybackAudioSession.activateRetryingLater()
             player.play()
         }
         wasPlayingBeforeInterruption = false
@@ -798,8 +798,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     /// Takes over the audio session, the lock screen and the remote controls.
     func activate() {
         #if os(iOS)
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        PlaybackAudioSession.activateRetryingLater()
         #endif
         guard !isActive else { return }
         isActive = true
@@ -852,7 +851,10 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         player.play()
     }
 
-    /// Hands everything back, for Apple Music to take over.
+    /// Hands everything back, for Apple Music to take over: the remote controls, and a Now
+    /// Playing entry of its own, which CarPlay would otherwise keep showing, and send its
+    /// buttons to, instead of Apple Music's. The audio session stays active for Apple Music
+    /// (see ``PlaybackAudioSession``).
     func deactivate() {
         isMeantToPlay = false
         stopRecovering()
@@ -875,20 +877,24 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         ranOut = false
         status = .stopped
         publish()
-        guard isActive else { return }
+        artworkTask?.cancel()
+        artworkTask = nil
+        let wasActive = isActive
         isActive = false
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        MPNowPlayingInfoCenter.default().playbackState = .stopped
+        guard wasActive else { return }
         let center = MPRemoteCommandCenter.shared()
         for command in [center.playCommand, center.pauseCommand, center.togglePlayPauseCommand, center.nextTrackCommand, center.previousTrackCommand, center.changePlaybackPositionCommand] {
             command.removeTarget(nil)
         }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        updateNowPlayingState()
     }
 
     /// The Mac's media keys and Now Playing follow this rather than the playback rate, so it's
     /// set on every start and stop. iOS ignores it.
     private func updateNowPlayingState() {
         #if os(macOS)
+        guard isActive else { return }
         let state: MPNowPlayingPlaybackState = switch status {
         case .playing: .playing
         case .loading: isMeantToPlay ? .playing : .paused
@@ -978,7 +984,10 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         }
     }
 
+    /// Only while it's the player in use: a seek or a song arriving after Apple Music took over
+    /// mustn't bring its Now Playing entry back.
     private func updateNowPlayingInfo() {
+        guard isActive else { return }
         updateNowPlayingState()
         guard entries.indices.contains(index) else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -1006,7 +1015,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             let artwork = Self.nowPlayingArtwork(image)
             guard var current = MPNowPlayingInfoCenter.default().nowPlayingInfo,
                   current[MPMediaItemPropertyTitle] as? String == track.title,
-                  self != nil
+                  self?.isActive == true
             else { return }
             current[MPMediaItemPropertyArtwork] = artwork
             MPNowPlayingInfoCenter.default().nowPlayingInfo = current

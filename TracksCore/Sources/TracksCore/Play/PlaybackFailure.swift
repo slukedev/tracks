@@ -32,6 +32,10 @@ public enum PlaybackFailure: Equatable, Sendable {
             self = .superseded
             return
         }
+        if error is TimeLimit.Exceeded {
+            self = .timedOut
+            return
+        }
         // The error itself, then what it wraps, until one says something plainer than "other".
         var next: NSError? = error as NSError
         var depth = 0

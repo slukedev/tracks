@@ -154,17 +154,17 @@ public final class ApplicationMusicPlayerSource: NowPlayingSource {
         )
     }
 
-    /// ``currentObservation()``, with the position read off the main thread. The position asks
-    /// Apple's player service and waits for the answer, which takes tens of milliseconds just
-    /// after a song changes; the entry and status are already on hand.
+    /// ``currentObservation()``, once no scene is changing, with the position asked of the
+    /// player only when that's worth the wait (see ``PlayerReads``).
     public static func readObservation() async -> NowPlayingObservation? {
         guard TracksPlayerContext.isInUse else { return nil }
+        await PlayerQuiet.settled()
         let player = ApplicationMusicPlayer.shared
         let entry = player.queue.currentEntry
         let status = player.state.playbackStatus
         let isStation = TracksPlayerContext.isStation
         let stationName = TracksPlayerContext.stationName
-        let playbackTime = await PlayerReads.run { ApplicationMusicPlayer.shared.playbackTime }
+        let playbackTime = await PlayerReads.playbackTime(of: entry?.id, isPlaying: status == .playing)
         return observation(
             from: entry,
             status: status,

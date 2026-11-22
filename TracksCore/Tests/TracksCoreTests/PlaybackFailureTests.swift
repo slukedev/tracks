@@ -52,4 +52,9 @@ struct PlaybackFailureTests {
         #expect(failure == .other)
         #expect(failure.isWorthRetrying)
     }
+
+    @Test("Tracks giving up on a slow answer is a timeout")
+    func ownTimeLimit() {
+        #expect(PlaybackFailure(TimeLimit.Exceeded()) == .timedOut)
+    }
 }
