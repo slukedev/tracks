@@ -14,25 +14,49 @@ extension StatsSummary {
     }
 }
 
-/// One highlight, as a card: coloured heading, symbol, sentence.
-struct HighlightCard: View {
-    let insight: Insight
+/// Highlights as rows in one panel, each with its category's symbol, so two from the same
+/// category never repeat a heading.
+struct HighlightsCard: View {
+    let insights: [Insight]
 
     var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 8) {
-                Label {
-                    Text(insight.category.title)
-                } icon: {
-                    Image(systemName: insight.symbol)
+        Card(padding: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(insights.enumerated(), id: \.element.id) { index, insight in
+                    if index > 0 {
+                        Divider()
+                            .padding(.leading, Design.Card.padding + HighlightRow.symbolWidth + Design.Spacing.medium)
+                    }
+                    HighlightRow(insight: insight)
+                        .padding(.horizontal, Design.Card.padding)
+                        .padding(.vertical, Design.Spacing.medium)
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(insight.category.tint)
-
-                HighlightSentence(insight: insight)
-                    .font(.body.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+}
+
+/// One highlight: its symbol in the category's colour, then the sentence.
+struct HighlightRow: View {
+    static let symbolWidth: CGFloat = 28
+    let insight: Insight
+    @ScaledMetric(relativeTo: .body) private var symbolWidth = Self.symbolWidth
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Design.Spacing.xSmall))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: Design.Spacing.medium))
+        layout {
+            Image(systemName: insight.symbol)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(insight.category.tint)
+                .frame(width: typeSize.isAccessibilitySize ? nil : symbolWidth)
+                .accessibilityHidden(true)
+            HighlightSentence(insight: insight)
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
     }
@@ -56,7 +80,7 @@ struct HighlightSentence: View {
                 Text("You're listening \(abs(percent))% less than \(Text(range.previousPhrase)).")
             }
         case .onRepeat(let title, let artist, let count, _):
-            Text("On repeat: you played \(title) by \(artist) ^[\(count) time](inflect: true) in one day.")
+            Text("You played \(title) by \(artist) ^[\(count) time](inflect: true) in one day.")
         case .topArtistShare(let name, let percent, _):
             Text("\(name) made up \(percent)% of everything you played.")
         case .topGenre(let name, let percent):
@@ -103,14 +127,12 @@ struct HighlightsList: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
-                ForEach(insights) { insight in
-                    HighlightCard(insight: insight)
-                }
+            if !insights.isEmpty {
+                HighlightsCard(insights: insights)
+                    .padding(Design.Margin.page)
+                    .frame(maxWidth: 700)
+                    .frame(maxWidth: .infinity)
             }
-            .padding()
-            .frame(maxWidth: 700)
-            .frame(maxWidth: .infinity)
         }
         .overlay {
             if !hasLoaded {
@@ -119,6 +141,7 @@ struct HighlightsList: View {
                 ContentUnavailableView("No Highlights", systemImage: "sparkles", description: Text("Play a few more songs and highlights will show up here."))
             }
         }
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .groupedBackground()
         .navigationTitle("Highlights")
         .sourceScopeSubtitle(sources.scope)
@@ -144,3 +167,20 @@ struct HighlightsList: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Highlights") {
+    ScrollView {
+        HighlightsCard(insights: Array(StatsSummary.preview().summaryHighlights.prefix(3)))
+            .padding(Design.Margin.page)
+    }
+}
+
+#Preview("Highlights, AX5") {
+    ScrollView {
+        HighlightsCard(insights: Array(StatsSummary.preview().summaryHighlights.prefix(3)))
+            .padding(Design.Margin.page)
+    }
+    .dynamicTypeSize(.accessibility5)
+}
+#endif

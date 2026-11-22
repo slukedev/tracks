@@ -183,7 +183,7 @@ struct PartyMixLayout<Rows: View>: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            PartyPlayButtons(tint: vibe.palette[1]) {
+            PartyPlayButtons {
                 play(false)
             } shuffle: {
                 play(true)

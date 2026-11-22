@@ -29,7 +29,10 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
 
     private let music: YourMusic
     private let capture: PushedNowPlayingSource
-    private let player = AVQueuePlayer()
+    /// Made again when iOS resets its media services, which leaves every player unusable.
+    private var player = AVQueuePlayer()
+    /// Tells the player how to trust a Trackside server's self-signed address.
+    private let pinnedTrust = PinnedMediaLoader()
     private var entries: [Entry] = []
     /// The queue as it was before shuffling, to go back to.
     private var unshuffled: [Entry] = []
@@ -90,16 +93,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         self.capture = capture
         super.init()
         music.onSongsArrived = { [weak self] in self?.songsArrived($0) }
-        player.actionAtItemEnd = .advance
-        player.automaticallyWaitsToMinimizeStalling = true
-        // KVO calls back on whichever thread made the change, which AVFoundation sometimes
-        // does on its own queue: assuming the main actor there would stop the app.
-        observations.append(player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
-            Self.onMain { self?.updateStatus() }
-        })
-        observations.append(player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
-            Self.onMain { self?.currentItemChanged() }
-        })
+        follow(player)
         let center = NotificationCenter.default
         notifications.append(center.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: nil) { [weak self] note in
             let item = (note.object as AnyObject?).map(ObjectIdentifier.init)
@@ -133,10 +127,55 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             Task { @MainActor in self?.pause() }
         })
         #endif
+        #if os(iOS)
+        notifications.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in self?.mediaServicesReset() }
+        })
+        #endif
+    }
+
+    /// Sets a player up and follows what it does.
+    private func follow(_ player: AVQueuePlayer) {
+        player.actionAtItemEnd = .advance
+        player.automaticallyWaitsToMinimizeStalling = true
+        // KVO calls back on whichever thread made the change, which AVFoundation sometimes
+        // does on its own queue: assuming the main actor there would stop the app.
+        observations.append(player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Self.onMain { self?.updateStatus() }
+        })
+        observations.append(player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
+            Self.onMain { self?.currentItemChanged() }
+        })
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 10), queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
     }
+
+    #if os(iOS)
+    /// iOS reset its media services, after a Bluetooth or CarPlay route failed say, and every
+    /// player it had is dead. A new one picks the song up where it was, playing if it was.
+    private func mediaServicesReset() {
+        let position = player.currentTime()
+        let volume = player.volume
+        observations = []
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        player = AVQueuePlayer()
+        player.volume = volume
+        follow(player)
+        lastFailedItem = nil
+        resumeObservation = nil
+        guard isActive else { return }
+        PlaybackAudioSession.activateRetryingLater()
+        guard entries.indices.contains(index) else {
+            updateStatus()
+            return
+        }
+        stopRecovering()
+        stopDeciding()
+        reload(from: position)
+    }
+    #endif
 
     // MARK: - What's on
 
@@ -513,6 +552,9 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
 
     private func makeItem(_ entry: Entry, url: URL, playback: LocalPlayback) -> AVPlayerItem {
         let asset = AVURLAsset(url: url)
+        if TracksideMediaTrust.shared.isPinned(url) {
+            asset.resourceLoader.setDelegate(pinnedTrust, queue: PinnedMediaLoader.queue)
+        }
         let item = AVPlayerItem(asset: asset)
         noteQuality(playback, of: asset, for: entry.id)
         // Stage's visualizer listens in; it costs nothing while Stage is closed.
@@ -928,8 +970,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     }
 
     /// Tells a server its song is playing, and once it's played long enough, that it counts.
-    /// A Subsonic server is told there and then; a play for Trackside is kept until it's sent,
-    /// so one heard offline still counts.
+    /// The play is kept until the server has it, so one heard offline still counts.
     private func scrobbleToServerIfDue() {
         let entry = entries[index]
         guard case .server(let serverID, let songID) = entry.track.origin, !UnownedSong.isUnowned(entry.track),
@@ -954,21 +995,17 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
               let started = serverScrobble, !started.counted, playbackTime >= needs
         else { return }
         serverScrobble = (entry.id, started.startedAt, true)
-        if let subsonic {
-            Task.detached { try? await subsonic.scrobble(songID: songID, submission: true) }
-        } else {
-            let track = entry.track
-            music.servers.recordListen(ServerListen(
-                id: UUID().uuidString,
-                songID: songID,
-                startedAt: started.startedAt,
-                played: playbackTime,
-                title: track.title,
-                artist: track.artist,
-                album: track.album,
-                duration: track.duration
-            ), on: serverID)
-        }
+        let track = entry.track
+        music.servers.recordListen(ServerListen(
+            id: UUID().uuidString,
+            songID: songID,
+            startedAt: started.startedAt,
+            played: playbackTime,
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            duration: track.duration
+        ), on: serverID)
     }
 
     /// The lock screen's picture. Made off the main actor: MediaPlayer asks for it on a queue
@@ -1020,5 +1057,24 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             current[MPMediaItemPropertyArtwork] = artwork
             MPNowPlayingInfoCenter.default().nowPlayingInfo = current
         }
+    }
+}
+
+/// Answers the player's trust challenges for a Trackside server's self-signed address by its
+/// pinned fingerprint, as the server's own requests are; any other certificate there is refused.
+private final class PinnedMediaLoader: NSObject, AVAssetResourceLoaderDelegate, Sendable {
+    static let queue = DispatchQueue(label: "com.luke.tracks.pinned-media")
+
+    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForResponseTo authenticationChallenge: URLAuthenticationChallenge) -> Bool {
+        guard let sender = authenticationChallenge.sender else { return false }
+        switch TracksideMediaTrust.shared.answer(authenticationChallenge) {
+        case (.useCredential, let credential?):
+            sender.use(credential, for: authenticationChallenge)
+        case (.cancelAuthenticationChallenge, _):
+            sender.cancel(authenticationChallenge)
+        default:
+            sender.performDefaultHandling?(for: authenticationChallenge)
+        }
+        return true
     }
 }

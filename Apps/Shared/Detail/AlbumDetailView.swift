@@ -10,7 +10,6 @@ struct AlbumDetailView: View {
     @SeenRevision private var revision
     @Environment(PlaybackController.self) private var playback
     @Environment(\.playSongs) private var playSongs
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var profile: AlbumProfile?
     /// The id whose profile was last worked out from a loaded library, so "No Plays" waits
     /// for the answer instead of showing while the first one is still on its way.
@@ -21,22 +20,16 @@ struct AlbumDetailView: View {
         ScrollView {
             if let profile {
                 content(profile)
-                    .padding()
-                    .frame(maxWidth: 760)
-                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, Design.Margin.section)
             } else if loadedID == albumID {
                 ContentUnavailableView("No Plays", systemImage: "square.stack")
             } else {
-                LateProgressView()
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 120)
+                DetailPlaceholder()
             }
         }
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .groupedBackground()
-        .navigationTitle(profile?.album.title ?? "")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+        .detailTitle(profile?.album.title ?? "")
         .task(id: "\(albumID)|\(revision)") {
             // New listening on the page already shown: a play bumps the revision, and its
             // lookups again a moment later, so let the burst settle and work it out once.
@@ -46,11 +39,10 @@ struct AlbumDetailView: View {
             let (id, history, isLoaded) = (albumID, model.library.history, model.library.isLoaded)
             let next = await OffMainActor.run { StatsCalculator.albumProfile(id: id, history: history) }
             guard !Task.isCancelled else { return }
-            // A lookup that changed nothing on this page doesn't redraw it.
+            // A lookup that changed nothing on this page doesn't redraw it, and new listening
+            // changes the figures in place rather than setting the page moving.
             if next != profile {
-                LiveUpdate.apply(isLive: profile?.album.id == albumID, reduceMotion: reduceMotion) {
-                    profile = next
-                }
+                profile = next
             }
             if isLoaded { loadedID = id }
         }
@@ -58,64 +50,47 @@ struct AlbumDetailView: View {
 
     private func content(_ profile: AlbumProfile) -> some View {
         let album = profile.album
-        return VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-            VStack(spacing: 14) {
-                ArtworkView(url: album.artworkURL, seed: album.title, size: 200)
-                    .shadow(color: .black.opacity(0.18), radius: 20, y: 10)
-                VStack(spacing: 4) {
-                    Text(album.title)
-                        .font(.title.bold())
-                        .multilineTextAlignment(.center)
-                    NavigationLink(value: Route.artist(profile.artistID)) {
-                        Text(album.artistName)
-                            .font(.title3)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tint)
-                    // "Alternative · 1994", as under a title in Apple Music.
-                    if let details = releaseDetails(profile) {
-                        Text(verbatim: details)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-                    }
-                    Text("#\(profile.allTimeRank) of your albums · \(profile.share.formatted(.percent.precision(.fractionLength(0)))) of your listening")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+        return VStack(spacing: Design.Card.sectionSpacing) {
+            DetailHeader(artworkURL: album.artworkURL, seed: album.title) {
+                Text(album.title)
+                    .font(.collectionTitle)
+                NavigationLink(value: Route.artist(profile.artistID)) {
+                    Text(album.artistName)
+                        .font(.title3)
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                DetailFacts(parts: [profile.genre, profile.releaseYear.map(Format.year)])
+                    .padding(.top, Design.Spacing.xxSmall)
+            } actions: {
                 playButton(for: profile)
             }
-            .frame(maxWidth: .infinity)
 
-            StatStrip(items: [
-                .init(title: "Plays", value: album.count.formatted()),
-                .init(title: "Listening", value: Format.listening(album.listeningSeconds)),
-                .init(title: "Songs", value: album.songCount.formatted()),
-                .init(title: "First Heard", value: Format.shortDate(profile.firstHeard)),
-            ])
+            VStack(alignment: .leading, spacing: Design.Card.sectionSpacing) {
+                StatStrip(items: [
+                    .init(title: "Plays", value: album.count.formatted()),
+                    .init(title: "Listening", value: Format.listening(album.listeningSeconds)),
+                    .init(
+                        title: "Rank",
+                        value: "#\(profile.allTimeRank.formatted())",
+                        detail: Text("\(profile.share.formatted(.percent.precision(.fractionLength(0)))) of your listening")
+                    ),
+                    .init(title: "First Heard", value: Format.shortDate(profile.firstHeard)),
+                ])
 
-            if profile.timeline.count(where: { $0.count > 0 }) > 1 {
-                PlaysOverTimeCard(timeline: profile.timeline, unit: profile.timelineUnit)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                SectionHeader(title: "Songs") {
-                    if profile.songs.count > 5 {
-                        Button(showsAllSongs ? "Show Less" : "Show All") {
-                            withAnimation { showsAllSongs.toggle() }
-                        }
-                    }
+                if profile.timeline.count(where: { $0.count > 0 }) > 1 {
+                    PlaysOverTimeCard(timeline: profile.timeline, unit: profile.timelineUnit)
                 }
-                TopSongsCard(songs: profile.songs, limit: showsAllSongs ? profile.songs.count : 5)
-            }
-        }
-    }
 
-    /// "Alternative · 1994": the genre its songs are played in, and when it came out.
-    private func releaseDetails(_ profile: AlbumProfile) -> String? {
-        let parts = [profile.genre, profile.releaseYear.map(Format.year)].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+                SummarySection("Songs") {
+                    TopSongsCard(songs: profile.songs, limit: showsAllSongs ? profile.songs.count : 5)
+                    ShowAllButton(isShowingAll: $showsAllSongs, count: profile.songs.count, limit: 5)
+                }
+            }
+            .padding(.horizontal, Design.Margin.page)
+            .frame(maxWidth: 760)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     /// Plays the album's songs in the order you play them most. Hidden when none of them
@@ -124,7 +99,7 @@ struct AlbumDetailView: View {
     private func playButton(for profile: AlbumProfile) -> some View {
         let playable = profile.songs.filter { !$0.songID.isEmpty }
         if !playable.isEmpty, !model.isShowingSampleData {
-            Button("Play", systemImage: "play.fill") {
+            PlayButton {
                 let items = playable.map {
                     PlaybackItem(songID: $0.songID, title: $0.title, artistName: $0.artistName)
                 }
@@ -134,9 +109,6 @@ struct AlbumDetailView: View {
                     Task { await playback.play(items) }
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
         }
     }
 }

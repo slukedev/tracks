@@ -74,29 +74,4 @@ extension MusicGenre {
         }
         return RoomStyle(base: color, symbol: symbol, pace: pace)
     }
-
-    /// One line on what the genre is, under its name.
-    var tagline: String {
-        switch id {
-        case "pop": String(localized: "Big hooks and choruses.")
-        case "hip-hop": String(localized: "Beats and bars.")
-        case "r-b": String(localized: "Smooth, soulful songs.")
-        case "rock": String(localized: "Guitars and loud drums.")
-        case "alternative": String(localized: "Indie and everything off the charts.")
-        case "electronic": String(localized: "Synths and drum machines.")
-        case "country": String(localized: "Steel guitar and a story.")
-        case "latin": String(localized: "Reggaeton, salsa and more.")
-        case "k-pop": String(localized: "Pop from Seoul.")
-        case "metal": String(localized: "Heavy riffs.")
-        case "jazz": String(localized: "Horns, keys and swing.")
-        case "singer-songwriter": String(localized: "One voice, one guitar.")
-        case "classical": String(localized: "Orchestras and soloists.")
-        case "afrobeats": String(localized: "Afrobeats, amapiano and highlife.")
-        case "reggae": String(localized: "Reggae, dancehall and dub.")
-        case "blues": String(localized: "Twelve bars and a feeling.")
-        case "soundtrack": String(localized: "Music from films and shows.")
-        case "christian": String(localized: "Worship and gospel.")
-        default: String(localized: "What you play most, and what everyone's playing.")
-        }
-    }
 }

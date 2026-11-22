@@ -127,13 +127,15 @@ struct ScrobbleDrainTests {
         store = try TracksStore(inMemory: true)
     }
 
-    func service() -> ScrobbleService {
+    func service(predecessors: [String] = []) -> ScrobbleService {
         let lastFM = lastFM
         let service = ScrobbleService(
             store: store,
             settings: scratch.settings,
             makeClient: { lastFM.client() },
-            currentSession: { LastFMSession(username: "example", sessionKey: "sk") }
+            currentSession: { LastFMSession(username: "example", sessionKey: "sk") },
+            predecessors: { predecessors },
+            inFlightDefaults: scratch.defaults
         )
         let clock = clock
         service.now = { clock.now }
@@ -141,14 +143,20 @@ struct ScrobbleDrainTests {
     }
 
     @discardableResult
-    func owed(_ titles: String...) throws -> [Capture] {
+    func owed(_ titles: String..., by deviceID: String = DeviceIdentity.current) throws -> [Capture] {
+        try owed(titles, by: deviceID)
+    }
+
+    @discardableResult
+    func owed(_ titles: [String], by deviceID: String = DeviceIdentity.current, startingAt start: Date? = nil) throws -> [Capture] {
+        let start = start ?? base
         let rows = titles.enumerated().map { index, title in
             Capture(
                 songID: title,
                 title: title,
                 artistName: "An Artist",
-                capturedAt: base.addingTimeInterval(Double(index) * 60),
-                deviceID: DeviceIdentity.current
+                capturedAt: start.addingTimeInterval(Double(index) * 60),
+                deviceID: deviceID
             )
         }
         for row in rows { store.context.insert(row) }
@@ -166,6 +174,11 @@ struct ScrobbleDrainTests {
             .status(200, body: #"{"error":11,"message":"Service Offline"}"#),
             .status(200, body: #"{"error":16,"message":"There was a temporary error processing your request."}"#),
             .status(200, body: #"{"error":29,"message":"Rate Limit Exceeded"}"#),
+            // Last.fm's own "try again", which it sends during partial outages.
+            .status(200, body: #"{"error":8,"message":"Operation failed - Most likely the backend service failed. Please try again."}"#),
+            // A code Tracks doesn't know says nothing about these rows either.
+            .status(400, body: #"{"error":99,"message":"Something new"}"#),
+            .status(400, body: #"{"error":3,"message":"Invalid Method"}"#),
             .status(403, body: #"{"error":9,"message":"Invalid session key - Please re-authenticate"}"#),
             // A captive portal, a proxy or an edge error page, none of which are Last.fm.
             .status(200, body: "<html>Sign in to Wi-Fi</html>"),
@@ -378,21 +391,21 @@ struct ScrobbleDrainTests {
         }
         for row in rows { store.context.insert(row) }
         try store.context.save()
-        let plays = rows.map {
-            ScrobbleService.ImportedPlay(
-                id: $0.persistentModelID,
-                key: SongIdentity.key(title: $0.title, artistName: $0.artistName),
-                foundAt: base
-            )
+        func checks(window: TimeInterval) -> [ScrobbleService.HistoryCheck] {
+            rows.map {
+                ScrobbleService.HistoryCheck(
+                    id: $0.persistentModelID, title: $0.title, artistName: $0.artistName,
+                    at: base, reach: .foundAfter(window)
+                )
+            }
         }
         let history = [ScrobbledTrack(title: "you", artistName: "MK.GEE", playedAt: base.addingTimeInterval(-60))]
 
-        let found = ScrobbleService.alreadyScrobbled(plays, history: history, window: 24 * 60 * 60)
-        #expect(found.count == 1)
+        #expect(ScrobbleService.alreadyScrobbled(checks(window: 24 * 60 * 60), history: history).count == 1)
         // Outside the window, or after the import found it, is a different play.
-        #expect(ScrobbleService.alreadyScrobbled(plays, history: history, window: 30).isEmpty)
+        #expect(ScrobbleService.alreadyScrobbled(checks(window: 30), history: history).isEmpty)
         let later = [ScrobbledTrack(title: "You", artistName: "Mk.gee", playedAt: base.addingTimeInterval(60))]
-        #expect(ScrobbleService.alreadyScrobbled(plays, history: later, window: 24 * 60 * 60).isEmpty)
+        #expect(ScrobbleService.alreadyScrobbled(checks(window: 24 * 60 * 60), history: later).isEmpty)
     }
 
     /// Sync can merge a row away while its scrobble is out. Writing to the deleted row trapped.
@@ -413,6 +426,304 @@ struct ScrobbleDrainTests {
 
         #expect(try store.stored(rows[0]).scrobbledAt != nil)
         #expect(try store.context.fetch(FetchDescriptor<Capture>()).count == 1)
+    }
+
+    // MARK: One bad row
+
+    /// One row Last.fm refuses used to cost every row in its batch an attempt, three times
+    /// over, so fifty good plays were given up on.
+    @Test("one row Last.fm refuses in a full batch costs only that row")
+    func oneBadRowInAFullBatch() async throws {
+        let titles = (0..<LastFMClient.batchLimit).map { "Song \($0)" }
+        let rows = try owed(titles)
+        lastFM.refuseRequests(carrying: "Song 37")
+
+        #expect(await service().drain() == LastFMClient.batchLimit - 1)
+
+        let stored = try store.stored(rows)
+        #expect(stored.filter { $0.scrobbledAt == nil }.map(\.title) == ["Song 37"])
+        #expect(stored.filter { $0.scrobbleAttempts > 0 }.map(\.title) == ["Song 37"])
+        #expect(stored.first { $0.title == "Song 37" }?.scrobbleAttempts == 1)
+        // Oldest first still, and nowhere near a request per row.
+        #expect(lastFM.taken == titles.filter { $0 != "Song 37" })
+        #expect(lastFM.scrobbleRequests.count <= 13)
+    }
+
+    @Test("a refused row waits before it's tried alone again, and is given up on after three")
+    func refusedRowBacksOffAndIsGivenUp() async throws {
+        let rows = try owed("Bad", "Good")
+        lastFM.refuseRequests(carrying: "Bad")
+        let service = service()
+
+        await service.drain()
+        let requests = lastFM.scrobbleRequests.count
+        await service.drain()
+        #expect(lastFM.scrobbleRequests.count == requests)
+
+        for _ in 0..<2 {
+            clock.advance(by: 15 * 60)
+            await service.drain()
+        }
+        let bad = try store.stored(rows[0])
+        #expect(bad.scrobbleAttempts == TracksStore.maxScrobbleAttempts)
+        #expect(bad.scrobbledAt == nil)
+        #expect(try store.stored(rows[1]).scrobbledAt != nil)
+        #expect(try store.context.fetch(TracksStore.pendingScrobbles(includingImported: true)).isEmpty)
+    }
+
+    @Test("a row with no title or artist is given up on without a request")
+    func blankRowIsGivenUp() async throws {
+        let blank = Capture(songID: "1", title: "  ", artistName: "An Artist", capturedAt: base, deviceID: DeviceIdentity.current)
+        store.context.insert(blank)
+        try store.context.save()
+        let rows = try owed("Good")
+        lastFM.acceptEverything()
+
+        #expect(await service().drain() == 1)
+
+        #expect(lastFM.sentTitles == ["Good"])
+        let stored = try store.stored(blank)
+        #expect(stored.scrobbledAt == nil)
+        #expect(stored.lastScrobbleError == ScrobbleService.unsendableReason)
+        #expect(try store.stored(rows[0]).scrobbledAt != nil)
+    }
+
+    @Test("an outage partway through splitting a batch charges nothing more")
+    func outageWhileSplitting() async throws {
+        let rows = try owed("Bad", "Good", "Also Good")
+        lastFM.refuseRequests(carrying: "Bad", thenFailWith: .status(200, body: #"{"error":11,"message":"Service Offline"}"#))
+
+        await service().drain()
+
+        #expect(lastFM.scrobbleRequests.count == 2)
+        #expect(try store.stored(rows).allSatisfy { $0.scrobbleAttempts == 0 && $0.scrobbledAt == nil })
+    }
+
+    // MARK: Answers that never arrived
+
+    /// A timeout after Last.fm stored the batch, as on a cellular handoff, sent it again.
+    @Test("a batch Last.fm took but whose answer was lost isn't sent twice")
+    func lostAnswerIsNotSentAgain() async throws {
+        let rows = try owed("One", "Two")
+        lastFM.acceptEverything()
+        lastFM.keepsWhatItTakes = true
+        lastFM.losesAnswers = true
+        let service = service()
+
+        #expect(await service.drain() == 0)
+        lastFM.losesAnswers = false
+        clock.advance(by: 30)
+        await service.drain()
+
+        #expect(lastFM.sentTitles == ["One", "Two"])
+        #expect(try store.stored(rows).allSatisfy { $0.scrobbledAt != nil })
+        #expect(try store.context.fetch(TracksStore.pendingScrobbles(includingImported: true)).isEmpty)
+    }
+
+    /// What was in flight is kept in defaults, so it survives the app being quit or killed
+    /// before the answer is recorded.
+    @Test("after a relaunch, a batch whose answer was lost is checked before it's sent")
+    func lostAnswerSurvivesRelaunch() async throws {
+        let rows = try owed("Taken", "Not Taken")
+        lastFM.acceptEverything()
+        lastFM.losesAnswers = true
+        await service().drain()
+        // Last.fm only kept the first.
+        lastFM.history = [(title: "Taken", artist: "An Artist", playedAt: rows[0].capturedAt)]
+        lastFM.losesAnswers = false
+
+        await service().drain()
+
+        #expect(lastFM.sentTitles == ["Taken", "Not Taken", "Not Taken"])
+        #expect(try store.stored(rows).allSatisfy { $0.scrobbledAt != nil })
+    }
+
+    @Test("a batch that never left the device is sent again without a history check")
+    func neverSentIsNotChecked() async throws {
+        try owed("One")
+        lastFM.fail(with: .offline)
+        let service = service()
+        await service.drain()
+        lastFM.acceptEverything()
+        clock.advance(by: 30)
+
+        #expect(await service.drain() == 1)
+        #expect(!lastFM.methods.contains("user.getRecentTracks"))
+    }
+
+    /// Last.fm sometimes corrects a name, and the history then lists it corrected.
+    @Test("a lost answer is matched by its time even when Last.fm corrected the artist")
+    func lostAnswerMatchesCorrectedName() async throws {
+        let rows = try owed("One")
+        lastFM.acceptEverything()
+        lastFM.losesAnswers = true
+        let service = service()
+        await service.drain()
+        lastFM.history = [(title: "One", artist: "An Artiste", playedAt: rows[0].capturedAt)]
+        lastFM.losesAnswers = false
+        clock.advance(by: 30)
+
+        await service.drain()
+
+        #expect(lastFM.sentTitles == ["One"])
+        #expect(try store.stored(rows[0]).scrobbledAt != nil)
+    }
+
+    // MARK: History reach
+
+    /// The check read only the newest 200 scrobbles, so a busy account's match on page two
+    /// went unseen and the import was sent again.
+    @Test("an import's match further down the history than one page is found")
+    func importCheckReadsEveryPage() async throws {
+        let found = base.addingTimeInterval(23 * 60 * 60)
+        let imported = Capture(
+            songID: "1", title: "Love Is Unkind", artistName: "BANKS",
+            kind: .imported, capturedAt: found, deviceID: DeviceIdentity.current
+        )
+        store.context.insert(imported)
+        try store.context.save()
+        lastFM.history = [(title: "Love Is Unkind", artist: "BANKS", playedAt: base)]
+            + (1...250).map { (title: "Other \($0)", artist: "Someone", playedAt: base.addingTimeInterval(Double($0) * 60)) }
+        lastFM.acceptEverything()
+
+        await service().drain()
+
+        #expect(lastFM.scrobbleRequests.isEmpty)
+        #expect(try store.stored(imported).scrobbledAt != nil)
+    }
+
+    // MARK: Restored and migrated devices
+
+    @Test("a predecessor's rows are left to it for a day, then checked and sent if missing")
+    func predecessorRows() async throws {
+        let old = try owed(["Sent By Old Phone", "Never Sent"], by: "old-phone")
+        let recent = try owed(["Just Now"], by: "old-phone", startingAt: base.addingTimeInterval(-60))
+        lastFM.history = [(title: "Sent By Old Phone", artist: "An Artist", playedAt: old[0].capturedAt)]
+        lastFM.acceptEverything()
+        clock.advance(by: DeviceIdentity.predecessorDelay + 3_600)
+        // Back to an hour ago, so "Just Now" is still within the old phone's day.
+        for row in recent { row.capturedAt = clock.now.addingTimeInterval(-3_600) }
+        try store.context.save()
+
+        await service(predecessors: ["old-phone"]).drain()
+
+        #expect(lastFM.sentTitles == ["Never Sent"])
+        #expect(try store.stored(old).allSatisfy { $0.scrobbledAt != nil })
+        #expect(try store.stored(recent[0]).scrobbledAt == nil)
+    }
+
+    @Test("another device's rows that aren't a predecessor's are never sent")
+    func otherDevicesRowsStayTheirs() async throws {
+        let rows = try owed(["Mac's Song"], by: "the-mac")
+        lastFM.acceptEverything()
+        clock.advance(by: DeviceIdentity.predecessorDelay * 2)
+
+        await service(predecessors: ["old-phone"]).drain()
+
+        #expect(lastFM.requests.isEmpty)
+        #expect(try store.stored(rows[0]).scrobbledAt == nil)
+    }
+
+    // MARK: Retrying
+
+    /// Rows in each state Settings has to tell apart, as the drain leaves them.
+    func givenUpRows() throws -> (failed: Capture, tooOld: Capture, ignored: Capture, held: Capture, stale: Capture, elsewhere: Capture) {
+        let failed = try owed("Failed")[0]
+        failed.scrobbleAttempts = TracksStore.maxScrobbleAttempts
+        failed.lastScrobbleError = ScrobbleService.describe(LastFMError.service(code: 6, message: "Invalid parameters"))
+        let tooOld = try owed("Too Old")[0]
+        tooOld.scrobbleAttempts = TracksStore.maxScrobbleAttempts
+        tooOld.lastScrobbleError = ScrobbleService.describeIgnored(code: 3, message: "")
+        let ignored = try owed("Ignored")[0]
+        ignored.scrobbleAttempts = TracksStore.maxScrobbleAttempts
+        ignored.lastScrobbleError = ScrobbleService.describeIgnored(code: 1, message: "")
+        let held = try owed("Held")[0]
+        held.holdFromScrobbling(reason: ScrobblePolicy.notPlayedEnoughReason)
+        let stale = try owed(["Stale"], startingAt: base.addingTimeInterval(-ScrobbleService.lastFMReach - 60))[0]
+        stale.scrobbleAttempts = TracksStore.maxScrobbleAttempts
+        stale.lastScrobbleError = failed.lastScrobbleError
+        let elsewhere = try owed("Elsewhere", by: "another-device")[0]
+        elsewhere.scrobbleAttempts = TracksStore.maxScrobbleAttempts
+        try store.context.save()
+        return (failed, tooOld, ignored, held, stale, elsewhere)
+    }
+
+    /// Too old by Last.fm's answer or by its date: no retry gets either through.
+    @Test("Settings counts what a retry can send apart from what's too old for Last.fm")
+    func failedCounts() async throws {
+        _ = try givenUpRows()
+        #expect(await service().failedScrobbleCounts() == UnsentScrobbles(retryable: 1, tooOld: 2))
+    }
+
+    @Test("a retry sends the plays it can, and leaves the rest as they were")
+    func retrySendsWhatItCan() async throws {
+        let rows = try givenUpRows()
+        lastFM.acceptEverything()
+        let service = service()
+
+        #expect(await service.retryFailed() == 1)
+        #expect(lastFM.sentTitles == ["Failed"])
+        #expect(try store.stored(rows.failed).scrobbledAt != nil)
+        for row in try store.stored([rows.tooOld, rows.ignored, rows.held, rows.stale, rows.elsewhere]) {
+            #expect(row.scrobbledAt == nil)
+            #expect(row.scrobbleAttempts == TracksStore.maxScrobbleAttempts)
+        }
+        #expect(await service.failedScrobbleCounts() == UnsentScrobbles(retryable: 0, tooOld: 2))
+    }
+
+    /// Someone pressing Retry wants it tried now, not after the wait an outage left.
+    @Test("a retry doesn't wait out the backoff an earlier failure left")
+    func retrySkipsBackoff() async throws {
+        let waiting = try owed("Waiting")
+        lastFM.fail(with: .status(503, body: "{}"))
+        let service = service()
+        await service.drain()
+        let failed = try owed(["Failed"], startingAt: base.addingTimeInterval(60))[0]
+        failed.scrobbleAttempts = TracksStore.maxScrobbleAttempts
+        try store.context.save()
+        lastFM.acceptEverything()
+
+        #expect(await service.retryFailed() == 1)
+        #expect(try store.stored(waiting[0]).scrobbledAt != nil)
+        #expect(try store.stored(failed).scrobbledAt != nil)
+    }
+
+    @Test("a retry with nothing to send asks nothing of Last.fm")
+    func retryWithNothing() async throws {
+        let sent = try owed("Sent")[0]
+        sent.scrobbledAt = base
+        try store.context.save()
+        #expect(await service().retryFailed() == 0)
+        #expect(lastFM.requests.isEmpty)
+    }
+
+    @Test("a predecessor's failed plays are counted and retried here too")
+    func retryCoversPredecessors() async throws {
+        let row = try owed(["Old Phone"], by: "old-phone", startingAt: base.addingTimeInterval(-DeviceIdentity.predecessorDelay - 60))[0]
+        row.scrobbleAttempts = TracksStore.maxScrobbleAttempts
+        try store.context.save()
+        lastFM.acceptEverything()
+        let service = service(predecessors: ["old-phone"])
+
+        #expect(await service.failedScrobbleCounts() == UnsentScrobbles(retryable: 1, tooOld: 0))
+        #expect(await service.retryFailed() == 1)
+        #expect(try store.stored(row).scrobbledAt != nil)
+    }
+
+    // MARK: Clock
+
+    @Test("a wait set while the clock was far ahead doesn't hold the queue once it's put back")
+    func clockPutBack() async throws {
+        let rows = try owed("One")
+        lastFM.fail(with: .status(503, body: "{}"))
+        let service = service()
+        clock.advance(by: 30 * 24 * 60 * 60)
+        await service.drain()
+        clock.advance(by: -30 * 24 * 60 * 60)
+        lastFM.acceptEverything()
+
+        #expect(await service.drain() == 1)
+        #expect(try store.stored(rows[0]).scrobbledAt != nil)
     }
 }
 
@@ -438,11 +749,60 @@ final class FakeLastFM: @unchecked Sendable {
     private var _gate: Gate?
     private var _delay: Duration?
     private var _history: [(title: String, artist: String, playedAt: Date)] = []
+    private var _refusing: String?
+    private var _afterRefusal: Failure?
+    private var _taken: [String] = []
+    private var _keepsWhatItTakes = false
+    private var _losesAnswers = false
 
     /// What `user.getRecentTracks` lists, newest first.
     var history: [(title: String, artist: String, playedAt: Date)] {
         get { lock.withLock { _history } }
         set { lock.withLock { _history = newValue } }
+    }
+
+    /// Refuses, as Last.fm does with error 6, any request carrying a scrobble of `title`,
+    /// and takes every other.
+    ///
+    /// - Parameter failure: what every request after the first refusal meets instead.
+    func refuseRequests(carrying title: String, thenFailWith failure: Failure? = nil) {
+        lock.withLock {
+            _refusing = title
+            _afterRefusal = failure
+        }
+        acceptEverything()
+    }
+
+    /// The titles Last.fm took, in order.
+    var taken: [String] { lock.withLock { _taken } }
+
+    /// Adds what it takes to its history, as Last.fm does.
+    var keepsWhatItTakes: Bool {
+        get { lock.withLock { _keepsWhatItTakes } }
+        set { lock.withLock { _keepsWhatItTakes = newValue } }
+    }
+
+    /// Takes each batch and then times out before the answer arrives, as a cellular
+    /// handoff does.
+    var losesAnswers: Bool {
+        get { lock.withLock { _losesAnswers } }
+        set { lock.withLock { _losesAnswers = newValue } }
+    }
+
+    /// The methods asked for, in order.
+    var methods: [String] { requests.compactMap { $0["method"] } }
+
+    /// The titles sent to `track.scrobble`, in order.
+    var sentTitles: [String] {
+        scrobbleRequests.flatMap { fields in
+            fields.keys.filter { $0.hasPrefix("track[") }
+                .sorted { Self.index($0) < Self.index($1) }
+                .compactMap { fields[$0] }
+        }
+    }
+
+    private static func index(_ key: String) -> Int {
+        Int(key.drop { $0 != "[" }.dropFirst().prefix { $0 != "]" }) ?? 0
     }
 
     /// The `track.scrobble` requests, leaving out history lookups.
@@ -485,9 +845,9 @@ final class FakeLastFM: @unchecked Sendable {
     func client() -> LastFMClient {
         LastFMClient(apiKey: "KEY", secret: "SECRET") { [self] request in
             let fields = Self.decode(request.httpBody ?? Data())
-            let (respond, gate, delay) = lock.withLock {
+            let (respond, gate, delay, refusing) = lock.withLock {
                 _requests.append(fields)
-                return (self.respond, _gate, _delay)
+                return (self.respond, _gate, _delay, _refusing)
             }
             if let delay { try? await Task.sleep(for: delay) }
             await gate?.wait()
@@ -495,13 +855,54 @@ final class FakeLastFM: @unchecked Sendable {
                 // Fails the way a scrobble would, otherwise lists the history.
                 let (status, body) = try respond(0)
                 let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-                return (Data((status == 200 ? Self.recentTracks(history) : body).utf8), response)
+                return (Data((status == 200 ? recentTracks(fields) : body).utf8), response)
             }
-            let count = fields.keys.filter { $0.hasPrefix("timestamp[") }.count
-            let (status, body) = try respond(count)
-            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-            return (Data(body.utf8), response)
+            let sent = fields.keys.filter { $0.hasPrefix("track[") }.compactMap { key -> (title: String, artist: String, playedAt: Date)? in
+                let index = key.dropFirst("track".count)
+                guard let title = fields[key], let artist = fields["artist\(index)"],
+                      let seconds = fields["timestamp\(index)"].flatMap(TimeInterval.init)
+                else { return nil }
+                return (title, artist, Date(timeIntervalSince1970: seconds))
+            }
+            let response = { (status: Int) in
+                HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+            }
+            if let refusing, sent.contains(where: { $0.title == refusing }) {
+                let after = lock.withLock { _afterRefusal }
+                if let after {
+                    lock.withLock { _refusing = nil }
+                    fail(with: after)
+                }
+                return (Data(#"{"error":6,"message":"Invalid parameters"}"#.utf8), response(400))
+            }
+            let (status, body) = try respond(sent.count)
+            let (keeps, loses) = lock.withLock { (_keepsWhatItTakes, _losesAnswers) }
+            if status == 200 {
+                let titles = fields.keys.filter { $0.hasPrefix("track[") }
+                    .sorted { Self.index($0) < Self.index($1) }
+                    .compactMap { fields[$0] }
+                lock.withLock {
+                    _taken.append(contentsOf: titles)
+                    if keeps { _history.append(contentsOf: sent) }
+                }
+            }
+            if loses { throw URLError(.timedOut) }
+            return (Data(body.utf8), response(status))
         }
+    }
+
+    /// One page of the history, newest first, within the request's `from` and `to`.
+    private func recentTracks(_ fields: [String: String]) -> String {
+        let from = fields["from"].flatMap(TimeInterval.init).map(Date.init(timeIntervalSince1970:)) ?? .distantPast
+        let to = fields["to"].flatMap(TimeInterval.init).map(Date.init(timeIntervalSince1970:)) ?? .distantFuture
+        let limit = fields["limit"].flatMap(Int.init) ?? 200
+        let page = fields["page"].flatMap(Int.init) ?? 1
+        let matching = history
+            .filter { $0.playedAt >= from && $0.playedAt <= to }
+            .sorted { $0.playedAt > $1.playedAt }
+        let pages = max(1, (matching.count + limit - 1) / limit)
+        let shown = Array(matching.dropFirst((page - 1) * limit).prefix(limit))
+        return Self.recentTracks(shown, total: matching.count, pages: pages)
     }
 
     /// A `track.scrobble` response in Last.fm's shape, one entry per code (0 is accepted):
@@ -515,11 +916,11 @@ final class FakeLastFM: @unchecked Sendable {
         return ##"{"scrobbles":{"scrobble":\##(scrobble),"@attr":{"ignored":\##(ignored),"accepted":\##(codes.count - ignored)}}}"##
     }
 
-    static func recentTracks(_ tracks: [(title: String, artist: String, playedAt: Date)]) -> String {
+    static func recentTracks(_ tracks: [(title: String, artist: String, playedAt: Date)], total: Int, pages: Int) -> String {
         let entries = tracks.map { track in
             ##"{"name":"\##(track.title)","artist":{"#text":"\##(track.artist)"},"date":{"uts":"\##(Int(track.playedAt.timeIntervalSince1970))"}}"##
         }
-        return ##"{"recenttracks":{"track":[\##(entries.joined(separator: ","))],"@attr":{"total":"\##(tracks.count)","totalPages":"1"}}}"##
+        return ##"{"recenttracks":{"track":[\##(entries.joined(separator: ","))],"@attr":{"total":"\##(total)","totalPages":"\##(pages)"}}}"##
     }
 
     private static func decode(_ body: Data) -> [String: String] {

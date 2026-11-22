@@ -63,7 +63,7 @@ private struct NearbyMenuRow: View {
             }
             Spacer(minLength: 4)
             // Always all three, so the row doesn't reflow as a station or queue end comes and goes.
-            HStack(spacing: 4) {
+            HStack(spacing: 0) {
                 control("Previous", "backward.fill", .previous)
                     .disabled(!state.canSkipBack)
                 control(state.isPlaying ? "Pause" : "Play", state.isPlaying ? "pause.fill" : "play.fill", state.isPlaying ? .pause : .play)
@@ -77,8 +77,7 @@ private struct NearbyMenuRow: View {
     private func control(_ title: LocalizedStringKey, _ symbol: String, _ action: RemoteAction) -> some View {
         Button(title, systemImage: symbol) { model.nearby.perform(action, on: device) }
             .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .frame(width: 24, height: 24)
+            .buttonStyle(BarIconButtonStyle(diameter: 28))
             .help(Text(title))
     }
 }

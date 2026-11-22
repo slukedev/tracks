@@ -1,5 +1,8 @@
 import SwiftUI
 import TracksCore
+#if DEBUG
+import MusicKit
+#endif
 
 /// The main window: the sidebar of places, the page chosen, and the song playing at the foot
 /// of it, with Up Next and the song's history in a popover rising from it.
@@ -102,21 +105,6 @@ struct MacRootView: View {
             #endif
             .animation(reduceMotion ? .easeOut(duration: 0.2) : PlayMotion.panel, value: isShowingFullPlayer)
             .playerFeedback()
-            // Your devices, at the far end of the titlebar on every page, as Spotify keeps its
-            // Connect button in reach wherever you are.
-            .background {
-                TitlebarAccessory(isHidden: isShowingFullPlayer) {
-                    DevicesButton(opensAtLaunch: true)
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .controlSize(.extraLarge)
-                        .padding(.trailing, 12)
-                        .padding(.leading, 6)
-                        .frame(height: 52)
-                        .environment(model)
-                        .environment(model.player)
-                }
-            }
             // Songs being added to a playlist, from a menu anywhere.
             .sheet(item: Bindable(model.yourMusic.playlists).picking) { PlaylistPickerSheet(pick: $0) }
             .sheet(isPresented: $showsTuner) { RadioTunerSheet() }
@@ -263,7 +251,7 @@ private struct MacDetailStack<Root: View>: View {
     var body: some View {
         NavigationStack(path: $navigator.path) {
             root
-                .pageChrome()
+                .pageChrome(isRoot: true)
                 .tracksDestinations()
                 .playDestinations()
         }
@@ -333,7 +321,7 @@ private struct FollowsSidebar: ViewModifier {
 }
 
 /// Places, in the order Open To gives them, then the library of the music Play is on, as
-/// Music's sidebar ends with its library.
+/// Music's sidebar ends with its library. ⌘1 onwards (`TracksCommands`) follow the same order.
 private struct MacSidebar: View {
     /// The model rather than a binding made by the window's root, which would read the
     /// selection there and rebuild the whole window on every click.
@@ -357,6 +345,18 @@ private struct MacSidebar: View {
             }
             Section(libraryTitle) { rows(library) }
         }
+        // Arrowing onto Search leaves its field alone so the next arrow moves on; Return
+        // goes into it, as Return opens what's selected elsewhere.
+        .onKeyPress(.return) {
+            guard model.sidebarSelection == .search else { return .ignored }
+            model.search.wantsFocus = true
+            return .handled
+        }
+        .safeAreaBar(edge: .bottom) {
+            if let capture = model.capture, capture.isPaused {
+                HistoryPausedFooter(capture: capture)
+            }
+        }
     }
 
     private func rows(_ items: [SidebarItem]) -> some View {
@@ -364,6 +364,29 @@ private struct MacSidebar: View {
             Label(item.title, systemImage: item.symbol)
                 .tag(item)
         }
+    }
+}
+
+/// The one status the sidebar keeps at its foot: history paused, which otherwise only the
+/// menu bar would say, with the way back.
+private struct HistoryPausedFooter: View {
+    let capture: CaptureService
+
+    var body: some View {
+        HStack(spacing: Design.Spacing.small) {
+            Label("History Paused", systemImage: "record.circle")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.orange)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Resume") { Task { await capture.resume() } }
+                .controlSize(.small)
+                .buttonBorderShape(.capsule)
+                .help("Resume History: keep what you play again")
+                .accessibilityLabel("Resume History")
+        }
+        .padding(.horizontal, Design.Spacing.large)
+        .padding(.vertical, Design.Spacing.medium)
     }
 }
 
@@ -412,3 +435,105 @@ private struct PlayEnvironment: ViewModifier {
             } : nil)
     }
 }
+
+#if DEBUG
+@MainActor
+private let previewModel: AppModel = {
+    UserDefaults.standard.setVolatileDomain(["TracksDemoData": true], forName: UserDefaults.argumentDomain)
+    return AppModel()
+}()
+
+private struct SidebarPreview: View {
+    var opening: OpeningTab = .standard
+    var source: MusicSource = .appleMusic
+
+    var body: some View {
+        let model = previewModel
+        NavigationSplitView {
+            MacSidebar(
+                model: model,
+                opening: opening,
+                library: SidebarItem.library(for: source, hasLidarr: true),
+                libraryTitle: source == .yourMusic ? "Your Music" : "Library"
+            )
+            .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 280)
+        } detail: {
+            Text("Page")
+                .font(.pageTitle)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(Design.Margin.page)
+        }
+        .frame(width: 820, height: 560)
+    }
+}
+
+#Preview("Sidebar, light") { SidebarPreview() }
+#Preview("Sidebar, dark") { SidebarPreview().preferredColorScheme(.dark) }
+#Preview("Sidebar, Summary first, Your Music") { SidebarPreview(opening: .summary, source: .yourMusic) }
+
+/// The whole window on sample data, opened on a page as a launch argument would open it. The
+/// settings go in a volatile domain, so nothing reaches the real app's defaults.
+private struct WindowPreview: View {
+    enum Size {
+        case small, large
+
+        var frame: CGSize {
+            switch self {
+            case .small: CGSize(width: 820, height: 560)
+            case .large: CGSize(width: 1600, height: 1000)
+            }
+        }
+    }
+
+    let size: Size
+    @State private var model: AppModel
+
+    init(
+        _ page: SidebarItem = .listenNow,
+        opening: OpeningTab = .standard,
+        size: Size = .small,
+        route: (@MainActor @Sendable (AppModel) -> PlayRoute?)? = nil
+    ) {
+        let defaults: [String: Any] = [
+            "TracksDemoData": true,
+            "TracksDemoLibrary": true,
+            "TracksSidebar": page.rawValue,
+            OpeningTab.storageKey: opening.rawValue,
+        ]
+        UserDefaults.standard.setVolatileDomain(defaults, forName: UserDefaults.argumentDomain)
+        let model = AppModel()
+        if let destination = route?(model) { model.playNavigator.show(destination) }
+        self.size = size
+        _model = State(initialValue: model)
+    }
+
+    var body: some View {
+        MacRootView(model: model)
+            .frame(width: size.frame.width, height: size.frame.height)
+    }
+}
+
+private let whiteAlbum: @MainActor @Sendable (AppModel) -> PlayRoute? = { _ in
+    LibraryDemo.items(Album.self)?.first { $0.id.rawValue == "l.demo-album-white" }.map(PlayRoute.album)
+}
+
+private let sampleArtist: @MainActor @Sendable (AppModel) -> PlayRoute? = { model in
+    model.yourMusic.index.artists.first.map { .localArtist($0.id) }
+        ?? LibraryDemo.items(Artist.self)?.first.map(PlayRoute.artist)
+}
+
+#Preview("Window, Play first") { WindowPreview() }
+#Preview("Window, Play first, dark, large") { WindowPreview(size: .large).preferredColorScheme(.dark) }
+#Preview("Window, Summary first") { WindowPreview(.summary, opening: .summary) }
+#Preview("Window, Summary first, dark, large") { WindowPreview(.summary, opening: .summary, size: .large).preferredColorScheme(.dark) }
+#Preview("Window, Top Songs") { WindowPreview(.topSongs) }
+#Preview("Window, History, large") { WindowPreview(.history, size: .large) }
+#Preview("Window, Search") { WindowPreview(.search) }
+#Preview("Window, Search, dark, large") { WindowPreview(.search, size: .large).preferredColorScheme(.dark) }
+#Preview("Window, Radio") { WindowPreview(.radio) }
+#Preview("Window, album") { WindowPreview(route: whiteAlbum) }
+#Preview("Window, album, dark, large") { WindowPreview(size: .large, route: whiteAlbum).preferredColorScheme(.dark) }
+#Preview("Window, artist") { WindowPreview(route: sampleArtist) }
+#Preview("Window, mood") { WindowPreview(route: { _ in .mood(.chill) }) }
+#Preview("Window, genre, dark, large") { WindowPreview(size: .large) { _ in MusicGenre.all.first.map(PlayRoute.genre) }.preferredColorScheme(.dark) }
+#endif

@@ -64,6 +64,28 @@ struct SessionDeviceScopeTests {
         #expect(try !store.stored(phone).isOpen)
     }
 
+    /// A restored phone's old identity may never run again, and its open session would stay
+    /// open for good; it may also still be in use, so it's given far longer than a silence.
+    @Test("a predecessor's open session closes once it's been quiet a day")
+    func predecessorSessionCloses() async throws {
+        let old = try TracksStore.openSession(in: store.context, stationName: "Hits", policy: policy, now: start, deviceID: "old-phone")
+        let stranger = try TracksStore.openSession(in: store.context, stationName: "Chill", policy: policy, now: start, deviceID: "stranger")
+        try store.context.save()
+
+        let early = try await store.closeStaleSessions(
+            policy: policy, now: start.addingTimeInterval(3_600), deviceID: "new-phone", predecessors: ["old-phone"]
+        )
+        #expect(early == 0)
+        #expect(try store.stored(old).isOpen)
+
+        let later = try await store.closeStaleSessions(
+            policy: policy, now: start.addingTimeInterval(DeviceIdentity.predecessorDelay), deviceID: "new-phone", predecessors: ["old-phone"]
+        )
+        #expect(later == 1)
+        #expect(try store.stored(old).endedAt == start)
+        #expect(try store.stored(stranger).isOpen)
+    }
+
     /// Sessions from before the field have no device. Left out of every device's lookups,
     /// one left open by an older build would stay open for good.
     @Test("a session from before sessions had a device still closes")

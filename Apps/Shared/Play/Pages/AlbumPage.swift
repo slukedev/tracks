@@ -20,6 +20,8 @@ struct AlbumPage: View {
     @State private var hasLoaded = false
     @AppStorage(PlayPreferences.allowsExplicitKey) private var allowsExplicit = true
     @AppStorage(DownloadChoice.isOnKey) private var downloadIsOn = false
+    /// Added from this page, so its circle turns to a check.
+    @State private var isAdded = false
 
     var body: some View {
         let album = loaded ?? album
@@ -59,14 +61,14 @@ struct AlbumPage: View {
             } footer: {
                 // Plain lists inset a footer 16 points; the rows above sit on the 20 point margin.
                 CollectionFooter(lines: footerLines(album))
-                    .padding(.horizontal, PlayMetrics.margin - 16)
+                    .padding(.horizontal, Design.Margin.page - 16)
             }
 
             if loadFailed {
                 Section {
                     CollectionMessage(text: String(localized: "Couldn't load the songs on this album. Check your connection and try again.")) {
                         Button("Try Again") { Task { await load() } }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.glass)
                     }
                 }
             }
@@ -75,14 +77,7 @@ struct AlbumPage: View {
         .listSectionSpacing(0)
         .collectionPage(title: CollectionKind.of(album).title)
         .toolbar {
-            if downloadIsOn {
-                ToolbarItem(placement: .primaryAction) {
-                    DownloadControl(subject: .album(album))
-                }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Menu("More", systemImage: "ellipsis") { moreItems(album) }
-            }
+            CollectionToolbar(share: album.url) { moreItems(album) }
         }
         .task(id: album.id) { await loadOnce() }
         #else
@@ -110,6 +105,7 @@ struct AlbumPage: View {
             tintCover: cover(album),
             canPlay: !(hasLoaded && tracks.isEmpty),
             download: .album(album),
+            secondary: addToLibrary(album),
             play: { playAlbum(album, context: context, shuffled: false) },
             shuffle: { playAlbum(album, context: context, shuffled: true) }
         ) {
@@ -117,6 +113,22 @@ struct AlbumPage: View {
         } cover: { side in
             CoverImage(cover: cover(album), size: side)
         }
+    }
+
+    /// Add to Library beside Play, a check once it's added. An album already in your library
+    /// has nothing to add, so More takes its place.
+    private func addToLibrary(_ album: Album) -> CollectionSecondary? {
+        guard !Self.isInLibrary(album) else { return nil }
+        return CollectionSecondary(isAdded ? "Added to Library" : "Add to Library", systemImage: isAdded ? "checkmark" : "plus", isOn: isAdded) {
+            guard !isAdded else { return }
+            isAdded = true
+            player.addToLibrary(album) { isAdded = false }
+        }
+    }
+
+    /// Library items carry library identifiers; a catalog album doesn't say whether you have it.
+    private static func isInLibrary(_ album: Album) -> Bool {
+        album.id.rawValue.hasPrefix("l.")
     }
 
     private func cover(_ album: Album) -> CoverArt {
@@ -135,16 +147,24 @@ struct AlbumPage: View {
         if downloadIsOn {
             DownloadMenuItems(subject: .album(album))
         } else {
-            Button("Add to Library", systemImage: "plus") { player.addToLibrary(album) }
+            if !Self.isInLibrary(album), !isAdded {
+                Button("Add to Library", systemImage: "plus") {
+                    isAdded = true
+                    player.addToLibrary(album)
+                }
+            }
             GetWithLidarrButton(album: album.title, artist: album.artistName)
         }
         if let artist = album.artists?.first {
             Button("Go to Artist", systemImage: "music.microphone") { openPlayRoute(.artist(artist)) }
         }
+        #if os(macOS)
+        // On iPhone, Share is beside More in the toolbar.
         if let url = album.url {
             Divider()
             ShareLink(item: url) { Label("Share Album", systemImage: "square.and.arrow.up") }
         }
+        #endif
     }
 
     @ViewBuilder
@@ -165,7 +185,7 @@ struct AlbumPage: View {
     private func macTracks(_ album: Album, context: PlayContext) -> some View {
         if tracks.isEmpty, !loadFailed, !hasLoaded {
             LoadingRows(count: min(max(album.trackCount, 4), 8), showsCover: false)
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 .padding(.top, 12)
         } else if loadFailed {
             CollectionMessage(text: String(localized: "Couldn't load the songs on this album. Check your connection and try again.")) {
@@ -193,7 +213,7 @@ struct AlbumPage: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
                     .padding(.top, 16)
                 }
             }

@@ -46,14 +46,13 @@ struct PlayStartingBadge: View {
             if isShown {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(.white)
-                    .frame(width: 26, height: 26)
-                    .background(.black.opacity(0.45), in: .circle)
+                    .frame(width: Design.Control.coverButton, height: Design.Control.coverButton)
+                    .glassEffect(.regular, in: .circle)
                     .transition(.opacity)
                     .accessibilityLabel("Starting")
             }
         }
-        .animation(.easeOut(duration: 0.15), value: isShown)
+        .animation(Design.Motion.fade, value: isShown)
         .task(id: isStarting) {
             guard isStarting else {
                 isShown = false

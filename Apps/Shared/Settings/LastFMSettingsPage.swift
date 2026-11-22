@@ -15,6 +15,8 @@ struct LastFMSettingsPage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(CaptureSettings.scrobblesToLastFMKey, store: CaptureSettings.sharedDefaults)
     private var scrobbles = true
+    @State private var unsent = UnsentScrobbles()
+    @State private var isRetrying = false
 
     private var status: LastFMSettingsStatus {
         LastFMSettingsStatus(connection.state, scrobbles: scrobbles)
@@ -110,6 +112,9 @@ struct LastFMSettingsPage: View {
             #endif
         }
         .disabled(connection.state == .waitingForBrowser)
+        #if os(macOS)
+        .help("Approve Tracks on Last.fm in your browser")
+        #endif
     }
 
     private func connect() {
@@ -139,8 +144,32 @@ struct LastFMSettingsPage: View {
     // MARK: - Connected
 
     private var scrobblingSection: some View {
-        Section {
-            SettingsSwitch("Scrobble Songs", isOn: $scrobbles)
+        LastFMScrobblingSection(
+            scrobbles: $scrobbles,
+            unsent: unsent,
+            lastError: model.capture?.lastScrobbleError,
+            isRetrying: isRetrying,
+            retry: retry
+        )
+        .task(id: scrobbles) { await readUnsent() }
+    }
+
+    /// Sample data has no scrobbles of its own, and a retry would send its plays to the real
+    /// account.
+    private func readUnsent() async {
+        guard !model.isShowingSampleData, let capture = model.capture else { return }
+        unsent = await capture.failedScrobbleCounts()
+    }
+
+    private func retry() {
+        // The capture service, not the environment: the Mac's Settings window is its own
+        // scene and only ever gets the model.
+        guard !model.isShowingSampleData, let capture = model.capture, !isRetrying else { return }
+        isRetrying = true
+        Task {
+            await capture.retryFailedScrobbles()
+            await readUnsent()
+            isRetrying = false
         }
     }
 
@@ -181,6 +210,133 @@ struct LastFMSettingsPage: View {
         }
     }
 }
+
+/// Scrobbling on or off, and the plays Last.fm wasn't sent, with a way to send them again.
+struct LastFMScrobblingSection: View {
+    @Binding var scrobbles: Bool
+    var unsent: UnsentScrobbles
+    /// Why Last.fm couldn't be reached last time, if it couldn't.
+    var lastError: String?
+    var isRetrying: Bool
+    var retry: () -> Void
+
+    var body: some View {
+        Section {
+            SettingsSwitch("Scrobble Songs", isOn: $scrobbles)
+            if showsUnsent {
+                notSentRow
+            }
+        } footer: {
+            let tooOld = scrobbles ? unsent.tooOldLine : nil
+            if footerError != nil || tooOld != nil {
+                VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
+                    if let footerError {
+                        Text(footerError)
+                    }
+                    if let tooOld {
+                        Text(tooOld)
+                    }
+                }
+            }
+        }
+    }
+
+    private var showsUnsent: Bool { scrobbles && unsent.retryable > 0 }
+
+    /// Why the plays are waiting, under the group on iPhone. The Mac's row says it under its name.
+    private var footerError: String? {
+        #if os(iOS)
+        showsUnsent ? lastError : nil
+        #else
+        nil
+        #endif
+    }
+
+    @ViewBuilder
+    private var notSentRow: some View {
+        #if os(macOS)
+        SettingsDetailRow(
+            title: Text(unsent.notSentValue),
+            detail: Text(lastError ?? String(localized: "Tracks stopped after three tries."))
+        ) {
+            retryButton
+                .help("Send these to Last.fm again")
+        }
+        #else
+        HStack {
+            Text(unsent.notSentValue)
+                .foregroundStyle(.secondary)
+            Spacer()
+            retryButton
+        }
+        #endif
+    }
+
+    /// The spinner takes the button's place at the button's size, so the row doesn't move.
+    private var retryButton: some View {
+        Button("Retry", action: retry)
+            #if os(iOS)
+            .buttonStyle(.borderless)
+            #endif
+            .opacity(isRetrying ? 0 : 1)
+            .overlay {
+                if isRetrying {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            .disabled(isRetrying)
+    }
+
+}
+
+#if DEBUG
+#Preview("Scrobbling, All Sent") {
+    @Previewable @State var scrobbles = true
+    Form {
+        LastFMScrobblingSection(scrobbles: $scrobbles, unsent: UnsentScrobbles(), isRetrying: false) {}
+    }
+    .formStyle(.grouped)
+}
+
+#Preview("Scrobbling, Not Sent") {
+    @Previewable @State var scrobbles = true
+    Form {
+        LastFMScrobblingSection(scrobbles: $scrobbles, unsent: UnsentScrobbles(retryable: 12), isRetrying: false) {}
+    }
+    .formStyle(.grouped)
+}
+
+#Preview("Scrobbling, Offline and Too Old") {
+    @Previewable @State var scrobbles = true
+    Form {
+        LastFMScrobblingSection(
+            scrobbles: $scrobbles,
+            unsent: UnsentScrobbles(retryable: 3, tooOld: 41),
+            lastError: "You’re offline. Connect to the internet and try again.",
+            isRetrying: false
+        ) {}
+    }
+    .formStyle(.grouped)
+}
+
+#Preview("Scrobbling, Retrying") {
+    @Previewable @State var scrobbles = true
+    Form {
+        LastFMScrobblingSection(scrobbles: $scrobbles, unsent: UnsentScrobbles(retryable: 1), isRetrying: true) {}
+    }
+    .formStyle(.grouped)
+}
+
+#Preview("Scrobbling, Too Old Only, AX5") {
+    @Previewable @State var scrobbles = true
+    Form {
+        LastFMScrobblingSection(scrobbles: $scrobbles, unsent: UnsentScrobbles(tooOld: 1), isRetrying: false) {}
+    }
+    .formStyle(.grouped)
+    .dynamicTypeSize(.accessibility5)
+}
+#endif
 
 extension LastFMSettingsStatus {
     /// Where a live connection stands, as Settings says it.

@@ -59,9 +59,14 @@ public struct NowPlayingObservation: Sendable, Equatable {
     /// Whether this played on a station.
     public var isRadio: Bool { isStation == true }
 
-    /// Whether this observation carries enough to identify a track at all.
+    /// Whether this observation carries enough to identify a track at all. A title or
+    /// artist of only spaces names nothing.
     public var isIdentifiable: Bool {
-        catalogSongID != nil || (!title.isEmpty && !artistName.isEmpty)
+        catalogSongID != nil || (Self.names(title) && Self.names(artistName))
+    }
+
+    private static func names(_ value: String) -> Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Whether this is worth acting on at all.

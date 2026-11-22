@@ -166,8 +166,14 @@ public struct SubsonicClient: Sendable {
         url(endpoint, parameters, json: json, salt: SubsonicServer.makeSalt())
     }
 
+    /// An address that can't be signed goes unsigned: the server refuses it, rather than
+    /// Tracks stopping.
     private func url(_ endpoint: String, _ parameters: [String: String], json: Bool, salt: String) -> URL {
-        var components = URLComponents(url: server.url.appending(path: "rest/\(endpoint)"), resolvingAgainstBaseURL: false)!
+        signedURL(endpoint, parameters, json: json, salt: salt) ?? server.url.appending(path: "rest/\(endpoint)")
+    }
+
+    private func signedURL(_ endpoint: String, _ parameters: [String: String], json: Bool, salt: String) -> URL? {
+        guard var components = URLComponents(url: server.url.appending(path: "rest/\(endpoint)"), resolvingAgainstBaseURL: false) else { return nil }
         var items = [
             URLQueryItem(name: "u", value: server.username),
             URLQueryItem(name: "t", value: Self.token(password: password, salt: salt)),
@@ -181,7 +187,7 @@ public struct SubsonicClient: Sendable {
         // URLComponents leaves "+" alone, and servers read it as a space: "luke+music@example.com"
         // would sign in as someone else, and "Florence + the Machine" wouldn't be found.
         components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-        return components.url!
+        return components.url
     }
 
     /// The song as the server stores it, or re-encoded to a bit rate for a slow connection.
@@ -314,7 +320,8 @@ public struct SubsonicClient: Sendable {
     }
 
     private func call(_ endpoint: String, _ parameters: [String: String] = [:]) async throws -> SubsonicResponse.Body {
-        let (data, status) = try await transport.data(for: url(endpoint, parameters))
+        guard let url = signedURL(endpoint, parameters, json: true, salt: SubsonicServer.makeSalt()) else { throw URLError(.badURL) }
+        let (data, status) = try await transport.data(for: url)
         return try Self.decode(data, status: status)
     }
 
@@ -333,6 +340,118 @@ public struct SubsonicClient: Sendable {
             }
         }
         return body
+    }
+}
+
+// MARK: - The whole library
+
+/// Every song on a Subsonic server, as one sync reads it.
+public struct SubsonicCatalog: Sendable, Equatable {
+    public var songs: [SubsonicSong]
+    /// False when the walk stopped at its limit, so songs past it weren't read.
+    public var isComplete: Bool
+}
+
+extension SubsonicClient {
+    /// Every song on the server: paged through by an empty search, or album by album on a
+    /// server that won't search for nothing. Each song once, in the server's order.
+    ///
+    /// Paging ends at an empty page or one with nothing new, never at a short one: a server
+    /// that sends fewer than asked for has more behind it, and one that ignores the offset
+    /// repeats itself. A server that's busy, starting up or out of reach throws rather than
+    /// answering with part of the library, so the songs already kept stay.
+    public func catalog(pageSize: Int = 500, limit: Int = 60_000) async throws -> SubsonicCatalog {
+        let pageSize = max(1, pageSize)
+        do {
+            let searched = try await catalogBySearch(pageSize: pageSize, limit: limit)
+            if !searched.songs.isEmpty { return searched }
+        } catch let error where Self.isTransient(error) {
+            throw error
+        } catch {
+            // Refused an empty search: older servers do. Walked album by album instead.
+        }
+        return try await catalogByAlbum(pageSize: pageSize, limit: limit)
+    }
+
+    /// Whether a failure says nothing about the library, only that it couldn't be read now.
+    public static func isTransient(_ error: any Error) -> Bool {
+        switch error {
+        case is URLError, is CancellationError: true
+        case SubsonicError.http(let status): status == 408 || status == 429 || status >= 500
+        default: false
+        }
+    }
+
+    private func catalogBySearch(pageSize: Int, limit: Int) async throws -> SubsonicCatalog {
+        var songs: [SubsonicSong] = []
+        var seen: Set<String> = []
+        var offset = 0
+        while true {
+            try Task.checkCancellation()
+            let page = try await search("", artists: 0, albums: 0, songs: pageSize, songOffset: offset).songs
+            let fresh = page.filter { $0.isExternal != true && seen.insert($0.id).inserted }
+            guard !page.isEmpty, !fresh.isEmpty else { break }
+            songs += fresh
+            if songs.count >= limit { return SubsonicCatalog(songs: Array(songs.prefix(limit)), isComplete: false) }
+            offset += page.count
+        }
+        return SubsonicCatalog(songs: songs, isComplete: true)
+    }
+
+    private func catalogByAlbum(pageSize: Int, limit: Int) async throws -> SubsonicCatalog {
+        var albums: [SubsonicAlbum] = []
+        var seenAlbums: Set<String> = []
+        while true {
+            try Task.checkCancellation()
+            let page = try await self.albums(.alphabeticalByName, size: pageSize, offset: albums.count)
+            let fresh = page.filter { seenAlbums.insert($0.id).inserted }
+            guard !fresh.isEmpty else { break }
+            albums += fresh
+        }
+        var songs: [SubsonicSong] = []
+        var seen: Set<String> = []
+        // A few albums at a time: a home server answers one listener, not a crowd.
+        let concurrent = 8
+        try await withThrowingTaskGroup(of: (Int, [SubsonicSong]).self) { group in
+            var next = 0
+            var found: [Int: [SubsonicSong]] = [:]
+            var written = 0
+            func ask(_ index: Int) {
+                let id = albums[index].id
+                group.addTask {
+                    do {
+                        return (index, try await self.album(id: id).songs)
+                    } catch let error where Self.isTransient(error) {
+                        throw error
+                    } catch {
+                        // Gone since the list was read, or one the server can't open.
+                        return (index, [])
+                    }
+                }
+            }
+            while next < min(concurrent, albums.count) {
+                ask(next)
+                next += 1
+            }
+            for try await (index, albumSongs) in group {
+                found[index] = albumSongs
+                // In the albums' order, whichever answered first.
+                while let ready = found.removeValue(forKey: written) {
+                    songs += ready.filter { seen.insert($0.id).inserted }
+                    written += 1
+                }
+                if songs.count >= limit {
+                    group.cancelAll()
+                    break
+                }
+                if next < albums.count {
+                    ask(next)
+                    next += 1
+                }
+            }
+        }
+        if songs.count >= limit { return SubsonicCatalog(songs: Array(songs.prefix(limit)), isComplete: false) }
+        return SubsonicCatalog(songs: songs, isComplete: true)
     }
 }
 

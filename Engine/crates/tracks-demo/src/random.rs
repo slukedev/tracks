@@ -23,9 +23,12 @@ impl Draw {
         low + self.unit() * (high - low)
     }
 
-    /// Uniform in `low..=high`.
+    /// Uniform in `low..=high`; `low` when the range is empty.
     pub(crate) fn int(&mut self, low: usize, high: usize) -> usize {
-        low + self.0.below(high - low + 1)
+        match high.checked_sub(low) {
+            Some(span) => low + self.0.below(span.saturating_add(1)),
+            None => low,
+        }
     }
 
     pub(crate) fn coin(&mut self) -> bool {
@@ -42,5 +45,20 @@ impl Draw {
 
     pub(crate) fn shuffle<T>(&mut self, items: &mut [T]) {
         self.0.shuffle(items);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Draw;
+
+    #[test]
+    fn ints_stay_inside_their_range_even_at_the_edges() {
+        let mut draw = Draw::new(9);
+        for _ in 0..500 {
+            assert!((4..=7).contains(&draw.int(4, 7)));
+            assert_eq!(draw.int(3, 3), 3);
+            assert!(draw.int(usize::MAX - 1, usize::MAX) >= usize::MAX - 1);
+        }
     }
 }

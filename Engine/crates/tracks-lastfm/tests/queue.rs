@@ -1,9 +1,11 @@
 //! The scrobble queue's decisions: what each answer costs the rows, and which imports
 //! Last.fm already has.
 
+use std::collections::HashSet;
+
 use tracks_lastfm::{
     AfterBatch, BATCH_LIMIT, FailureAction, IgnoredScrobble, ImportedPlay, LastFmError,
-    ScrobbleOutcome, ScrobbledTrack, already_scrobbled, failure_action, import_check_from,
+    ScrobbleOutcome, ScrobbledTrack, already_scrobbled, failure_action, halves, import_check_from,
     settle_batch,
 };
 
@@ -124,22 +126,106 @@ fn a_failure_that_isnt_the_scrobbles_fault_leaves_them_untouched() {
             code: 9,
             message: "Invalid session key".to_owned(),
         }),
+        Some(LastFmError::Service {
+            code: 8,
+            message: "Operation failed".to_owned(),
+        }),
+        Some(service(3)),
+        Some(service(27)),
+        Some(service(99)),
         Some(LastFmError::MalformedResponse),
         None,
     ] {
+        for sent in [1, BATCH_LIMIT] {
+            assert_eq!(
+                failure_action(error.as_ref(), sent),
+                FailureAction::BackOff,
+                "{error:?} for {sent}"
+            );
+        }
+    }
+}
+
+fn service(code: i64) -> LastFmError {
+    LastFmError::Service {
+        code,
+        message: String::new(),
+    }
+}
+
+#[test]
+fn a_lone_scrobble_last_fm_refuses_is_charged() {
+    for code in [6, 7] {
         assert_eq!(
-            failure_action(error.as_ref()),
-            FailureAction::BackOff,
-            "{error:?}"
+            failure_action(Some(&service(code)), 1),
+            FailureAction::ChargeRow
         );
     }
 }
 
 #[test]
-fn a_request_last_fm_rejects_outright_charges_the_rows() {
-    let invalid = LastFmError::Service {
-        code: 6,
-        message: "Invalid parameters".to_owned(),
-    };
-    assert_eq!(failure_action(Some(&invalid)), FailureAction::ChargeRows);
+fn a_refused_batch_of_several_is_split_rather_than_charged() {
+    for sent in [2, 3, BATCH_LIMIT] {
+        assert_eq!(
+            failure_action(Some(&service(6)), sent),
+            FailureAction::Split
+        );
+    }
+}
+
+#[test]
+fn halves_cover_the_batch_in_order_and_neither_is_empty() {
+    for len in 2..=BATCH_LIMIT {
+        let batch: Vec<usize> = (0..len).collect();
+        let (older, newer) = halves(&batch);
+        assert!(!older.is_empty() && !newer.is_empty(), "{len}");
+        assert_eq!([older, newer].concat(), batch);
+    }
+}
+
+/// What a host's drain does with these rules against a Last.fm that refuses any request
+/// carrying one of `bad`: the rows charged, the rows sent, and how many requests it took.
+fn drain_with_splitting(len: usize, bad: &HashSet<usize>) -> (Vec<usize>, Vec<usize>, usize) {
+    let batch: Vec<usize> = (0..len).collect();
+    let mut pending = vec![batch.as_slice()];
+    let (mut charged, mut sent, mut requests) = (Vec::new(), Vec::new(), 0);
+    while let Some(part) = pending.pop() {
+        requests += 1;
+        if !part.iter().any(|row| bad.contains(row)) {
+            sent.extend_from_slice(part);
+            continue;
+        }
+        match failure_action(Some(&service(6)), part.len()) {
+            FailureAction::Split => {
+                let (older, newer) = halves(part);
+                pending.push(newer);
+                pending.push(older);
+            }
+            FailureAction::ChargeRow => charged.extend_from_slice(part),
+            FailureAction::BackOff => unreachable!("invalid parameters is the request's fault"),
+        }
+    }
+    (charged, sent, requests)
+}
+
+#[test]
+fn one_bad_row_in_a_full_batch_costs_only_that_row() {
+    let (charged, sent, requests) = drain_with_splitting(BATCH_LIMIT, &HashSet::from([37]));
+    assert_eq!(charged, [37]);
+    assert_eq!(sent.len(), BATCH_LIMIT - 1);
+    assert!(
+        sent.windows(2).all(|pair| pair[0] < pair[1]),
+        "oldest first"
+    );
+    // A path down to one row and its siblings, nowhere near a request per row.
+    assert!(requests <= 2 * 6 + 1, "{requests}");
+}
+
+#[test]
+fn every_bad_row_is_charged_alone_and_every_good_one_goes() {
+    let bad = HashSet::from([0, 1, 24, 49]);
+    let (mut charged, sent, _) = drain_with_splitting(BATCH_LIMIT, &bad);
+    charged.sort_unstable();
+    assert_eq!(charged, [0, 1, 24, 49]);
+    assert_eq!(sent.len(), BATCH_LIMIT - bad.len());
 }

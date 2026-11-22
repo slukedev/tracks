@@ -42,6 +42,12 @@ struct MenuBarContent: View {
     }
 }
 
+/// The window's one leading edge, and the gap between its parts: spacing rather than rules,
+/// since the window's glass already frames it.
+private enum MenuBarMetrics {
+    static let margin: CGFloat = 14
+}
+
 private struct MenuBarBody: View {
     @Environment(PlayerModel.self) private var player
     @Environment(CaptureService.self) private var capture
@@ -71,7 +77,7 @@ private struct MenuBarBody: View {
                     LastPlayedHeader(latest: recent.first)
                 }
             }
-            .padding(14)
+            .padding(MenuBarMetrics.margin)
 
             NearbyMenuSection()
 
@@ -81,19 +87,13 @@ private struct MenuBarBody: View {
 
             PlaybackErrorNote()
 
-            Divider().padding(.horizontal, 14)
-
             // A new identity each day, so the query's cutoff moves with it.
             TodaySummary(day: day)
                 .id(day)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-
-            Divider().padding(.horizontal, 14)
+                .padding(.horizontal, MenuBarMetrics.margin)
+                .padding(.bottom, Design.Spacing.small)
 
             RecentList(captures: recent, day: day)
-
-            Divider()
 
             MenuBarFooter()
         }
@@ -122,16 +122,17 @@ private struct HistoryPausedNote: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Label("History paused. Songs you play aren't being kept.", systemImage: "record.circle")
-                .font(.caption)
+            Label("History Paused", systemImage: "record.circle")
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(.orange)
+                .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button("Resume") { Task { await capture.resume() } }
                 .controlSize(.small)
                 .accessibilityLabel("Resume History")
         }
-        .padding(.horizontal, 14)
-        .padding(.bottom, 12)
+        .padding(.horizontal, MenuBarMetrics.margin)
+        .padding(.bottom, Design.Spacing.medium)
     }
 }
 
@@ -141,6 +142,7 @@ private struct HistoryPausedNote: View {
 private struct TracksPlayerHeader: View {
     @Environment(PlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isOnScreen) private var isOnScreen
     @AppStorage(CaptureSettings.showsMenuBarProgressKey, store: CaptureSettings.sharedDefaults)
     private var showsProgress = true
     @State private var previousPresses = 0
@@ -148,14 +150,15 @@ private struct TracksPlayerHeader: View {
 
     var body: some View {
         if let track = player.current {
-            VStack(spacing: 12) {
+            VStack(spacing: Design.Spacing.small) {
                 MenuBarSongButton(songIdentity: track.songIdentity) {
                     CoverImage(cover: track.cover, size: 58)
                     VStack(alignment: .leading, spacing: 2) {
                         Label {
                             Text(player.context.map { "\($0.title)" } ?? String(localized: "Playing in Tracks"))
                         } icon: {
-                            PlayingWaveform(isActive: player.isPlaying)
+                            // The window's views stay alive while it's closed: the bars rest then.
+                            PlayingWaveform(isActive: player.isPlaying && isOnScreen)
                         }
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.tint)
@@ -184,45 +187,45 @@ private struct TracksPlayerHeader: View {
                     .id(track.id)
                 }
 
-                GlassEffectContainer(spacing: 18) {
-                    HStack(spacing: 18) {
-                        Button {
-                            previousPresses += 1
-                            player.skipToPrevious()
-                        } label: {
-                            SkipArrows(direction: .backward, height: 11, trigger: previousPresses)
-                                .frame(width: 18, height: 18)
-                        }
-                        .disabled(player.context?.isStation == true)
-                        .help("Previous")
-                        .accessibilityLabel("Previous")
-
-                        Button {
-                            player.togglePlayPause()
-                        } label: {
-                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 17, weight: .semibold))
-                                .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
-                                .frame(width: 24, height: 24)
-                        }
-                        .keyboardShortcut(.space, modifiers: [])
-                        .help(player.isPlaying ? "Pause" : "Play")
-                        .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-
-                        Button {
-                            nextPresses += 1
-                            player.skipToNext()
-                        } label: {
-                            SkipArrows(direction: .forward, height: 11, trigger: nextPresses)
-                                .frame(width: 18, height: 18)
-                        }
-                        .help("Next")
-                        .accessibilityLabel("Next")
+                // Plain glyphs: the window is the glass, and a control inside glass isn't glass
+                // again. Each answers the pointer and a press as the playback bar's do.
+                HStack(spacing: Design.Spacing.xxLarge) {
+                    Button {
+                        previousPresses += 1
+                        player.skipToPrevious()
+                    } label: {
+                        SkipArrows(direction: .backward, height: 12, trigger: previousPresses)
                     }
+                    .buttonStyle(BarIconButtonStyle(diameter: 36))
+                    .keyboardShortcut(.leftArrow, modifiers: .command)
+                    .disabled(player.context?.isStation == true)
+                    .help("Previous (⌘←)")
+                    .accessibilityLabel("Previous")
+
+                    Button {
+                        player.togglePlayPause()
+                    } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 24))
+                            .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+                    }
+                    .buttonStyle(BarIconButtonStyle(diameter: 44))
+                    .keyboardShortcut(.space, modifiers: [])
+                    .help(player.isPlaying ? "Pause (Space)" : "Play (Space)")
+                    .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+
+                    Button {
+                        nextPresses += 1
+                        player.skipToNext()
+                    } label: {
+                        SkipArrows(direction: .forward, height: 12, trigger: nextPresses)
+                    }
+                    .buttonStyle(BarIconButtonStyle(diameter: 36))
+                    .keyboardShortcut(.rightArrow, modifiers: .command)
+                    .help("Next (⌘→)")
+                    .accessibilityLabel("Next")
                 }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .controlSize(.large)
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -231,14 +234,13 @@ private struct TracksPlayerHeader: View {
 /// The last song played, while Tracks’ player has nothing on.
 private struct LastPlayedHeader: View {
     let latest: Capture?
-    @Environment(CaptureService.self) private var capture
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         MenuBarSongButton(songIdentity: latest.map { SongIdentity.key(title: $0.title, artistName: $0.artistName) }) {
             artwork
             VStack(alignment: .leading, spacing: 2) {
-                if latest != nil || !capture.isRunning {
+                if latest != nil {
                     sourceLine
                 }
                 Text(latest?.title ?? String(localized: "Nothing Played Yet"))
@@ -261,28 +263,21 @@ private struct LastPlayedHeader: View {
         if let latest {
             ArtworkView(url: latest.artworkURL, seed: latest.albumTitle ?? latest.title, size: 58)
         } else {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(.quaternary)
+            RoundedRectangle(cornerRadius: CoverImage.radius(for: 58), style: .continuous)
+                .fill(Color.placeholderFill)
                 .frame(width: 58, height: 58)
                 .overlay { Image(systemName: "music.note").foregroundStyle(.secondary) }
                 .accessibilityHidden(true)
         }
     }
 
+    /// History stopped says so once, in the note under the song with its Resume.
     private var sourceLine: some View {
-        Group {
-            if !capture.isRunning {
-                // Not a pause glyph: that reads as the music being paused.
-                Label("History Paused", systemImage: "record.circle")
-                    .foregroundStyle(.orange)
-            } else {
-                Label("Last Played", systemImage: "clock")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .font(.caption.weight(.semibold))
-        .labelStyle(.titleAndIcon)
-        .lineLimit(1)
+        Label("Last Played", systemImage: "clock")
+            .foregroundStyle(.secondary)
+            .font(.caption.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .lineLimit(1)
     }
 }
 
@@ -338,7 +333,7 @@ private struct PlaybackErrorNote: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, MenuBarMetrics.margin)
                     .padding(.bottom, 12)
                     .transition(.opacity)
             }
@@ -513,8 +508,8 @@ private struct RecentList: View {
                 .foregroundStyle(.tint)
                 .font(.subheadline)
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
+            .padding(.horizontal, MenuBarMetrics.margin)
+            .padding(.top, Design.Spacing.medium)
 
             if captures.isEmpty {
                 Text("Songs you play in Tracks show up here.")
@@ -659,40 +654,41 @@ struct MenuBarFooter: View {
                 MainWindow.bringForward(openWindow: openWindow)
                 dismiss()
             }
-            .buttonStyle(.glassProminent)
+            .buttonStyle(.borderedProminent)
             .buttonBorderShape(.capsule)
             .controlSize(.large)
 
             Spacer()
 
-            // Glass circles, like the transport controls, so every control here answers a
-            // press the same way. Plain glyphs: a circled one inside a circle reads double.
-            Group {
-                // A record glyph, not pause and play: those sit just above on the transport
-                // controls and would read as pausing the music. The one circled glyph here,
-                // since without its ring a record symbol is only a dot. Red while history is
-                // being kept, like a recording light.
-                Button(capture.isRunning ? "Pause History" : "Resume History",
-                       systemImage: capture.isRunning ? "record.circle.fill" : "record.circle") {
+            // Plain glyphs that answer the pointer and a press, as the transport above does:
+            // the window is the glass. A record glyph for history, not pause and play, which
+            // would read as pausing the music; red while it's kept, like a recording light.
+            HStack(spacing: Design.Spacing.xSmall) {
+                Button {
                     if capture.isPaused { Task { await capture.resume() } } else { capture.pause() }
+                } label: {
+                    Image(systemName: capture.isRunning ? "record.circle.fill" : "record.circle")
+                        .foregroundStyle(capture.isRunning ? AnyShapeStyle(.red) : AnyShapeStyle(.orange))
+                        .contentTransition(.symbolEffect(.replace))
                 }
-                .foregroundStyle(capture.isRunning ? AnyShapeStyle(.red) : AnyShapeStyle(.orange))
+                .accessibilityLabel(capture.isRunning ? "Pause History" : "Resume History")
                 .accessibilityValue(capture.isRunning ? "Keeping what you play" : "Paused")
                 .help(capture.isRunning ? "Pause History: stop keeping what you play for now" : "Resume History: keep what you play again")
                 Button("Settings", systemImage: "gearshape") {
                     Self.bringSettingsForward(openSettings: openSettings)
                     dismiss()
                 }
-                .help("Settings")
+                .keyboardShortcut(",", modifiers: .command)
+                .help("Settings (⌘,)")
                 Button("Quit Tracks", systemImage: "power") { NSApp.terminate(nil) }
-                    .help("Quit Tracks")
+                    .keyboardShortcut("q", modifiers: .command)
+                    .help("Quit Tracks (⌘Q)")
             }
             .labelStyle(.iconOnly)
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .controlSize(.large)
+            .buttonStyle(BarIconButtonStyle(diameter: 32))
         }
-        .padding(12)
+        .padding(.horizontal, Design.Spacing.medium)
+        .padding(.vertical, Design.Spacing.medium)
     }
 
     /// Opens Settings and puts it in front.
@@ -722,3 +718,37 @@ struct MenuBarFooter: View {
         NSApp.windows.first { $0.identifier?.rawValue.contains("Settings") == true }
     }
 }
+
+#if DEBUG
+@MainActor
+private let previewModel: AppModel = {
+    UserDefaults.standard.setVolatileDomain(["TracksDemoData": true], forName: UserDefaults.argumentDomain)
+    return AppModel()
+}()
+
+private struct MenuBarPreview: View {
+    var isPlaying = false
+
+    var body: some View {
+        let model = previewModel
+        MenuBarContent(model: model)
+            .environment(MacAppBehaviour())
+            .task {
+                guard isPlaying else { return }
+                // The demo feed builds its mixes a moment after the model starts.
+                for _ in 0..<20 where !model.player.hasQueue {
+                    if let mix = model.playFeed.mixes.mixes.first {
+                        model.player.play(.history(model.player.songs(in: mix)), from: PlayContext(kind: .mix, title: mix.kind.title))
+                    } else {
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                }
+            }
+    }
+}
+
+#Preview("Last played, light") { MenuBarPreview() }
+#Preview("Last played, dark") { MenuBarPreview().preferredColorScheme(.dark) }
+#Preview("Playing, light") { MenuBarPreview(isPlaying: true) }
+#Preview("Playing, dark") { MenuBarPreview(isPlaying: true).preferredColorScheme(.dark) }
+#endif

@@ -15,7 +15,7 @@ struct HowYouHeardItCard: View {
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: 14) {
-                CardLabel(title: "How You Heard It", systemImage: "headphones", tint: .accentColor)
+                CardLabel(title: "How You Heard It", systemImage: "headphones")
                 if sources.count > 1 {
                     SourcesDonut(sources: sources)
                 }
@@ -33,7 +33,7 @@ struct HowYouHeardItCard: View {
                         }
                     } icon: {
                         Image(systemName: "dot.radiowaves.left.and.right")
-                            .foregroundStyle(.pink)
+                            .foregroundStyle(CaptureKind.radio.tint)
                     }
                     .font(.subheadline)
                 }

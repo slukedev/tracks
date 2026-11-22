@@ -252,22 +252,11 @@ private struct FeatureCard: View {
                             Task { await ArtistPlayback.playTopSongs(of: suggestion.artist, player: player) }
                         }
                     }
-                    Menu {
+                    GlassCircleMenu(title: "More") {
                         SuggestedArtistMenu(suggestion: suggestion)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 34, height: 34)
-                            .background(.white.opacity(0.22), in: .circle)
-                            .frame(width: 44, height: 44)
-                            .contentShape(.circle)
                     }
-                    .menuStyle(.button)
-                    .buttonStyle(.plain)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .accessibilityLabel("More")
+                    // Over the photo's dark foot, whatever the appearance.
+                    .environment(\.colorScheme, .dark)
                 }
             }
             .padding(24)

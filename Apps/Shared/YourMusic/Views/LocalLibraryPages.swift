@@ -101,7 +101,7 @@ struct LocalArtistPage: View {
                     message: String(localized: "Their songs aren't in your music anymore. They may have been removed, or their server is offline.")
                 ) {
                     NavigationLink("Show All Artists", value: PlayRoute.yourMusic(.artists))
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                 }
                 .padding(.vertical, 20)
             }
@@ -205,7 +205,7 @@ struct LocalArtistPage: View {
             return .server(ServerArtist(other, serverID: serverID))
         }
         guard !Task.isCancelled else { return }
-        withAnimation(PlayMotion.panel) {
+        withAnimation(Design.Motion.panel) {
             fromServer = FromServer(topSongs: yours, similar: others)
         }
     }
@@ -325,7 +325,7 @@ private struct LocalSongsList: View {
                         LibraryEmptyYourMusic(title: String(localized: "No Songs Yet"))
                     } else {
                         LoadingRows(count: 10)
-                            .padding(.horizontal, PlayMetrics.margin)
+                            .padding(.horizontal, Design.Margin.page)
                     }
                 }
                 .libraryStateRow()
@@ -340,7 +340,7 @@ private struct LocalSongsList: View {
                         player.play(.local(songs.filter(music.isPlayable)), from: context, shuffled: true)
                     }
                     .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 4, leading: PlayMetrics.margin, bottom: 12, trailing: PlayMetrics.margin))
+                    .listRowInsets(EdgeInsets(top: 4, leading: Design.Margin.page, bottom: 12, trailing: Design.Margin.page))
                 }
                 ForEach(songs) { track in
                     Button {
@@ -468,7 +468,7 @@ struct LocalAlbumsPage: View {
                 }
             }
             .padding(.top, topPadding)
-            .padding(.bottom, PlayMetrics.sectionSpacing)
+            .padding(.bottom, Design.Margin.section)
         }
         .searchable(text: $query, placement: .pageSearch(alwaysShown: false), prompt: "Filter Albums")
         .libraryToolbar()
@@ -680,7 +680,7 @@ struct LocalRecentlyAddedPage: View {
                     }
                 }
             }
-            .padding(.bottom, PlayMetrics.sectionSpacing)
+            .padding(.bottom, Design.Margin.section)
         }
         .searchable(text: $query, placement: .pageSearch(alwaysShown: false), prompt: "Filter Recently Added")
         .libraryToolbar()

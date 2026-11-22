@@ -3,33 +3,37 @@ import TracksCore
 
 #if os(iOS)
 extension View {
-    func collectionPage(title: String) -> some View {
-        modifier(CollectionChrome(title: title))
+    /// The chrome of an album's, playlist's or mix's page on iPhone: the cover under the bars,
+    /// the page in the cover's colour all the way down its songs, and the title passing into
+    /// the bar as the header's scrolls under it. Apply it to the page's `List`.
+    ///
+    /// Without `cover`, the page takes its colour from the ``CollectionHeader`` in it. Passing
+    /// it lets the colour be there from the first frame.
+    func collectionPage(title: String, cover: CoverArt? = nil) -> some View {
+        modifier(CollectionChrome(title: title, cover: cover))
     }
 }
 
 private struct CollectionChrome: ViewModifier {
     let title: String
-    @State private var isArtworkUnderBar = true
+    let cover: CoverArt?
+    /// The cover the header hands up, for pages that don't pass one.
+    @State private var headerCover: CoverArt?
     /// Where the header's title is in the list's frame, as it scrolls. The list's, not the
     /// screen's: a zoom from a cover scales the whole page while it opens.
     @State private var titleTop: CGFloat = .greatestFiniteMagnitude
     @State private var barBottom: CGFloat = 0
-    @ScaledMetric(relativeTo: .title2) private var artworkDepth: CGFloat = 420
 
     func body(content: Content) -> some View {
         let handoff = Self.handoff(titleTop: titleTop, barBottom: barBottom)
         content
             .environment(\.collectionTitleTop, $titleTop)
             .environment(\.collectionTitleHandoff, handoff)
+            .environment(\.collectionPageCover, $headerCover)
+            .environment(\.collectionBarBottom, barBottom)
             .listStyle(.plain)
             .ignoresSafeArea(edges: .top)
             .scrollEdgeEffectStyle(.soft, for: .top)
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top < artworkDepth
-            } action: { _, under in
-                isArtworkUnderBar = under
-            }
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { barBottom = $0 }
             .navigationTitle(title)
             .toolbarTitleDisplayMode(.inline)
@@ -43,7 +47,7 @@ private struct CollectionChrome: ViewModifier {
                         .accessibilityHidden(handoff < 0.5)
                 }
             }
-            .toolbarColorScheme(isArtworkUnderBar ? .dark : nil, for: .navigationBar)
+            .pageColor(from: cover ?? headerCover)
     }
 
     /// How far the title has gone from the header into the bar: 0 while the header's title is
@@ -62,8 +66,32 @@ private struct CollectionChrome: ViewModifier {
 extension EnvironmentValues {
     @Entry var collectionTitleTop: Binding<CGFloat>?
     @Entry var collectionTitleHandoff: Double = 0
+    /// Where a collection's header hands its cover up to the page around it.
+    @Entry var collectionPageCover: Binding<CoverArt?>?
+    /// Where the bars end over a collection's page, which runs on under them.
+    @Entry var collectionBarBottom: CGFloat = 0
 }
 #endif
+
+/// Share and More over a collection's page, together in one capsule of glass, as Music
+/// groups them; the back button stands alone. Without an address to share, More is alone.
+struct CollectionToolbar<Items: View>: ToolbarContent {
+    var share: URL?
+    @ViewBuilder var more: Items
+
+    var body: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            // Untinted, so the glyphs follow the glass under them as Back's do; the page's own
+            // colour scheme can disagree with the glass's and wash them out.
+            if let share {
+                ShareLink(item: share)
+                    .help("Share")
+            }
+            Menu("More", systemImage: "ellipsis") { more }
+                .help("More")
+        }
+    }
+}
 
 #if DEBUG
 /// Sample playlists for screenshots, with sample data only. `-TracksDemoPlaylists YES` makes

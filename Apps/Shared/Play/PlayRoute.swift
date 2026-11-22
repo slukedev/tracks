@@ -97,9 +97,9 @@ private struct PlayDestination: View {
 
     var body: some View {
         switch route {
-        case .mix(let id): MixDetailView(mixID: id)
+        case .mix(let id): MixDetailView(mixID: id).zoomDestination(id: id)
         case .album(let album): AlbumPage(album: album).albumZoomDestination(album)
-        case .playlist(let playlist): PlaylistPage(playlist: playlist)
+        case .playlist(let playlist): PlaylistPage(playlist: playlist).zoomDestination(id: playlist.id)
         case .artist(let artist): ArtistPage(artist: artist)
         case .library(let section): LibraryListView(section: section)
         case .mood(let mood):

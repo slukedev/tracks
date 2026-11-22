@@ -85,7 +85,7 @@ struct RemoteDeviceCard: View {
         }
         .clipShape(.rect(cornerRadius: Metrics.radius, style: .continuous))
         .coverTint(of: cover, into: $tint)
-        .animation(reduceMotion ? nil : .snappy, value: state.title)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: state.title)
         .sensoryFeedback(.success, trigger: isMoving) { was, now in was && !now && !notFound }
         .sensoryFeedback(.error, trigger: notFound) { _, now in now }
     }
@@ -124,7 +124,7 @@ struct RemoteDeviceCard: View {
         }
         .buttonStyle(.pressable)
         .disabled(isMoving)
-        .animation(.snappy(duration: 0.2), value: notFound)
+        .animation(Design.Motion.value, value: notFound)
     }
 
     private var playHereTitle: LocalizedStringKey {

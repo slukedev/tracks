@@ -32,8 +32,7 @@ struct GetButton: View {
                         .fontWeight(.semibold)
                         .lineLimit(1)
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
+                .buttonStyle(.glass)
                 .controlSize(.small)
                 .help(Text("Get \(subject)"))
                 .accessibilityLabel(Text("Get \(subject)"))
@@ -61,7 +60,7 @@ struct GetButton: View {
                         .labelStyle(.iconOnly)
                         .fontWeight(.semibold)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
                 .controlSize(.small)
                 .help(reason)
@@ -478,7 +477,7 @@ struct GetMoreBlock: View {
         VStack(alignment: .leading, spacing: 12) {
             if albums.isEmpty {
                 ShelfHeader(title: String(localized: "Get More")) { DownloadsLink() }
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
             } else {
                 Shelf(title: String(localized: "Get More"), items: albums) {
                     DownloadsLink()
@@ -512,7 +511,7 @@ struct GetMoreBlock: View {
 
     private var songColumns: some View {
         ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: PlayMetrics.shelfSpacing) {
+            LazyHStack(alignment: .top, spacing: Design.Shelf.spacing) {
                 ForEach(SuggestionShelfPaging.columns(of: items, goesOn: false)) { column in
                     VStack(spacing: 0) {
                         ForEach(column.items) { item in
@@ -530,7 +529,7 @@ struct GetMoreBlock: View {
             }
             .scrollTargetLayout()
         }
-        .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
+        .contentMargins(.horizontal, Design.Margin.page, for: .scrollContent)
         .scrollTargetBehavior(.viewAligned)
         .scrollIndicators(.hidden)
     }
@@ -545,12 +544,12 @@ struct GetMoreBlock: View {
                 }
             }
         }
-        .padding(.horizontal, PlayMetrics.margin)
+        .padding(.horizontal, Design.Margin.page)
     }
 
     private var loadingColumns: some View {
         ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: PlayMetrics.shelfSpacing) {
+            HStack(alignment: .top, spacing: Design.Shelf.spacing) {
                 ForEach(0..<SuggestionShelfPaging.loadingColumns, id: \.self) { column in
                     VStack(spacing: 0) {
                         ForEach(0..<SuggestionShelfPaging.rowsPerColumn, id: \.self) { row in
@@ -564,7 +563,7 @@ struct GetMoreBlock: View {
                 }
             }
         }
-        .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
+        .contentMargins(.horizontal, Design.Margin.page, for: .scrollContent)
         .scrollDisabled(true)
         .scrollIndicators(.hidden)
         .accessibilityElement()
@@ -753,7 +752,7 @@ struct MissingSongsHeader: View {
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
             Text("Missing")
-                .font(.title3.bold())
+                .font(.sectionTitle)
                 .foregroundStyle(.primary)
                 .textCase(nil)
                 .accessibilityAddTraits(.isHeader)

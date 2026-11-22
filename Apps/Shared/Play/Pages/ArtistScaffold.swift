@@ -6,9 +6,10 @@ import TracksCore
 /// the page's own sections, About them, and your own top songs by them last: the page is
 /// about the artist first and your history with them second.
 ///
-/// On iPhone the picture fills the top edge to edge under the navigation bar, with the name
-/// over its foot and a round Play button, as Music's artist page is. On the Mac it's a band of
-/// the picture's colour with the picture in a circle, and Play, Station and Shuffle beside it.
+/// On iPhone the picture runs edge to edge under the bars and dissolves into a page of its
+/// colour, with the name and an opaque Play circle under it between two glass circles, as
+/// Music's artist page is. On the Mac it's a band of the picture's colour with the picture in
+/// a circle, and Play, Station and Shuffle beside it.
 struct ArtistScaffold<Sections: View, More: View>: View {
     let name: String
     /// Their picture, or nil for a monogram.
@@ -17,6 +18,8 @@ struct ArtistScaffold<Sections: View, More: View>: View {
     var shuffle: (() -> Void)?
     /// Apple Music's station for them, where there is one.
     var station: (() -> Void)?
+    /// Their page on the web, for Share.
+    var share: URL?
     /// Your own top songs by them, from the history, after the page's sections. Off where the
     /// page's own songs already are yours.
     var showsYourTopSongs = true
@@ -30,145 +33,198 @@ struct ArtistScaffold<Sections: View, More: View>: View {
     @State private var story: ArtistStoryState = .reading
     #if os(iOS)
     @State private var showsTitle = false
+    @State private var barBottom: CGFloat = 0
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #else
     /// The picture's colour, for the band behind it.
     @State private var tint: Color?
+    /// Where the toolbar ends over the band.
+    @State private var barBottom: CGFloat = 0
     #endif
 
     private var identity: String { StatsCalculator.folded(name) }
+    private static var aboutID: String { "about" }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                VStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
-                    #if os(iOS)
-                    YourListeningRow(identity: identity, story: story)
-                    #endif
-                    sections
-                    if let about {
-                        AboutArtistSection(name: name, about: about, firstHeard: story.story?.firstHeard)
-                            .transition(.opacity)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header(scrollTo: proxy)
+                    VStack(alignment: .leading, spacing: Design.Margin.section) {
+                        #if os(iOS)
+                        YourListeningRow(identity: identity, story: story)
+                        #endif
+                        sections
+                        if let about {
+                            AboutArtistSection(name: name, about: about, firstHeard: story.story?.firstHeard)
+                                .id(Self.aboutID)
+                                .transition(.opacity)
+                        }
+                        if showsYourTopSongs, case .found(let found) = story, !found.topSongs.isEmpty {
+                            ArtistYourTopSongs(artist: name, songs: found.topSongs)
+                        }
                     }
-                    if showsYourTopSongs, case .found(let found) = story, !found.topSongs.isEmpty {
-                        ArtistYourTopSongs(artist: name, songs: found.topSongs)
-                    }
-                }
-                .padding(.top, topSpacing)
-                .padding(.bottom, PlayMetrics.sectionSpacing)
-            }
-        }
-        .launchScroll()
-        #if os(iOS)
-        .ignoresSafeArea(.container, edges: .top)
-        // The picture meets the top edge clean; the bar's edge comes back once it's scrolled by.
-        .scrollEdgeEffectHidden(!showsTitle, for: .top)
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y > geometry.containerSize.width * headerRatio - 90
-        } action: { _, past in
-            showsTitle = past
-        }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(name)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .opacity(showsTitle ? 1 : 0)
-                    // The name is read once, in the picture, until this one shows.
-                    .accessibilityHidden(!showsTitle)
-                    .animation(PlayMotion.value, value: showsTitle)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Menu("More", systemImage: "ellipsis") {
-                    actionItems
-                    more
-                    Divider()
-                    BlockArtistButton(artist: name)
+                    .padding(.top, topSpacing)
+                    .padding(.bottom, Design.Margin.section)
                 }
             }
-        }
-        .toolbarTitleDisplayMode(.inline)
-        #else
-        .toolbar(removing: .title)
-        .coverTint(of: picture, into: $tint)
-        #endif
-        .navigationTitle(name)
-        .task(id: model.library.revision) {
-            let (identity, history) = (identity, model.library.history)
-            let found = await OffMainActor.run { ArtistStories.story(of: identity, in: history) }
-            story = found.map(ArtistStoryState.found) ?? .none
+            .launchScroll()
+            #if os(iOS)
+            .ignoresSafeArea(.container, edges: .top)
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { barBottom = $0 }
+            // The picture meets the top edge clean; the bar's edge comes back once it's scrolled by.
+            .scrollEdgeEffectHidden(!showsTitle, for: .top)
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y > headerHeight(width: geometry.containerSize.width) - 60
+            } action: { _, past in
+                showsTitle = past
+            }
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(name)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .opacity(showsTitle ? 1 : 0)
+                        // The name is read once, under the picture, until this one shows.
+                        .accessibilityHidden(!showsTitle)
+                        .animation(Design.Motion.value, value: showsTitle)
+                }
+            }
+            .toolbarTitleDisplayMode(.inline)
+            .pageColor(from: picture ?? .url(nil, seed: name))
+            // Outside the page's colour, so the glyphs follow the glass under them, as Back
+            // does, rather than the page's tint, which washed out on a light capsule.
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if let share {
+                        ShareLink(item: share)
+                    }
+                    Menu("More", systemImage: "ellipsis") {
+                        actionItems
+                        more
+                        Divider()
+                        BlockArtistButton(artist: name)
+                    }
+                }
+            }
+            #else
+            // The band runs up under the toolbar, as Music's artist pages do.
+            .ignoresSafeArea(.container, edges: .top)
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { barBottom = $0 }
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .toolbar(removing: .title)
+            .coverTint(of: picture, into: $tint)
+            #endif
+            .navigationTitle(name)
+            .task(id: model.library.revision) {
+                let (identity, history) = (identity, model.library.history)
+                let found = await OffMainActor.run { ArtistStories.story(of: identity, in: history) }
+                story = found.map(ArtistStoryState.found) ?? .none
+            }
         }
     }
 
     // MARK: Header
 
     #if os(iOS)
-    /// The picture's height against the width: square, or shorter for a monogram.
-    private var headerRatio: CGFloat { picture == nil ? 0.9 : 1 }
+    private var topSpacing: CGFloat { Design.Spacing.xLarge }
 
-    private var topSpacing: CGFloat { 16 }
+    /// The picture's height for a page this wide; a monogram needs only room for itself.
+    private func headerHeight(width: CGFloat) -> CGFloat {
+        picture == nil ? barBottom + Self.monogramSide : width
+    }
 
-    private var header: some View {
+    private static var monogramSide: CGFloat { 148 }
+
+    /// How far the name reaches up into the picture's dissolve, where it's mostly page.
+    private static var overlap: CGFloat { 64 }
+
+    private func header(scrollTo proxy: ScrollViewProxy) -> some View {
+        VStack(spacing: 0) {
+            if let picture {
+                photo(picture)
+            } else {
+                PageMonogram(name: name, size: Self.monogramSide)
+                    .padding(.top, barBottom + Design.Spacing.small)
+                    .frame(maxWidth: .infinity)
+            }
+            VStack(spacing: Design.Spacing.medium) {
+                BlockedArtistTag(name: name)
+                Text(name)
+                    .font(.pageTitle)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
+                    .minimumScaleFactor(0.7)
+                    .accessibilityAddTraits(.isHeader)
+                actionRow(scrollTo: proxy)
+                    .padding(.top, Design.Spacing.xSmall)
+            }
+            .padding(.horizontal, Design.Margin.page)
+            .padding(.top, picture == nil ? Design.Spacing.large : -Self.overlap)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The picture, square and edge to edge under the bars, dissolving into the page. Pulled
+    /// past the top, it stretches to keep filling it.
+    private func photo(_ picture: CoverArt) -> some View {
         Color.clear
-            .aspectRatio(1 / headerRatio, contentMode: .fit)
+            .aspectRatio(1, contentMode: .fit)
             .overlay {
                 GeometryReader { proxy in
-                    Group {
-                        if let picture {
-                            CoverImage(cover: picture, size: proxy.size.width, isBare: true)
-                                .frame(width: proxy.size.width, height: proxy.size.height)
-                        } else {
-                            ZStack {
-                                CoverStage(tint: nil, deepens: false)
-                                // Between the navigation bar and the name; at the largest text
-                                // sizes the name needs the room.
-                                if !dynamicTypeSize.isAccessibilitySize {
-                                    ArtistMonogram(name: name, size: 120, onStage: true)
-                                        .offset(y: 14)
-                                }
-                            }
+                    CoverImage(cover: picture, size: proxy.size.width, isBare: true)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                }
+            }
+            .mask {
+                LinearGradient(stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .black, location: 0.55),
+                    .init(color: .black.opacity(0.45), location: 0.8),
+                    .init(color: .clear, location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+            }
+            .visualEffect { content, proxy in
+                let pull = max(0, proxy.frame(in: .scrollView).minY)
+                return content.scaleEffect(1 + pull / max(1, proxy.size.height), anchor: .bottom)
+            }
+            .accessibilityHidden(true)
+    }
+
+    /// Play, opaque, between two glass circles: Shuffle, or About where there's nothing to
+    /// shuffle yet; and the artist's station, or your stats with them where there's no station.
+    private func actionRow(scrollTo proxy: ScrollViewProxy) -> some View {
+        GlassEffectContainer(spacing: Design.Control.spacing) {
+            HStack(spacing: Design.Spacing.xxLarge) {
+                if let shuffle {
+                    GlassCircleButton(title: "Shuffle", systemImage: "shuffle", action: shuffle)
+                } else if about != nil {
+                    GlassCircleButton(title: "About", systemImage: "info") {
+                        withAnimation(Design.Motion.reduced(Design.Motion.panel, reduceMotion: reduceMotion)) {
+                            proxy.scrollTo(Self.aboutID, anchor: .top)
                         }
                     }
-                    // Pulled down past the top, the picture grows to keep filling it.
-                    .visualEffect { content, geometry in
-                        let pull = max(0, geometry.frame(in: .scrollView).minY)
-                        return content.scaleEffect(1 + pull / max(1, geometry.size.height), anchor: .bottom)
+                }
+                PlayButton(shape: .circle) { play?() }
+                    .disabled(play == nil)
+                if let station {
+                    GlassCircleButton(title: "Create Station", systemImage: "dot.radiowaves.left.and.right", action: station)
+                } else {
+                    GlassCircleButton(title: "Your Stats", systemImage: "chart.bar.xaxis") {
+                        openPlayRoute(.stats(.artist(identity)))
                     }
                 }
             }
-            .overlay {
-                LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
-                    .allowsHitTesting(false)
-            }
-            .overlay(alignment: .bottom) {
-                HStack(alignment: .bottom, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        BlockedArtistTag(name: name)
-                        Text(name)
-                            .font(.largeTitle.bold())
-                            .foregroundStyle(.white)
-                            .lineLimit(3)
-                            .minimumScaleFactor(0.6)
-                            .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
-                            .accessibilityAddTraits(.isHeader)
-                    }
-                    Spacer(minLength: 0)
-                    if let play {
-                        ArtistPlayCircle(action: play)
-                    }
-                }
-                .padding(.horizontal, PlayMetrics.margin)
-                .padding(.bottom, 20)
-                // The name over the picture stops growing where it would cover it.
-                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-            }
-            .clipped()
+        }
     }
     #else
-    private var topSpacing: CGFloat { PlayMetrics.sectionSpacing - 8 }
+    private var topSpacing: CGFloat { Design.Margin.section - 8 }
 
-    private var header: some View {
+    private func header(scrollTo _: ScrollViewProxy) -> some View {
         HStack(spacing: 32) {
             ArtistPicture(cover: picture, name: name, size: 200, onStage: true)
                 .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
@@ -195,55 +251,41 @@ struct ArtistScaffold<Sections: View, More: View>: View {
                         Button("Shuffle", systemImage: "shuffle", action: shuffle)
                             .buttonStyle(.stageSecondary)
                     }
-                    Menu {
+                    GlassCircleMenu(title: "More") {
                         more
                         Divider()
                         Button("Your Stats", systemImage: "chart.bar.xaxis") {
                             openPlayRoute(.stats(.artist(identity)))
                         }
+                        if let share {
+                            ShareLink(item: share) { Label("Share Artist", systemImage: "square.and.arrow.up") }
+                        }
                         Divider()
                         BlockArtistButton(artist: name)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: StageButtonStyle.height, height: StageButtonStyle.height)
-                            .background(.white.opacity(0.2), in: .circle)
-                            .contentShape(.circle)
                     }
-                    .menuStyle(.button)
-                    .buttonStyle(.plain)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("More")
-                    .accessibilityLabel("More")
                 }
                 .padding(.top, 12)
             }
             .environment(\.colorScheme, .dark)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, PlayMetrics.margin + 12)
+        .padding(.horizontal, Design.Margin.page + 12)
         .frame(height: 280)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Up under the toolbar too, as Music's artist pages are.
-        .background { CoverStage(tint: picture == nil ? nil : tint, deepens: false).ignoresSafeArea(edges: .top) }
+        .padding(.top, barBottom)
+        .background { CoverStage(tint: picture == nil ? nil : tint, deepens: false) }
     }
     #endif
 
-    /// Play's companions, for the iPhone's More menu; the Mac has them as buttons.
+    /// What the iPhone's circles leave out, for its More menu; the Mac has them as buttons.
     @ViewBuilder
     private var actionItems: some View {
-        if let shuffle {
-            Button("Shuffle", systemImage: "shuffle", action: shuffle)
+        if station != nil {
+            Button("Your Stats", systemImage: "chart.bar.xaxis") {
+                openPlayRoute(.stats(.artist(identity)))
+            }
+            Divider()
         }
-        if let station {
-            Button("Create Station", systemImage: "dot.radiowaves.left.and.right", action: station)
-        }
-        Button("Your Stats", systemImage: "chart.bar.xaxis") {
-            openPlayRoute(.stats(.artist(identity)))
-        }
-        Divider()
     }
 }
 
@@ -254,6 +296,7 @@ extension ArtistScaffold where More == EmptyView {
         play: (() -> Void)? = nil,
         shuffle: (() -> Void)? = nil,
         station: (() -> Void)? = nil,
+        share: URL? = nil,
         showsYourTopSongs: Bool = true,
         about: ArtistAbout? = nil,
         @ViewBuilder sections: () -> Sections
@@ -263,6 +306,7 @@ extension ArtistScaffold where More == EmptyView {
         self.play = play
         self.shuffle = shuffle
         self.station = station
+        self.share = share
         self.showsYourTopSongs = showsYourTopSongs
         self.about = about
         self.more = EmptyView()
@@ -309,7 +353,7 @@ private struct YourListeningRow: View {
                 Capsule().fill(Color.placeholderFill).frame(width: 220, height: 10)
             }
             .frame(minHeight: 44, alignment: .leading)
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
             .accessibilityHidden(true)
         case .none:
             EmptyView()
@@ -335,33 +379,11 @@ private struct YourListeningRow: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.pressable)
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
         }
     }
 }
 
-/// Music's round Play on an artist's picture: the accent, 56 points.
-private struct ArtistPlayCircle: View {
-    let action: () -> Void
-    @State private var taps = 0
-
-    var body: some View {
-        Button {
-            taps += 1
-            action()
-        } label: {
-            Image(systemName: "play.fill")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 56, height: 56)
-                .background(Color.accentColor, in: .circle)
-                .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
-        }
-        .buttonStyle(.pressable)
-        .sensoryFeedback(.impact(weight: .light), trigger: taps)
-        .accessibilityLabel("Play")
-    }
-}
 #else
 /// Under the name on the Mac: the signature line, opening your stats for the artist.
 private struct ArtistSignatureLink: View {
@@ -396,7 +418,7 @@ private struct ArtistSignatureLink: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .onHover { hovering in withAnimation(PlayMotion.hover) { isHovered = hovering } }
+            .onHover { hovering in withAnimation(Design.Motion.hover) { isHovered = hovering } }
             .help("Your Listening")
         }
     }
@@ -420,6 +442,21 @@ struct ArtistPicture: View {
         }
     }
 }
+
+#if os(iOS)
+/// The initials at the top of an artist's page: a veil of white on a dark page colour, or the
+/// name's own colour where the page stays plain, as under Increase Contrast, where white on
+/// white would leave nothing.
+private struct PageMonogram: View {
+    let name: String
+    let size: CGFloat
+    @Environment(\.pageTone) private var tone
+
+    var body: some View {
+        ArtistMonogram(name: name, size: size, onStage: tone?.isDark == true)
+    }
+}
+#endif
 
 /// An artist's initials in a circle.
 struct ArtistMonogram: View {
@@ -472,10 +509,10 @@ struct BlockedArtistTag: View {
         if player.isBlocked(artist: name) {
             Label("Blocked", systemImage: "nosign")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(.black.opacity(0.35), in: .capsule)
+                .padding(.vertical, Design.Spacing.xSmall)
+                .background(.fill.secondary, in: .capsule)
                 .accessibilityLabel("Blocked. Tracks won't play or suggest this artist.")
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
         }

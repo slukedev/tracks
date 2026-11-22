@@ -41,7 +41,7 @@ struct LibraryDownloadsPage: View {
                 emptyState
             } else {
                 summary(stats: stats, unplayed: unplayed)
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
                     .padding(.bottom, 16)
                 DownloadActivity()
                 table(rows: rows, byID: byID)
@@ -134,7 +134,7 @@ struct LibraryDownloadsPage: View {
             Spacer(minLength: 0)
         }
         .padding(16)
-        .background(Color.cardFill, in: .rect(cornerRadius: Metrics.cardRadius, style: .continuous))
+        .background(Color.cardFill, in: .rect(cornerRadius: Design.Card.radius, style: .continuous))
     }
 
     private func stat(_ value: String, _ label: String) -> some View {
@@ -202,19 +202,17 @@ struct LibraryDownloadsPage: View {
     }
 
     private var emptyState: some View {
-        PlayStateCard(
-            symbol: "arrow.down.circle",
-            title: String(localized: "Nothing Downloaded"),
-            message: String(localized: "Songs you play from your servers download here with Automatic Downloads, to play anywhere, even with no connection.")
-        ) {
+        ContentUnavailableView {
+            Label("Nothing Downloaded", systemImage: "arrow.down.circle")
+        } description: {
+            Text("Songs you play from your servers download here with Automatic Downloads, to play with no connection.")
+        } actions: {
             if !automaticDownloads {
                 Button("Turn On Automatic Downloads") { automaticDownloads = true }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
             }
         }
-        .libraryStateWidth()
-        .padding(.horizontal, PlayMetrics.margin)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .libraryStatePlacement()
     }
 
     private func removeTitle(_ byID: [String: DownloadedSong]) -> String {
@@ -303,7 +301,7 @@ private struct DownloadActivity: View {
                     }
                 }
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
             .padding(.bottom, 12)
         }
     }

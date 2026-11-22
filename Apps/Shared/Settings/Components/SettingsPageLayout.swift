@@ -17,6 +17,9 @@ private struct SettingsPageTitle: ViewModifier {
         content
             .navigationTitle(isHeroHidden ? title : "")
             .navigationBarTitleDisplayMode(.inline)
+            // The hero opens the page just under the bar, as Settings' own pages do, rather
+            // than under a group's worth of empty margin.
+            .contentMargins(.top, Design.Spacing.small, for: .scrollContent)
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 // Roughly the hero's height at the default text size. A threshold on the
                 // scroll offset, never a measured size fed back into layout.

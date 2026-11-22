@@ -21,12 +21,15 @@ struct ChartActivityCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        Card(padding: Self.padding) {
+        VStack(alignment: .leading, spacing: Design.Spacing.large) {
             ChartStats(kind: kind, period: period, activity: activity)
             switch kind {
             case .songs:
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Design.Spacing.small) {
+                    #if os(macOS)
                     caption
+                    #endif
                     bars
                         .frame(height: Self.chartHeight)
                 }
@@ -40,32 +43,25 @@ struct ChartActivityCard: View {
                 }
             }
         }
-        .padding(Self.padding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.cardFill, in: .rect(cornerRadius: 18, style: .continuous))
+        }
     }
 
     #if os(macOS)
     private static let chartHeight: CGFloat = 170
-    private static let padding: CGFloat = 20
+    private static let padding: CGFloat = Design.Spacing.xLarge
     #else
     private static let chartHeight: CGFloat = 150
-    private static let padding: CGFloat = 16
+    private static let padding: CGFloat = Design.Card.padding
     #endif
 
     // MARK: - Caption
 
-    /// What the pointer is over, or how to go further in.
+    #if os(macOS)
+    /// What the pointer is over, kept a line tall while it's over nothing so the bars stay put.
     private var caption: some View {
         Group {
             if let hovered {
                 Text("\(Text(bucketName(hovered)).foregroundStyle(.primary).fontWeight(.semibold))  \(Text(PlayCountText.short(hovered.plays)))")
-            } else if activity.bucketSpan != nil, activity.plays > 0 {
-                #if os(macOS)
-                Text("Click a \(Text(bucketNoun)) to see its chart.")
-                #else
-                Text("Tap a \(Text(bucketNoun)) to see its chart.")
-                #endif
             } else {
                 Text(verbatim: " ")
             }
@@ -76,6 +72,7 @@ struct ChartActivityCard: View {
         .contentTransition(.opacity)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovered?.id)
     }
+    #endif
 
     private var bucketNoun: LocalizedStringKey {
         switch period.span {
@@ -265,6 +262,7 @@ struct ChartStats: View {
     let kind: ChartKind
     let period: ChartPeriod
     let activity: PeriodActivity
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -279,7 +277,21 @@ struct ChartStats: View {
         }
     }
 
+    @ViewBuilder
     private var figures: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: Design.Spacing.medium) {
+                lead
+                ForEach(others.enumerated(), id: \.offset) { _, stat in
+                    small(stat)
+                }
+            }
+        } else {
+            columns
+        }
+    }
+
+    private var columns: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: 28) {
                 lead
@@ -346,8 +358,7 @@ struct ChartStats: View {
 
     private func big(_ value: Int) -> some View {
         Text(value.formatted())
-            .font(.system(.largeTitle, design: .rounded).weight(.bold))
-            .monospacedDigit()
+            .font(.statFigure)
             .contentTransition(.numericText(value: Double(value)))
     }
 
@@ -355,9 +366,10 @@ struct ChartStats: View {
         VStack(alignment: .leading, spacing: 2) {
             label(stat.title)
             Text(stat.value)
-                .font(.system(.title2, design: .rounded).weight(.semibold))
+                .font(.system(.title3, design: .rounded, weight: .bold))
                 .monospacedDigit()
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .contentTransition(.numericText())
         }
         .help(stat.help.map { Text($0) } ?? Text(stat.title))
@@ -366,7 +378,7 @@ struct ChartStats: View {
 
     private func label(_ title: LocalizedStringKey) -> some View {
         Text(title)
-            .font(.caption.weight(.medium))
+            .font(.subheadline)
             .foregroundStyle(.secondary)
     }
 

@@ -40,29 +40,24 @@ struct NewReleasesPage: View {
         let out = releases.filter { !$0.isUpcoming }.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
         let featured = out.first
         ScrollView {
-            VStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
-                #if os(iOS)
-                filterPicker
-                    .padding(.horizontal, PlayMetrics.margin)
-                #endif
-
+            VStack(alignment: .leading, spacing: Design.Margin.section) {
                 if let featured {
                     FeaturedRelease(release: featured, plays: yours.plays(of: featured), isHeard: yours.hasHeard(featured))
                 }
 
                 if !upcoming.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        header("Coming Soon", detail: "Not out yet. Add them now, and they'll be in your library the day they are.")
-                            .padding(.horizontal, PlayMetrics.margin)
+                    VStack(alignment: .leading, spacing: Design.Margin.header) {
+                        header(String(localized: "Coming Soon"), detail: "Add them now, and they'll be in your library the day they're out.")
+                            .padding(.horizontal, Design.Margin.page)
                         ScrollView(.horizontal) {
                             LazyHStack(alignment: .top, spacing: PlayMetrics.shelfSpacing) {
                                 ForEach(upcoming) { release in
-                                    ReleaseTile(release: release, side: PlayMetrics.tile)
+                                    ReleaseTile(release: release, side: Design.Shelf.tile)
                                 }
                             }
                             .scrollTargetLayout()
                         }
-                        .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
+                        .contentMargins(.horizontal, Design.Margin.page, for: .scrollContent)
                         .scrollTargetBehavior(.viewAligned)
                         .scrollIndicators(.hidden)
                     }
@@ -71,32 +66,38 @@ struct NewReleasesPage: View {
                 ForEach(Period.allCases) { period in
                     let items = out.dropFirst().filter { period.contains($0.date) }
                     if !items.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: Design.Margin.header) {
                             header(period.title, detail: nil)
-                            LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 24) {
+                            LazyVGrid(columns: Self.columns, alignment: .leading, spacing: Design.Spacing.xxLarge) {
                                 ForEach(items) { release in
                                     ReleaseTile(release: release, isUnheard: !yours.hasHeard(release))
                                 }
                             }
                         }
-                        .padding(.horizontal, PlayMetrics.margin)
+                        .padding(.horizontal, Design.Margin.page)
                     }
                 }
 
                 if discovery.releasesState == .loading || discovery.releasesState == .idle, releases.isEmpty {
-                    LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 24) {
+                    LazyVGrid(columns: Self.columns, alignment: .leading, spacing: Design.Spacing.xxLarge) {
                         ForEach(0..<8, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.placeholderFill)
-                                .aspectRatio(1, contentMode: .fit)
+                            VStack(alignment: .leading, spacing: Design.Shelf.captionGap) {
+                                RoundedRectangle(cornerRadius: CoverImage.radius(for: Design.Shelf.tile), style: .continuous)
+                                    .fill(Color.placeholderFill)
+                                    .aspectRatio(1, contentMode: .fit)
+                                Text(verbatim: "Release Title\nArtist")
+                                    .font(.subheadline)
+                                    .redacted(reason: .placeholder)
+                            }
                         }
                     }
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
                     .accessibilityHidden(true)
                 }
             }
-            .padding(.bottom, 24)
-            .animation(.snappy, value: filter)
+            .padding(.top, Design.Spacing.small)
+            .padding(.bottom, Design.Margin.section)
+            .animation(Design.Motion.row, value: filter)
         }
         .overlay {
             if discovery.releasesState == .loaded || discovery.releasesState == .failed, releases.isEmpty {
@@ -121,6 +122,12 @@ struct NewReleasesPage: View {
         }
         #else
         .toolbarTitleDisplayMode(.inline)
+        // On glass over the scroll edge, rather than scrolling away with the releases.
+        .safeAreaBar(edge: .top) {
+            filterPicker
+                .padding(.horizontal, Design.Margin.page)
+                .padding(.bottom, Design.Spacing.small)
+        }
         #endif
         .task { await discovery.loadReleases() }
         .task(id: model.library.revision) {
@@ -139,13 +146,12 @@ struct NewReleasesPage: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
+        .sensoryFeedback(Design.Haptic.choice, trigger: filter)
     }
 
     private func header(_ title: String, detail: LocalizedStringKey?) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
+            ShelfHeader(title: title)
             if let detail {
                 Text(detail)
                     .font(.subheadline)
@@ -157,9 +163,9 @@ struct NewReleasesPage: View {
     /// As many as fit, filling the width, from the left.
     private static var columns: [GridItem] {
         #if os(macOS)
-        [GridItem(.adaptive(minimum: 160), spacing: PlayMetrics.shelfSpacing, alignment: .top)]
+        [GridItem(.adaptive(minimum: Design.Shelf.tile - 16), spacing: Design.Shelf.spacing, alignment: .top)]
         #else
-        [GridItem(.adaptive(minimum: 150), spacing: 14, alignment: .top)]
+        [GridItem(.adaptive(minimum: 150), spacing: Design.Shelf.spacing, alignment: .top)]
         #endif
     }
 
@@ -248,13 +254,11 @@ private struct FeaturedRelease: View {
             .buttonStyle(.pressable)
             .accessibilityLabel(release.album.title)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Design.Spacing.xSmall) {
                 Text(eyebrow)
-                    .font(.caption.weight(.semibold))
-                    .kerning(0.6)
-                    .foregroundStyle(.secondary)
+                    .eyebrowStyle()
                 Text(CollectionKind.of(release.album).title)
-                    .font(.system(.largeTitle).weight(.bold))
+                    .font(.collectionTitle)
                     .lineLimit(2)
                 Text(release.album.artistName)
                     .font(.title3.weight(.medium))
@@ -264,41 +268,27 @@ private struct FeaturedRelease: View {
                     Label(line, systemImage: "clock.arrow.circlepath")
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                        .padding(.top, 6)
+                        .padding(.top, Design.Spacing.xSmall)
                 }
-                HStack(spacing: 10) {
-                    Button {
-                        player.play(.album(release.album), from: PlayContext(kind: .album, title: release.album.title))
-                    } label: {
-                        Label("Play", systemImage: "play.fill")
-                            .frame(minWidth: 74)
+                GlassEffectContainer(spacing: Design.Control.spacing) {
+                    HStack(spacing: Design.Control.spacing) {
+                        PlayButton {
+                            player.play(.album(release.album), from: PlayContext(kind: .album, title: release.album.title))
+                        }
+                        GlassCircleButton(title: "Add to Library", systemImage: "plus") {
+                            player.addToLibrary(release.album)
+                        }
+                        GlassCircleMenu(title: "More") {
+                            GetWithLidarrButton(album: release.album.title, artist: release.album.artistName)
+                            FeedItemMenu(item: FeedItem(album: release.album))
+                        }
                     }
-                    .buttonStyle(.glassProminent)
-                    Button {
-                        player.addToLibrary(release.album)
-                    } label: {
-                        Label("Add", systemImage: "plus")
-                    }
-                    .buttonStyle(.glass)
-                    Menu {
-                        GetWithLidarrButton(album: release.album.title, artist: release.album.artistName)
-                        FeedItemMenu(item: FeedItem(album: release.album))
-                    } label: {
-                        Label("More", systemImage: "ellipsis")
-                            .labelStyle(.iconOnly)
-                    }
-                    .menuIndicator(.hidden)
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .fixedSize()
                 }
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
-                .padding(.top, 14)
+                .padding(.top, Design.Spacing.medium)
             }
         }
-        .padding(.horizontal, PlayMetrics.margin)
-        .padding(.top, 12)
+        .padding(.horizontal, Design.Margin.page)
+        .padding(.top, Design.Spacing.medium)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(alignment: .top) {
             // A colour already known is there from the first frame, rather than fading in.
@@ -307,7 +297,7 @@ private struct FeaturedRelease: View {
         }
         .task(id: release.id) {
             guard let found = await CoverTint.glow(for: cover), !Task.isCancelled else { return }
-            withAnimation(PlayMotion.tint) { glow = found }
+            withAnimation(Design.Motion.tint) { glow = found }
         }
     }
 
@@ -359,11 +349,10 @@ struct ReleaseTile: View {
                         if release.isUpcoming, let date = release.date {
                             Text(date.formatted(.dateTime.month(.abbreviated).day()))
                                 .font(.caption.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(.black.opacity(0.55), in: .capsule)
-                                .padding(8)
+                                .padding(.horizontal, Design.Spacing.small)
+                                .padding(.vertical, Design.Spacing.xSmall)
+                                .glassEffect(.regular, in: .capsule)
+                                .padding(Design.Spacing.small)
                         }
                     }
                 VStack(alignment: .leading, spacing: 1) {
@@ -392,7 +381,7 @@ struct ReleaseTile: View {
             .frame(width: side, alignment: .leading)
             .contentShape(.rect)
             .onHover { hovering in
-                withAnimation(PlayMotion.hover) { isHovered = hovering }
+                withAnimation(Design.Motion.hover) { isHovered = hovering }
             }
             .accessibilityElement(children: .combine)
             // Play shows only under the pointer, so VoiceOver has it as an action.
@@ -428,23 +417,8 @@ struct ReleaseTile: View {
             }
         }
         .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
-        .overlay(alignment: .bottomTrailing) {
-            if isHovered, !release.isUpcoming {
-                Button(action: playAlbum) {
-                    Label("Play \(release.album.title)", systemImage: "play.fill")
-                        .labelStyle(.iconOnly)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                        .background(.black.opacity(0.55), in: .circle)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(.plain)
-                .padding(8)
-                .help("Play \(release.album.title)")
-                .transition(.scale(scale: 0.8).combined(with: .opacity))
-            }
-        }
+        // The pointer brings Play up over the cover, as Music's do; VoiceOver has it as an action.
+        .coverPlayButton(isVisible: isHovered && !release.isUpcoming, action: playAlbum)
     }
 
     private func playAlbum() {

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 import TracksCore
 #if os(iOS)
 import UIKit
@@ -65,10 +66,16 @@ final class MusicServers {
     @ObservationIgnored var onKeptArrived: (([LocalTrack]) -> Void)?
     /// Called with a server's id once it's removed.
     @ObservationIgnored var onRemoved: ((String) -> Void)?
-    @ObservationIgnored private var syncTasks: [String: Task<Void, Never>] = [:]
-    /// Trackside servers to sync again once the sync running ends: something changed meanwhile.
-    @ObservationIgnored private var syncsAgain: Set<String> = []
-    @ObservationIgnored private var keepFollowUps: [String: Task<Void, Never>] = [:]
+    /// One sync at a time for each server, tied to the server as it was when it started.
+    @ObservationIgnored private let syncs = ServerSyncs()
+    /// For each Subsonic server asked for songs, what watches for them to arrive.
+    @ObservationIgnored private var keepWatches: [String: ServerKeepWatch] = [:]
+    /// Plays waiting to be told to each Subsonic server. Trackside's are its connection's.
+    @ObservationIgnored private var subsonicOutboxes: [String: ListenOutbox] = [:]
+    /// Servers whose password couldn't be read yet, as before the first unlock: they're out of
+    /// reach rather than signed out, and the password is read again on the next connect.
+    @ObservationIgnored private var lockedKeychain: Set<String> = []
+    nonisolated private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Tracks", category: "MusicServers")
     /// Songs asked of a Trackside server before a sync had brought them in, by identity.
     @ObservationIgnored private var awaitingSync: [String: Set<String>] = [:]
     @ObservationIgnored private let isDemo: Bool
@@ -92,15 +99,14 @@ final class MusicServers {
         self.isDemo = isDemo
         guard !isDemo else { return }
         if let data = UserDefaults.standard.data(forKey: Self.storageKey),
-           let saved = try? JSONDecoder().decode([SubsonicServer].self, from: data) {
+           let saved = StoredJSON.decodeEach([SubsonicServer].self, from: data, keepingCopyAt: LibraryFolders.index.appending(path: "music-servers.json")) {
             servers = saved
         }
         #if DEBUG
         let test = addTestServer()
         #endif
         for server in servers {
-            guard let secret = ServerKeychain.password(for: ServerCredential.account(for: server)) else { continue }
-            open(server, secret: secret)
+            openFromKeychain(server)
         }
         let ids = servers.map(\.id)
         loading = Task { [self] in
@@ -114,7 +120,7 @@ final class MusicServers {
         }
         #if DEBUG
         // An unsigned build has no keychain.
-        if let test { subsonic[test.server.id] = SubsonicClient(server: test.server, password: test.password) }
+        if let test { open(test.server, secret: test.password) }
         #endif
         followForeground()
     }
@@ -139,16 +145,44 @@ final class MusicServers {
     }
     #endif
 
+    /// Opens a server with the secret the Keychain holds for it, if it can be read now.
+    /// - Returns: whether it opened.
+    @discardableResult
+    private func openFromKeychain(_ server: SubsonicServer) -> Bool {
+        switch ServerKeychain.read(for: ServerCredential.account(for: server)) {
+        case .found(let secret):
+            lockedKeychain.remove(server.id)
+            open(server, secret: secret)
+            return true
+        case .unavailable:
+            lockedKeychain.insert(server.id)
+            return false
+        case .missing:
+            lockedKeychain.remove(server.id)
+            return false
+        }
+    }
+
     /// Makes the client for a server with its secret: a password, or a Trackside device key.
+    /// A sync of the server as it was before stops, and keeps nothing.
     private func open(_ server: SubsonicServer, secret: String) {
+        syncs.invalidate(server.id)
         switch server.kind {
         case .subsonic:
             subsonic[server.id] = SubsonicClient(server: server, password: secret)
-            trackside[server.id] = nil
+            trackside.removeValue(forKey: server.id)?.stopEvents()
+            TracksideMediaTrust.shared.release(server.id)
+            if subsonicOutboxes[server.id] == nil {
+                subsonicOutboxes[server.id] = ListenOutbox(file: Self.listensURL(server.id))
+            }
         case .trackside:
             subsonic[server.id] = nil
+            subsonicOutboxes[server.id] = nil
+            stopWatchingKeeps(server.id)
             trackside[server.id]?.stopEvents()
-            trackside[server.id] = TracksideConnection(server: server, apiKey: secret, mediaToken: Self.loadMediaToken(for: server))
+            let connection = TracksideConnection(server: server, apiKey: secret, mediaToken: Self.loadMediaToken(for: server))
+            trackside[server.id] = connection
+            TracksideMediaTrust.shared.hold(connection.endpoints.pins, for: server.id)
         }
     }
 
@@ -202,8 +236,12 @@ final class MusicServers {
         let client = SubsonicClient(server: server, password: password)
         try await client.ping()
         if wasTrackside || trackside[server.id] != nil { forgetTrackside(server) }
+        if let previous = self.server(server.id), previous.url != server.url || previous.username != server.username {
+            // Plays and songs asked of the server it was are nothing to the one it is now.
+            forgetPlaysAndKeeps(server.id)
+        }
         ServerKeychain.setPassword(password, for: ServerCredential.account(for: server))
-        subsonic[server.id] = client
+        open(server, secret: password)
         store(server)
         status[server.id] = .online
         await sync(server.id)
@@ -234,9 +272,7 @@ final class MusicServers {
                     movedToTrackside.insert(editing.id)
                     saveMoved()
                 }
-                kept[editing.id] = nil
-                saveKept()
-                keepFollowUps.removeValue(forKey: editing.id)?.cancel()
+                forgetPlaysAndKeeps(editing.id)
             } else if editing.serverUUID != result.server.serverID {
                 // Another Trackside server at the same entry: its songs start over.
                 try? FileManager.default.removeItem(at: Self.cursorURL(editing.id))
@@ -275,15 +311,16 @@ final class MusicServers {
             }
             forgetTrackside(server)
         }
+        syncs.invalidate(serverID)
         servers.removeAll { $0.id == serverID }
         subsonic[serverID] = nil
         status[serverID] = nil
         catalogs[serverID] = nil
-        kept[serverID] = nil
-        saveKept()
+        lastSynced[serverID] = nil
+        lockedKeychain.remove(serverID)
+        forgetPlaysAndKeeps(serverID)
         movedToTrackside.remove(serverID)
         saveMoved()
-        keepFollowUps.removeValue(forKey: serverID)?.cancel()
         setReportsPlays(true, to: serverID)
         ServerKeychain.removePassword(for: serverID)
         try? FileManager.default.removeItem(at: Self.catalogURL(serverID))
@@ -293,10 +330,20 @@ final class MusicServers {
         onRemoved?(serverID)
     }
 
+    /// Lets go of the songs asked of a server and the plays still to tell it.
+    private func forgetPlaysAndKeeps(_ serverID: String) {
+        stopWatchingKeeps(serverID)
+        kept[serverID] = nil
+        saveKept()
+        subsonicOutboxes[serverID] = nil
+        try? FileManager.default.removeItem(at: Self.listensURL(serverID))
+    }
+
     /// Lets go of what a Trackside server left on this device: its connection, the place its
     /// sync got to, its media token and any plays still to send.
     private func forgetTrackside(_ server: SubsonicServer) {
         trackside.removeValue(forKey: server.id)?.stopEvents()
+        TracksideMediaTrust.shared.release(server.id)
         songRequests[server.id] = nil
         awaitingSync[server.id] = nil
         ServerKeychain.removePassword(for: ServerCredential.mediaTokenAccount(for: server))
@@ -345,7 +392,7 @@ final class MusicServers {
         let next: Status
         do {
             try await client.ping()
-            if let connection = trackside[serverID] { await flushListens(connection) }
+            await flushListens(serverID)
             return
         } catch {
             next = Self.status(after: error)
@@ -358,27 +405,38 @@ final class MusicServers {
 
     func connect(_ serverID: String) async {
         await loading?.value
+        if trackside[serverID] == nil, subsonic[serverID] == nil, let server = server(serverID) {
+            // Its password couldn't be read at launch: the phone may have been unlocked since.
+            openFromKeychain(server)
+        }
         if let connection = trackside[serverID] {
             await connectTrackside(serverID, connection)
             return
         }
         guard let client = subsonic[serverID] else {
-            status[serverID] = .wrongPassword
+            guard server(serverID) != nil else { return }
+            status[serverID] = lockedKeychain.contains(serverID) ? .offline : .wrongPassword
             return
         }
+        let generation = syncs.generation(of: serverID)
+        // Changed or removed while it was being asked: what it answered is about another server.
+        let isCurrent = { [weak self] in self?.syncs.isCurrent(serverID, generation) == true && self?.server(serverID) != nil }
         status[serverID] = .connecting
         do {
             try await client.ping()
+            guard isCurrent() else { return }
             status[serverID] = .online
+            await flushListens(serverID)
+            watchKeeps(serverID)
             let synced = lastSynced[serverID] ?? catalogDate(serverID)
-            if catalogs[serverID]?.isEmpty != false || kept[serverID]?.isEmpty == false
-                || Date.now.timeIntervalSince(synced ?? .distantPast) > 24 * 60 * 60 {
+            if catalogs[serverID]?.isEmpty != false || Date.now.timeIntervalSince(synced ?? .distantPast) > 24 * 60 * 60 {
                 await sync(serverID)
             } else if artists[serverID] == nil {
                 // Synced before its artists were kept.
                 await syncArtists(serverID)
             }
         } catch {
+            guard isCurrent() else { return }
             status[serverID] = Self.status(after: error)
         }
         onStatusChange?()
@@ -387,12 +445,16 @@ final class MusicServers {
     /// Finds the best of a Trackside server's addresses, asks who this device is there, keeps
     /// the server's latest addresses and a fresh media token, and catches up on its changes.
     private func connectTrackside(_ serverID: String, _ connection: TracksideConnection) async {
+        // Paired again, or removed, while it was being asked: the answer is the old one's.
+        let isCurrent = { [weak self] in self?.trackside[serverID] === connection }
         status[serverID] = .connecting
         // The key goes nowhere until one of the addresses proves it is the server.
         await connection.endpoints.race()
+        guard isCurrent() else { return }
         noteAddress(serverID)
         do {
             let me = try await connection.client.me()
+            guard isCurrent() else { return }
             connection.me = me
             if let urls = me.server.urls, !urls.isEmpty {
                 await connection.endpoints.update(candidates: urls)
@@ -404,11 +466,13 @@ final class MusicServers {
             }
             updateRequests(serverID, features: me.features)
             await renewMediaTokenIfDue(serverID, connection)
+            guard isCurrent() else { return }
             status[serverID] = .online
-            await flushListens(connection)
+            await flushListens(serverID)
             await sync(serverID)
-            if isForeground { startEvents(serverID) }
+            if isForeground, isCurrent() { startEvents(serverID) }
         } catch {
+            guard isCurrent() else { return }
             status[serverID] = Self.status(after: error)
         }
         onStatusChange?()
@@ -435,6 +499,8 @@ final class MusicServers {
     /// What a server's state is after a request to it failed.
     private static func status(after error: any Error) -> Status {
         switch error {
+        case let error as URLError where error.code == .appTransportSecurityRequiresSecureConnection:
+            .failed(insecureAddressReason)
         case SubsonicError.wrongCredentials, TracksideError.unauthenticated:
             .wrongPassword
         case let error as SubsonicError:
@@ -456,37 +522,26 @@ final class MusicServers {
     func sync(_ serverID: String) async {
         // Its saved songs first, so their dates added aren't lost.
         await loading?.value
-        // One already running is waited for, so whoever asked sees its songs when it returns.
-        if let running = syncTasks[serverID] {
-            await running.value
-            return
-        }
-        let task = Task {
+        // One already running for the server as it is now is waited for, so whoever asked
+        // sees its songs when it returns.
+        await syncs.run(serverID) { [weak self] isCurrent in
+            guard let self else { return }
             if trackside[serverID] != nil {
-                repeat {
-                    syncsAgain.remove(serverID)
-                    await performTracksideSync(serverID)
-                } while syncsAgain.contains(serverID)
+                await performTracksideSync(serverID, isCurrent: isCurrent)
             } else {
-                await performSync(serverID)
+                await performSync(serverID, isCurrent: isCurrent)
             }
         }
-        syncTasks[serverID] = task
-        await task.value
-        syncTasks[serverID] = nil
         onStatusChange?()
     }
 
     /// A Trackside server said something changed: sync, or once more after the one running.
     private func syncSoon(_ serverID: String) {
-        if syncTasks[serverID] != nil {
-            syncsAgain.insert(serverID)
-        } else {
-            Task { await sync(serverID) }
-        }
+        guard !syncs.runAgainAfterCurrent(serverID) else { return }
+        Task { await sync(serverID) }
     }
 
-    private func performTracksideSync(_ serverID: String) async {
+    private func performTracksideSync(_ serverID: String, isCurrent: @escaping @MainActor () -> Bool) async {
         guard let client = trackside[serverID]?.client else { return }
         syncing.insert(serverID)
         defer { syncing.remove(serverID) }
@@ -496,7 +551,7 @@ final class MusicServers {
             artists: artists[serverID] ?? [:],
             cursorFile: Self.cursorURL(serverID),
             client: client
-        ), trackside[serverID] != nil
+        ), isCurrent(), trackside[serverID] != nil
         else { return }
         lastSynced[serverID] = .now
         if let tracks = synced.tracks { catalogs[serverID] = tracks }
@@ -525,36 +580,29 @@ final class MusicServers {
         )
     }
 
-    private func performSync(_ serverID: String) async {
+    /// Every song on a Subsonic server. A sync that can't read all of them keeps what was
+    /// there: a busy server mustn't empty the library.
+    private func performSync(_ serverID: String, isCurrent: @escaping @MainActor () -> Bool) async {
         guard let client = subsonic[serverID] else { return }
         syncing.insert(serverID)
         defer { syncing.remove(serverID) }
+        let found: SubsonicCatalog
+        do {
+            found = try await Self.readCatalog(client)
+        } catch {
+            if !(error is CancellationError) {
+                Self.log.error("A sync of a server couldn't finish: \(error, privacy: .public)")
+            }
+            return
+        }
+        guard isCurrent(), subsonic[serverID] != nil else { return }
+        if !found.isComplete {
+            Self.log.notice("A server has more than \(Self.catalogLimit) songs; the first \(Self.catalogLimit) are kept")
+        }
         let known = Dictionary((catalogs[serverID] ?? []).map { ($0.id, $0.addedAt) }, uniquingKeysWith: { first, _ in first })
         let isFirstSync = known.isEmpty
-        var songs: [SubsonicSong] = []
-        var searchFailed = false
-        do {
-            while songs.count < Self.catalogLimit {
-                let page = try await client.search("", artists: 0, albums: 0, songs: Self.pageSize, songOffset: songs.count)
-                songs += page.songs
-                if page.songs.count < Self.pageSize { break }
-            }
-        } catch {
-            searchFailed = true
-        }
-        // Older servers answer an empty search with nothing, or refuse it: walk the albums.
-        // A search that failed partway is only some of the songs, so it's walked too.
-        if songs.isEmpty || searchFailed {
-            guard let walked = try? await Self.songsByAlbum(client) else {
-                // Keep what was there; a failed sync mustn't empty the library.
-                return
-            }
-            songs = walked
-        }
-        // Removed while it synced: nothing to keep.
-        guard subsonic[serverID] != nil else { return }
         let now = Date.now
-        let tracks = songs.map { song in
+        let tracks = found.songs.map { song in
             // When the server added it, where it says, so Recently Added is the server's own
             // from the first sync. Otherwise when this sync first saw it; on a first sync
             // there's no telling, and the server's order stands.
@@ -566,6 +614,11 @@ final class MusicServers {
         settleKept(serverID, synced: tracks)
         // Its artists' pictures after the songs are safe.
         await syncArtists(serverID)
+    }
+
+    @concurrent
+    nonisolated private static func readCatalog(_ client: SubsonicClient) async throws -> SubsonicCatalog {
+        try await client.catalog(pageSize: pageSize, limit: catalogLimit)
     }
 
     // MARK: - Events
@@ -612,11 +665,11 @@ final class MusicServers {
         // Woken in the background, to finish downloads say: no events until it's opened.
         isForeground = UIApplication.shared.applicationState != .background
         let center = NotificationCenter.default
-        lifecycle.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.setForeground(true) }
+        lifecycle.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in self?.setForeground(true) }
         })
-        lifecycle.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.setForeground(false) }
+        lifecycle.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in self?.setForeground(false) }
         })
         #endif
     }
@@ -624,6 +677,11 @@ final class MusicServers {
     private func setForeground(_ isForeground: Bool) {
         guard isForeground != self.isForeground else { return }
         self.isForeground = isForeground
+        if isForeground {
+            for serverID in subsonic.keys where status[serverID] == .online {
+                Task { await flushListens(serverID) }
+            }
+        }
         for (serverID, connection) in trackside {
             if isForeground {
                 guard status[serverID] == .online else { continue }
@@ -631,7 +689,7 @@ final class MusicServers {
                 syncSoon(serverID)
                 Task {
                     await renewMediaTokenIfDue(serverID, connection)
-                    await flushListens(connection)
+                    await flushListens(serverID)
                 }
             } else {
                 connection.stopEvents()
@@ -741,9 +799,9 @@ final class MusicServers {
     }
 
     /// Stars a song on its server, which a server that fetches songs on request takes as "get
-    /// me this": it fetches the file into the library. Syncs every half minute at first, then
-    /// every two, for twenty minutes or until it's in: such a server usually has a song within
-    /// a few minutes.
+    /// me this": it fetches the file into the library. The song is then looked for on its
+    /// own, cheaply, and the library synced once it's there: such a server usually has a song
+    /// within a few minutes.
     ///
     /// Trackside only plays what's in its library, so a song from it is there already: a sync
     /// brings it in if the last one didn't.
@@ -756,19 +814,38 @@ final class MusicServers {
         }
         guard let client = subsonic[serverID] else { return }
         try await client.star(songID: songID)
+        guard subsonic[serverID] != nil else { return }
         kept[serverID, default: ServerKeeps()].ask(for: track.identity, title: track.title, artist: track.artist)
         saveKept()
-        keepFollowUps[serverID]?.cancel()
-        keepFollowUps[serverID] = Task { [weak self] in
-            var waited: TimeInterval = 0
-            while waited < 20 * 60 {
-                let step: TimeInterval = waited < 5 * 60 ? 30 : 120
-                try? await Task.sleep(for: .seconds(step))
-                waited += step
-                guard !Task.isCancelled, let self, self.kept[serverID]?.isEmpty == false else { return }
-                await self.sync(serverID)
-            }
-        }
+        watchKeeps(serverID)
+    }
+
+    /// Looks for the songs asked of a Subsonic server until they arrive or their time is up.
+    /// Watching already, the new song joins it.
+    private func watchKeeps(_ serverID: String) {
+        guard subsonic[serverID] != nil, kept[serverID]?.isEmpty == false else { return }
+        let watch = keepWatches[serverID] ?? ServerKeepWatch()
+        keepWatches[serverID] = watch
+        watch.watch(
+            waiting: { [weak self] in self?.kept[serverID]?.waiting ?? [] },
+            look: { [weak self] song in
+                guard let client = await self?.subsonicClient(for: serverID) else { throw CancellationError() }
+                return try await Self.has(song, on: client, serverID: serverID)
+            },
+            arrived: { [weak self] in await self?.sync(serverID) }
+        )
+    }
+
+    private func stopWatchingKeeps(_ serverID: String) {
+        keepWatches.removeValue(forKey: serverID)?.stop()
+    }
+
+    /// Whether a server's library has a song asked of it now, by a search for its title.
+    @concurrent
+    nonisolated private static func has(_ song: ServerKeeps.Waiting, on client: SubsonicClient, serverID: String) async throws -> Bool {
+        guard let name = song.name else { return false }
+        let found = try await client.search(name.title, artists: 0, albums: 0, songs: 50).songs
+        return found.contains { $0.isExternal != true && $0.track(on: serverID).identity == song.identity }
     }
 
     /// Whether a song has been asked for and its server hasn't got it yet.
@@ -905,20 +982,27 @@ final class MusicServers {
         Task.detached { try? await client.nowPlaying(songID: songID) }
     }
 
-    /// Keeps a play to tell a Trackside server about, and sends what's waiting if it can be
-    /// reached. Kept on disk, so a play heard offline is sent once Tracks is back online.
+    /// Keeps a play to tell a server about, and sends what's waiting if it can be reached.
+    /// Kept on disk, so a play heard offline is sent once Tracks is back online, with when it
+    /// played.
     func recordListen(_ listen: ServerListen, on serverID: String) {
-        guard let connection = trackside[serverID] else { return }
+        guard let outbox = outbox(for: serverID) else { return }
         let reachable = status[serverID] == .online
         Task {
-            await connection.outbox.add(listen)
-            if reachable { await flushListens(connection) }
+            await outbox.add(listen)
+            if reachable { await flushListens(serverID) }
         }
     }
 
-    private func flushListens(_ connection: TracksideConnection) async {
-        let client = connection.client
-        _ = try? await connection.outbox.flush(to: client)
+    private func outbox(for serverID: String) -> ListenOutbox? {
+        trackside[serverID]?.outbox ?? subsonicOutboxes[serverID]
+    }
+
+    /// Sends a server the plays waiting for it. A flush already running is joined, and one
+    /// that fails leaves them for the next connect.
+    private func flushListens(_ serverID: String) async {
+        guard let outbox = outbox(for: serverID), let client = client(for: serverID) else { return }
+        _ = try? await outbox.flush(to: client)
     }
 
     /// Asks Trackside to make songs about to play ready at the profile they'll be asked for,
@@ -954,6 +1038,11 @@ final class MusicServers {
     }
 
     // MARK: - Words
+
+    /// Why an address that would send everything unencrypted over the internet isn't used.
+    static var insecureAddressReason: String {
+        String(localized: "Use an https address for a server outside your home network.")
+    }
 
     static func describe(_ error: SubsonicError) -> String {
         switch error {
@@ -991,7 +1080,7 @@ final class MusicServers {
         case .unproven:
             String(localized: "None of the server's addresses could prove it's your server, so Tracks didn't connect. Check you're on a network you trust, or pair again.")
         case .insecureAddress:
-            String(localized: "This address isn't encrypted and isn't on your home network. Use its https address.")
+            insecureAddressReason
         case .mediaTokenExpired, .conflict, .syncReset, .candidateExpired, .preconditionFailed, .invalidState, .featureUnavailable:
             String(localized: "The server couldn't answer.")
         }
@@ -1031,10 +1120,11 @@ final class MusicServers {
 
     /// Asks a server for its artists, for their pictures and ids. One request, however many.
     private func syncArtists(_ serverID: String) async {
+        let generation = syncs.generation(of: serverID)
         guard let client = subsonic[serverID], let found = try? await client.artists() else { return }
         // A big server has thousands of artists to fold and write: not on the main actor.
         let refs = await Self.artistRefs(found)
-        guard subsonic[serverID] != nil else { return }
+        guard syncs.isCurrent(serverID, generation), subsonic[serverID] != nil else { return }
         artists[serverID] = refs
         writeArtists(refs, serverID)
     }
@@ -1109,40 +1199,12 @@ final class MusicServers {
     }
 
     nonisolated private static func loadCatalog(_ serverID: String) -> [LocalTrack] {
-        guard let data = try? Data(contentsOf: catalogURL(serverID)) else { return [] }
-        return (try? JSONDecoder().decode([LocalTrack].self, from: data)) ?? []
+        StoredJSON.loadEach([LocalTrack].self, from: catalogURL(serverID)) ?? []
     }
 
     nonisolated private static func saveCatalog(_ tracks: [LocalTrack], _ serverID: String) {
         guard let data = try? JSONEncoder().encode(tracks) else { return }
         try? data.write(to: catalogURL(serverID), options: .atomic)
-    }
-
-    /// Every album's songs, a few albums at a time.
-    @concurrent
-    nonisolated private static func songsByAlbum(_ client: SubsonicClient) async throws -> [SubsonicSong] {
-        var albums: [SubsonicAlbum] = []
-        while albums.count < catalogLimit / 10 {
-            let page = try await client.albums(.alphabeticalByName, size: pageSize, offset: albums.count)
-            albums += page
-            if page.count < pageSize { break }
-        }
-        var songs: [SubsonicSong] = []
-        for batch in stride(from: 0, to: albums.count, by: 8).map({ Array(albums[$0..<min($0 + 8, albums.count)]) }) {
-            try await withThrowingTaskGroup(of: [SubsonicSong].self) { group in
-                for album in batch {
-                    // An album the server can't give is skipped; a lost connection fails the
-                    // walk, so part of the library isn't kept as all of it.
-                    group.addTask {
-                        do { return try await client.album(id: album.id).songs }
-                        catch let error as URLError { throw error }
-                        catch { return [] }
-                    }
-                }
-                for try await found in group { songs += found }
-            }
-        }
-        return songs
     }
 
     private func catalogDate(_ serverID: String) -> Date? {

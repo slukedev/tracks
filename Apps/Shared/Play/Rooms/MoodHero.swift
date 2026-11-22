@@ -4,88 +4,77 @@ import TracksCore
 struct MoodHero<Actions: View>: View {
     let mood: Mood
     let covers: [CoverArt]
-    /// Nil while the history is read, so one line doesn't give way to another as the page opens.
-    let line: String?
     let facts: String?
     @ViewBuilder var actions: Actions
 
-    #if os(iOS)
-    @ScaledMetric(relativeTo: .largeTitle) private var titleSize: CGFloat = 44
-    #endif
-
     var body: some View {
-        ArtworkHero(covers: covers, columns: Self.columns, fallback: mood.base, symbol: mood.symbol) {
+        ArtworkHero(covers: covers, color: mood.base) {
             VStack(alignment: .leading, spacing: 0) {
                 Label(String(localized: "Mood"), systemImage: mood.symbol)
-                    .font(.footnote.weight(.semibold))
-                    .textCase(.uppercase)
-                    .opacity(0.85)
+                    .eyebrowStyle()
                 Text(mood.title)
-                    .font(.system(size: titleSize, weight: .bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .padding(.top, 2)
+                    .font(.pageTitle)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .padding(.top, Design.Spacing.xxSmall)
                     .accessibilityAddTraits(.isHeader)
-                Text(line ?? " ")
-                    .font(.title3.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .opacity(line == nil ? 0 : 0.95)
-                    .animation(.easeOut(duration: 0.2), value: line)
-                    .accessibilityHidden(line == nil)
                 Text(facts ?? " ")
                     .font(.subheadline)
                     .opacity(facts == nil ? 0 : 0.75)
-                    .padding(.top, 2)
+                    .padding(.top, Design.Spacing.xxSmall)
                     .accessibilityHidden(facts == nil)
                 actions
-                    .padding(.top, 18)
+                    .padding(.top, Design.Spacing.xLarge)
             }
             .frame(maxWidth: Self.wordsWidth, alignment: .leading)
         }
     }
 
     #if os(macOS)
-    private var titleSize: CGFloat { 64 }
-    private static var columns: Int { 6 }
     private static var wordsWidth: CGFloat { 560 }
     #else
-    private static var columns: Int { 3 }
     private static var wordsWidth: CGFloat { .infinity }
     #endif
 }
 
+/// Which way to steer the mood's flow: in glass over the hero, the one chosen filled with the
+/// mood's colour. Words only; the three fit side by side, and scroll at the largest sizes.
 struct MoodLeanChips: View {
     let mood: Mood
     @Binding var lean: MoodLean?
 
     var body: some View {
-        ScrollView(.horizontal) {
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
-                    ForEach(mood.leans) { option in
-                        chip(option)
-                    }
+        ViewThatFits(in: .horizontal) {
+            chips
+            ScrollView(.horizontal) { chips }
+                .scrollIndicators(.hidden)
+                .scrollClipDisabled()
+        }
+        .font(.subheadline.weight(.semibold))
+        .buttonBorderShape(.capsule)
+        .sensoryFeedback(Design.Haptic.choice, trigger: lean)
+        .animation(Design.Motion.press, value: lean)
+    }
+
+    private var chips: some View {
+        GlassEffectContainer(spacing: Design.Spacing.small) {
+            HStack(spacing: Design.Spacing.small) {
+                ForEach(mood.leans) { option in
+                    chip(option)
                 }
             }
         }
-        .scrollIndicators(.hidden)
-        .scrollClipDisabled()
-        .font(.subheadline.weight(.semibold))
-        .buttonBorderShape(.capsule)
-        .sensoryFeedback(.selection, trigger: lean)
-        .animation(.snappy(duration: 0.2), value: lean)
     }
 
     @ViewBuilder
     private func chip(_ option: MoodLean) -> some View {
-        let label = Label(option.title, systemImage: option.symbol)
         if lean == option {
-            Button { lean = nil } label: { label }
+            Button(option.title) { lean = nil }
                 .buttonStyle(.glassProminent)
                 .tint(mood.base)
                 .accessibilityAddTraits(.isSelected)
         } else {
-            Button { lean = option } label: { label }
+            Button(option.title) { lean = option }
                 .buttonStyle(.glass)
                 .tint(nil)
         }
@@ -108,14 +97,6 @@ extension MoodLean {
         case .calmer: "Calmer"
         case .livelier: "More Upbeat"
         case .instrumental: "Less Vocal"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .calmer: "tortoise"
-        case .livelier: "hare"
-        case .instrumental: "pianokeys"
         }
     }
 }

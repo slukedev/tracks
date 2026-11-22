@@ -2,44 +2,44 @@ import SwiftUI
 import TracksCore
 
 /// A titled list of an artist's songs. Five rows on iPhone, a line between each as in Music;
-/// on the Mac two columns of compact rows, Music's Top Songs there. "See All" opens the rest.
+/// on the Mac two columns of compact rows, Music's Top Songs there. Where there are more, the
+/// title opens them all, with a chevron after it.
 struct ArtistSongsSection<Content: View, Destination: View>: View {
     let title: String
     var showsSeeAll = false
     @ViewBuilder var destination: Destination
     @ViewBuilder var content: Content
+    @State private var showsAll = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ArtistSectionTitle(title: title) {
-                if showsSeeAll {
-                    NavigationLink("See All") { destination }
-                        .buttonStyle(.borderless)
-                }
-            }
+        VStack(alignment: .leading, spacing: Design.Margin.header) {
+            SectionTitle(title: Text(title), action: showsSeeAll ? { showsAll = true } : nil)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Design.Margin.page)
             Group(subviews: content) { rows in
                 #if os(macOS)
                 LazyVGrid(
-                    columns: [GridItem(.flexible(), spacing: 24, alignment: .top), GridItem(.flexible(), alignment: .top)],
+                    columns: [GridItem(.flexible(), spacing: Design.Spacing.xxLarge, alignment: .top), GridItem(.flexible(), alignment: .top)],
                     alignment: .leading,
-                    spacing: 2
+                    spacing: Design.Spacing.xxSmall
                 ) {
                     ForEach(rows) { $0 }
                 }
-                .padding(.horizontal, PlayMetrics.margin - ArtistSongLabel.hoverInset)
+                .padding(.horizontal, Design.Margin.page - ArtistSongLabel.hoverInset)
                 #else
                 VStack(spacing: 0) {
                     ForEach(rows.indices, id: \.self) { index in
                         rows[index]
                         if index < rows.count - 1 {
-                            Divider().padding(.leading, 60)
+                            ArtistRowDivider()
                         }
                     }
                 }
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 #endif
             }
         }
+        .navigationDestination(isPresented: $showsAll) { destination }
     }
 
     /// How many rows the section shows before See All.
@@ -61,6 +61,20 @@ extension ArtistSongsSection where Destination == EmptyView {
     }
 }
 
+#if os(iOS)
+/// The line between an artist's song rows, from the title on, in the page's hairline.
+private struct ArtistRowDivider: View {
+    @Environment(\.pageTone) private var tone
+
+    var body: some View {
+        Rectangle()
+            .fill(tone?.hairlineColor ?? Color(.separator))
+            .frame(height: 1 / 3)
+            .padding(.leading, 60)
+    }
+}
+#endif
+
 /// A section's title at the page's leading edge, with something trailing it.
 struct ArtistSectionTitle<Trailing: View>: View {
     let title: String
@@ -69,7 +83,7 @@ struct ArtistSectionTitle<Trailing: View>: View {
     var body: some View {
         AdaptiveStack(verticalAlignment: .firstTextBaseline, spacing: 4) {
             Text(title)
-                .font(.title3.bold())
+                .font(.sectionTitle)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             trailing
@@ -77,7 +91,7 @@ struct ArtistSectionTitle<Trailing: View>: View {
                 .font(.subheadline)
                 #endif
         }
-        .padding(.horizontal, PlayMetrics.margin)
+        .padding(.horizontal, Design.Margin.page)
     }
 }
 
@@ -154,7 +168,7 @@ struct ArtistSongLabel: View {
         .background(.quaternary.opacity(isHovered ? 1 : 0), in: .rect(cornerRadius: 8, style: .continuous))
         .opacity(isPlayable ? 1 : 0.45)
         .contentShape(.rect)
-        .onHover { hovering in withAnimation(PlayMotion.hover) { isHovered = hovering } }
+        .onHover { hovering in withAnimation(Design.Motion.hover) { isHovered = hovering } }
         .accessibilityElement(children: .combine)
         #else
         TrackRow(title: title, subtitle: subtitle, cover: cover, plays: plays, isExplicit: isExplicit, isCurrent: isCurrent, localTrack: localTrack, isPlayable: isPlayable)
@@ -229,7 +243,8 @@ struct ArtistSongListPage<Rows: View>: View {
     }
 }
 
-/// An artist's newest album or single as a wide card: its cover, when it came out, its name.
+/// An artist's newest album or single as a wide card, Music's featured release: its cover,
+/// when it came out, its name. A surface of the page's own colour, not glass: it's content.
 struct ArtistLatestRelease<Menu: View>: View {
     let title: String
     let cover: CoverArt
@@ -237,44 +252,53 @@ struct ArtistLatestRelease<Menu: View>: View {
     var detail: String?
     let route: PlayRoute
     @ViewBuilder var menu: Menu
+    @Environment(\.pageTone) private var tone
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ArtistSectionTitle(title: String(localized: "Latest Release")) { EmptyView() }
-            NavigationLink(value: route) {
-                HStack(spacing: 16) {
-                    CoverImage(cover: cover, size: Self.coverSide)
-                    VStack(alignment: .leading, spacing: 3) {
-                        if let released {
-                            Text(released.formatted(.dateTime.month(.abbreviated).day().year()))
-                                .textCase(.uppercase)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        Text(title)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
-                        if let detail {
-                            Text(detail)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+        NavigationLink(value: route) {
+            HStack(spacing: Design.Spacing.large) {
+                CoverImage(cover: cover, size: Self.coverSide)
+                VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
+                    Text(eyebrow)
+                        .eyebrowStyle()
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    if let detail {
+                        Text(detail)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    Spacer(minLength: 0)
                 }
-                .padding(12)
-                .frame(maxWidth: Self.maximumWidth, alignment: .leading)
-                .background(Color.cardFill, in: .rect(cornerRadius: Metrics.cardRadius, style: .continuous))
-                .contentShape(.rect(cornerRadius: Metrics.cardRadius, style: .continuous))
-                .accessibilityElement(children: .combine)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.pressable)
-            .contextMenu { menu }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(Design.Spacing.medium)
+            .frame(maxWidth: Self.maximumWidth, alignment: .leading)
+            .background(fill, in: .rect(cornerRadius: Self.radius, style: .continuous))
+            .contentShape(.rect(cornerRadius: Self.radius, style: .continuous))
+            .accessibilityElement(children: .combine)
         }
+        .buttonStyle(.pressable)
+        .contextMenu { menu }
+        .padding(.horizontal, Design.Margin.page)
     }
+
+    /// "Latest Release · Oct 3, 2025", or "Out Friday, October 10" for one still to come.
+    private var eyebrow: String {
+        if let coming = CollectionFacts.release(released) { return coming }
+        guard let released else { return String(localized: "Latest Release") }
+        return String(localized: "Latest Release · \(released.formatted(.dateTime.month(.abbreviated).day().year()))")
+    }
+
+    /// A little lighter than a dark page, or darker than a light one; the card fill on a
+    /// plain page.
+    private var fill: Color {
+        tone.map { $0.primaryColor.opacity(0.08) } ?? .cardFill
+    }
+
+    private static var radius: CGFloat { Design.Card.radius - 6 }
 
     #if os(macOS)
     private static var coverSide: CGFloat { 112 }
@@ -337,9 +361,15 @@ struct ArtistPageMessage<Actions: View>: View {
     @ViewBuilder var actions: Actions
 
     var body: some View {
-        PlayStateCard(symbol: symbol, title: title, message: message) { actions }
-            .libraryStateWidth()
-            .padding(.horizontal, PlayMetrics.margin)
+        ContentUnavailableView {
+            Label(title, systemImage: symbol)
+        } description: {
+            Text(message)
+        } actions: {
+            actions
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, Design.Margin.page)
     }
 }
 
@@ -354,10 +384,10 @@ struct ArtistLoadingSections: View {
                 LoadingRows(count: 5)
                 LoadingRows(count: 5)
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
             #else
             LoadingRows(count: 5)
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
             #endif
         }
     }

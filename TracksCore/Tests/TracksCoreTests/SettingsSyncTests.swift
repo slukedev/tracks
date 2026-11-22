@@ -64,7 +64,8 @@ struct SettingsSyncTests {
     }
 
     @Test("what belongs to the device stays on it", arguments: [
-        CloudSync.enabledKey, DeviceIdentity.defaultsKey, LastFMSessionStore.usernameKey, OnboardingRecord.storageKey,
+        CloudSync.enabledKey, DeviceIdentity.defaultsKey, DeviceIdentity.keychainKey, DeviceIdentity.predecessorsKey,
+        ScrobblesInFlight.key, LastFMSessionStore.usernameKey, OnboardingRecord.storageKey,
     ])
     func deviceSettingsStayPut(key: String) throws {
         let setting = try #require(SettingsRegistry.core.setting(forKey: key))

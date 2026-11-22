@@ -43,6 +43,36 @@ private func previewEnvironment<Content: View>(_ content: Content) -> some View 
         .environment(model.lidarr)
 }
 
+/// A Play page on sample data in a stack that opens Play's pages, for previews.
+struct PlayPreviewHost<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        NavigationStack {
+            previewEnvironment(content.playDestinations())
+        }
+    }
+}
+
+#Preview("Play") {
+    PlayPreviewHost { PlayScreen() }
+}
+
+#Preview("Play, dark, AX5") {
+    PlayPreviewHost { PlayScreen() }
+        .preferredColorScheme(.dark)
+        .dynamicTypeSize(.accessibility5)
+}
+
+#Preview("Mood") {
+    PlayPreviewHost { MoodView(mood: .chill) }
+}
+
+#Preview("Mood, dark") {
+    PlayPreviewHost { MoodView(mood: .sleep) }
+        .preferredColorScheme(.dark)
+}
+
 #Preview("Album") {
     NavigationStack {
         previewEnvironment(AlbumPage(album: PreviewMusic.album()))

@@ -9,7 +9,6 @@ struct SummaryScreen: View {
     @State private var summary: StatsSummary?
     /// 0 for this week, month or year; -1 for the one before. Back to 0 when the range changes.
     @State private var periodOffset = LaunchScene.periodOffset
-    @State private var showsSettings = LaunchScene.opensSettings
     /// The paging last handed down, kept while what it allows is the same: it can't be
     /// compared, so a new one each redraw (a song starting, say) redrew every card reading it.
     @State private var pagingMemo = Memo<PagingKey?, StatsPeriodPaging?>()
@@ -21,33 +20,38 @@ struct SummaryScreen: View {
                 // Lazy, with each of the summary's sections a row of its own (see
                 // `SummaryContent`): built eagerly, a long history's charts and shelves were all
                 // laid out before the tab could show.
-                LazyVStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-                    if model.hasBanner || model.capture?.nowPlaying != nil {
-                        VStack(spacing: 12) {
-                            StoreWarningBanner()
-                            NowPlayingCard()
-                        }
-                    }
-
-                    if model.library.isLoaded, model.library.history.isEmpty {
+                LazyVStack(alignment: .leading, spacing: Design.Margin.section) {
+                    if showsWelcome {
                         WelcomeView()
-                            .padding(.top, 40)
+                            .padding(.top, Design.Spacing.xxxLarge)
                     } else {
-                        RangePicker(range: $range)
-                        if let summary {
-                            if summary.captureCount == 0 {
-                                NothingPlayedView(summary: summary)
+                        VStack(alignment: .leading, spacing: Design.Spacing.xxLarge) {
+                            RangePicker(range: $range)
+                            StatusPanels()
+                            if let summary {
+                                if summary.captureCount == 0 {
+                                    NothingPlayedView(summary: summary)
+                                } else {
+                                    ListeningHero(summary: summary)
+                                }
                             } else {
-                                SummaryContent(summary: summary)
+                                ListeningHeroPlaceholder()
                             }
+                        }
+                        if let summary, summary.captureCount > 0 {
+                            SummaryContent(summary: summary)
                         }
                     }
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 24)
+                .padding(.horizontal, Design.Margin.page)
+                .padding(.top, Design.Spacing.small)
+                .padding(.bottom, Design.Margin.section)
                 .frame(maxWidth: .infinity)
             }
-            .animation(LiveUpdate.animation(reduceMotion: reduceMotion), value: model.capture?.nowPlaying)
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            // Only Now Playing arriving or leaving moves the page, never the song inside it
+            // changing, so a new play doesn't set the whole page moving.
+            .animation(LiveUpdate.animation(reduceMotion: reduceMotion), value: model.capture?.nowPlaying != nil)
             .onChange(of: summary != nil) {
                 if let anchor = LaunchScene.scrollAnchor {
                     proxy.scrollTo(anchor, anchor: .top)
@@ -55,18 +59,13 @@ struct SummaryScreen: View {
             }
         }
         .groupedBackground()
-        .navigationTitle("Summary")
         .sourceScopeSubtitle(sources.scope)
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if sources.isOffered {
+        .tabRoot("Summary", opensSettingsAtLaunch: LaunchScene.opensSettings) {
+            if sources.isOffered {
+                ToolbarItem(placement: .primaryAction) {
                     SourceScopeMenu(scope: sources.selection)
                 }
-                Button("Settings", systemImage: "gearshape") { showsSettings = true }
             }
-        }
-        .sheet(isPresented: $showsSettings) {
-            SettingsSheet()
         }
         // Holds the model only. Capturing the whole screen would keep each summary it was
         // drawn with alive through the environment, a summary for every song.
@@ -89,15 +88,17 @@ struct SummaryScreen: View {
                 )
             }
             guard !Task.isCancelled else { return }
-            // Only new plays animate: a revision from a lookup or a sync changes nothing to watch.
-            let isLive = summary?.range == range && summary?.periodOffset == next.periodOffset
-                && summary?.captureCount != next.captureCount
-            LiveUpdate.apply(isLive: isLive, reduceMotion: reduceMotion) {
-                summary = next
-            }
+            // Without a transaction: the hero rolls its figure when the period changes, and
+            // nothing moves when a new play only adds to it.
+            summary = next
         }
         .onChange(of: range) { periodOffset = 0 }
         .environment(\.statsPaging, paging)
+    }
+
+    /// First run: the library is read and there's nothing in it.
+    private var showsWelcome: Bool {
+        model.library.isLoaded && model.library.history.isEmpty
     }
 
     /// Steps through periods from the one on show. A step waits for the summary it asked for,
@@ -132,57 +133,33 @@ struct SummaryScreen: View {
 struct SummaryContent: View {
     let summary: StatsSummary
     @Environment(AppModel.self) private var model
+    @Environment(\.openPlayRoute) private var openPlayRoute
 
     var body: some View {
         Group {
             // Hides itself once access is granted.
             MusicAccessCard()
 
-            VStack(spacing: 12) {
-                ListeningCard(summary: summary)
-                GlanceGrid(summary: summary, columns: 2)
-            }
+            GlanceGrid(summary: summary, columns: 2)
 
-            let highlights = summary.summaryHighlights
-            if !highlights.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: "Highlights") {
-                        if summary.insights.count > min(highlights.count, 3) {
-                            NavigationLink("See All", value: Route.highlights(summary.range, periodOffset: summary.periodOffset))
-                        }
-                    }
-                    EqualHeightRows(items: Array(highlights.prefix(3)), columns: 1) { insight in
-                        HighlightCard(insight: insight)
-                    }
-                }
-                .id("highlights")
-            }
+            highlights
 
             if !summary.topArtists.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: "Top Artists") {
-                        Button("See All") { showChart(.artists) }
-                    }
+                SummarySection("Top Artists", action: { showChart(.artists) }) {
                     TopArtistsShelf(artists: summary.topArtists)
                 }
                 .id("artists")
             }
 
             if !summary.topSongs.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: "Top Songs") {
-                        Button("See All") { showChart(.songs) }
-                    }
+                SummarySection("Top Songs", action: { showChart(.songs) }) {
                     TopSongsCard(songs: summary.topSongs)
                 }
                 .id("songs")
             }
 
             if !summary.topAlbums.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: "Top Albums") {
-                        Button("See All") { showChart(.albums) }
-                    }
+                SummarySection("Top Albums", action: { showChart(.albums) }) {
                     TopAlbumsShelf(albums: summary.topAlbums)
                 }
                 .id("albums")
@@ -191,23 +168,11 @@ struct SummaryContent: View {
             NewFavoritesSection(summary: summary, limit: 5)
             GenresSection(summary: summary)
 
-            VStack(alignment: .leading, spacing: 10) {
-                SectionHeader("Listening Rhythm")
-                VStack(spacing: Metrics.cardSpacing) {
+            SummarySection("Listening Rhythm") {
+                VStack(spacing: Design.Card.spacing) {
                     CardPair {
                         Card { ListeningClockCard(hourly: summary.hourly) }
-                        Card {
-                            VStack(alignment: .leading, spacing: 12) {
-                                CardLabel(title: "By Day", systemImage: "calendar")
-                                WeekdayChart(weekdays: summary.weekdays)
-                                if let busiest = summary.weekdays.max(by: { $0.count < $1.count }), busiest.count > 0 {
-                                    Text("Busiest on \(Calendar.current.weekdaySymbols[busiest.weekday - 1])s.")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                DayTypeFootnotes(summary: summary, keysWeekdayChart: true)
-                            }
-                        }
+                        Card { WeekdayCard(summary: summary) }
                     }
                     RhythmDetailsRow(summary: summary)
                 }
@@ -223,6 +188,22 @@ struct SummaryContent: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
         }
+    }
+
+    @ViewBuilder
+    private var highlights: some View {
+        let highlights = Array(summary.summaryHighlights.prefix(3))
+        if !highlights.isEmpty {
+            let hasMore = summary.insights.count > highlights.count
+            SummarySection("Highlights", action: hasMore ? { showHighlights() } : nil) {
+                HighlightsCard(insights: highlights)
+            }
+            .id("highlights")
+        }
+    }
+
+    private func showHighlights() {
+        openPlayRoute(.stats(.highlights(summary.range, periodOffset: summary.periodOffset)))
     }
 
     /// Moves to the Charts tab, which holds the full lists, rather than pushing a second copy

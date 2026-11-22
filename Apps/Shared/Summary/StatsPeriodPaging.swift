@@ -54,7 +54,7 @@ struct PeriodPager: View {
         .buttonStyle(.borderless)
         .imageScale(.small)
         .fontWeight(.semibold)
-        .animation(.snappy(duration: 0.2), value: summary.periodTitle)
+        .animation(Design.Motion.value, value: summary.periodTitle)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary.periodTitle)
         .accessibilityHint(Text("Swipe up or down to change the \(Text(summary.range.unitName))."))
@@ -145,12 +145,12 @@ struct NothingPlayedView: View {
     @Environment(\.statsPaging) private var paging
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Design.Spacing.medium) {
             if let paging {
                 PeriodPager(summary: summary, paging: paging)
             }
             ContentUnavailableView(
-                "Nothing Played \(summary.phrase)",
+                "Nothing Played",
                 systemImage: "waveform",
                 description: summary.range == .allTime
                     ? Text("Songs appear here as Tracks keeps them.")

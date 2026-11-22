@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use rustc_hash::FxHashSet;
 use tracks_mixes::radio as core;
 
-use crate::{EngineError, HistoryIndex, Result};
+use crate::{HistoryIndex, Result};
 
 /// A song in your music, or one a server found for you.
 #[derive(Debug, Clone, uniffi::Record)]
@@ -184,99 +184,118 @@ pub fn radio_record_skip(skips_json: String, identity: String, at_ms: i64) -> St
 #[derive(Debug, uniffi::Object)]
 pub struct RadioStation {
     mix: Mutex<core::LiveMix>,
+    /// The station as it was tuned, to start again from if a call ever panics partway
+    /// through changing the mix, which could leave it half changed.
+    tuned: core::LiveMix,
 }
 
 impl RadioStation {
-    fn mix(&self) -> Result<MutexGuard<'_, core::LiveMix>> {
-        self.mix.lock().map_err(|_| EngineError::Closed)
+    fn new(mix: core::LiveMix) -> Self {
+        Self {
+            tuned: mix.clone(),
+            mix: Mutex::new(mix),
+        }
+    }
+
+    fn mix(&self) -> MutexGuard<'_, core::LiveMix> {
+        self.mix.lock().unwrap_or_else(|poisoned| {
+            let mut mix = poisoned.into_inner();
+            *mix = self.tuned.clone();
+            self.mix.clear_poison();
+            mix
+        })
     }
 }
 
 #[uniffi::export]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "hosts call these as throwing; recovering from a panic inside the mix keeps that shape"
+)]
 impl RadioStation {
     pub fn is_empty(&self) -> Result<bool> {
-        Ok(self.mix()?.is_empty())
+        Ok(self.mix().is_empty())
     }
 
     /// Starts the listen from what has landed before (`habits_json`, as [`Self::habits_json`]
     /// gave it last time), opening with a probe when `probing`.
     pub fn begin(&self, habits_json: String, probing: bool, now_ms: i64) -> Result<()> {
-        self.mix()?
+        self.mix()
             .begin(&core::RadioHabits::from_json(&habits_json), probing, now_ms);
         Ok(())
     }
 
     /// The song a listen opens on.
     pub fn opener(&self) -> Result<Option<String>> {
-        Ok(self.mix()?.opener(&|_| true))
+        Ok(self.mix().opener(&|_| true))
     }
 
     /// The next song, going round again once every song has played.
     pub fn next(&self) -> Result<Option<String>> {
-        Ok(self.mix()?.next_playable(&|_| true))
+        Ok(self.mix().next_playable(&|_| true))
     }
 
     /// Takes back a pick that never played.
     pub fn release(&self, identity: String) -> Result<()> {
-        self.mix()?.release(&identity);
+        self.mix().release(&identity);
         Ok(())
     }
 
     /// Counts a song as picked without drawing it: the one a listen starts with.
     pub fn note_picked(&self, identity: String) -> Result<()> {
-        self.mix()?.note_picked(&identity);
+        self.mix().note_picked(&identity);
         Ok(())
     }
 
     pub fn note(&self, identity: String, listen: Listen) -> Result<()> {
-        self.mix()?.note(listen.into(), &identity);
+        self.mix().note(listen.into(), &identity);
         Ok(())
     }
 
     pub fn note_loved(&self, identity: String) -> Result<()> {
-        self.mix()?.note_loved(&identity);
+        self.mix().note_loved(&identity);
         Ok(())
     }
 
     pub fn note_replayed(&self, identity: String) -> Result<()> {
-        self.mix()?.note_replayed(&identity);
+        self.mix().note_replayed(&identity);
         Ok(())
     }
 
     /// Leans toward the songs that go with this one: the song a station starts from.
     pub fn lean_toward(&self, identity: String) -> Result<()> {
-        self.mix()?.lean_toward(&identity, 1.0);
+        self.mix().lean_toward(&identity, 1.0);
         Ok(())
     }
 
     pub fn reason(&self, identity: String) -> Result<Option<RadioReason>> {
-        Ok(self.mix()?.reason(&identity).map(Into::into))
+        Ok(self.mix().reason(&identity).map(Into::into))
     }
 
     pub fn steering(&self) -> Result<Option<RadioSteering>> {
-        Ok(self.mix()?.steering().map(Into::into))
+        Ok(self.mix().steering().map(Into::into))
     }
 
     pub fn has_picked(&self, identity: String) -> Result<bool> {
-        Ok(self.mix()?.has_picked(&identity))
+        Ok(self.mix().has_picked(&identity))
     }
 
     pub fn knows(&self, identity: String) -> Result<bool> {
-        Ok(self.mix()?.knows(&identity))
+        Ok(self.mix().knows(&identity))
     }
 
     pub fn is_probing(&self) -> Result<bool> {
-        Ok(self.mix()?.is_probing())
+        Ok(self.mix().is_probing())
     }
 
     pub fn new_share(&self) -> Result<f64> {
-        Ok(self.mix()?.new_share())
+        Ok(self.mix().new_share())
     }
 
     /// What has landed, this listen included, as JSON to keep for the next. None for a
     /// station that wasn't begun.
     pub fn habits_json(&self, now_ms: i64) -> Result<Option<String>> {
-        Ok(self.mix()?.habits(now_ms).map(|h| h.to_json()))
+        Ok(self.mix().habits(now_ms).map(|h| h.to_json()))
     }
 
     /// Carries the listen `earlier` was playing over to this newly tuned station.
@@ -284,8 +303,8 @@ impl RadioStation {
         if std::ptr::eq(self, earlier.as_ref()) {
             return Ok(());
         }
-        let earlier = earlier.mix()?.clone();
-        self.mix()?.continue_listen(&earlier);
+        let earlier = earlier.mix().clone();
+        self.mix().continue_listen(&earlier);
         Ok(())
     }
 }
@@ -323,9 +342,7 @@ impl HistoryIndex {
             hidden: &hidden,
         };
         let mix = core::tracks_radio(&plays, &tracks, &tuning.into(), signals, now_ms, seed);
-        Ok(Arc::new(RadioStation {
-            mix: Mutex::new(mix),
-        }))
+        Ok(Arc::new(RadioStation::new(mix)))
     }
 
     /// The genres Tracks Radio can lean into: the ones you play most, by the genres `tracks`
@@ -342,5 +359,51 @@ impl HistoryIndex {
                 .map(|p| genres.get(&p.identity).map(String::as_str)),
             limit as usize,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn station() -> Arc<RadioStation> {
+        let tracks = (0..40)
+            .map(|i| RadioTrack {
+                identity: format!("song {i}\u{1F}artist {}", i % 7),
+                title: format!("Song {i}"),
+                artist_name: format!("Artist {}", i % 7),
+                genre: Some(if i % 2 == 0 { "Pop" } else { "Jazz" }.to_owned()),
+                release_year: Some(1990 + i),
+                is_from_server: false,
+            })
+            .collect();
+        HistoryIndex::in_memory()
+            .expect("index")
+            .tracks_radio(
+                tracks,
+                RadioTuning {
+                    discovery: RadioDiscovery::Balanced,
+                    genres: Vec::new(),
+                    brings_back_old_favorites: false,
+                },
+                String::new(),
+                Vec::new(),
+                0,
+                7,
+            )
+            .expect("station")
+    }
+
+    #[test]
+    fn a_station_keeps_playing_after_a_call_panics_partway_through_the_mix() {
+        let station = station();
+        station.begin(String::new(), false, 0).expect("begin");
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _changing = station.mix.lock();
+            panic!("partway through a change");
+        }));
+
+        assert!(station.next().expect("next").is_some());
+        assert!(station.next().expect("next").is_some());
     }
 }

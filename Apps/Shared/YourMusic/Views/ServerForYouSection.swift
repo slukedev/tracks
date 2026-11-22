@@ -46,18 +46,18 @@ struct ServerForYouSection: View {
                             .lineLimit(2)
                     }
                 }
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
 
                 if let forYou {
                     if !hasStart {
                         startCard
-                            .padding(.horizontal, PlayMetrics.margin)
+                            .padding(.horizontal, Design.Margin.page)
                     } else if songs.isEmpty, !forYou.isFilling, !forYou.canGoOn {
                         Text(emptyNote)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, PlayMetrics.margin)
+                            .padding(.horizontal, Design.Margin.page)
                     } else {
                         shelf(songs, columns: columns, goesOn: goesOn)
                     }
@@ -158,21 +158,21 @@ struct ServerForYouSection: View {
     }
 
     private var startCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Design.Spacing.medium) {
             Image(systemName: "sparkles")
                 .font(.title2)
-                .foregroundStyle(.tint)
+                .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             Text("Pick a few artists you like, and \(server.name) finds songs by them and artists like them, to play straight away and add to your music.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Pick Artists") { picksArtists = true }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+                .buttonStyle(.glassProminent)
+                .controlSize(.large)
         }
-        .padding(20)
+        .padding(Design.Spacing.xLarge)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.cardFill, in: .rect(cornerRadius: Metrics.cardRadius, style: .continuous))
+        .background(Color.cardFill, in: .rect(cornerRadius: Design.Card.radius, style: .continuous))
     }
 
     /// The songs in columns, Tracks Radio first on Suggested Songs.
@@ -183,7 +183,7 @@ struct ServerForYouSection: View {
     ///     its shape.
     private func shelf(_ songs: [LocalTrack], columns: [SuggestionColumn<LocalTrack>], goesOn: Bool) -> some View {
         ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: PlayMetrics.shelfSpacing) {
+            LazyHStack(alignment: .top, spacing: Design.Shelf.spacing) {
                 if shelf == .suggested, isRadioOn, includesRadio {
                     TracksRadioTile(side: rowHeight * CGFloat(SuggestionShelfPaging.rowsPerColumn))
                 }
@@ -209,7 +209,7 @@ struct ServerForYouSection: View {
             .scrollTargetLayout()
             .animation(PlayMotion.row, value: columns.map(\.id))
         }
-        .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
+        .contentMargins(.horizontal, Design.Margin.page, for: .scrollContent)
         .scrollTargetBehavior(.viewAligned)
         .scrollIndicators(.hidden)
         // Half in view counts, so a column peeking in at the edge doesn't.

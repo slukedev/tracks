@@ -33,6 +33,9 @@ private struct QuickSourceSwitch: ViewModifier {
     @Environment(YourMusic.self) private var music
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(QuickSwitch.storageKey) private var isOn = false
+    /// Counts switches made here, for a tap of feedback on each; never the source itself,
+    /// which a Focus or Shortcuts can change too.
+    @State private var switches = 0
 
     func body(content: Content) -> some View {
         if isOn, QuickSwitch.isAvailable(music) {
@@ -53,26 +56,33 @@ private struct QuickSourceSwitch: ViewModifier {
                     }
                 }
                 #endif
-                .safeAreaInset(edge: .bottom) {
+                // A bar, so the page's scroll edge softens under it as under the tab bar.
+                .safeAreaBar(edge: .bottom) {
                     if let suggestion {
-                        SwitchSuggestion(suggestion: suggestion) { model.switchSource(to: suggestion.source) }
-                            .padding(.bottom, 8)
+                        SwitchSuggestion(suggestion: suggestion) { switchSource(to: suggestion.source) }
+                            .padding(.bottom, Design.Spacing.small)
                             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-                .animation(.snappy, value: suggestion?.source)
-                .sensoryFeedback(.success, trigger: model.musicSource)
+                .animation(Design.Motion.reduced(Design.Motion.panel, reduceMotion: reduceMotion), value: suggestion?.source)
+                .sensoryFeedback(Design.Haptic.choice, trigger: switches)
         } else {
             content
         }
     }
 
     private var picker: some View {
-        Picker("Music Source", selection: Binding(get: { model.musicSource }, set: { model.switchSource(to: $0) })) {
+        Picker("Music Source", selection: Binding(get: { model.musicSource }, set: switchSource(to:))) {
             ForEach(MusicSource.allCases) { source in
                 Label(source.title, systemImage: source.symbol).tag(source)
             }
         }
+    }
+
+    private func switchSource(to source: MusicSource) {
+        guard source != model.musicSource else { return }
+        switches += 1
+        model.switchSource(to: source)
     }
 
     /// The other source, when it'd play where this one can't.
@@ -147,8 +157,9 @@ private struct SwitchSuggestion: View {
                         .font(.subheadline.weight(.semibold))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Design.Spacing.large)
+            .padding(.vertical, Design.Spacing.small)
+            .frame(minHeight: Design.Control.minimumTarget)
             .glassEffect(.regular.interactive(), in: .capsule)
         }
         .buttonStyle(.plain)

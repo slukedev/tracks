@@ -97,8 +97,10 @@ nonisolated final class ArtworkImages: Sendable {
         await Self.data(for: url) != nil
     }
 
+    /// Both hold a paired Trackside server's self-signed addresses to their fingerprints.
+    private static let session = TracksideMediaTrust.shared.session()
     /// For covers whose addresses shouldn't be kept: nothing goes in the URL cache.
-    private static let privateSession = URLSession(configuration: .ephemeral)
+    private static let privateSession = TracksideMediaTrust.shared.session(configuration: .ephemeral)
 
     @concurrent
     private static func fetch(_ key: Key) async -> CGImage? {
@@ -113,7 +115,7 @@ nonisolated final class ArtworkImages: Sendable {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
-    /// A cover's file. The shared session's URL cache keeps it, so it isn't downloaded again
+    /// A cover's file. The URL cache keeps it, so it isn't downloaded again
     /// after it falls out of memory. A music server's cover can't go there, as its address
     /// carries a sign-in token that mustn't be written to disk, so it's kept in a folder of its
     /// own under a name made from the address without it: a server that looks covers up
@@ -122,7 +124,7 @@ nonisolated final class ArtworkImages: Sendable {
     /// cover fetched at home is there away from it.
     private static func data(for url: URL) async -> Data? {
         guard ServerCoverAddress.isServerCover(url) else {
-            return await download(url, with: .shared)
+            return await download(url, with: session)
         }
         let isTrackside = ServerCoverAddress.isTracksideArt(url)
         let name = savedName(for: url)

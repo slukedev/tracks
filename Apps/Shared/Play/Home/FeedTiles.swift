@@ -1,4 +1,5 @@
 import SwiftUI
+import MusicKit
 import TracksCore
 
 /// A mix on the shelf: its covers, its name and why. On the Mac the pointer brings up
@@ -12,6 +13,7 @@ struct MixTile: View {
         NavigationLink(value: PlayRoute.mix(mix.id)) {
             TileLabel(title: mix.kind.title, subtitle: mix.kind.tileLine) { side in
                 MixCover(mix: mix, size: side)
+                    .zoomSource(id: mix.id)
             }
         }
         .buttonStyle(.pressable)
@@ -71,7 +73,7 @@ private struct FeedLinkTile: View {
         NavigationLink(value: route) {
             TileLabel(title: item.title, subtitle: item.subtitle) { side in
                 CoverImage(cover: item.cover, size: side)
-                    .albumZoomSource(route)
+                    .zoomSource(id: item.zoomID)
             }
         }
         .buttonStyle(.pressable)
@@ -112,15 +114,18 @@ private struct StationTile: View {
                 CoverImage(cover: item.cover, size: side)
                     .overlay(alignment: .topLeading) {
                         if item.isLive {
-                            LiveBadge().padding(8)
+                            LiveBadge().padding(Design.Spacing.small)
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {
-                        if isPlayingThis {
-                            NowPlayingBadge().padding(8)
-                        } else {
-                            PlayStartingBadge(isStarting: isStarting).padding(8)
+                        Group {
+                            if isPlayingThis {
+                                NowPlayingBadge()
+                            } else {
+                                PlayStartingBadge(isStarting: isStarting)
+                            }
                         }
+                        .padding(Design.Spacing.small)
                     }
             }
         }
@@ -146,6 +151,15 @@ extension FeedItem {
         case .album(let album): album.url
         case .playlist(let playlist): playlist.url
         case .demoStation: nil
+        }
+    }
+
+    /// What the cover zooms into the page it opens by: the album's or playlist's id.
+    var zoomID: MusicItemID? {
+        switch content {
+        case .album(let album): album.id
+        case .playlist(let playlist): playlist.id
+        case .station, .demoStation: nil
         }
     }
 
@@ -196,15 +210,16 @@ struct FeedItemMenu: View {
     }
 }
 
-/// Bars that move while this is what's playing, as on Music's covers.
+/// Bars that move while this is what's playing, in a small circle of glass in the cover's
+/// corner, where Play sits on other tiles.
 struct NowPlayingBadge: View {
     @Environment(PlayerModel.self) private var player
 
     var body: some View {
-        PlayingWaveform(isActive: player.isPlaying, color: .white)
+        PlayingWaveform(isActive: player.isPlaying, color: .primary)
             .font(.caption.weight(.bold))
-            .frame(width: 26, height: 26)
-            .background(.black.opacity(0.45), in: .circle)
+            .frame(width: Design.Control.coverButton, height: Design.Control.coverButton)
+            .glassEffect(.regular, in: .circle)
             .accessibilityLabel("Now Playing")
     }
 }
@@ -243,13 +258,13 @@ private struct TileHover<Menu: View>: ViewModifier {
                                 Spacer(minLength: 0)
                                 LibraryHoverMoreButton { menu }
                             }
-                            .padding(10)
+                            .padding(Design.Spacing.medium)
                         }
                         .transition(.opacity)
                 }
             }
             .onHover { hovering in
-                withAnimation(PlayMotion.hover) { isHovered = hovering && isEnabled }
+                withAnimation(Design.Motion.hover) { isHovered = hovering && isEnabled }
             }
     }
 }

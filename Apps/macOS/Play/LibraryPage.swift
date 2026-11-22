@@ -160,7 +160,7 @@ struct LibrarySearchResults: View {
         if isEmpty {
             if isLoading {
                 LoadingRows(count: 8)
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .background(.background)
             } else if songs.phase == .failed {

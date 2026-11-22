@@ -36,6 +36,7 @@ struct AboutArtistSection: View {
     let about: ArtistAbout
     /// When you first played them, from the history. Nil for an artist new to you.
     var firstHeard: Date?
+    @Environment(\.pageTone) private var tone
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -51,9 +52,14 @@ struct AboutArtistSection: View {
             }
             .padding(Self.padding)
             .frame(maxWidth: Self.maximumWidth, alignment: .leading)
-            .background(Color.cardFill, in: .rect(cornerRadius: Metrics.cardRadius, style: .continuous))
-            .padding(.horizontal, PlayMetrics.margin)
+            .background(cardFill, in: .rect(cornerRadius: Design.Card.radius, style: .continuous))
+            .padding(.horizontal, Design.Margin.page)
         }
+    }
+
+    /// A shade of the page where it wears the picture's colour, not the system's grey panel.
+    private var cardFill: Color {
+        tone?.hairlineColor ?? .cardFill
     }
 
     private var facts: [AboutFacts.Fact] {

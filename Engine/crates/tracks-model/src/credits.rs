@@ -799,4 +799,90 @@ mod tests {
             prop_assert!(may_credit_several(&artist, &title));
         }
     }
+
+    /// Text from all of Unicode, weighted toward what breaks byte slicing and folding:
+    /// combining marks on their own, joined emoji, right-to-left marks, letters that change
+    /// length when folded, and every separator the credit parser cuts at.
+    fn awkward_text() -> impl Strategy<Value = String> {
+        let tricky = prop::sample::select(vec![
+            "\u{301}",
+            "\u{308}\u{301}",
+            "\u{200D}",
+            "👩\u{200D}👩\u{200D}👧",
+            "\u{200F}",
+            "\u{202E}",
+            "\u{FEFF}",
+            "\u{A0}",
+            "\u{3000}",
+            "İ",
+            "ß",
+            "ﬃ",
+            "Ⱥ",
+            "ǅ",
+            "ΐ",
+            "ᾳ",
+            "ﷺ",
+            "𝔄",
+            " & ",
+            " and ",
+            ", ",
+            " x ",
+            " × ",
+            " / ",
+            "; ",
+            " feat. ",
+            "(feat. ",
+            " ft ",
+            " with ",
+            "(",
+            ")",
+            "[",
+            "]",
+            "the ",
+            " ",
+            "\n",
+            "\t",
+            "\u{0}",
+        ]);
+        let piece = prop_oneof![
+            3 => tricky.prop_map(str::to_owned),
+            2 => any::<char>().prop_map(String::from),
+            1 => "[a-zA-Z]{1,8}",
+        ];
+        prop_oneof![
+            prop::collection::vec(piece, 0..24).prop_map(|parts| parts.concat()),
+            any::<String>(),
+            prop::collection::vec(any::<char>(), 0..4_000).prop_map(String::from_iter),
+        ]
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        // Each of these runs on every song title and artist the app ever sees, and the Swift
+        // bindings for the ones that can't fail abort the app on a panic.
+        #[test]
+        fn names_from_anywhere_in_unicode_never_panic(
+            artist in awkward_text(),
+            title in awkward_text(),
+            catalog in prop::collection::vec(awkward_text(), 0..4),
+        ) {
+            let _ = credits_by_name(&artist, &title);
+            let _ = credits_by_name_with_roles(&artist, &title);
+            let _ = credits_with_catalog(&artist, &title, &catalog);
+            let _ = may_credit_several(&artist, &title);
+            let _ = lead(&artist);
+            let _ = crate::folded(&artist);
+            let _ = crate::search_folded(&title);
+            let _ = crate::song_key(&title, &artist);
+            let _ = crate::album_key(&title, &artist);
+            let _ = crate::is_near(&title, &artist);
+        }
+
+        #[test]
+        fn folding_is_settled_after_one_pass(name in awkward_text()) {
+            let once = crate::folded(&name);
+            prop_assert_eq!(crate::folded(&once), once);
+        }
+    }
 }

@@ -1575,24 +1575,38 @@ impl LiveMix {
     }
 }
 
-/// One of `items`, as likely as its weight. None when none has any.
+/// One of `items`, as likely as its weight. None when none has any. A weight that isn't a
+/// positive, finite number counts as none, so one bad score can't skew or break the draw.
 fn pick_weighted<'a>(
     random: &mut SeededRandom,
     items: &[&'a str],
     weights: &[f64],
 ) -> Option<&'a str> {
-    let total: f64 = weights.iter().sum();
-    if total <= 0.0 {
+    let usable = |weight: f64| {
+        if weight.is_finite() && weight > 0.0 {
+            weight
+        } else {
+            0.0
+        }
+    };
+    let weighted = || {
+        items
+            .iter()
+            .zip(weights)
+            .map(|(&item, &w)| (item, usable(w)))
+    };
+    let total: f64 = weighted().map(|(_, w)| w).sum();
+    if !total.is_finite() || total <= 0.0 {
         return None;
     }
     let mut target = random.unit() * total;
-    for (item, weight) in items.iter().zip(weights) {
+    for (item, weight) in weighted() {
         target -= weight;
         if target < 0.0 {
             return Some(item);
         }
     }
-    weights.iter().rposition(|&w| w > 0.0).map(|i| items[i])
+    weighted().rfind(|&(_, w)| w > 0.0).map(|(item, _)| item)
 }
 
 fn fade(values: &mut FxHashMap<String, f64>) {
@@ -1618,4 +1632,41 @@ fn shares(candidates: &[Candidate]) -> FxHashMap<String, f64> {
         }
     }
     shares
+}
+
+#[cfg(test)]
+mod weighted_tests {
+    use super::*;
+
+    #[test]
+    fn a_weight_that_is_not_a_positive_number_is_never_picked() {
+        let items = ["nan", "inf", "negative", "real"];
+        let weights = [f64::NAN, f64::INFINITY, -3.0, 1.0];
+        let mut random = SeededRandom::new(11);
+        for _ in 0..200 {
+            assert_eq!(pick_weighted(&mut random, &items, &weights), Some("real"));
+        }
+    }
+
+    #[test]
+    fn more_weights_than_items_only_ever_picks_an_item() {
+        let items = ["only"];
+        let weights = [0.0, 5.0, 5.0];
+        let mut random = SeededRandom::new(3);
+        assert_eq!(pick_weighted(&mut random, &items, &weights), None);
+    }
+
+    #[test]
+    fn nothing_usable_picks_nothing() {
+        let mut random = SeededRandom::new(5);
+        assert_eq!(
+            pick_weighted(&mut random, &["a", "b"], &[f64::NAN, 0.0]),
+            None
+        );
+        assert_eq!(pick_weighted(&mut random, &[], &[]), None);
+        assert_eq!(
+            pick_weighted(&mut random, &["a", "b"], &[f64::MAX, f64::MAX]),
+            None
+        );
+    }
 }

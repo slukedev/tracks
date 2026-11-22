@@ -26,13 +26,11 @@ struct ArtistPage: View {
             shuffle: topSongs.isEmpty ? nil : { player.play(.songs(topSongs), from: context, shuffled: true) },
             // Apple Music's stations don't play from your own music.
             station: model.musicSource == .appleMusic ? { player.playStation(from: artist) } : nil,
+            share: artist.url,
             // Once the page has loaded, so it arrives with the sections above it.
             about: loaded.flatMap(ArtistAbout.init)
         ) {
             AddToLidarrButton(artistName: artist.name)
-            if let url = artist.url {
-                ShareLink(item: url) { Label("Share Artist", systemImage: "square.and.arrow.up") }
-            }
         } sections: {
             if loadFailed {
                 ArtistPageMessage(
@@ -41,14 +39,11 @@ struct ArtistPage: View {
                     message: String(localized: "Apple Music didn't answer. Check your connection, then try again.")
                 ) {
                     Button("Try Again") { Task { await load() } }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                 }
             } else if loaded == nil {
                 ArtistLoadingSections()
             } else {
-                if !topSongs.isEmpty {
-                    songs(topSongs, artist: artist.name, context: context)
-                }
                 if let latest = artist.latestRelease {
                     ArtistLatestRelease(
                         title: latest.title,
@@ -59,6 +54,9 @@ struct ArtistPage: View {
                     ) {
                         FeedItemMenu(item: FeedItem(album: latest))
                     }
+                }
+                if !topSongs.isEmpty {
+                    songs(topSongs, artist: artist.name, context: context)
                 }
                 let albums = PlayPreferences.versions(of: Array(artist.fullAlbums ?? artist.albums ?? []), allowsExplicit: allowsExplicit)
                 if !albums.isEmpty {

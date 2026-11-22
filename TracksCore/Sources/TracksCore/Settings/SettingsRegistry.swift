@@ -75,6 +75,9 @@ extension SettingsRegistry {
         // This device
         .thisDevice(CloudSync.enabledKey),
         .thisDevice(DeviceIdentity.defaultsKey),
+        .thisDevice(DeviceIdentity.keychainKey),
+        .thisDevice(DeviceIdentity.predecessorsKey),
+        .thisDevice(ScrobblesInFlight.key),
         .thisDevice(CaptureSettings.artworkMissesKey),
         .thisDevice(OnboardingRecord.storageKey),
     ])

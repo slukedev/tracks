@@ -99,8 +99,8 @@ final class Downloads {
 
     init(servers: MusicServers) {
         self.servers = servers
-        items = Self.load(Self.recordURL) ?? [:]
-        pending = Self.load(Self.pendingURL) ?? [:]
+        items = StoredJSON.loadEach([String: Item].self, from: Self.recordURL) ?? [:]
+        pending = StoredJSON.loadEach([String: Pending].self, from: Self.pendingURL) ?? [:]
         // Files deleted behind Tracks’ back aren't downloaded any more.
         items = items.filter { FileManager.default.fileExists(atPath: Self.fileURL($0.value.fileName).path(percentEncoded: false)) }
         delegate.owner = self
@@ -161,10 +161,14 @@ final class Downloads {
         let allowsCellular = Self.allowsCellular
         let bitRate = StreamQuality.download.maxBitRate
         for track in tracks {
-            guard case .server(let serverID, let songID) = track.origin,
-                  var request = await servers.downloadRequest(serverID: serverID, songID: songID, maxBitRate: bitRate)
-            else {
+            guard case .server(let serverID, let songID) = track.origin else {
                 progress[track.id] = nil
+                continue
+            }
+            guard var request = await servers.downloadRequest(serverID: serverID, songID: songID, maxBitRate: bitRate) else {
+                // No address of its server could prove it's the server, or it's gone.
+                progress[track.id] = nil
+                failures[track.id] = String(localized: "Your server didn’t answer. Check that it’s running, then try again.")
                 continue
             }
             request.allowsCellularAccess = allowsCellular
@@ -411,11 +415,6 @@ final class Downloads {
         return String(safe) + "-" + attempt.prefix(8) + "." + (suffix.isEmpty ? "audio" : suffix)
     }
 
-    private static func load<Value: Decodable>(_ url: URL) -> Value? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(Value.self, from: data)
-    }
-
     private static func save<Value: Encodable>(_ value: Value, to url: URL) {
         guard let data = try? JSONEncoder().encode(value) else { return }
         try? data.write(to: url, options: .atomic)
@@ -496,6 +495,18 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
         Task { @MainActor in
             self.owner?.didFinish(id, attempt: attempt, fileName: nil, bytes: 0, outcome: .failed(reason))
         }
+    }
+
+    /// A Trackside server's self-signed address is proven by its fingerprint, as its own
+    /// requests are; every other address gets the system's checks.
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let (disposition, credential) = TracksideMediaTrust.shared.answer(challenge)
+        completionHandler(disposition, credential)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let (disposition, credential) = TracksideMediaTrust.shared.answer(challenge)
+        completionHandler(disposition, credential)
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

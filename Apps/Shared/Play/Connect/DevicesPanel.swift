@@ -68,7 +68,7 @@ struct DevicesPanel: View {
             } header: {
                 Text("Play On")
             } footer: {
-                Text(footer)
+                if let footer { Text(footer) }
             }
             if !model.nearby.away.isEmpty {
                 Section("Recently Seen") {
@@ -87,10 +87,10 @@ struct DevicesPanel: View {
         .listSectionSpacing(.compact)
         // The card sits right under the bar, as Music's AirPlay sheet starts on its song.
         .contentMargins(.top, 8, for: .scrollContent)
-        .animation(reduceMotion ? nil : .snappy, value: model.nearby.devices.map(\.id))
-        .animation(reduceMotion ? nil : .snappy, value: model.musicLocation)
-        .animation(reduceMotion ? nil : .snappy, value: showsRoute)
-        .sensoryFeedback(.success, trigger: moves)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: model.nearby.devices.map(\.id))
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: model.musicLocation)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: showsRoute)
+        .sensoryFeedback(Design.Haptic.done, trigger: moves)
         .onAppear { routes.start() }
         .onDisappear { routes.stop() }
     }
@@ -131,11 +131,13 @@ struct DevicesPanel: View {
                     awayRows
                 }
             }
-            Text(footer)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 6)
+            if let footer {
+                Text(footer)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 6)
+            }
             Divider()
                 .padding(.horizontal, 6)
             Button {
@@ -152,11 +154,11 @@ struct DevicesPanel: View {
             .buttonStyle(.plain)
         }
         .padding(14)
-        .animation(reduceMotion ? nil : .snappy, value: model.nearby.devices.map(\.id))
-        .animation(reduceMotion ? nil : .snappy, value: model.musicLocation)
-        .animation(reduceMotion ? nil : .snappy, value: shownSpeakers)
-        .animation(reduceMotion ? nil : .snappy, value: showsOutput)
-        .animation(reduceMotion ? nil : .snappy, value: showsAutomationNotice)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: model.nearby.devices.map(\.id))
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: model.musicLocation)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: shownSpeakers)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: showsOutput)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: showsAutomationNotice)
         .task { await musicSpeakers.follow() }
         .onAppear { output.start() }
         .onDisappear { output.stop() }
@@ -333,12 +335,9 @@ struct DevicesPanel: View {
         return state.isPlaying ? song : String(localized: "Paused · \(song)")
     }
 
-    private var footer: String {
-        if model.nearby.devices.isEmpty {
-            String(localized: "Open Tracks on your other devices to see them here.")
-        } else {
-            String(localized: "Choose a device to move the music there.")
-        }
+    /// Only while there's nobody else to show: once there is, the rows say it.
+    private var footer: String? {
+        model.nearby.devices.isEmpty ? String(localized: "Open Tracks on your other devices to see them here.") : nil
     }
 
     // MARK: - Choosing

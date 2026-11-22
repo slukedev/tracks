@@ -8,12 +8,16 @@ struct RemoteTransport: View {
     let device: NearbyDevices.Device
     let state: NearbyState
     var size = Size.compact
+    /// Off in the mini player, which has Play and Next only, as Music's does.
+    var showsPrevious = true
     @Environment(AppModel.self) private var model
 
     var body: some View {
         HStack(spacing: size == .large ? 26 : 8) {
-            button("Previous", "backward.fill", .previous, diameter: small)
-                .disabled(!state.canSkipBack)
+            if showsPrevious {
+                button("Previous", "backward.fill", .previous, diameter: small)
+                    .disabled(!state.canSkipBack)
+            }
             button(state.isPlaying ? "Pause" : "Play", state.isPlaying ? "pause.fill" : "play.fill", state.isPlaying ? .pause : .play, diameter: big)
             button("Next", "forward.fill", .next, diameter: small)
                 .disabled(!state.canSkipForward)

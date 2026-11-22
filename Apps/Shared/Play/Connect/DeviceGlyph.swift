@@ -17,7 +17,7 @@ struct DeviceGlyph: View {
             .foregroundStyle(isCurrent ? AnyShapeStyle(.white) : isAway ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             .frame(width: side, height: side)
             .background(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.fill.tertiary), in: .circle)
-            .animation(.snappy(duration: 0.25), value: isCurrent)
+            .animation(Design.Motion.value, value: isCurrent)
             .accessibilityHidden(true)
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftData
 
 /// The SwiftData container in the App Group. The app, widgets and Live Activity read it,
@@ -12,6 +13,16 @@ public final class TracksStore {
     /// Why sync didn't start when it was asked to. Nil when sync is off or working.
     /// Shown in settings, since an unreachable container otherwise looks like an idle device.
     public let syncFailureReason: String?
+
+    /// Where this run keeps its plays while the library on disk can't be opened, so they
+    /// reach the library the next time it opens. Nil whenever the library is open.
+    let unsavedPlays: UnsavedPlays?
+    private var unsavedPlaysObserver: (any NSObjectProtocol)?
+
+    /// Whether the library on disk couldn't be opened, so this run keeps what's played in
+    /// memory and aside in a file of its own, and saves it to the library on a later launch
+    /// that can open it. See ``libraryOpensNow()``.
+    public var isLibraryUnavailable: Bool { unsavedPlays != nil }
 
     public enum Backing: Sendable, Equatable, CustomStringConvertible {
         case appGroup(String, synced: Bool)
@@ -50,7 +61,7 @@ public final class TracksStore {
 
     /// The current schema. Always open a container through ``makeContainer(_:)`` so the
     /// migration plan comes with it.
-    public static let schema = Schema(versionedSchema: TracksSchemaV2.self)
+    public nonisolated static let schema = Schema(versionedSchema: TracksSchemaV2.self)
 
     /// Opens the shared container, falling back to in-memory if that fails.
     ///
@@ -81,7 +92,8 @@ public final class TracksStore {
                     )
                     backing = .appGroup(identifier, synced: true)
                     syncFailureReason = nil
-                    if !readOnly { stampLegacyCaptures() }
+                    unsavedPlays = nil
+                    if !readOnly { didOpenLibrary() }
                     return
                 } catch {
                     // Sync can fail for ordinary reasons (no iCloud account, a container
@@ -96,13 +108,18 @@ public final class TracksStore {
                 self.container = container
                 backing = .appGroup(identifier, synced: false)
                 syncFailureReason = pendingSyncFailure
-                if !readOnly { stampLegacyCaptures() }
+                unsavedPlays = nil
+                if !readOnly { didOpenLibrary() }
                 return
             } catch {
-                // Fall back to in-memory, keeping the reason for the probe.
+                // Fall back to in-memory, keeping the reason for the probe. A full disk, a
+                // file another process holds or a migration that fails would otherwise lose
+                // every play of the run at quit, so they're kept aside too.
                 container = try Self.inMemoryContainer()
                 backing = .inMemory(reason: "App Group \(identifier) not writable: \(error.localizedDescription)")
                 syncFailureReason = pendingSyncFailure
+                unsavedPlays = readOnly ? nil : .standard
+                if let unsavedPlays { keepPlaysAside(in: unsavedPlays) }
                 return
             }
         }
@@ -112,6 +129,38 @@ public final class TracksStore {
             reason: inMemory ? "requested" : "no App Group configured"
         )
         syncFailureReason = nil
+        unsavedPlays = nil
+    }
+
+    /// What a writable open of the library does first.
+    private func didOpenLibrary() {
+        stampLegacyCaptures()
+        Task { [writer] in _ = await writer.saveUnsavedPlays(from: .standard) }
+    }
+
+    /// Restores what earlier runs kept aside, so this one shows and keeps it too, then keeps
+    /// the history aside again after every save.
+    private func keepPlaysAside(in unsavedPlays: UnsavedPlays) {
+        unsavedPlays.restore(into: container)
+        let keeper = UnsavedPlays.Keeper(unsavedPlays, container: container)
+        unsavedPlaysObserver = NotificationCenter.default.addObserver(
+            forName: ModelContext.didSave, object: nil, queue: nil
+        ) { _ in
+            Task { await keeper.keep() }
+        }
+    }
+
+    /// Tries the library on disk again, for a run that couldn't open it. True when it opens
+    /// now, so the next launch will save what this run kept aside; this run carries on in
+    /// memory, since everything holding the store would have to start over.
+    public func libraryOpensNow() async -> Bool {
+        guard isLibraryUnavailable, let identifier = AppGroup.identifier else { return false }
+        return await Self.opens(group: identifier)
+    }
+
+    @concurrent
+    private nonisolated static func opens(group identifier: String) async -> Bool {
+        (try? open(group: identifier, readOnly: false, cloud: .none)) != nil
     }
 
     /// An in-memory container that never talks to iCloud.
@@ -119,7 +168,7 @@ public final class TracksStore {
     /// `cloudKitDatabase` must be `.none`. The default, `.automatic`, syncs even an in-memory
     /// store, which once pulled real history into the demo store and could have pushed demo
     /// plays into the real one.
-    static func inMemoryContainer() throws -> ModelContainer {
+    nonisolated static func inMemoryContainer() throws -> ModelContainer {
         let configuration = ModelConfiguration(
             schema: Self.schema,
             isStoredInMemoryOnly: true,
@@ -134,7 +183,7 @@ public final class TracksStore {
     ///
     /// The one place a container is made, so the app, the widget's read-only open, the demo
     /// store and tests all migrate the same way.
-    static func makeContainer(_ configuration: ModelConfiguration) throws -> ModelContainer {
+    nonisolated static func makeContainer(_ configuration: ModelConfiguration) throws -> ModelContainer {
         try ModelContainer(
             for: Self.schema,
             migrationPlan: TracksMigrationPlan.self,
@@ -142,7 +191,7 @@ public final class TracksStore {
         )
     }
 
-    private static func open(
+    private nonisolated static func open(
         group identifier: String,
         readOnly: Bool,
         cloud: ModelConfiguration.CloudKitDatabase
@@ -362,7 +411,10 @@ public final class TracksStore {
     /// Without this, the last session stays open after the music stops.
     ///
     /// Another device's session is left alone: its lack of activity *here* says nothing,
-    /// since that device extends it, not this one.
+    /// since that device extends it, not this one. The exception is a device this one was
+    /// restored or migrated from (``DeviceIdentity/predecessors``), which may never run
+    /// again: its sessions close once they've been quiet for
+    /// ``DeviceIdentity/predecessorDelay``, longer than any real silence.
     ///
     /// Done by ``writer``, off the main actor.
     /// - Returns: how many were closed.
@@ -370,20 +422,29 @@ public final class TracksStore {
     public func closeStaleSessions(
         policy: SessionPolicy = .default,
         now: Date = .now,
-        deviceID: String = DeviceIdentity.current
+        deviceID: String = DeviceIdentity.current,
+        predecessors: [String] = DeviceIdentity.predecessors
     ) async throws -> Int {
-        try await writer.closeStaleSessions(policy: policy, now: now, deviceID: deviceID)
+        try await writer.closeStaleSessions(policy: policy, now: now, deviceID: deviceID, predecessors: predecessors)
     }
 
-    /// ``closeStaleSessions(policy:now:deviceID:)`` on any context. Doesn't save.
+    /// ``closeStaleSessions(policy:now:deviceID:predecessors:)`` on any context. Doesn't save.
     nonisolated static func closeStaleSessions(
         in context: ModelContext,
         policy: SessionPolicy,
         now: Date,
-        deviceID: String
+        deviceID: String,
+        predecessors: [String] = []
     ) throws -> [Session] {
         let open = try context.fetch(openSessions(deviceID: deviceID))
-        let stale = open.filter { now.timeIntervalSince($0.lastActivityAt) >= policy.silenceTimeout }
+        var stale = open.filter { now.timeIntervalSince($0.lastActivityAt) >= policy.silenceTimeout }
+        let others: [String?] = predecessors.filter { $0 != deviceID }
+        if !others.isEmpty {
+            let quietSince = now.addingTimeInterval(-max(policy.silenceTimeout, DeviceIdentity.predecessorDelay))
+            stale += try context.fetch(FetchDescriptor<Session>(predicate: #Predicate {
+                $0.endedAt == nil && $0.lastActivityAt <= quietSince && others.contains($0.deviceID)
+            }))
+        }
         for session in stale { session.endedAt = session.lastActivityAt }
         return stale
     }
@@ -525,16 +586,23 @@ public final class TracksStore {
     /// Rows still owed a playlist write, oldest first, skipping ones that failed too often.
     ///
     /// Only this device's rows. A row synced from the iPhone may still have
-    /// `needsPlaylistWrite` set, and writing it here too would add the song twice.
+    /// `needsPlaylistWrite` set, and writing it here too would add the song twice. Rows of a
+    /// device this one was restored or migrated from (``DeviceIdentity/predecessors``) are
+    /// written here once they were captured before `predecessorsBefore`, so a phone that was
+    /// replaced doesn't leave its radio songs out of the playlist for good.
     public nonisolated static func pendingPlaylistWrites(
-        deviceID: String = DeviceIdentity.current
+        deviceID: String = DeviceIdentity.current,
+        predecessors: [String] = [],
+        predecessorsBefore cutoff: Date = .distantPast
     ) -> FetchDescriptor<Capture> {
         let maxAttempts = maxPlaylistWriteAttempts
+        let others = predecessors.filter { $0 != deviceID }
         return FetchDescriptor<Capture>(
             predicate: #Predicate {
                 $0.needsPlaylistWrite
                     && $0.playlistWriteAttempts < maxAttempts
-                    && $0.capturedByDeviceID == deviceID
+                    && ($0.capturedByDeviceID == deviceID
+                        || ($0.capturedAt < cutoff && others.contains($0.capturedByDeviceID)))
             },
             sortBy: [SortDescriptor(\.capturedAt, order: .forward)]
         )
@@ -589,8 +657,9 @@ public final class TracksStore {
         for scrobble in new {
             let capture = Capture(
                 songID: "",
-                // The same shape as a Mac capture's key, which has no catalog ID either.
-                songKey: "\(scrobble.title)\u{1F}\(scrobble.artistName)",
+                // The key a Mac capture gets (``CaptureCoordinator/metadataKey(for:)``), which
+                // has no catalog ID either, so the dedupe check finds one from the other.
+                songKey: "\(scrobble.title)\u{1F}\(scrobble.artistName)".lowercased(),
                 title: scrobble.title,
                 artistName: scrobble.artistName,
                 albumTitle: scrobble.albumTitle,
@@ -1004,14 +1073,28 @@ public final class TracksStore {
     }
 
     /// Forgets the given covers wherever they appear, leaving the rows for the backfill to
-    /// fill in again.
+    /// fill in again. Done by ``writer``, so it saves only what it changes.
     ///
     /// - Returns: how many rows were cleared, which is usually more than `urls.count` since
     ///   an album's songs share a cover.
     @discardableResult
+    public func clearArtworkInBackground(urls: Set<String>) async throws -> Int {
+        try await writer.clearArtwork(urls: urls)
+    }
+
+    /// ``clearArtworkInBackground(urls:)`` on the main context, saving it along with anything
+    /// else the main context has changed. The app clears through the writer.
+    @discardableResult
     public func clearArtwork(urls: Set<String>) throws -> Int {
-        guard !urls.isEmpty else { return 0 }
-        // Only the rows with these covers, a few hundred addresses per query.
+        let rows = try Self.capturesWithArtwork(in: urls, context: context)
+        guard !rows.isEmpty else { return 0 }
+        for row in rows { row.artworkURL = nil }
+        try context.save()
+        return rows.count
+    }
+
+    /// The rows showing any of these covers, a few hundred addresses per query.
+    nonisolated static func capturesWithArtwork(in urls: Set<String>, context: ModelContext) throws -> [Capture] {
         let all = Array(urls)
         var rows: [Capture] = []
         for start in stride(from: 0, to: all.count, by: 500) {
@@ -1026,10 +1109,7 @@ public final class TracksStore {
                 }
             ))
         }
-        guard !rows.isEmpty else { return 0 }
-        for row in rows { row.artworkURL = nil }
-        try context.save()
-        return rows.count
+        return rows
     }
 
     /// Case- and accent-insensitive station name.
@@ -1066,21 +1146,176 @@ public final class TracksStore {
         descriptor.fetchLimit = limit
         return descriptor
     }
+}
 
-    // MARK: - Retention
+/// Plays kept in a file of their own while the library on disk can't be opened, so a run on
+/// the in-memory fallback doesn't lose them at quit.
+///
+/// Each save of the fallback store writes its whole history here (only the plays since the
+/// library became unavailable, so it stays small). A later run that falls back again starts
+/// from them, and the first run that opens the library saves them into it and lets the file
+/// go. Sessions aren't kept: plays are what can't be got back.
+struct UnsavedPlays: Sendable {
+    let file: URL
 
-    /// Trims on-demand rows.
-    ///
-    /// Not called. On-demand rows used to be disposable; they're listening history now.
-    public func pruneOnDemandCaptures(keeping limit: Int = 500) throws {
-        let onDemand = CaptureKind.onDemand.rawValue
-        let descriptor = FetchDescriptor<Capture>(
-            predicate: #Predicate { $0.kindRawValue == onDemand },
-            sortBy: [SortDescriptor(\.capturedAt, order: .reverse)]
+    /// The app's own container rather than the App Group's, which may be what failed.
+    static let standard = UnsavedPlays(
+        file: URL.applicationSupportDirectory.appending(path: "Tracks/Unsaved Plays.json")
+    )
+
+    /// The most kept, newest first. A build that can never open the library would otherwise
+    /// grow the file with every save.
+    static let limit = 5_000
+
+    private static let log = Logger(subsystem: "com.luke.tracks", category: "UnsavedPlays")
+
+    /// One play as the store holds it, with what has been done with it.
+    struct Play: Codable, Sendable, Equatable {
+        var songID: String
+        var songKey: String
+        var title: String
+        var artistName: String
+        var albumTitle: String?
+        var artworkURL: String?
+        var kind: String
+        var capturedAt: Date
+        var platform: String
+        var needsPlaylistWrite: Bool
+        var addedToPlaylistAt: Date?
+        var playlistWriteAttempts: Int
+        var playedBackAt: Date?
+        var scrobbledAt: Date?
+        var scrobbleAttempts: Int
+        var lastScrobbleError: String?
+        var deviceID: String
+        var source: String?
+
+        init(_ capture: Capture) {
+            songID = capture.songID
+            songKey = capture.songKey
+            title = capture.title
+            artistName = capture.artistName
+            albumTitle = capture.albumTitle
+            artworkURL = capture.artworkURL
+            kind = capture.kindRawValue
+            capturedAt = capture.capturedAt
+            platform = capture.platformRawValue
+            needsPlaylistWrite = capture.needsPlaylistWrite
+            addedToPlaylistAt = capture.addedToPlaylistAt
+            playlistWriteAttempts = capture.playlistWriteAttempts
+            playedBackAt = capture.playedBackAt
+            scrobbledAt = capture.scrobbledAt
+            scrobbleAttempts = capture.scrobbleAttempts
+            lastScrobbleError = capture.lastScrobbleError
+            deviceID = capture.capturedByDeviceID
+            source = capture.sourceRawValue
+        }
+
+        /// The play as a new row, which `context` holds until it saves.
+        func insert(into context: ModelContext) {
+            let capture = Capture(
+                songID: songID,
+                songKey: songKey,
+                title: title,
+                artistName: artistName,
+                albumTitle: albumTitle,
+                artworkURL: artworkURL,
+                kind: CaptureKind(rawValue: kind) ?? .radio,
+                capturedAt: capturedAt,
+                platform: CapturePlatform(rawValue: platform) ?? .current,
+                deviceID: deviceID
+            )
+            capture.kindRawValue = kind
+            capture.sourceRawValue = source
+            capture.needsPlaylistWrite = needsPlaylistWrite
+            capture.addedToPlaylistAt = addedToPlaylistAt
+            capture.playlistWriteAttempts = playlistWriteAttempts
+            capture.playedBackAt = playedBackAt
+            capture.scrobbledAt = scrobbledAt
+            capture.scrobbleAttempts = scrobbleAttempts
+            capture.lastScrobbleError = lastScrobbleError
+            context.insert(capture)
+        }
+
+        /// Whether `context`'s store already has this play, from an earlier save of the file
+        /// whose clean-up didn't happen.
+        func isHeld(in context: ModelContext) throws -> Bool {
+            let (key, kind, at) = (songKey, kind, capturedAt)
+            var descriptor = FetchDescriptor<Capture>(
+                predicate: #Predicate { $0.songKey == key && $0.kindRawValue == kind && $0.capturedAt == at }
+            )
+            descriptor.fetchLimit = 1
+            return try context.fetchCount(descriptor) > 0
+        }
+    }
+
+    /// What the file holds. A file that can't be read is moved aside, never overwritten, and
+    /// reads as nothing.
+    func read() -> [Play] {
+        let data: Data
+        do {
+            data = try Data(contentsOf: file)
+        } catch {
+            return []
+        }
+        do {
+            return try JSONDecoder().decode([Play].self, from: data)
+        } catch {
+            let aside = file.deletingPathExtension().appendingPathExtension("unreadable.json")
+            try? FileManager.default.removeItem(at: aside)
+            try? FileManager.default.moveItem(at: file, to: aside)
+            Self.log.error("Moved aside unsaved plays that couldn't be read: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+    }
+
+    /// Replaces what the file holds with `plays`, newest first up to ``limit``.
+    func write(_ plays: [Play]) throws {
+        let kept = plays.sorted { $0.capturedAt > $1.capturedAt }.prefix(Self.limit)
+        if plays.count > kept.count {
+            Self.log.error("Keeping only the newest \(Self.limit) of \(plays.count) unsaved plays")
+        }
+        try FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
         )
-        let rows = try context.fetch(descriptor)
-        guard rows.count > limit else { return }
-        for row in rows[limit...] { context.delete(row) }
-        try context.save()
+        try JSONEncoder().encode(Array(kept)).write(to: file, options: .atomic)
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    /// Puts what earlier runs kept aside into `container`, a fallback store that starts empty.
+    func restore(into container: ModelContainer) {
+        let plays = read()
+        guard !plays.isEmpty else { return }
+        let context = ModelContext(container)
+        for play in plays { play.insert(into: context) }
+        do {
+            try context.save()
+        } catch {
+            Self.log.error("Couldn't restore unsaved plays: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Writes a fallback store's history to the file, one save at a time.
+    actor Keeper {
+        private let unsavedPlays: UnsavedPlays
+        private let container: ModelContainer
+
+        init(_ unsavedPlays: UnsavedPlays, container: ModelContainer) {
+            self.unsavedPlays = unsavedPlays
+            self.container = container
+        }
+
+        func keep() {
+            do {
+                let captures = try ModelContext(container).fetch(FetchDescriptor<Capture>())
+                try unsavedPlays.write(captures.map(Play.init))
+            } catch {
+                UnsavedPlays.log.error("Couldn't keep plays aside: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 }

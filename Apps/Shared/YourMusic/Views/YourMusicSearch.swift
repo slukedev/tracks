@@ -53,7 +53,7 @@ struct YourMusicSearchResults: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
+            LazyVStack(alignment: .leading, spacing: Design.Margin.section) {
                 if isBlank {
                     blank
                 } else {
@@ -63,7 +63,7 @@ struct YourMusicSearchResults: View {
             }
             .padding(.top, 16)
             .padding(.bottom, 28)
-            .animation(.snappy, value: found.query)
+            .animation(Design.Motion.panel, value: found.query)
         }
         .scrollDismissesKeyboard(.immediately)
         .launchScroll()
@@ -110,7 +110,7 @@ struct YourMusicSearchResults: View {
             Label(String(localized: "Can't reach \(server.name). Only downloaded songs play."), systemImage: "wifi.exclamationmark")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
         }
         let match = topMatch
         let top = match.map(card)
@@ -158,7 +158,7 @@ struct YourMusicSearchResults: View {
             Spacer()
             if found.tracks.count > Self.songsShown {
                 Button(showsAllSongs ? "Show Less" : "See All") {
-                    withAnimation(.snappy) { showsAllSongs.toggle() }
+                    withAnimation(Design.Motion.row) { showsAllSongs.toggle() }
                 }
                 .buttonStyle(.plain)
                 .font(.subheadline)
@@ -236,7 +236,7 @@ struct YourMusicSearchResults: View {
                 // Still asking: the places of what's to come are held below what's here.
                 if isAsking {
                     if isSlow {
-                        Text("Finding songs you don't have yet. This can take a few seconds.")
+                        Text("Still looking.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 6)
@@ -255,7 +255,7 @@ struct YourMusicSearchResults: View {
                         }
                 }
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
         }
     }
 
@@ -274,7 +274,7 @@ struct YourMusicSearchResults: View {
                         .padding(.vertical, 5)
                 }
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
             .transition(.opacity)
         }
     }
@@ -395,7 +395,7 @@ struct YourMusicSearchResults: View {
             ContentUnavailableView(
                 "Nothing to Search Yet",
                 systemImage: "magnifyingglass",
-                description: Text("Import songs or connect a server, and search them here.")
+                description: Text("Import songs or connect a server.")
             )
         } else if !isBlank, found.query == query, found.isEmpty, fromServers.isEmpty,
                   serverShelvesQuery != query || (serverAlbums.isEmpty && serverArtists.isEmpty),
@@ -449,7 +449,7 @@ struct YourMusicSearchResults: View {
         guard !Task.isCancelled else { return }
         let found = await music.searchServerAlbumsAndArtists(query)
         guard !Task.isCancelled else { return }
-        withAnimation(.snappy) {
+        withAnimation(Design.Motion.row) {
             serverAlbums = found.albums
             serverArtists = found.artists
             serverShelvesQuery = query
@@ -472,7 +472,7 @@ struct YourMusicSearchResults: View {
         // First the songs your servers have, which come at once…
         let quick = await music.searchServers(query, isFull: false)
         guard !Task.isCancelled else { return }
-        withAnimation(.snappy) { fromServers = quick.tracks }
+        withAnimation(Design.Motion.row) { fromServers = quick.tracks }
         guard query.trimmingCharacters(in: .whitespaces).count >= 3 else {
             nextPage = quick
             answeredQuery = query
@@ -486,14 +486,14 @@ struct YourMusicSearchResults: View {
         let slow = Task {
             try? await Task.sleep(for: .seconds(1.5))
             guard !Task.isCancelled else { return }
-            withAnimation(.snappy) { isSlow = true }
+            withAnimation(Design.Motion.row) { isSlow = true }
         }
         defer { slow.cancel() }
         let found = await music.searchServers(query, isFull: true)
         guard !Task.isCancelled else { return }
         // What's shown stays where it is, and what's new joins below it.
         let shown = Set(quick.tracks.map(\.identity))
-        withAnimation(.snappy) {
+        withAnimation(Design.Motion.row) {
             fromServers = quick.tracks + found.tracks.filter { !shown.contains($0.identity) }
             nextPage = found
             answeredQuery = query
@@ -506,7 +506,7 @@ struct YourMusicSearchResults: View {
     /// brings nothing new, the library's matches being in your music already, ends the search.
     private func showMore() async {
         if shownCount < fromServers.count {
-            withAnimation(.snappy) { shownCount += Self.revealed }
+            withAnimation(Design.Motion.row) { shownCount += Self.revealed }
             return
         }
         guard nextPage.hasMore else { return }
@@ -515,7 +515,7 @@ struct YourMusicSearchResults: View {
         guard !Task.isCancelled, query == self.query else { return }
         let shown = Set(fromServers.map(\.identity))
         let new = page.tracks.filter { !shown.contains($0.identity) }
-        withAnimation(.snappy) {
+        withAnimation(Design.Motion.row) {
             fromServers += new
             nextPage = new.isEmpty ? ServerSearchPage() : page
             shownCount += Self.revealed

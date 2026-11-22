@@ -60,7 +60,7 @@ public struct SettingsMigrator {
         return registry.settings.contains { setting in
             // The device's identity is minted on first use by any process, widgets included,
             // so it says nothing about whether the person ever ran Tracks here.
-            setting.key != DeviceIdentity.defaultsKey
+            !DeviceIdentity.storedKeys.contains(setting.key)
                 && ([setting.key] + setting.formerKeys).contains {
                     stores.defaults(for: setting).object(forKey: $0) != nil
                 }

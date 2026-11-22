@@ -14,10 +14,10 @@ struct LibraryPageHeader: View {
     var shuffle: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .lastTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .lastTextBaseline, spacing: Design.Spacing.medium) {
+            VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
                 Text(title)
-                    .font(.largeTitle.bold())
+                    .font(.pageTitle)
                     .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
                 // A space while counting, so the page doesn't shift when the count arrives.
@@ -27,19 +27,20 @@ struct LibraryPageHeader: View {
                     .monospacedDigit()
                     .contentTransition(.numericText())
             }
-            Spacer(minLength: 16)
+            Spacer(minLength: Design.Spacing.large)
             if play != nil || shuffle != nil {
                 LibraryPlayButtons(play: play, shuffle: shuffle)
             }
         }
-        .padding(.horizontal, PlayMetrics.margin)
-        .padding(.top, 12)
-        .padding(.bottom, 16)
+        .padding(.horizontal, Design.Margin.page)
+        .padding(.top, Design.Spacing.medium)
+        .padding(.bottom, Design.Spacing.large)
     }
 }
 
-/// Play and Shuffle for everything on a library page: on the Mac a prominent and a bordered
-/// button; on iPhone a pair of capsules across the top of the list, as Music's are.
+/// Play and Shuffle for everything on a library page: on the Mac opaque Play with Shuffle in
+/// glass beside it; on iPhone a pair of glass capsules across the top of the list, as Music's
+/// library lists have.
 struct LibraryPlayButtons: View {
     var play: (() -> Void)?
     var shuffle: (() -> Void)?
@@ -48,17 +49,16 @@ struct LibraryPlayButtons: View {
 
     var body: some View {
         #if os(macOS)
-        HStack(spacing: 8) {
-            if let play {
-                Button("Play", systemImage: "play.fill", action: play)
-                    .buttonStyle(.glassProminent)
-            }
-            if let shuffle {
-                Button("Shuffle", systemImage: "shuffle", action: shuffle)
-                    .buttonStyle(.glass)
+        GlassEffectContainer(spacing: Design.Control.spacing) {
+            HStack(spacing: Design.Spacing.small) {
+                if let play {
+                    PlayButton(action: play)
+                }
+                if let shuffle {
+                    GlassCircleButton(title: "Shuffle", systemImage: "shuffle", action: shuffle)
+                }
             }
         }
-        .controlSize(.regular)
         #else
         // Side by side, or one above the other at the largest text sizes, where two capsules
         // across the width would break their labels.
@@ -82,10 +82,12 @@ struct LibraryPlayButtons: View {
             }
         }
         .font(.headline)
+        // Monochrome, as the controls on a plain page are; the accent marks selection.
+        .foregroundStyle(.primary)
         .buttonStyle(.glass)
         .buttonBorderShape(.capsule)
         .controlSize(.large)
-        .sensoryFeedback(.impact(weight: .light), trigger: taps)
+        .sensoryFeedback(Design.Haptic.start, trigger: taps)
         #endif
     }
 }
@@ -142,7 +144,7 @@ struct LibraryCoverTile<Cover: View, Menu: View>: View {
                     .transition(.opacity)
             }
         }
-        .onHover { hovering in withAnimation(PlayMotion.hover) { isHovered = hovering } }
+        .onHover { hovering in withAnimation(Design.Motion.hover) { isHovered = hovering } }
         .help(title)
         #else
         .buttonStyle(.pressable)
@@ -182,54 +184,38 @@ enum LibraryTileMetrics {
     #else
     static let font = Font.subheadline
     #endif
-    static let coverGap: CGFloat = 7
-    static let lineGap: CGFloat = 1
+    static let coverGap = Design.Shelf.captionGap
+    static let lineGap = Design.Shelf.lineGap
 }
 
 #if os(macOS)
-/// Music's round Play over a cover under the pointer.
+/// Music's round Play over a cover under the pointer: a small circle of glass.
 struct LibraryHoverPlayButton: View {
-    static let side: CGFloat = 32
+    static let side = Design.Control.coverButton
     let action: () -> Void
-    @State private var isHovered = false
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: "play.fill")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: Self.side, height: Self.side)
-                .background(.black.opacity(isHovered ? 0.7 : 0.5), in: .circle)
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .help("Play")
-        .accessibilityLabel("Play")
+        CoverPlayButton(action: action)
     }
 }
 
-/// Music's round More over a cover under the pointer: the cover's own menu.
+/// Music's round More over a cover under the pointer: the cover's own menu, in glass to match
+/// Play.
 struct LibraryHoverMoreButton<Content: View>: View {
     @ViewBuilder var content: Content
-    @State private var isHovered = false
 
     var body: some View {
         Menu {
             content
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: LibraryHoverPlayButton.side, height: LibraryHoverPlayButton.side)
-                .background(.black.opacity(isHovered ? 0.7 : 0.5), in: .circle)
-                .contentShape(.circle)
+                .font(.system(size: LibraryHoverPlayButton.side * 0.4, weight: .bold))
+                .glassCircle(diameter: LibraryHoverPlayButton.side)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .onHover { isHovered = $0 }
         .help("More")
         .accessibilityLabel("More")
     }
@@ -240,7 +226,7 @@ struct LibraryHoverMoreButton<Content: View>: View {
 /// the width on iPhone (one at the largest text sizes).
 struct LibraryGrid<Content: View>: View {
     /// The page's margin, or none inside something that has its own.
-    var margin = PlayMetrics.margin
+    var margin = Design.Margin.page
     @ViewBuilder var content: Content
     @ScaledMetric(relativeTo: .subheadline) private var minimum: CGFloat = 150
 
@@ -277,7 +263,7 @@ struct LibraryGridPlaceholder: View {
     var count = 18
     /// Round, for artists.
     var isCircle = false
-    var margin = PlayMetrics.margin
+    var margin = Design.Margin.page
 
     var body: some View {
         LibraryGrid(margin: margin) {
@@ -318,7 +304,7 @@ struct LibraryArtistRowsPlaceholder: View {
                     .padding(.vertical, LibraryArtistRow.verticalPadding)
             }
         }
-        .padding(.horizontal, PlayMetrics.margin)
+        .padding(.horizontal, Design.Margin.page)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement()
         .accessibilityLabel(Text("Loading"))
@@ -392,7 +378,7 @@ extension View {
     /// as Music's artist list has; the system's on iPhone.
     func libraryArtistRowInsets() -> some View {
         #if os(macOS)
-        listRowInsets(EdgeInsets(top: 2, leading: PlayMetrics.margin - 8, bottom: 2, trailing: PlayMetrics.margin - 8))
+        listRowInsets(EdgeInsets(top: 2, leading: Design.Margin.page - 8, bottom: 2, trailing: Design.Margin.page - 8))
             .listRowSeparator(.hidden)
         #else
         alignmentGuide(.listRowSeparatorLeading) { _ in 60 }
@@ -468,17 +454,17 @@ struct LibraryAccessGate<Content: View>: View {
                 #endif
                 VStack(alignment: .leading, spacing: 0) {
                     if model.isShowingSampleData, model.musicAuthorization == .authorized {
-                        PlayStateCard(
-                            symbol: "music.note.house",
-                            title: String(localized: "Your Library Isn't in the Sample"),
-                            message: String(localized: "Sample data stands in for your history only. Turn it off in Settings to see your Apple Music library here.")
-                        ) { EmptyView() }
+                        ContentUnavailableView(
+                            "Your Library Isn't in the Sample",
+                            systemImage: "music.note.house",
+                            description: Text("Turn off sample data in Settings to see your Apple Music library here.")
+                        )
                     } else {
                         PlayAccessCard()
                     }
                 }
                 .libraryStateWidth()
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 .padding(.vertical, isTitled ? 0 : 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -505,11 +491,11 @@ struct LibraryEmptyAppleMusic: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        PlayStateCard(
-            symbol: section.symbol,
-            title: title,
-            message: message
-        ) {
+        ContentUnavailableView {
+            Label(title, systemImage: section.symbol)
+        } description: {
+            Text(message)
+        } actions: {
             Button(browseTitle) {
                 #if os(macOS)
                 model.sidebarSelection = .listenNow
@@ -519,10 +505,7 @@ struct LibraryEmptyAppleMusic: View {
             }
             .buttonStyle(.glassProminent)
         }
-        .libraryStateWidth()
-        .padding(.horizontal, PlayMetrics.margin)
-        .padding(.vertical, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .libraryStatePlacement()
     }
 
     private var title: String {
@@ -558,22 +541,17 @@ struct LibraryEmptyYourMusic: View {
     @State private var addsServer = false
 
     var body: some View {
-        PlayStateCard(
-            symbol: "music.note.house",
-            title: title,
-            message: String(localized: "Import songs from this device, or connect a server with your music on it. Everything you add shows here.")
-        ) {
-            HStack(spacing: 10) {
-                Button("Import Songs", systemImage: "music.note") { importsFiles = true }
-                    .buttonStyle(.glassProminent)
-                Button("Connect a Server", systemImage: "server.rack") { addsServer = true }
-                    .buttonStyle(.glass)
-            }
+        ContentUnavailableView {
+            Label(title, systemImage: "music.note.house")
+        } description: {
+            Text("Import songs from this device, or connect a server with your music on it.")
+        } actions: {
+            Button("Import Songs", systemImage: "music.note") { importsFiles = true }
+                .buttonStyle(.glassProminent)
+            Button("Connect a Server", systemImage: "server.rack") { addsServer = true }
+                .buttonStyle(.glass)
         }
-        .libraryStateWidth()
-        .padding(.horizontal, PlayMetrics.margin)
-        .padding(.vertical, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .libraryStatePlacement()
         .fileImporter(isPresented: $importsFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
                 Task { await music.importItems(urls) }
@@ -588,18 +566,15 @@ struct LibraryLoadFailed: View {
     let retry: () async -> Void
 
     var body: some View {
-        PlayStateCard(
-            symbol: "exclamationmark.triangle",
-            title: String(localized: "Couldn't Load Your Library"),
-            message: String(localized: "Apple Music didn't answer. Check your connection, and that Tracks can use Apple Music.")
-        ) {
+        ContentUnavailableView {
+            Label("Couldn't Load Your Library", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text("Apple Music didn't answer. Check your connection, then try again.")
+        } actions: {
             Button("Try Again") { Task { await retry() } }
                 .buttonStyle(.glass)
         }
-        .libraryStateWidth()
-        .padding(.horizontal, PlayMetrics.margin)
-        .padding(.vertical, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .libraryStatePlacement()
     }
 }
 
@@ -615,6 +590,14 @@ struct LibraryNoMatches: View {
 }
 
 extension View {
+    /// Where a library page's empty or failed state sits: centred in the page's width, a
+    /// little way down, in the list's own place rather than floating over it.
+    func libraryStatePlacement() -> some View {
+        frame(maxWidth: .infinity)
+            .padding(.horizontal, Design.Margin.page)
+            .padding(.vertical, Design.Margin.section * 2)
+    }
+
     /// A state card's width: never wider than a paragraph reads well, and never so narrow that
     /// its wrapping text grows tall. The Mac asks a window's content for its smallest size, and
     /// text that wraps at no width at all would push the whole window's content off its top.
@@ -639,7 +622,8 @@ enum LibraryDebugState: String {
 
 #if DEBUG
 /// Opens a page over a library page at launch, for screenshots: `-TracksLibraryPush localArtist`
-/// (the first artist in your music), `localArtist.longest` (the longest name),
+/// (the first artist in your music), `appleAlbum.white` or `appleAlbum.bright` (a sample album
+/// with a near-white or a bright cover), `localArtist.longest` (the longest name),
 /// `localArtist.missing` (one that's gone), `lidarrArtist`, or `appleSongs`, `appleAlbums`,
 /// `appleArtists` and `applePlaylists` (Apple Music's library, which sample data can't reach
 /// from Play). `appleOverview` shows ``LibraryOverview`` on a page of its own, as Play will
@@ -677,6 +661,8 @@ enum LibraryLaunch {
         case "appleArtists": .library(.artists)
         case "applePlaylists", "appleOverview": .library(.playlists)
         case "appleAlbum": LibraryDemo.items(Album.self)?.first.map(PlayRoute.album)
+        case "appleAlbum.white", "appleAlbum.bright":
+            LibraryDemo.items(Album.self)?.first { $0.id.rawValue == "l.demo-album-\(name.dropFirst("appleAlbum.".count))" }.map(PlayRoute.album)
         case "applePlaylist": LibraryDemo.items(Playlist.self)?.first.map(PlayRoute.playlist)
         case "appleArtist": LibraryDemo.items(Artist.self)?.first.map(PlayRoute.artist)
         default: nil

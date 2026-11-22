@@ -108,7 +108,7 @@ nonisolated enum FileScanner {
         )
         let picture = tags.picture ?? folderCover(besides: url)
         if let picture {
-            track.artwork = saveArtwork(picture.data, mimeType: picture.mimeType, for: track.albumKey)
+            track.artwork = saveArtwork(picture.data, mimeType: picture.mimeType)
         }
         return track
     }
@@ -232,9 +232,10 @@ nonisolated enum FileScanner {
         return nil
     }
 
-    /// Keeps a cover once per album, named for the album.
-    private static func saveArtwork(_ data: Data, mimeType: String, for albumKey: String) -> LocalTrack.Artwork {
-        let hash = SHA256.hash(data: Data(albumKey.utf8)).prefix(10).map { String(format: "%02x", $0) }.joined()
+    /// Keeps each cover once, named for the picture itself: an album whose cover was changed
+    /// shows the new one, and two albums that happen to share a name keep their own.
+    private static func saveArtwork(_ data: Data, mimeType: String) -> LocalTrack.Artwork {
+        let hash = SHA256.hash(data: data).prefix(16).map { String(format: "%02x", $0) }.joined()
         let name = hash + (mimeType.contains("png") ? ".png" : ".jpg")
         let destination = LibraryFolders.artwork.appending(path: name)
         if !FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) {
@@ -248,6 +249,8 @@ nonisolated enum FileScanner {
     struct ImportResult: Sendable {
         var added = 0
         var skipped = 0
+        /// Songs that didn't fit on this device.
+        var outOfSpace = 0
     }
 
     /// Copies songs into the Music folder: files as they are, folders with what's inside them,
@@ -308,11 +311,24 @@ nonisolated enum FileScanner {
             number += 1
             target = folder.appending(path: "\(stem) \(number)\(suffix)")
         }
+        // Copied under a hidden name and moved into place whole, so a copy cut short is never
+        // scanned as a song that won't play.
+        let partial = folder.appending(path: ".\(UUID().uuidString).importing")
         do {
-            try manager.copyItem(at: source, to: target)
+            try manager.copyItem(at: source, to: partial)
+            try manager.moveItem(at: partial, to: target)
             if isSong { result.added += 1 }
         } catch {
-            if isSong { result.skipped += 1 }
+            try? manager.removeItem(at: partial)
+            guard isSong else { return }
+            if isOutOfSpace(error) { result.outOfSpace += 1 } else { result.skipped += 1 }
         }
+    }
+
+    private static func isOutOfSpace(_ error: any Error) -> Bool {
+        let error = error as NSError
+        if error.domain == NSCocoaErrorDomain, error.code == NSFileWriteOutOfSpaceError { return true }
+        if error.domain == NSPOSIXErrorDomain, error.code == Int(ENOSPC) { return true }
+        return (error.userInfo[NSUnderlyingErrorKey] as? NSError).map(isOutOfSpace) ?? false
     }
 }

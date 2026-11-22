@@ -7,6 +7,6 @@ struct ChartsScreen: View {
 
     var body: some View {
         TopChartView(kind: kind, kindSelection: $kind)
-            .navigationTitle("Charts")
+            .tabRoot("Charts")
     }
 }

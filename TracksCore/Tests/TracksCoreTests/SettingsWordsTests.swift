@@ -89,6 +89,16 @@ struct SettingsWordsTests {
         #expect(LastFMSettingsStatus.failed("Last.fm is down.").line == "Last.fm is down.")
     }
 
+    @Test("unsent plays are counted, and too-old ones explained only when there are some", arguments: [
+        (UnsentScrobbles(retryable: 12, tooOld: 0), "12 Not Sent", String?.none),
+        (UnsentScrobbles(retryable: 1, tooOld: 1), "1 Not Sent", "Last.fm takes only the last two weeks, so 1 play can’t be sent."),
+        (UnsentScrobbles(retryable: 0, tooOld: 204), "0 Not Sent", "Last.fm takes only the last two weeks, so 204 plays can’t be sent."),
+    ])
+    func unsentScrobbles(unsent: UnsentScrobbles, value: String, footer: String?) {
+        #expect(unsent.notSentValue == value)
+        #expect(unsent.tooOldLine == footer)
+    }
+
     // MARK: - Apple Music
 
     @Test("Apple Music access asks for attention only when it's blocked", arguments: [

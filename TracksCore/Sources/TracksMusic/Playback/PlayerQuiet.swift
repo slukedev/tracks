@@ -87,8 +87,15 @@ public enum PlayerQuiet {
             UIScene.didDisconnectNotification,
         ]
         for name in changes {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
-                MainActor.assumeIsolated { hold() }
+            // Held at once, before the scene's update goes on, when UIKit posts on the main
+            // thread as it does; never by waiting for the main queue, which another thread's
+            // post would deadlock on.
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated { hold() }
+                } else {
+                    Task { @MainActor in hold() }
+                }
             })
         }
         #endif

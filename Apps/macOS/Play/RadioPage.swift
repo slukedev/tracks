@@ -1,8 +1,8 @@
 import SwiftUI
 import TracksCore
 
-/// Radio: your own station first, on a field of its colour, then Apple Music's live stations,
-/// then the moods.
+/// Radio: your own station first, on a field of its colour that runs up under the toolbar and
+/// the sidebar, then Apple Music's live stations, then the moods.
 struct RadioPage: View {
     @Environment(PlayFeed.self) private var feed
     @Environment(AppModel.self) private var model
@@ -10,11 +10,15 @@ struct RadioPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: Design.Margin.section) {
                 if isRadioOn {
                     TracksRadioStage()
                 } else {
-                    radioOff
+                    VStack(alignment: .leading, spacing: Design.Spacing.large) {
+                        title
+                        radioOff
+                    }
+                    .padding(.top, Design.Spacing.xLarge)
                 }
                 if !feed.liveStations.isEmpty {
                     Shelf(title: String(localized: "Live Radio"), items: feed.liveStations) { item in
@@ -22,32 +26,37 @@ struct RadioPage: View {
                     }
                 } else if feed.appleMusicState == .loading {
                     LoadingRows(count: 2)
-                        .padding(.horizontal, PlayMetrics.margin)
+                        .padding(.horizontal, Design.Margin.page)
                 }
                 MoodShelf()
             }
-            .padding(.top, 20)
-            .padding(.bottom, 32)
+            .padding(.bottom, Design.Margin.section)
         }
-        .navigationTitle("Radio")
+        .heroTitle(String(localized: "Radio"))
         .task(id: model.musicAuthorization) { await feed.loadAppleMusic() }
+    }
+
+    private var title: some View {
+        Text("Radio")
+            .font(.pageTitle)
+            .accessibilityAddTraits(.isHeader)
+            .padding(.horizontal, Design.Margin.page)
     }
 
     /// Tracks Radio hidden in Settings: said so where it would be, with the way back.
     private var radioOff: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Design.Spacing.medium) {
             Text("Tracks Radio Is Off")
-                .font(.title3.bold())
+                .font(.headline)
             Button("Turn On Tracks Radio") { isRadioOn = true }
-                .buttonStyle(.bordered)
-                .padding(.top, 4)
+                .buttonStyle(.glass)
         }
-        .padding(.horizontal, PlayMetrics.margin)
+        .padding(.horizontal, Design.Margin.page)
     }
 }
 
-/// Tracks Radio across the top of Radio: its artwork, what it's tuned to, and Play and Tune, on
-/// a field of the station's own red.
+/// Tracks Radio across the top of Radio: the page's title, the station's artwork, what it's
+/// tuned to, what's on now, and Play and Tune, on a field of the station's own red.
 private struct TracksRadioStage: View {
     @Environment(PlayerModel.self) private var player
     @AppStorage(PlayPreferences.radioTuningKey) private var storedTuning = ""
@@ -58,100 +67,116 @@ private struct TracksRadioStage: View {
     var body: some View {
         let isOn = player.isPlayingTracksRadio
         let tuning = RadioTuning(stored: storedTuning)
-        HStack(alignment: .center, spacing: 28) {
-            Button {
-                if isOn { player.togglePlayPause() } else { player.playTracksRadio() }
-            } label: {
-                TracksRadioArt(side: 200, isLive: isOn && player.isPlaying, isDriving: player.isRadioDriving)
-            }
-            .buttonStyle(CoverPressButtonStyle())
-            .help(isOn && player.isPlaying ? "Pause Tracks Radio" : isOn ? "Resume Tracks Radio" : "Play Tracks Radio")
-            .accessibilityLabel("Tracks Radio")
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Your Station")
-                    .font(.caption.weight(.semibold))
-                    .textCase(.uppercase)
-                    .kerning(0.6)
-                    .foregroundStyle(.secondary)
-                Text("Tracks Radio")
-                    .font(.system(size: 30, weight: .bold))
-                Text(tuning.summary)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                onAir(isOn: isOn)
-                    .padding(.top, 8)
-                HStack(spacing: 10) {
-                    Button {
-                        if isOn {
-                            player.togglePlayPause()
-                        } else {
-                            isStarting = true
-                            player.playTracksRadio()
-                        }
-                    } label: {
-                        Label {
-                            Text(isOn && player.isPlaying ? "Pause" : isOn ? "Resume" : "Play")
-                        } icon: {
-                            PlayStartingIcon(systemImage: isOn && player.isPlaying ? "pause.fill" : "play.fill", isStarting: isStarting)
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                    }
-                    .buttonStyle(.stagePrimary(tint: TracksRadioArt.color))
-                    Button("Tune…", systemImage: "slider.horizontal.3") { showsTuner = true }
-                        .buttonStyle(.stageSecondary)
-                        .help("How adventurous it is, the genres it leans into, and old favorites")
+        VStack(alignment: .leading, spacing: Design.Spacing.xxLarge) {
+            Text("Radio")
+                .font(.pageTitle)
+                .accessibilityAddTraits(.isHeader)
+            HStack(alignment: .center, spacing: Design.Margin.page) {
+                Button(action: playOrPause) {
+                    // The artwork names the station, so the words beside it don't again.
+                    TracksRadioArt(side: Self.artSide, isLive: isOn && player.isPlaying, isDriving: player.isRadioDriving)
                 }
-                .padding(.top, 12)
+                .buttonStyle(CoverPressButtonStyle())
+                .help(isOn && player.isPlaying ? "Pause Tracks Radio" : isOn ? "Resume Tracks Radio" : "Play Tracks Radio")
+                .accessibilityLabel("Tracks Radio")
+
+                VStack(alignment: .leading, spacing: Design.Spacing.medium) {
+                    if player.isRadioDriving {
+                        Text("Driving")
+                            .eyebrowStyle()
+                    }
+                    Text(tuning.summary)
+                        .font(.title2.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    onAir(isOn: isOn)
+                    HStack(spacing: Design.Control.spacing) {
+                        Button(action: playOrPause) {
+                            Label {
+                                Text(isOn && player.isPlaying ? "Pause" : isOn ? "Resume" : "Play")
+                            } icon: {
+                                PlayStartingIcon(systemImage: isOn && player.isPlaying ? "pause.fill" : "play.fill", isStarting: isStarting)
+                                    .contentTransition(.symbolEffect(.replace))
+                            }
+                        }
+                        .buttonStyle(.stagePrimary(tint: TracksRadioArt.color))
+                        .keyboardShortcut(.defaultAction)
+                        Button("Tune…", systemImage: "slider.horizontal.3") { showsTuner = true }
+                            .buttonStyle(.stageSecondary)
+                            .help("Tune Tracks Radio")
+                    }
+                    .padding(.top, Design.Spacing.xSmall)
+                }
+                .frame(maxWidth: 520, alignment: .leading)
+                Spacer(minLength: 0)
             }
-            .environment(\.colorScheme, .dark)
-            .foregroundStyle(.white)
-            Spacer(minLength: 0)
         }
-        .padding(28)
+        .environment(\.colorScheme, .dark)
+        .foregroundStyle(.white)
+        .padding(.horizontal, Design.Margin.page)
+        .padding(.top, Design.Spacing.xLarge)
+        .padding(.bottom, Design.Margin.section)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous)
-                .fill(TracksRadioArt.color.mix(with: .black, by: 0.35).gradient)
-        }
-        .padding(.horizontal, PlayMetrics.margin)
+        .heroBackground { RadioField() }
         .contextMenu {
-            Button(isOn && player.isPlaying ? "Pause" : isOn ? "Resume" : "Play Tracks Radio", systemImage: isOn && player.isPlaying ? "pause" : "play") {
-                if isOn { player.togglePlayPause() } else { player.playTracksRadio() }
-            }
+            Button(isOn && player.isPlaying ? "Pause" : isOn ? "Resume" : "Play Tracks Radio", systemImage: isOn && player.isPlaying ? "pause" : "play", action: playOrPause)
             Button("Tune Tracks Radio…", systemImage: "slider.horizontal.3") { showsTuner = true }
         }
         .sheet(isPresented: $showsTuner) { RadioTunerSheet() }
         .endsPlayStart($isStarting, hasStarted: isOn)
     }
 
-    /// What's on it now, while it plays.
+    private func playOrPause() {
+        if player.isPlayingTracksRadio {
+            player.togglePlayPause()
+        } else {
+            isStarting = true
+            player.playTracksRadio()
+        }
+    }
+
+    /// What's on it now, while it plays: a line in the field's own type, not a panel.
     @ViewBuilder
     private func onAir(isOn: Bool) -> some View {
         if isOn, let track = player.current {
-            HStack(spacing: 10) {
-                CoverImage(cover: track.cover, size: 36)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 5) {
-                        PlayingWaveform(isActive: player.isPlaying, color: .secondary)
+            HStack(spacing: Design.Spacing.small) {
+                CoverImage(cover: track.cover, size: 32)
+                VStack(alignment: .leading, spacing: Design.Shelf.lineGap) {
+                    HStack(spacing: Design.Spacing.xSmall) {
+                        PlayingWaveform(isActive: player.isPlaying, color: .white.opacity(0.7))
                         Text("On Air")
-                            .textCase(.uppercase)
                     }
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    Text("\(track.title) · \(track.artistName)")
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
+                    .eyebrowStyle()
+                    HStack(spacing: Design.Spacing.small) {
+                        Text(track.title)
+                            .fontWeight(.medium)
+                        Text(track.artistName)
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.callout)
                 }
             }
-            .padding(.vertical, 6)
-            .padding(.leading, 6)
-            .padding(.trailing, 14)
-            .background(.white.opacity(0.12), in: .capsule)
+            .lineLimit(1)
             .transition(.opacity)
             .id(track.id)
         }
+    }
+
+    private static let artSide: CGFloat = 200
+}
+
+/// The station's red, deepened, fading into the page at its foot so the shelves below sit on
+/// the page rather than under a hard edge.
+private struct RadioField: View {
+    var body: some View {
+        Rectangle()
+            .fill(TracksRadioArt.color.mix(with: .black, by: 0.4).gradient)
+            .mask {
+                LinearGradient(stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .black, location: 0.82),
+                    .init(color: .clear, location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+            }
     }
 }
 
@@ -163,6 +188,13 @@ private struct CoverPressButtonStyle: ButtonStyle {
         configuration.label
             .shadow(color: .black.opacity(0.3), radius: 18, y: 10)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
-            .animation(.snappy(duration: 0.14), value: configuration.isPressed)
+            .animation(Design.Motion.press, value: configuration.isPressed)
     }
 }
+
+#if DEBUG
+#Preview("Radio") {
+    PlayPreviewHost { RadioPage() }
+        .frame(width: 1100, height: 760)
+}
+#endif

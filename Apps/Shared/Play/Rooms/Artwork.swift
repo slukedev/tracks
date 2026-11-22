@@ -1,88 +1,26 @@
 import SwiftUI
 import TracksCore
 
-struct ArtworkMosaic: View {
-    let covers: [CoverArt]
-    let columns: Int
-    var spacing: CGFloat = 2
-    let fallback: Color
-    let symbol: String
-
-    var body: some View {
-        GeometryReader { proxy in
-            let side = max(1, (proxy.size.width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
-            let rows = max(1, Int(((proxy.size.height + spacing) / (side + spacing)).rounded(.up)))
-            // Each row starts one cover along, so a short list never stacks a cover in a column.
-            if covers.isEmpty {
-                fallback
-                    .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: symbol)
-                            .font(.system(size: min(proxy.size.height, proxy.size.width) * 0.7, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.22))
-                            .offset(x: proxy.size.height * 0.12, y: proxy.size.height * 0.14)
-                    }
-            } else {
-                VStack(spacing: spacing) {
-                    ForEach(0..<rows, id: \.self) { row in
-                        HStack(spacing: spacing) {
-                            ForEach(0..<columns, id: \.self) { column in
-                                CoverImage(cover: covers[(row * columns + column + row) % covers.count], size: side, isBare: true)
-                            }
-                        }
-                    }
-                }
-                .background(.black)
-            }
-        }
-        .clipped()
-        .accessibilityHidden(true)
-    }
-}
-
-struct ArtworkScrim: View {
-    var reach: Double = 1
-
-    var body: some View {
-        let start = 1 - reach
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
-                .mask {
-                    LinearGradient(stops: [
-                        .init(color: .clear, location: start),
-                        .init(color: .black, location: start + reach * 0.55),
-                    ], startPoint: .top, endPoint: .bottom)
-                }
-            LinearGradient(stops: [
-                .init(color: .black.opacity(0), location: start),
-                .init(color: .black.opacity(0.35), location: start + reach * 0.55),
-                .init(color: .black.opacity(0.6), location: 1),
-            ], startPoint: .top, endPoint: .bottom)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
+/// A page's hero: its covers melted into one field over its colour, running up under the bars
+/// and dissolving into the page at the foot, with the page's name and actions on it in white.
 struct ArtworkHero<Content: View>: View {
     let covers: [CoverArt]
-    let columns: Int
-    let fallback: Color
-    let symbol: String
+    let color: Color
     @ViewBuilder var content: Content
+    /// The words and actions with their foot: the part of the art kept dark enough for them.
+    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
         content
             .foregroundStyle(.white)
-            .padding(.horizontal, PlayMetrics.margin)
-            .padding(.top, Self.scrimLead)
+            .padding(.horizontal, Design.Margin.page)
             .padding(.bottom, Self.foot)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background { ArtworkScrim() }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+            .padding(.bottom, Self.fade)
             .frame(maxWidth: .infinity, minHeight: Self.height, alignment: .bottom)
             .background(alignment: .bottom) {
-                ArtworkMosaic(covers: covers, columns: columns, fallback: fallback, symbol: symbol)
+                CoverBlend(covers: covers, color: color, legibleHeight: contentHeight + Self.headroom, fade: Self.fade)
                     .backgroundExtensionEffect()
                     .padding(.top, -Self.underBar)
                     .visualEffect { content, proxy in
@@ -92,19 +30,24 @@ struct ArtworkHero<Content: View>: View {
             }
     }
 
-    private static var scrimLead: CGFloat { 110 }
+    /// Above the words, still dark enough for them, easing out from there.
+    private static var headroom: CGFloat { Design.Spacing.xxLarge }
+    /// Where the art gives way to the page, under the actions.
+    private static var fade: CGFloat { 56 }
 
     #if os(macOS)
     static var height: CGFloat { 420 }
     static var underBar: CGFloat { 60 }
-    static var foot: CGFloat { 28 }
+    static var foot: CGFloat { Design.Spacing.small }
     #else
     static var height: CGFloat { 470 }
     static var underBar: CGFloat { 120 }
-    static var foot: CGFloat { 22 }
+    static var foot: CGFloat { Design.Spacing.small }
     #endif
 }
 
+/// Play over a hero of covers: opaque white with the hero's colour for its label, Shuffle and
+/// anything else beside it in glass.
 struct ArtworkPlayRow<Extra: View>: View {
     let title: String
     let symbol: String
@@ -115,45 +58,25 @@ struct ArtworkPlayRow<Extra: View>: View {
     @ViewBuilder var extra: Extra
 
     var body: some View {
-        GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
-                Button(action: play) {
-                    Label(title, systemImage: symbol)
-                        .foregroundStyle(.white)
-                        .contentTransition(.symbolEffect(.replace))
-                        .lineLimit(1)
-                        .frame(maxWidth: Self.fills ? .infinity : nil)
-                        .padding(.horizontal, Self.fills ? 0 : 6)
-                }
-                .buttonStyle(.glassProminent)
-                .tint(tint)
-                .disabled(!canPlay)
+        GlassEffectContainer(spacing: Design.Control.spacing) {
+            HStack(spacing: Self.spacing) {
+                PlayButton(verbatim: title, systemImage: symbol, tint: tint, fillsWidth: Self.fills, action: play)
+                    .contentTransition(.symbolEffect(.replace))
+                    .disabled(!canPlay)
                 if let shuffle {
-                    Button(action: shuffle) {
-                        Image(systemName: "shuffle")
-                            .accessibilityLabel("Shuffle")
-                    }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .tint(nil)
-                    .help("Shuffle")
+                    GlassCircleButton(title: "Shuffle", systemImage: "shuffle", action: shuffle)
                 }
                 extra
             }
         }
-        .controlSize(Self.size)
-        .font(Self.font)
-        .buttonBorderShape(.capsule)
     }
 
     #if os(macOS)
     private static var fills: Bool { false }
-    private static var font: Font { .body.weight(.semibold) }
-    private static var size: ControlSize { .extraLarge }
+    private static var spacing: CGFloat { Design.Spacing.small }
     #else
     private static var fills: Bool { true }
-    private static var font: Font { .headline }
-    private static var size: ControlSize { .large }
+    private static var spacing: CGFloat { Design.Control.spacing }
     #endif
 }
 
@@ -163,6 +86,7 @@ extension ArtworkPlayRow where Extra == EmptyView {
     }
 }
 
+/// A menu in a glass circle over a hero, filled while what it sets is on.
 struct ArtworkRoundMenu<Items: View>: View {
     let title: LocalizedStringKey
     let symbol: String
@@ -175,13 +99,45 @@ struct ArtworkRoundMenu<Items: View>: View {
         } label: {
             Image(systemName: symbol)
                 .symbolVariant(isOn ? .fill : .none)
+                .contentTransition(.symbolEffect(.replace))
+                .glassCircle()
                 .accessibilityLabel(Text(title))
         }
+        .menuStyle(.button)
         .menuIndicator(.hidden)
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .tint(nil)
+        .buttonStyle(.plain)
         .fixedSize()
         .help(Text(title))
     }
 }
+
+#if DEBUG
+#Preview("Hero, light") {
+    ScrollView {
+        ArtworkHero(covers: ["Tides", "Glasshouse", "Northbound"].map { .url(nil, seed: $0) }, color: Mood.sleep.base) {
+            VStack(alignment: .leading, spacing: Design.Spacing.medium) {
+                Text("Chill").font(.pageTitle)
+                ArtworkPlayRow(title: "Play Chill Mix", symbol: "play.fill", tint: .indigo, canPlay: true, shuffle: {}, play: {}) {
+                    ArtworkRoundMenu(title: "Sleep Timer", symbol: "moon.zzz") {
+                        Button("15 Minutes") {}
+                    }
+                }
+            }
+        }
+    }
+    .ignoresSafeArea(edges: .top)
+}
+
+#Preview("Hero, dark, long title") {
+    ScrollView {
+        ArtworkHero(covers: [], color: Mood.feelGood.base) {
+            VStack(alignment: .leading, spacing: Design.Spacing.medium) {
+                Text("Everything That Feels Like a Summer Evening").font(.pageTitle)
+                ArtworkPlayRow(title: "Play", symbol: "play.fill", tint: .orange, canPlay: false, shuffle: nil, play: {})
+            }
+        }
+    }
+    .ignoresSafeArea(edges: .top)
+    .preferredColorScheme(.dark)
+}
+#endif

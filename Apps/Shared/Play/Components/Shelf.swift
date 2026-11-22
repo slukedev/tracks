@@ -1,40 +1,23 @@
 import SwiftUI
 import TracksCore
 
-/// The page's leading edge, shared by the large title, section headers and the first tile of
-/// every shelf. Roomier on the Mac, where a window is wider than a phone and read from further.
+/// Play's measures. Read ``Design`` in new code.
 enum PlayMetrics {
-    #if os(macOS)
-    static let margin: CGFloat = 28
-    static let shelfSpacing: CGFloat = 18
-    static let tile: CGFloat = 176
-    /// Between one section and the next.
-    static let sectionSpacing: CGFloat = 36
-    #else
-    static let margin: CGFloat = 20
-    static let shelfSpacing: CGFloat = 12
-    static let tile: CGFloat = 160
-    static let sectionSpacing: CGFloat = 28
-    #endif
+    static let margin = Design.Margin.page
+    static let shelfSpacing = Design.Shelf.spacing
+    static let tile = Design.Shelf.tile
+    static let sectionSpacing = Design.Margin.section
 }
 
-/// How Play moves, named by what's moving, so every page moves the same way. Under Reduce
-/// Motion, views use `nil` or a cross-fade instead.
+/// Play's motion. Read ``Design/Motion`` in new code.
 enum PlayMotion {
-    /// A control answering a press.
-    static let press = Animation.snappy(duration: 0.14)
-    /// The pointer arriving over something on the Mac.
-    static let hover = Animation.easeOut(duration: 0.13)
-    /// A number or a word changing in place.
-    static let value = Animation.snappy(duration: 0.3)
-    /// A panel, a list or a page's part opening or closing.
-    static let panel = Animation.smooth(duration: 0.3)
-    /// Rows arriving, leaving or moving.
-    static let row = Animation.smooth(duration: 0.28)
-    /// A cover's colour settling onto the page.
-    static let tint = Animation.easeOut(duration: 0.4)
-    /// The sleeve turning over: the one flourish, from a tap or click only.
-    static let flip = Animation.spring(duration: 0.5, bounce: 0.12)
+    static let press = Design.Motion.press
+    static let hover = Design.Motion.hover
+    static let value = Design.Motion.value
+    static let panel = Design.Motion.panel
+    static let row = Design.Motion.row
+    static let tint = Design.Motion.tint
+    static let flip = Design.Motion.flip
 }
 
 /// A titled row of tiles that scrolls sideways, as on Music's Home. On the Mac, arrows at
@@ -42,24 +25,24 @@ enum PlayMotion {
 struct Shelf<Items: RandomAccessCollection, Tile: View, Trailing: View>: View where Items.Element: Identifiable {
     let title: String
     let items: Items
+    /// Opens the shelf's own page, with a chevron after its title.
+    var open: (() -> Void)?
     @ViewBuilder var trailing: Trailing
     @ViewBuilder var tile: (Items.Element) -> Tile
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            AdaptiveStack(verticalAlignment: .firstTextBaseline, spacing: 4) {
-                Text(title)
-                    .font(.title3.bold())
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 8)
+        VStack(alignment: .leading, spacing: Design.Margin.header) {
+            AdaptiveStack(verticalAlignment: .firstTextBaseline, spacing: Design.Spacing.xSmall) {
+                SectionTitle(title: Text(verbatim: title), action: open)
+                Spacer(minLength: Design.Spacing.small)
                 trailing
                     .font(.subheadline)
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
 
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
-                    LazyHStack(alignment: .top, spacing: PlayMetrics.shelfSpacing) {
+                    LazyHStack(alignment: .top, spacing: Design.Shelf.spacing) {
                         ForEach(items) { item in
                             tile(item)
                                 .id(item.id)
@@ -67,7 +50,7 @@ struct Shelf<Items: RandomAccessCollection, Tile: View, Trailing: View>: View wh
                     }
                     .scrollTargetLayout()
                 }
-                .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
+                .contentMargins(.horizontal, Design.Margin.page, for: .scrollContent)
                 .scrollTargetBehavior(.viewAligned)
                 .scrollIndicators(.hidden)
                 #if os(macOS)
@@ -98,7 +81,7 @@ private struct ShelfPaging<ID: Hashable>: ViewModifier {
             }
             // After the arrows, so moving onto one doesn't count as leaving the shelf.
             .onHover { hovering in
-                withAnimation(PlayMotion.hover) { isHovering = hovering }
+                withAnimation(Design.Motion.hover) { isHovering = hovering }
             }
     }
 
@@ -134,7 +117,7 @@ private struct ShelfArrow: View {
 
     var body: some View {
         Button(label, systemImage: systemImage) {
-            withAnimation(PlayMotion.panel, action)
+            withAnimation(Design.Motion.panel, action)
         }
         .labelStyle(.iconOnly)
         .font(.body.weight(.semibold))
@@ -147,9 +130,10 @@ private struct ShelfArrow: View {
 #endif
 
 extension Shelf where Trailing == EmptyView {
-    init(title: String, items: Items, @ViewBuilder tile: @escaping (Items.Element) -> Tile) {
+    init(title: String, items: Items, open: (() -> Void)? = nil, @ViewBuilder tile: @escaping (Items.Element) -> Tile) {
         self.title = title
         self.items = items
+        self.open = open
         self.trailing = EmptyView()
         self.tile = tile
     }
@@ -159,14 +143,14 @@ extension Shelf where Trailing == EmptyView {
 struct TileLabel<Cover: View>: View {
     let title: String
     let subtitle: String?
-    @ScaledMetric(relativeTo: .subheadline) private var width = PlayMetrics.tile
+    @ScaledMetric(relativeTo: .subheadline) private var width = Design.Shelf.tile
     @ViewBuilder var cover: (CGFloat) -> Cover
 
     var body: some View {
-        let side = min(width, 220)
-        VStack(alignment: .leading, spacing: 6) {
+        let side = min(width, Design.Shelf.maximumTile)
+        VStack(alignment: .leading, spacing: Design.Shelf.captionGap) {
             cover(side)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: Design.Shelf.lineGap) {
                 Text(title)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
@@ -188,10 +172,19 @@ struct TileLabel<Cover: View>: View {
 /// Covers and cards shrink slightly under a finger, as Music's do.
 struct PressableButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
+        PressableBody(configuration: configuration)
+    }
+}
+
+private struct PressableBody: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(.snappy(duration: 0.14), value: configuration.isPressed)
+            .animation(Design.Motion.press, value: configuration.isPressed)
     }
 }
 
@@ -211,3 +204,40 @@ struct LiveBadge: View {
             .background(.red, in: .rect(cornerRadius: 4, style: .continuous))
     }
 }
+
+#if DEBUG
+private struct ShelfPreviewItem: Identifiable {
+    let id: Int
+    var title: String { ["Coastlines", "Late Night Drives and the Long Way Home", "Hour Satellite", "Golden", "Fieldnotes"][id % 5] }
+}
+
+#Preview("Shelf") {
+    ScrollView {
+        VStack(alignment: .leading, spacing: Design.Margin.section) {
+            Shelf(title: "Recently Played", items: (0..<6).map(ShelfPreviewItem.init), open: {}) { item in
+                Button {} label: {
+                    TileLabel(title: item.title, subtitle: "Juniper Lane") { side in
+                        CoverImage(cover: .url(nil, seed: item.title), size: side)
+                            .coverPlayButton {}
+                    }
+                }
+                .buttonStyle(.pressable)
+            }
+            Shelf(title: "Top Songs Over Everything You Played This Summer", items: (0..<1).map(ShelfPreviewItem.init)) { item in
+                TileLabel(title: item.title, subtitle: nil) { side in
+                    CoverImage(cover: .url(nil, seed: item.title), size: side)
+                }
+            }
+        }
+    }
+}
+
+#Preview("Shelf, accessibility size") {
+    Shelf(title: "Recently Played", items: (0..<4).map(ShelfPreviewItem.init), open: {}) { item in
+        TileLabel(title: item.title, subtitle: "Juniper Lane") { side in
+            CoverImage(cover: .url(nil, seed: item.title), size: side)
+        }
+    }
+    .dynamicTypeSize(.accessibility5)
+}
+#endif

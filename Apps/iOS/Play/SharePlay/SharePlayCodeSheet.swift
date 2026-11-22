@@ -33,7 +33,7 @@ struct SharePlayCodeSheet: View {
                         Button("Open Settings") {
                             if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                         .padding(.top, 20)
                     } else {
                         people
@@ -54,8 +54,8 @@ struct SharePlayCodeSheet: View {
             .navigationTitle("SharePlay")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close", systemImage: "xmark", role: .close) { dismiss() }
                 }
             }
         }
@@ -166,11 +166,15 @@ struct SharePlayCodeSheet: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(.fill.quaternary, in: .capsule)
-        .animation(PlayMotion.value, value: count)
+        .animation(Design.Motion.value, value: count)
         .accessibilityElement(children: .combine)
     }
 
     // MARK: - Actions
+
+    private static let inviteTint = Color(
+        uiColor: (UIColor(named: "AccentColor") ?? .systemPink).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+    )
 
     private var actions: some View {
         VStack(spacing: 12) {
@@ -178,8 +182,11 @@ struct SharePlayCodeSheet: View {
                 Label("Invite in Messages…", systemImage: "message")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glassProminent)
             .controlSize(.large)
+            // The accent's deeper pink in either appearance: the paler one Dark Mode picks
+            // left the white label at 2.3:1.
+            .tint(Self.inviteTint)
             if sharePlay.guestCount > 0 {
                 Button("End SharePlay", role: .destructive) {
                     sharePlay.endHosting()

@@ -20,7 +20,7 @@ struct CoverStage: View {
             startPoint: .top,
             endPoint: .bottom
         )
-        .animation(PlayMotion.tint, value: tint)
+        .animation(Design.Motion.tint, value: tint)
     }
 }
 
@@ -78,6 +78,6 @@ struct CoverGlow: View {
         .ignoresSafeArea(edges: .top)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-        .animation(PlayMotion.tint, value: color)
+        .animation(Design.Motion.tint, value: color)
     }
 }

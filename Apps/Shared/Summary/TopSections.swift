@@ -64,7 +64,7 @@ struct TopSongsCard: View {
                     VStack(spacing: 0) {
                         NavigationLink(value: Route.song(song.id)) {
                             SongRow(song: song, rank: index + 1, widestRank: shown.count)
-                                .padding(.horizontal, Metrics.cardPadding)
+                                .padding(.horizontal, Design.Card.padding)
                                 .padding(.vertical, 8)
                                 .contentShape(.rect)
                         }
@@ -117,7 +117,7 @@ struct SongRowSeparator: View {
             // Wrapped so it's drawn across, not down.
             VStack { Divider() }
         }
-        .padding(.leading, Metrics.cardPadding)
+        .padding(.leading, Design.Card.padding)
         .accessibilityHidden(true)
     }
 }

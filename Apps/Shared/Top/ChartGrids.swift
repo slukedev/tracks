@@ -230,7 +230,7 @@ struct ArtistShareBar: View {
     /// The entries' plays added up, worked out with the snapshot.
     let entryPlays: Int
 
-    private static let palette: [Color] = [.accentColor, .blue, .teal, .orange, .pink]
+    private static let palette: [Color] = [.accentColor, .blue, .teal, .orange, .indigo]
 
     /// What the shares are of. A collaboration counts for each artist on it, so the artists'
     /// plays can add up to more than the period's, and the bar is cut from their sum then.

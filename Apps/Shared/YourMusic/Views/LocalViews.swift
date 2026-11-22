@@ -176,7 +176,7 @@ struct DownloadStateIcon: View {
             }
         }
         .transition(.opacity.combined(with: .scale(scale: 0.6)))
-        .animation(.snappy, value: stateKey(copy))
+        .animation(Design.Motion.value, value: stateKey(copy))
     }
 
     /// Changes between states animate; progress within one doesn't restart the transition.

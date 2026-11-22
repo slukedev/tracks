@@ -7,10 +7,9 @@ import TracksCore
 struct PartyHero: View {
     @Binding var vibe: PartyVibe
     let vibes: [PartyVibe]
-    @ScaledMetric(relativeTo: .largeTitle) private var titleSize: CGFloat = 44
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: Design.Spacing.xxLarge) {
             VStack(alignment: .leading, spacing: 0) {
                 Image(systemName: vibe.symbol)
                     .font(.system(size: 28, weight: .semibold))
@@ -18,25 +17,25 @@ struct PartyHero: View {
                     .frame(height: 34, alignment: .bottomLeading)
                     .accessibilityHidden(true)
                 Text("Party")
-                    .font(.system(size: titleSize, weight: .bold, design: .rounded))
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
                     .minimumScaleFactor(0.7)
                     .lineLimit(1)
-                    .padding(.top, 8)
+                    .padding(.top, Design.Spacing.small)
                     .accessibilityAddTraits(.isHeader)
                 Text(vibe.tagline)
                     .font(.title3)
                     .opacity(0.9)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
+                    .padding(.top, Design.Spacing.xxSmall)
                     .contentTransition(.opacity)
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
 
             PartyVibeChips(selection: $vibe, vibes: vibes)
         }
         .foregroundStyle(.white)
         .padding(.top, PartyMetrics.heroTop)
-        .padding(.bottom, 32)
+        .padding(.bottom, Design.Spacing.xxxLarge)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             PartyField(vibe: vibe)
@@ -64,6 +63,6 @@ struct PartyHero: View {
         }
         // Colours, symbol and line change together, from the chip that was tapped. A colour
         // change isn't movement, so it stays under Reduce Motion.
-        .animation(.smooth(duration: 0.35), value: vibe)
+        .animation(Design.Motion.panel, value: vibe)
     }
 }

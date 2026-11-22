@@ -525,13 +525,13 @@ struct ServerForm: View {
                 .toolbarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel", systemImage: "xmark") { dismiss() }
+                        Button("Cancel", systemImage: "xmark", role: .cancel) { dismiss() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         if isConnecting {
                             ProgressView()
                         } else {
-                            Button(confirmTitle, systemImage: "checkmark", action: connect)
+                            Button(confirmTitle, systemImage: "checkmark", role: .confirm, action: connect)
                                 .disabled(!canConnect)
                         }
                     }
@@ -665,7 +665,8 @@ struct ServerForm: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if isInsecure {
-                        Label("This address isn’t encrypted. Use https if your server has it, especially away from home.", systemImage: "lock.open")
+                        Label(MusicServers.insecureAddressReason, systemImage: "lock.open")
+                            .foregroundStyle(.ink(.red))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Text(privacyLine)
@@ -775,7 +776,7 @@ struct ServerForm: View {
     }
 
     private var canConnect: Bool {
-        guard SubsonicServer.address(from: address) != nil else { return false }
+        guard SubsonicServer.address(from: address) != nil, !isInsecure else { return false }
         if isTrackside {
             if capabilities?.setupRequired == true { return false }
             if signIn == .approval { return approval == nil }
@@ -791,11 +792,10 @@ struct ServerForm: View {
         return host.isEmpty ? String(localized: "Home Server") : host
     }
 
-    /// Plain http to anywhere but the home network. Trackside is never sent a password,
-    /// code or key there at all.
+    /// Plain http to anywhere but the home network, which Tracks never sends a password,
+    /// code or key over.
     private var isInsecure: Bool {
-        guard let url = SubsonicServer.address(from: address), url.scheme == "http" else { return false }
-        return !TracksideEndpointProof.isNearby(url)
+        SubsonicServer.address(from: address).map(ServerAddress.isExposed) ?? false
     }
 
     private func fillIn() {
@@ -995,6 +995,10 @@ final class TracksideBrowser {
     private(set) var found: [Found] = []
     @ObservationIgnored private var browser: NWBrowser?
     @ObservationIgnored private var resolving: [String: NWConnection] = [:]
+    /// Gives up on a resolve that hasn't connected in time, so a service that's there again
+    /// later can be resolved afresh.
+    @ObservationIgnored private var resolveTimeouts: [String: Task<Void, Never>] = [:]
+    private static let resolveTimeout: Duration = .seconds(8)
 
     func start() {
         guard browser == nil else { return }
@@ -1009,8 +1013,7 @@ final class TracksideBrowser {
     func stop() {
         browser?.cancel()
         browser = nil
-        for connection in resolving.values { connection.cancel() }
-        resolving = [:]
+        for id in Array(resolving.keys) { endResolve(id) }
     }
 
     private func update(_ results: Set<NWBrowser.Result>) {
@@ -1025,6 +1028,8 @@ final class TracksideBrowser {
             resolve(result.endpoint, id: id, name: name, record: record)
         }
         found.removeAll { !seen.contains($0.id) }
+        // A service gone from the network isn't waited on.
+        for id in Array(resolving.keys) where !seen.contains(id) { endResolve(id) }
     }
 
     /// Connects to a service just long enough to learn its address. IPv4, since an IPv6
@@ -1039,7 +1044,19 @@ final class TracksideBrowser {
             MainActor.assumeIsolated { self?.resolved(id: id, name: name, record: record, state: state) }
         }
         resolving[id] = connection
+        resolveTimeouts[id] = Task { [weak self] in
+            try? await Task.sleep(for: Self.resolveTimeout)
+            guard !Task.isCancelled, self?.resolving[id] === connection else { return }
+            self?.endResolve(id)
+        }
         connection.start(queue: .main)
+    }
+
+    private func endResolve(_ id: String) {
+        resolveTimeouts.removeValue(forKey: id)?.cancel()
+        guard let connection = resolving.removeValue(forKey: id) else { return }
+        connection.stateUpdateHandler = nil
+        connection.cancel()
     }
 
     private func resolved(id: String, name: String, record: [String: String], state: NWConnection.State) {
@@ -1052,11 +1069,9 @@ final class TracksideBrowser {
                 found.append(Found(id: id, name: name, url: url))
                 found.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
             }
-            fallthrough
+            endResolve(id)
         case .failed, .cancelled:
-            connection.stateUpdateHandler = nil
-            connection.cancel()
-            resolving[id] = nil
+            endResolve(id)
         default:
             break
         }
@@ -1176,7 +1191,7 @@ private struct PairingScannerSheet: View {
                     } description: {
                         Text("Allow Tracks to use the camera in Settings to scan pairing codes.")
                     } actions: {
-                        Button("Open Settings") {
+                        Button("Open Settings…") {
                             if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                         }
                     }
@@ -1186,7 +1201,7 @@ private struct PairingScannerSheet: View {
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", systemImage: "xmark") { dismiss() }
+                    Button("Cancel", systemImage: "xmark", role: .cancel) { dismiss() }
                 }
             }
         }

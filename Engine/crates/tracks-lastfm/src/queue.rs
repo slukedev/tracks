@@ -44,6 +44,12 @@ impl<Id> ImportedPlay<Id> {
 
 /// Where to start reading the history to check `imports`: `window` seconds before the
 /// earliest was found. `None` when there are no imports to check.
+#[must_use]
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    reason = "Unix seconds stay far inside f64's exact integers"
+)]
 pub fn import_check_from<Id>(imports: &[ImportedPlay<Id>], window: f64) -> Option<i64> {
     let earliest = imports.iter().map(|play| play.found_at).min()?;
     Some((earliest as f64 - window) as i64)
@@ -51,6 +57,10 @@ pub fn import_check_from<Id>(imports: &[ImportedPlay<Id>], window: f64) -> Optio
 
 /// The imports Last.fm already has: the same song scrobbled within `window` seconds before
 /// the import found it. Each scrobble accounts for one import at most. In import order.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Unix seconds stay far inside f64's exact integers"
+)]
 pub fn already_scrobbled<Id: Clone>(
     imports: &[ImportedPlay<Id>],
     history: &[ScrobbledTrack],
@@ -117,6 +127,7 @@ pub struct BatchSettlement<Id> {
 
 impl<Id> BatchSettlement<Id> {
     /// How many Last.fm accepted.
+    #[must_use]
     pub fn accepted_count(&self) -> usize {
         self.accepted.len()
     }
@@ -162,26 +173,42 @@ pub fn settle_batch<Id: Clone>(ids: &[Id], outcomes: &[ScrobbleOutcome]) -> Batc
     }
 }
 
-/// What a failed scrobble request costs. The drain stops either way: the next batch would
-/// fail the same way.
+/// What a failed scrobble request costs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailureAction {
-    /// Last.fm rejected the request itself: charge each row an attempt and keep the error.
-    ChargeRows,
-    /// Offline, Last.fm down or rate limiting, or an account problem: leave the rows alone
-    /// and record a failure on the backoff.
+    /// Last.fm refused what a request of one scrobble carried: charge that row an attempt,
+    /// keep the error, and record a failure on the backoff, since the next drain fetches it
+    /// again.
+    ChargeRow,
+    /// Last.fm refused what a request of several carried, which one bad row is enough for.
+    /// Send each of [`halves`] on its own, down to single rows, so only a row that fails
+    /// alone is charged and the rest go.
+    Split,
+    /// Offline, Last.fm down or rate limiting, an account problem, or anything else no song
+    /// caused: leave the rows alone, record a failure on the backoff and stop the drain,
+    /// since the next request would fail the same way.
     BackOff,
 }
 
-/// What a failed `track.scrobble` costs. `None` is a transport failure the host saw before
-/// any response, such as being offline.
+/// What a failed `track.scrobble` of `sent` scrobbles costs. `error` is `None` for a
+/// transport failure the host saw before any response, such as being offline.
 ///
 /// A failed history check before sending imports always backs off instead: sending without
 /// knowing could scrobble a play twice.
-pub fn failure_action(error: Option<&LastFmError>) -> FailureAction {
-    if error.is_some_and(LastFmError::is_the_scrobbles_fault) {
-        FailureAction::ChargeRows
-    } else {
+#[must_use]
+pub fn failure_action(error: Option<&LastFmError>, sent: usize) -> FailureAction {
+    if !error.is_some_and(LastFmError::is_the_scrobbles_fault) {
         FailureAction::BackOff
+    } else if sent > 1 {
+        FailureAction::Split
+    } else {
+        FailureAction::ChargeRow
     }
+}
+
+/// A batch cut in two for [`FailureAction::Split`], the older half first so the queue stays
+/// oldest first. Both are non-empty for a batch of two or more.
+#[must_use]
+pub fn halves<T>(batch: &[T]) -> (&[T], &[T]) {
+    batch.split_at(batch.len().div_ceil(2))
 }

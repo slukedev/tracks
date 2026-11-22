@@ -27,10 +27,9 @@ struct HistoryScreen: View {
             pendingDelete: $pendingDelete,
             loadMore: { limit += HistoryPage.size }
         )
-        .navigationTitle("History")
         .sourceScopeSubtitle(sources.scope)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+        .tabRoot("History") {
+            ToolbarItem(placement: .primaryAction) {
                 Menu("Filter", systemImage: isFiltered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease") {
                     Picker("Show", selection: $filter) {
                         ForEach(HistoryFilter.allCases) { filter in
@@ -48,6 +47,7 @@ struct HistoryScreen: View {
                     }
                 }
             }
+            .visibilityPriority(.high)
         }
         .deleteConfirmation(for: $pendingDelete)
         // A different filter starts again from the top.
@@ -81,6 +81,7 @@ private struct HistoryList: View {
     /// filters without changing how many plays there are.
     @State private var storeChanges = 0
     @Environment(\.modelContext) private var context
+    private var playback = CapturePlayback()
 
     init(
         filter: HistoryFilter,
@@ -109,6 +110,19 @@ private struct HistoryList: View {
                         NavigationLink(value: Route.song(SongIdentity.key(title: capture.title, artistName: capture.artistName))) {
                             CaptureRow(capture: capture, showsScrobbleState: isScrobbling)
                         }
+                        .navigationLinkIndicatorVisibility(.hidden)
+                        .swipeActions(edge: .leading) {
+                            if playback.canPlay([capture]), playback.canQueue {
+                                Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                    playback.enqueue([capture], next: true)
+                                }
+                                .tint(.indigo)
+                                Button("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward") {
+                                    playback.enqueue([capture], next: false)
+                                }
+                                .tint(.orange)
+                            }
+                        }
                         .swipeActions(edge: .trailing) {
                             if canDelete {
                                 // Not `role: .destructive`: that removes the row the moment
@@ -133,7 +147,8 @@ private struct HistoryList: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .overlay {
             if captures.isEmpty {
                 if filter == .all, source != .all {
@@ -227,16 +242,35 @@ struct HistoryDay {
     }
 }
 
+/// A day's name and how many songs it had, at the size Music sets a list's section headers.
 struct DayHeader: View {
     let day: Date
     let count: Int
 
     var body: some View {
-        AdaptiveStack {
+        AdaptiveStack(verticalAlignment: .firstTextBaseline) {
             Text(Format.day(day))
+                .font(.headline)
+                .foregroundStyle(.primary)
             Spacer(minLength: 0)
             Text("^[\(count) song](inflect: true)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
                 .monospacedDigit()
         }
+        .textCase(nil)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
+}
+
+#Preview("Day header") {
+    List {
+        Section {
+            Text(verbatim: "Slow Burn")
+        } header: {
+            DayHeader(day: .now, count: 23)
+        }
+    }
+    .listStyle(.plain)
 }

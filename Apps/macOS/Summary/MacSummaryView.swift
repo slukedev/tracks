@@ -27,20 +27,18 @@ struct MacSummaryView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-                    if model.hasBanner {
-                        StoreWarningBanner()
-                    }
+                VStack(alignment: .leading, spacing: Design.Card.sectionSpacing) {
+                    StoreWarningBanner()
 
                     if model.library.isLoaded, model.library.history.isEmpty {
                         WelcomeView()
-                            .padding(.top, 60)
+                            .padding(.top, Design.Spacing.xxxLarge)
                     } else if let summary {
                         // Hides itself once Apple Music access is granted.
                         MusicAccessCard()
                         if summary.captureCount == 0 {
                             NothingPlayedView(summary: summary)
-                            .padding(.top, 60)
+                                            .padding(.top, Design.Spacing.xxxLarge)
                         } else {
                             Dashboard(summary: summary)
                         }
@@ -50,7 +48,7 @@ struct MacSummaryView: View {
                         DashboardSkeleton()
                     }
                 }
-                .padding(24)
+                .padding(Design.Margin.page)
                 // Room for a dashboard on a big display, short of stretching every chart.
                 .frame(maxWidth: 1480)
                 .frame(maxWidth: .infinity)
@@ -125,9 +123,10 @@ struct MacSummaryView: View {
 
 private struct Dashboard: View {
     let summary: StatsSummary
-    /// For "See All", which selects the matching Top Charts row rather than pushing a second
+    /// For the section titles, which select the matching Top Charts row rather than pushing a second
     /// copy of the list and leaving the sidebar on Summary.
     @Environment(AppModel.self) private var model
+    @Environment(\.openPlayRoute) private var openPlayRoute
     /// Three albums to a row, or four once the card is wide enough to keep them a good size.
     @State private var albumColumns = SummaryMemory.albumColumns
     /// The dashboard's width, which picks each row's arrangement. Measured rather than left to
@@ -150,9 +149,9 @@ private struct Dashboard: View {
     var body: some View {
         // Lazy, so a click on Summary builds only the sections in the window, not every chart
         // down to Records.
-        LazyVStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+        LazyVStack(alignment: .leading, spacing: Design.Card.sectionSpacing) {
             if room.isWide {
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: Design.Card.spacing) {
                     // The tiles set the row's height at their natural size and the chart
                     // takes up the rest, so neither side has empty space at the bottom.
                     ListeningCard(summary: summary, chartHeight: 150, fillsHeight: true)
@@ -162,46 +161,28 @@ private struct Dashboard: View {
                 }
                 .fixedSize(horizontal: false, vertical: true)
             } else {
-                VStack(spacing: 16) {
+                VStack(spacing: Design.Card.spacing) {
                     ListeningCard(summary: summary, chartHeight: 190)
                     GlanceGrid(summary: summary, columns: 4)
                 }
             }
 
-            // Whole rows of three, so no row is left with a gap.
-            let highlights = summary.summaryHighlights
-            let shown = Array(highlights.prefix(highlights.count >= 6 ? 6 : highlights.count >= 3 ? 3 : highlights.count))
-            if !shown.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: "Highlights") {
-                        if summary.insights.count > shown.count {
-                            NavigationLink("See All", value: Route.highlights(summary.range, periodOffset: summary.periodOffset))
-                        }
-                    }
-                    EqualHeightRows(items: shown, columns: 3, spacing: 14) { insight in
-                        HighlightCard(insight: insight)
-                    }
-                }
-                .id("highlights")
-            }
+            highlights
 
             if !summary.topArtists.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: "Top Artists") {
-                        Button("See All") { model.sidebarSelection = SidebarItem(chart: .artists) }
-                    }
+                SummarySection("Top Artists", action: { model.sidebarSelection = SidebarItem(chart: .artists) }) {
                     TopArtistsShelf(artists: summary.topArtists, artworkSize: 110)
                 }
                 .id("artists")
             }
 
             if room.pairsCharts {
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: Design.Card.spacing) {
                     songs.frame(minWidth: 420)
                     albums.frame(minWidth: 420)
                 }
             } else {
-                VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+                VStack(alignment: .leading, spacing: Design.Card.sectionSpacing) {
                     songs
                     albums
                 }
@@ -210,12 +191,11 @@ private struct Dashboard: View {
             NewFavoritesSection(summary: summary, limit: 6)
             GenresSection(summary: summary)
 
-            VStack(alignment: .leading, spacing: 10) {
-                SectionHeader("Listening Rhythm")
-                VStack(spacing: Metrics.cardSpacing) {
+            SummarySection("Listening Rhythm") {
+                VStack(spacing: Design.Card.spacing) {
                     let rhythm = room.pairsRhythm
-                        ? AnyLayout(HStackLayout(alignment: .top, spacing: Metrics.cardSpacing))
-                        : AnyLayout(VStackLayout(spacing: Metrics.cardSpacing))
+                        ? AnyLayout(HStackLayout(alignment: .top, spacing: Design.Card.spacing))
+                        : AnyLayout(VStackLayout(spacing: Design.Card.spacing))
                     rhythm {
                         Card { ListeningClockCard(hourly: summary.hourly) }
                             .frame(width: room.pairsRhythm ? 320 : nil)
@@ -241,21 +221,36 @@ private struct Dashboard: View {
         }
     }
 
-    private var songs: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: "Top Songs") {
-                Button("See All") { model.sidebarSelection = SidebarItem(chart: .songs) }
+    /// Up to six highlights, in two panels side by side once there are four or more.
+    @ViewBuilder
+    private var highlights: some View {
+        let shown = Array(summary.summaryHighlights.prefix(6))
+        if !shown.isEmpty {
+            let hasMore = summary.insights.count > shown.count
+            SummarySection("Highlights", action: hasMore ? { openPlayRoute(.stats(.highlights(summary.range, periodOffset: summary.periodOffset))) } : nil) {
+                if shown.count >= 4 {
+                    let half = (shown.count + 1) / 2
+                    CardPair {
+                        HighlightsCard(insights: Array(shown.prefix(half)))
+                        HighlightsCard(insights: Array(shown.dropFirst(half)))
+                    }
+                } else {
+                    HighlightsCard(insights: shown)
+                }
             }
+            .id("highlights")
+        }
+    }
+
+    private var songs: some View {
+        SummarySection("Top Songs", action: { model.sidebarSelection = SidebarItem(chart: .songs) }) {
             // Eight beside four albums across, so the two cards end together.
             TopSongsCard(songs: summary.topSongs, limit: albumColumns == 4 ? 8 : 6)
         }
     }
 
     private var albums: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: "Top Albums") {
-                Button("See All") { model.sidebarSelection = SidebarItem(chart: .albums) }
-            }
+        SummarySection("Top Albums", action: { model.sidebarSelection = SidebarItem(chart: .albums) }) {
             Card {
                 // Two whole rows, three across or four in a wide window, never a row with gaps.
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: albumColumns), spacing: 14) {
@@ -315,21 +310,17 @@ private struct DashboardSkeleton: View {
     var body: some View {
         Group {
             if isWide {
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: Design.Card.spacing) {
                     CardBackground()
                         .frame(minWidth: 560)
                         .frame(height: 332)
-                    VStack(spacing: 12) {
-                        ForEach(0..<4, id: \.self) { _ in CardBackground().frame(height: 74) }
-                    }
-                    .frame(width: 260)
+                    CardBackground()
+                        .frame(width: 260, height: 332)
                 }
             } else {
-                VStack(spacing: 16) {
+                VStack(spacing: Design.Card.spacing) {
                     CardBackground().frame(height: 330)
-                    HStack(spacing: 12) {
-                        ForEach(0..<4, id: \.self) { _ in CardBackground().frame(height: 74) }
-                    }
+                    CardBackground().frame(height: 110)
                 }
             }
         }

@@ -79,6 +79,52 @@ enum CoverTint {
     /// Glows from pictures, by address. A colour each, so it never needs letting go.
     private static var pictureGlows: [String: Color] = [:]
 
+    /// A cover's average colour as it is, and how much of the cover is opaque, for a page
+    /// that takes its colour from it (see ``PageTone``).
+    struct Sample: Equatable, Sendable {
+        var colour: PageTone.Colour
+        var coverage: Double
+    }
+
+    /// The sample ``sample(for:)`` gives, without waiting, when it's known already: Apple
+    /// Music's colour, the stand-in's hue, or a picture averaged before. A page drawing it from
+    /// its first frame doesn't fade its colour in each time it opens.
+    static func knownSample(for cover: CoverArt) -> Sample? {
+        switch cover {
+        case .artwork(let artwork):
+            artwork.backgroundColor.flatMap(sample(of:))
+        case .url(let url?, _):
+            pictureSamples[url]
+        case .url(nil, let seed):
+            seedSample(seed)
+        }
+    }
+
+    /// A cover's average colour: Apple Music's own for its artwork, the picture's for an
+    /// address, and the stand-in's hue for a song with no cover. Nil when a picture won't load.
+    static func sample(for cover: CoverArt) async -> Sample? {
+        if let known = knownSample(for: cover) { return known }
+        guard case .url(let url?, let seed) = cover else { return nil }
+        guard let address = URL(string: url),
+              let image = await ArtworkImages.shared.image(for: ArtworkImages.Key(url: address, pixels: 64))
+        else { return seedSample(seed) }
+        guard let found = averageWithCoverage(of: image) else { return nil }
+        pictureSamples[url] = found
+        return found
+    }
+
+    private static var pictureSamples: [String: Sample] = [:]
+
+    private static func seedSample(_ seed: String) -> Sample {
+        let rgb = rgb(hue: Double(GeneratedCover.hash(seed) % 360) / 360, saturation: 0.7, brightness: 0.75)
+        return Sample(colour: PageTone.Colour(red: rgb.red, green: rgb.green, blue: rgb.blue), coverage: 1)
+    }
+
+    private static func sample(of cgColor: CGColor) -> Sample? {
+        guard let rgb = components(of: cgColor) else { return nil }
+        return Sample(colour: PageTone.Colour(red: rgb.red, green: rgb.green, blue: rgb.blue), coverage: cgColor.alpha)
+    }
+
     /// The field for any cover: Apple Music's own colour for its artwork, the picture's
     /// average for an address, and the stand-in's hue for a song with no cover.
     static func color(for cover: CoverArt) async -> Color? {
@@ -198,11 +244,11 @@ enum CoverTint {
         return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
     }
 
-    /// The cover drawn into a single pixel.
-    private static func average(of image: CGImage) -> RGB? {
+    /// The cover drawn into a single pixel, its colour taken back out of the premultiplied
+    /// pixel so a cover with transparent parts keeps the colour of its opaque ones.
+    private static func averageWithCoverage(of image: CGImage) -> Sample? {
         var pixel = [UInt8](repeating: 0, count: 4)
         let drawn = pixel.withUnsafeMutableBytes { bytes -> Bool in
-            // The context writes into the buffer only while it's lent here.
             guard let context = CGContext(
                 data: bytes.baseAddress,
                 width: 1,
@@ -217,6 +263,18 @@ enum CoverTint {
             return true
         }
         guard drawn else { return nil }
-        return (Double(pixel[0]) / 255, Double(pixel[1]) / 255, Double(pixel[2]) / 255)
+        let alpha = Double(pixel[3]) / 255
+        guard alpha > 0 else { return Sample(colour: .black, coverage: 0) }
+        return Sample(
+            colour: PageTone.Colour(red: Double(pixel[0]) / 255 / alpha, green: Double(pixel[1]) / 255 / alpha, blue: Double(pixel[2]) / 255 / alpha),
+            coverage: alpha
+        )
+    }
+
+    /// The cover drawn into a single pixel, as it composites over black.
+    private static func average(of image: CGImage) -> RGB? {
+        guard let found = averageWithCoverage(of: image) else { return nil }
+        let colour = found.colour
+        return (colour.red * found.coverage, colour.green * found.coverage, colour.blue * found.coverage)
     }
 }

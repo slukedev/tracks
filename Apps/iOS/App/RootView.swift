@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import MusicKit
 import TracksCore
 import TracksMusic
@@ -28,6 +29,20 @@ struct RootView: View {
         _showSongInfo = State(initialValue: ShowSongInfoAction { [model] in model.songInfo.show($0) })
         // Not `model.selectedTab`: read here, in the parent's update, it would redraw the parent.
         _selection = State(initialValue: AppModel.launchTab)
+        Self.tintSelectedTab()
+    }
+
+    /// The selected tab in the accent's pink, on every tab, Search included. Over a dark page
+    /// the bar turns dark, and there the pink is a pale shade of itself: over a deep red cover's
+    /// page the accent's own dark pink measured 2.67:1, this one 4.5:1 on the bar's red lozenge.
+    /// Set on the bar alone, since a `tint` on the tab view also tints every toolbar, which
+    /// stay monochrome.
+    private static func tintSelectedTab() {
+        let accent = UIColor(named: "AccentColor") ?? .systemPink
+        let paleAccent = UIColor(red: 1, green: 0.88, blue: 0.92, alpha: 1)
+        UITabBar.appearance().tintColor = UIColor { traits in
+            traits.userInterfaceStyle == .dark ? paleAccent : accent.resolvedColor(with: traits)
+        }
     }
 
     var body: some View {

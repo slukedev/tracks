@@ -45,7 +45,7 @@ struct SongResultRow<Label: View>: View {
             }
             .contentShape(.rect)
             .onHover { hovering in
-                withAnimation(PlayMotion.hover) { isHovered = hovering }
+                withAnimation(Design.Motion.hover) { isHovered = hovering }
             }
             .focusable()
             .focused(selection, equals: id)

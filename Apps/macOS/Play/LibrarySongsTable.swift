@@ -312,7 +312,7 @@ struct LibraryYourSongsTablePage: View {
                     LibraryEmptyYourMusic(title: String(localized: "No Songs Yet"))
                 } else {
                     LoadingRows(count: 12)
-                        .padding(.horizontal, PlayMetrics.margin)
+                        .padding(.horizontal, Design.Margin.page)
                         .frame(maxHeight: .infinity, alignment: .top)
                 }
             } else if shown == nil {

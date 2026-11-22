@@ -154,7 +154,7 @@ struct LibrarySongsList: View {
     var body: some View {
         LibraryPagerContent(pager: pager, query: query, section: .songs, isList: true) {
             LoadingRows(count: 10)
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
         } content: {
             rows
         }
@@ -192,7 +192,7 @@ struct LibrarySongsList: View {
                 }
             }
             .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 4, leading: PlayMetrics.margin, bottom: 12, trailing: PlayMetrics.margin))
+            .listRowInsets(EdgeInsets(top: 4, leading: Design.Margin.page, bottom: 12, trailing: Design.Margin.page))
         }
         ForEach(songs) { song in
             Button {

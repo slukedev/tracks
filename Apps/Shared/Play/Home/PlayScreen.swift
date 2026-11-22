@@ -14,22 +14,27 @@ struct PlayScreen: View {
     @AppStorage(PlayPreferences.layoutKey) private var storedLayout = ""
     @AppStorage(PlayPreferences.tracksRadioKey) private var isRadioOn = true
     @AppStorage(PlayPreferences.allowsExplicitKey) private var allowsExplicit = true
-    @AppStorage(NearbyDevices.storageKey) private var showsDevices = true
+    @Environment(\.openPlayRoute) private var openPlayRoute
     @State private var showsSubscriptionOffer = false
-    @State private var showsSettings = LaunchScene.opensPlaySettings
     @State private var showsEditor = LaunchScene.opensEditPlay
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
+                VStack(alignment: .leading, spacing: Design.Margin.section) {
+                    #if os(macOS)
+                    Text("Listen Now")
+                        .font(.pageTitle)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.horizontal, Design.Margin.page)
+                    #endif
+
                     // Access and subscription come first whatever the layout: nothing else
                     // on the page can play until they're sorted.
                     if let blocker {
                         statusCard(blocker)
-                            .padding(.horizontal, PlayMetrics.margin)
+                            .padding(.horizontal, Design.Margin.page)
                     }
-
 
                     ForEach(layout.visible) { section in
                         self.section(section)
@@ -37,22 +42,8 @@ struct PlayScreen: View {
                     }
 
                     if feed.appleMusicState == .failed {
-                        #if os(iOS)
-                        Label("Couldn't reach Apple Music. Pull down to try again.", systemImage: "wifi.exclamationmark")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, PlayMetrics.margin)
-                        #else
-                        // No pull to refresh on the Mac.
-                        HStack(spacing: 10) {
-                            Label("Couldn't reach Apple Music.", systemImage: "wifi.exclamationmark")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                            Button("Try Again") { Task { await reload() } }
-                                .controlSize(.small)
-                        }
-                        .padding(.horizontal, PlayMetrics.margin)
-                        #endif
+                        UnreachableNote { await reload() }
+                            .padding(.horizontal, Design.Margin.page)
                     }
 
                     // Past everything else, suggestions for as long as you scroll, straight
@@ -63,7 +54,7 @@ struct PlayScreen: View {
                     }
                 }
                 .padding(.top, Self.topPadding)
-                .padding(.bottom, 24)
+                .padding(.bottom, Design.Margin.section)
             }
             .onChange(of: feed.hasBuilt) {
                 if let anchor = LaunchScene.scrollAnchor {
@@ -72,22 +63,11 @@ struct PlayScreen: View {
             }
         }
         #if os(macOS)
-        // No title over the page, and its glow meets the top edge until it scrolls under the bar.
+        // The title is in the page, and its glow meets the top edge until it scrolls under the bar.
         .headerUnderBar()
         #else
-        .navigationTitle("Play")
-        #endif
-        #if os(iOS)
-        // On the Mac, Settings is the app menu's.
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                if showsDevices { DevicesButton(opensAtLaunch: true) }
-                Button("Settings", systemImage: "gearshape") { showsSettings = true }
-            }
-        }
-        .sheet(isPresented: $showsSettings) {
-            SettingsSheet()
-        }
+        // On the Mac, Settings is the app menu's and Your Devices the window's.
+        .tabRoot("Play", opensDevicesAtLaunch: true, opensSettingsAtLaunch: LaunchScene.opensPlaySettings)
         #endif
         .sheet(isPresented: $showsEditor) {
             PlayLayoutEditor()
@@ -116,10 +96,10 @@ struct PlayScreen: View {
     }
 
     #if os(macOS)
-    private static let topPadding: CGFloat = 20
+    private static let topPadding = Design.Spacing.xLarge
     private static let hasSidebarLibrary = true
     #else
-    private static let topPadding: CGFloat = 4
+    private static let topPadding = Design.Spacing.xSmall
     private static let hasSidebarLibrary = false
     #endif
 
@@ -161,9 +141,7 @@ struct PlayScreen: View {
             GenreShelf()
         case .newReleases:
             if !feed.newReleases.isEmpty {
-                Shelf(title: String(localized: "New from Your Artists"), items: feed.newReleases) {
-                    NavigationLink(String(localized: "See All"), value: PlayRoute.newReleases)
-                } tile: { item in
+                Shelf(title: String(localized: "New from Your Artists"), items: feed.newReleases, open: openPlayRoute.canPush ? { openPlayRoute(.newReleases) } : nil) { item in
                     FeedTile(item: item)
                 }
             }
@@ -186,7 +164,7 @@ struct PlayScreen: View {
             #if os(iOS)
             if showsLibrary, !Self.hasSidebarLibrary {
                 LibraryOverview()
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
             }
             #endif
         case .appleMusic:
@@ -340,54 +318,84 @@ struct PlayStateCard<Actions: View>: View {
     @ViewBuilder var actions: Actions
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: symbol)
-                .font(.title2)
-                .foregroundStyle(.tint)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(.title3.bold())
-            Text(message)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            actions
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
-                .padding(.top, 4)
+        Card(padding: Design.Spacing.xLarge) {
+            VStack(alignment: .leading, spacing: Design.Spacing.small) {
+                Image(systemName: symbol)
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                actions
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+                    .padding(.top, Design.Spacing.small)
+            }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.cardFill, in: .rect(cornerRadius: Metrics.cardRadius, style: .continuous))
     }
 }
 
-/// A shelf's shape while Apple Music answers.
-private struct PlaceholderShelf: View {
-    let title: String
-    @ScaledMetric(relativeTo: .subheadline) private var side = PlayMetrics.tile
+/// Apple Music out of reach: what happened, and Try Again. Pulling down tries again too on
+/// iPhone, but nothing on the page says so, so the button is there on both.
+private struct UnreachableNote: View {
+    let retry: () async -> Void
+    @State private var isRetrying = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        AdaptiveStack(verticalAlignment: .center, spacing: Design.Spacing.medium) {
+            Label("Couldn't reach Apple Music.", systemImage: "wifi.exclamationmark")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Button("Try Again") {
+                isRetrying = true
+                Task {
+                    await retry()
+                    isRetrying = false
+                }
+            }
+            .buttonStyle(.glass)
+            .disabled(isRetrying)
+        }
+    }
+}
+
+/// A shelf's shape while Apple Music answers: its title, and blank tiles the size of the
+/// real ones, so the covers arrive in place.
+private struct PlaceholderShelf: View {
+    let title: String
+    @ScaledMetric(relativeTo: .subheadline) private var width = Design.Shelf.tile
+
+    var body: some View {
+        let side = min(width, Design.Shelf.maximumTile)
+        VStack(alignment: .leading, spacing: Design.Margin.header) {
             Text(title)
-                .font(.title3.bold())
-                .padding(.horizontal, PlayMetrics.margin)
-            // In a scroll view like a real shelf's. A plain row of three tiles is wider than
-            // the screen and can't shrink, so it pushed the whole page wider until it loaded.
+                .font(.sectionTitle)
+                .padding(.horizontal, Design.Margin.page)
+            // In a scroll view like a real shelf's. A plain row of tiles is wider than the
+            // screen and can't shrink, so it pushed the whole page wider until it loaded.
             ScrollView(.horizontal) {
-                HStack(spacing: PlayMetrics.shelfSpacing) {
-                    ForEach(0..<3, id: \.self) { _ in
-                        VStack(alignment: .leading, spacing: 6) {
-                            RoundedRectangle(cornerRadius: CoverImage.radius(for: min(side, 220)), style: .continuous)
-                                .fill(Color(.secondarySystemFill))
-                                .frame(width: min(side, 220), height: min(side, 220))
-                            Capsule().fill(Color(.secondarySystemFill)).frame(width: 110, height: 10)
-                            Capsule().fill(Color(.tertiarySystemFill)).frame(width: 70, height: 10)
+                HStack(alignment: .top, spacing: Design.Shelf.spacing) {
+                    ForEach(0..<6, id: \.self) { _ in
+                        VStack(alignment: .leading, spacing: Design.Shelf.captionGap) {
+                            RoundedRectangle(cornerRadius: CoverImage.radius(for: side), style: .continuous)
+                                .fill(Color.placeholderFill)
+                                .frame(width: side, height: side)
+                            VStack(alignment: .leading, spacing: Design.Shelf.lineGap) {
+                                Text(verbatim: "Placeholder")
+                                Text(verbatim: "Line")
+                            }
+                            .font(.subheadline)
+                            .redacted(reason: .placeholder)
                         }
                     }
                 }
             }
-            .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
+            .contentMargins(.horizontal, Design.Margin.page, for: .scrollContent)
             .scrollDisabled(true)
             .scrollIndicators(.hidden)
         }
@@ -400,6 +408,6 @@ private struct PlaceholderShelf: View {
 struct RowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? Color(.systemFill) : .clear)
+            .background(configuration.isPressed ? AnyShapeStyle(.fill.tertiary) : AnyShapeStyle(.clear))
     }
 }

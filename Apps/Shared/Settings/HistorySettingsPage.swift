@@ -28,6 +28,9 @@ struct HistorySettingsPage: View {
                 systemImage: "clock.fill",
                 tint: .teal
             )
+            if let keptAside = model.flatMap(LibraryKeptAside.init(model:)) {
+                LibraryKeptAsideRow(keptAside: keptAside)
+            }
             pauseSection
             keptSection
             countingSection

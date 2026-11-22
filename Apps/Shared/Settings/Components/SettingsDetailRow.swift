@@ -6,17 +6,30 @@ import SwiftUI
 struct SettingsDetailRow<Trailing: View>: View {
     var title: Text
     var detail: Text
+    var systemImage: String?
+    var tint: Color
     var trailing: Trailing
 
-    init(title: Text, detail: Text, @ViewBuilder trailing: () -> Trailing) {
+    init(
+        title: Text,
+        detail: Text,
+        systemImage: String? = nil,
+        tint: Color = .accentColor,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
         self.title = title
         self.detail = detail
+        self.systemImage = systemImage
+        self.tint = tint
         self.trailing = trailing()
     }
 
     var body: some View {
         HStack(spacing: SettingsSpacing.row) {
-            VStack(alignment: .leading, spacing: 2) {
+            if let systemImage {
+                SettingsIconTile(systemImage: systemImage, color: tint)
+            }
+            VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
                 title
                 detail
                     .font(.caption)
@@ -25,9 +38,17 @@ struct SettingsDetailRow<Trailing: View>: View {
                     .contentTransition(.opacity)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Separators start under the words, as they do after a Label's icon.
+            .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
             trailing
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Design.Spacing.xxSmall)
+    }
+}
+
+extension SettingsDetailRow where Trailing == EmptyView {
+    init(title: Text, detail: Text, systemImage: String? = nil, tint: Color = .accentColor) {
+        self.init(title: title, detail: detail, systemImage: systemImage, tint: tint) { EmptyView() }
     }
 }
 

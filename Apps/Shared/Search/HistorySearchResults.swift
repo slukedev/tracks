@@ -42,7 +42,7 @@ struct HistorySearchResults: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
+            LazyVStack(alignment: .leading, spacing: Design.Margin.section) {
                 if isBlank {
                     blank
                 } else if let recalled {
@@ -198,7 +198,7 @@ struct HistorySearchResults: View {
             Spacer()
             if total > shown {
                 Button(showsAllSongs ? "Show Less" : "See All") {
-                    withAnimation(PlayMotion.panel) { showsAllSongs.toggle() }
+                    withAnimation(Design.Motion.panel) { showsAllSongs.toggle() }
                 }
                 .buttonStyle(.plain)
                 .font(.subheadline)
@@ -270,7 +270,7 @@ struct HistorySearchResults: View {
             push(.album(album.id))
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                CoverImage(cover: .url(album.artworkURL, seed: album.title), size: PlayMetrics.tile)
+                CoverImage(cover: .url(album.artworkURL, seed: album.title), size: Design.Shelf.tile)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(album.title)
                         .font(.subheadline.weight(.medium))
@@ -282,7 +282,7 @@ struct HistorySearchResults: View {
                         .lineLimit(1)
                 }
             }
-            .frame(width: PlayMetrics.tile, alignment: .leading)
+            .frame(width: Design.Shelf.tile, alignment: .leading)
             .contentShape(.rect)
         }
         .buttonStyle(.pressable)
@@ -304,7 +304,7 @@ struct HistorySearchResults: View {
                 })
                 timeline(recalled)
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
         case .mostPlayed:
             // With nothing heard twice, no song is the most played.
             let hasRepeats = (found.songs.first?.count ?? 0) > 1
@@ -316,7 +316,7 @@ struct HistorySearchResults: View {
                     remember()
                     play(found.songs, from: nil)
                 })
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 SearchLead(top: top, topTitle: recalled.recall.relation == nil ? "Most Played" : "Most Often", hasSongs: !shownSongs.isEmpty) {
                     songsTitle(total: songs.count)
                 } songs: {
@@ -353,7 +353,7 @@ struct HistorySearchResults: View {
             }
             if plays.count > Self.playsShown {
                 Button(showsAllSongs ? "Show Less" : "Show All \(plays.count)") {
-                    withAnimation(PlayMotion.panel) { showsAllSongs.toggle() }
+                    withAnimation(Design.Motion.panel) { showsAllSongs.toggle() }
                 }
                 .buttonStyle(.plain)
                 .font(.subheadline)
@@ -473,7 +473,7 @@ struct HistorySearchResults: View {
                 } actions: {
                     if let closest {
                         Button(Self.closestTitle(closest)) {
-                            withAnimation(PlayMotion.panel) { recalled = closest }
+                            withAnimation(Design.Motion.panel) { recalled = closest }
                         }
                     }
                 }

@@ -7,6 +7,8 @@ struct MixDetailView: View {
     @Environment(PlayFeed.self) private var feed
     @Environment(PlayerModel.self) private var player
     @Environment(\.dismiss) private var dismiss
+    /// Saved from this page, so its circle turns to a check.
+    @State private var isSaved = false
 
     var body: some View {
         Group {
@@ -52,7 +54,7 @@ struct MixDetailView: View {
             header
         } content: {
             LoadingRows(count: 8)
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 .padding(.top, 12)
         }
         #endif
@@ -108,9 +110,7 @@ struct MixDetailView: View {
         }
         .collectionPage(title: mix.kind.title)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Menu("More", systemImage: "ellipsis") { moreItems(mix, songs: songs) }
-            }
+            CollectionToolbar { moreItems(mix, songs: songs) }
         }
         #else
         CollectionMacLayout {
@@ -159,12 +159,23 @@ struct MixDetailView: View {
             facts: Text(mix.kind.reason),
             tintCover: .url(first?.url, seed: first?.seed ?? mix.id),
             canPlay: !songs.isEmpty,
+            secondary: saveAsPlaylist(mix, songs: songs),
             play: { player.play(.history(songs), from: context) },
             shuffle: { player.play(.history(songs), from: context, shuffled: true) }
         ) {
             moreItems(mix, songs: songs)
         } cover: { side in
             MixCover(mix: mix, size: side)
+        }
+    }
+
+    /// A mix changes as you listen; saving keeps today's songs as a playlist of your own.
+    private func saveAsPlaylist(_ mix: Mix, songs: [HistorySong]) -> CollectionSecondary? {
+        guard !player.isDemo, !songs.isEmpty else { return nil }
+        return CollectionSecondary(isSaved ? "Saved as Playlist" : "Save as Playlist", systemImage: isSaved ? "checkmark" : "plus", isOn: isSaved) {
+            guard !isSaved else { return }
+            isSaved = true
+            player.saveAsPlaylist(named: Self.playlistName(for: mix), songs: songs) { isSaved = false }
         }
     }
 

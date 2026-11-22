@@ -52,7 +52,8 @@ pub use history::{
 pub use http::{HttpRequest, HttpResponse, Method};
 pub use queue::{
     AfterBatch, BatchSettlement, FailureAction, IgnoredScrobble, ImportedPlay,
-    MAX_SCROBBLE_ATTEMPTS, already_scrobbled, failure_action, import_check_from, settle_batch,
+    MAX_SCROBBLE_ATTEMPTS, already_scrobbled, failure_action, halves, import_check_from,
+    settle_batch,
 };
 pub use responses::{
     ScrobbleOutcome, parse_now_playing, parse_scrobbles, parse_session, parse_token,

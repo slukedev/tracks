@@ -96,29 +96,6 @@ private struct DownloadsList: View {
                             albumRow(album)
                         }
                     }
-                } header: {
-                    HStack {
-                        Picker("Show", selection: $showsSongs) {
-                            Text("Albums").tag(false)
-                            Text("Songs").tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                        .fixedSize()
-                        Spacer()
-                        Menu {
-                            Picker("Sort By", selection: $order) {
-                                ForEach(DownloadReport.Order.allCases) { order in
-                                    Text(title(of: order)).tag(order)
-                                }
-                            }
-                        } label: {
-                            Label("Sort", systemImage: "arrow.up.arrow.down")
-                                .labelStyle(.iconOnly)
-                                .frame(minWidth: 44, minHeight: 32)
-                        }
-                        .accessibilityLabel("Sort By")
-                    }
-                    .textCase(nil)
                 }
             }
 
@@ -169,8 +146,27 @@ private struct DownloadsList: View {
                 }
             }
         }
-        .animation(.snappy, value: showsSongs)
-        .animation(.snappy, value: order)
+        .animation(Design.Motion.row, value: showsSongs)
+        .animation(Design.Motion.row, value: order)
+        .toolbar {
+            if !songs.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu("View Options", systemImage: "line.3.horizontal.decrease") {
+                        Picker("Show", selection: $showsSongs) {
+                            Label("Albums", systemImage: "square.stack").tag(false)
+                            Label("Songs", systemImage: "music.note").tag(true)
+                        }
+                        .pickerStyle(.inline)
+                        Picker("Sort By", selection: $order) {
+                            ForEach(DownloadReport.Order.allCases) { order in
+                                Text(title(of: order)).tag(order)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                }
+            }
+        }
         .overlay {
             if songs.isEmpty, active.isEmpty, failed.isEmpty, incoming.isEmpty {
                 ContentUnavailableView(

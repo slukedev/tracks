@@ -35,10 +35,7 @@ struct GenreView: View {
         let style = genre.style
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                GenreHeader(genre: genre, line: heroLine, facts: facts)
-                    .padding(.top, Self.headerTop)
-                stationCard(style)
-                    .padding(.top, 18)
+                hero
                 VStack(alignment: .leading, spacing: style.pace.sectionSpacing) {
                     if model.musicSource == .yourMusic {
                         localSongs(style)
@@ -62,12 +59,16 @@ struct GenreView: View {
                     }
                     neighbors
                 }
-                .padding(.top, 32)
+                .padding(.top, Design.Spacing.small)
             }
-            .padding(.bottom, 32)
+            .padding(.bottom, Design.Spacing.xxxLarge)
+            // The page's links and the playing song take the room's colour; the bar stays
+            // monochrome over the art.
+            .tint(style.ink)
         }
-        .tint(style.ink)
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .heroTitle(genre.title)
+        .zoomDestination(id: genre.zoomID)
         #if DEBUG
         .launchScroll()
         #endif
@@ -79,30 +80,36 @@ struct GenreView: View {
 
     // MARK: Hero
 
-    private func stationCard(_ style: RoomStyle) -> some View {
-        GenreStationCard(genre: genre, covers: heroCovers, note: stationNote) {
-            ArtworkPlayRow(
-                title: playTitle,
-                symbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
-                tint: genre.color,
-                canPlay: canPlay && !isStarting,
-                shuffle: canShuffle ? { shuffleYours() } : nil,
-                play: playOrPause
-            )
-            .frame(maxWidth: Self.controlsWidth, alignment: .leading)
+    private var hero: some View {
+        ArtworkHero(covers: heroCovers, color: genre.color) {
+            VStack(alignment: .leading, spacing: 0) {
+                Label(String(localized: "Genre"), systemImage: genre.symbol)
+                    .eyebrowStyle()
+                Text(genre.title)
+                    .font(.pageTitle)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .padding(.top, Design.Spacing.xxSmall)
+                    .accessibilityAddTraits(.isHeader)
+                // Held while your songs are read, so Play doesn't move when it arrives.
+                Text(facts ?? " ")
+                    .font(.subheadline)
+                    .opacity(facts == nil ? 0 : 0.8)
+                    .accessibilityHidden(facts == nil)
+                    .padding(.top, Design.Spacing.xxSmall)
+                ArtworkPlayRow(
+                    title: playTitle,
+                    symbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
+                    tint: genre.color,
+                    canPlay: canPlay && !isStarting,
+                    shuffle: canShuffle ? { shuffleYours() } : nil,
+                    play: playOrPause
+                )
+                .frame(maxWidth: Self.controlsWidth, alignment: .leading)
+                .padding(.top, Design.Spacing.xLarge)
+            }
+            .frame(maxWidth: Self.wordsWidth, alignment: .leading)
         }
-    }
-
-    private var stationNote: String {
-        model.musicSource == .yourMusic
-            ? String(localized: "Your music in it, picked as it plays.")
-            : String(localized: "Your favorites and new finds, picked as it plays.")
-    }
-
-    private var heroLine: String? {
-        guard hasLoaded else { return nil }
-        if model.musicSource == .yourMusic { return genre.tagline }
-        return room?.habit?.line ?? genre.tagline
     }
 
     @ViewBuilder
@@ -134,7 +141,7 @@ struct GenreView: View {
     }
 
     private var heroCovers: [CoverArt] {
-        let count = Self.wallCovers
+        let count = CoverBlendPictures.limit
         if model.musicSource == .yourMusic {
             return localAlbums.prefix(count).map { album in
                 .url(music.artworkURL(album.artwork)?.absoluteString, seed: album.title)
@@ -166,19 +173,13 @@ struct GenreView: View {
         model.musicSource == .yourMusic ? !(local?.tracks.isEmpty ?? true) : !(room?.isEmpty ?? true)
     }
 
-    private static let wallCovers = 16
-
-    #if os(macOS)
-    private static let headerTop: CGFloat = 20
-    #else
-    private static let headerTop: CGFloat = 4
-    #endif
-
     #if os(macOS)
     private static let controlsWidth: CGFloat = 520
+    private static let wordsWidth: CGFloat = 560
     private static let risingRows = 6
     #else
     private static let controlsWidth: CGFloat = .infinity
+    private static let wordsWidth: CGFloat = .infinity
     private static let risingRows = 5
     #endif
 
@@ -224,10 +225,7 @@ struct GenreView: View {
             RoomSectionHeader(title: String(localized: "Your Essentials"))
             if let room {
                 if room.isEmpty {
-                    RoomNote(
-                        text: String(localized: "You haven't played any \(genre.title) yet. The songs you play in it will gather here."),
-                        symbol: genre.symbol
-                    )
+                    RoomNote(text: String(localized: "No \(genre.title) Songs Yet"), symbol: genre.symbol)
                 } else {
                     let kinds = Array(room.kinds().prefix(8))
                     let songs = kinds.first { $0.name == kind }?.songs ?? room.songs

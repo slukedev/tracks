@@ -4,8 +4,8 @@ import SwiftUI
 /// they mean ("a card's fill", "search under the title") and each platform answers in its own
 /// idiom, rather than every view carrying its own `#if`.
 extension Color {
-    /// Behind a card or a well on the page: the grouped cell on iPhone, the quaternary fill on
-    /// the Mac, where cards sit on the window's own background.
+    /// Behind a card or a well on the page, the one content surface: a step off the plain
+    /// page on iPhone, the quaternary fill on the Mac's window background. Never glass.
     static var cardFill: Color {
         #if os(iOS)
         Color(uiColor: .secondarySystemBackground)
@@ -104,39 +104,49 @@ extension View {
     }
 }
 
-#if os(macOS)
 extension View {
-    /// A page whose colour runs up under the Mac's title bar: the colour meets the top edge
-    /// clean, and the bar's material comes back once the page scrolls under it. The title is
-    /// empty rather than removed, as a window without one drops the material altogether.
-    func headerUnderBar() -> some View {
-        modifier(HeaderUnderBar())
+    /// Art or colour behind a page's header that carries on under the bars, and on the Mac
+    /// under the sidebar, mirrored and softened by the system, as Music's heroes do. Lay the
+    /// header out inside the safe area; the extension fills the rest.
+    func heroBackground<Background: View>(alignment: Alignment = .center, @ViewBuilder _ background: () -> Background) -> some View {
+        self.background(alignment: alignment) {
+            background()
+                .backgroundExtensionEffect()
+                // Up under the bar from the top of a scroll view, as ArtworkHero's art is.
+                .padding(.top, -ArtworkHero<EmptyView>.underBar)
+                .accessibilityHidden(true)
+        }
     }
 }
 
-private struct HeaderUnderBar: ViewModifier {
-    @State private var isScrolled = false
-
-    func body(content: Content) -> some View {
-        content
-            .navigationTitle("")
-            .toolbarBackgroundVisibility(isScrolled ? .automatic : .hidden, for: .windowToolbar)
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top > 8
-            } action: { _, scrolled in
-                isScrolled = scrolled
-            }
+#if os(macOS)
+extension View {
+    /// A page whose header runs up under the Mac's title bar. The page's title lives in its
+    /// content, so the window's is empty. The bar draws no band of its own: macOS 27's scroll
+    /// edge effect softens the content under it once it scrolls there.
+    func headerUnderBar() -> some View {
+        navigationTitle("")
+            .scrollEdgeEffectStyle(.soft, for: .top)
     }
 }
 #endif
 
 extension View {
-    /// What every page of the Mac's main window wears around it: the player's bar at its foot.
-    /// Applied by the page, not the window, since a pushed page takes the stack's place. The
-    /// iPhone's player lives on its tab bar instead.
-    func pageChrome() -> some View {
+    /// What every page of the Mac's main window wears around it: the player's bar at its foot
+    /// and your devices at the end of the toolbar. Applied by the page, not the window, since a
+    /// pushed page takes the stack's place, and the window's own items would sit beside a
+    /// page's centred ones. The iPhone's player lives on its tab bar instead.
+    ///
+    /// - Parameter isRoot: the stack's first page, the one `-TracksDevices YES` opens on.
+    func pageChrome(isRoot: Bool = false) -> some View {
         #if os(macOS)
-        ColumnLayout { nowPlayingBar() }
+        ColumnLayout {
+            nowPlayingBar()
+                .toolbar {
+                    ToolbarSpacer(.flexible)
+                    ToolbarItem { DevicesButton(opensAtLaunch: isRoot) }
+                }
+        }
         #else
         self
         #endif

@@ -41,8 +41,8 @@ struct LidarrTests {
     }
 
     @Test("the API key goes in a header, never the address")
-    func key() {
-        let request = LidarrClient(server: server, apiKey: "secret").request("artist/lookup", ["term": "Florence + the Machine"])
+    func key() throws {
+        let request = try LidarrClient(server: server, apiKey: "secret").request("artist/lookup", ["term": "Florence + the Machine"])
         #expect(request.value(forHTTPHeaderField: "X-Api-Key") == "secret")
         #expect(request.url?.path() == "/api/v1/artist/lookup")
         #expect(!(request.url?.absoluteString.contains("secret") ?? true))

@@ -9,17 +9,19 @@ struct SearchPage: View {
     @FocusState private var isFieldFocused: Bool
     /// Whether the page is the one showing: a hidden tab can't take the cursor.
     @State private var isShowing = false
+    #if os(iOS)
+    /// Whether the field is in use: the system's scope bar and recent searches show only then.
+    @State private var isSearching = LaunchScene.opensSearch || LaunchScene.searchText != nil
+    #endif
 
     var body: some View {
         @Bindable var session = model.search
         let source = model.musicSource
+        #if os(macOS)
         results
             .navigationTitle("Search")
-            .searchable(text: $session.query, placement: Self.fieldPlacement, prompt: session.scope.prompt(for: source))
-            // Return keeps the search, as acting on a result does.
-            .onSubmit(of: .search) { session.remember(source: source) }
-            .searchFocused($isFieldFocused)
-            #if os(macOS)
+            .searchable(text: $session.query, placement: .toolbar, prompt: session.scope.prompt(for: source))
+            .modifier(SearchBehaviour(isFieldFocused: $isFieldFocused, isShowing: $isShowing, takeFocus: takeFocusIfAsked))
             // Where the title would be: the scope says what the page is.
             .toolbar(removing: .title)
             .toolbar {
@@ -33,24 +35,38 @@ struct SearchPage: View {
                         }
                 }
             }
-            #else
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { identifyButton }
+        #else
+        phoneContent
+            .searchable(
+                text: $session.query,
+                isPresented: $isSearching,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: session.scope.prompt(for: source)
+            )
+            // The system's scope bar, under the field only while searching, as Music's is.
+            .searchScopes($session.scope, activation: .onSearchPresentation) {
+                ForEach(SearchScope.scopes(for: source)) { scope in
+                    Text(scope.title(for: source)).tag(scope)
+                }
             }
-            .safeAreaBar(edge: .top) {
-                scopePicker
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, PlayMetrics.margin)
-                    .padding(.bottom, 8)
+            .modifier(SearchBehaviour(isFieldFocused: $isFieldFocused, isShowing: $isShowing, takeFocus: takeFocusIfAsked))
+            .tabRoot("Search") {
+                ToolbarItem(placement: .primaryAction) { identifyButton }
+            }
+            .onChange(of: isSearching) { _, searching in
+                // Cancel leaves Search as it opens, rather than on the last results.
+                if !searching { session.query = "" }
             }
             .sheet(isPresented: $session.isIdentifying) {
                 NavigationStack {
                     ScrollView {
                         IdentifySongView()
-                            .padding(.horizontal, PlayMetrics.margin)
-                            .padding(.bottom, 24)
+                            .padding(.horizontal, Design.Margin.page)
+                            .padding(.bottom, Design.Spacing.xxLarge)
                     }
                     .scrollBounceBehavior(.basedOnSize)
+                    .navigationTitle("Identify Song")
+                    .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Close", systemImage: "xmark", role: .close) { session.isIdentifying = false }
@@ -59,16 +75,25 @@ struct SearchPage: View {
                 }
                 .presentationDetents([.medium, .large])
             }
-            #endif
-            .onAppear {
-                isShowing = true
-                session.keepScope(for: source)
-                takeFocusIfAsked()
-            }
-            .onDisappear { isShowing = false }
-            .onChange(of: source) { session.keepScope(for: source) }
-            .onChange(of: session.wantsFocus) { takeFocusIfAsked() }
+        #endif
     }
+
+    #if os(iOS)
+    /// Before the field is touched, things to browse, as Music's Search opens on its
+    /// categories; once it is, the scope's recent searches, then results as you type.
+    @ViewBuilder
+    private var phoneContent: some View {
+        if !isSearching, model.search.query.isEmpty, BrowseSections.isOffered(model) {
+            ScrollView {
+                BrowseSections()
+                    .padding(.top, Design.Spacing.small)
+                    .padding(.bottom, Design.Margin.section)
+            }
+        } else {
+            results
+        }
+    }
+    #endif
 
     /// Puts the cursor in the field when something asked for it, once the page is showing.
     /// The request waits while it isn't, for the tab or the page to come forward.
@@ -95,10 +120,10 @@ struct SearchPage: View {
             #if os(macOS)
             LibrarySearchResults(query: session.query)
             #else
-            MusicSearchResults(query: session.query, scope: .library, search: search)
+            MusicSearchResults(query: session.query, scope: .library, browses: Self.browsesInResults, search: search)
             #endif
         case .appleMusic:
-            MusicSearchResults(query: session.query, scope: .appleMusic, search: search)
+            MusicSearchResults(query: session.query, scope: .appleMusic, browses: Self.browsesInResults, search: search)
         }
     }
 
@@ -108,6 +133,7 @@ struct SearchPage: View {
             .help("Identify the song playing near you")
     }
 
+    #if os(macOS)
     private var scopePicker: some View {
         @Bindable var session = model.search
         let source = model.musicSource
@@ -118,16 +144,50 @@ struct SearchPage: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        #if os(macOS)
         .fixedSize()
-        #endif
     }
 
-    /// The toolbar's field on the Mac, as Finder and Mail have it; under the large title on
-    /// iPhone, always showing, as on a page that's for nothing but searching.
-    #if os(macOS)
-    private static let fieldPlacement = SearchFieldPlacement.toolbar
+    /// The Mac's page has no resting state apart from the field, so its blank results browse.
+    private static let browsesInResults = true
     #else
-    private static let fieldPlacement = SearchFieldPlacement.navigationBarDrawer(displayMode: .always)
+    /// The iPhone browses before the field is touched, so its blank results don't.
+    private static let browsesInResults = false
     #endif
 }
+
+/// What both platforms do around the field: Return keeps the search, the cursor comes when
+/// asked, and the scope follows the music source.
+private struct SearchBehaviour: ViewModifier {
+    @FocusState.Binding var isFieldFocused: Bool
+    @Binding var isShowing: Bool
+    let takeFocus: () -> Void
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        let session = model.search
+        let source = model.musicSource
+        content
+            .onSubmit(of: .search) { session.remember(source: source) }
+            .searchFocused($isFieldFocused)
+            .onAppear {
+                isShowing = true
+                session.keepScope(for: source)
+                takeFocus()
+            }
+            .onDisappear { isShowing = false }
+            .onChange(of: source) { session.keepScope(for: source) }
+            .onChange(of: session.wantsFocus) { takeFocus() }
+    }
+}
+
+#if DEBUG
+#Preview("Search") {
+    PlayPreviewHost { SearchPage() }
+}
+
+#Preview("Search, dark, AX5") {
+    PlayPreviewHost { SearchPage() }
+        .preferredColorScheme(.dark)
+        .dynamicTypeSize(.accessibility5)
+}
+#endif

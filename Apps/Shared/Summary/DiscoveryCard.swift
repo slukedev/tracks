@@ -148,7 +148,7 @@ private struct DiscoveryCardContent: View {
 
     /// Solid. The accent, or grey on a day that isn't the selected one.
     private func newStyle(isDimmed: Bool) -> AnyShapeStyle {
-        guard isDimmed else { return AnyShapeStyle(Color.accentColor.gradient) }
+        guard isDimmed else { return AnyShapeStyle(Color.accentColor) }
         return AnyShapeStyle(Self.dimmedColor.opacity(contrast == .increased ? 0.8 : 0.55))
     }
 

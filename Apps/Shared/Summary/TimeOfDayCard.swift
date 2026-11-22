@@ -90,7 +90,7 @@ private struct DayPartRow: View {
         ProportionBar(
             fraction: share,
             style: isBusiest
-                ? AnyShapeStyle(Color.accentColor.gradient)
+                ? AnyShapeStyle(Color.accentColor)
                 : AnyShapeStyle(Color.accentColor.opacity(0.45))
         )
     }

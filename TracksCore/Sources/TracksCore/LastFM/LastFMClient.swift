@@ -16,8 +16,9 @@ public enum LastFMError: Error, Sendable, Equatable {
     public var isRetryable: Bool {
         switch self {
         case .http(let status): status == 429 || status >= 500
-        // 11 service offline, 16 temporarily unavailable, 29 rate limit.
-        case .service(let code, _): [11, 16, 29].contains(code)
+        // 8 operation failed (Last.fm's own "try again"), 11 service offline,
+        // 16 temporarily unavailable, 29 rate limit.
+        case .service(let code, _): [8, 11, 16, 29].contains(code)
         case .notConfigured, .notConnected, .notAuthorised, .malformedResponse: false
         }
     }
@@ -36,6 +37,13 @@ public enum LastFMError: Error, Sendable, Equatable {
         case .service(let code, _): [4, 9, 10, 13, 14, 15, 26].contains(code)
         case .http, .malformedResponse: false
         }
+    }
+
+    /// Whether Last.fm refused what the request carried: 6 invalid parameters, 7 invalid
+    /// resource. Every other code says nothing about the scrobbles in it.
+    var concernsRequestContent: Bool {
+        guard case .service(let code, _) = self else { return false }
+        return code == 6 || code == 7
     }
 }
 
@@ -255,10 +263,12 @@ public struct LastFMClient: Sendable {
     /// - Parameters:
     ///   - after: only scrobbles at or after this time (Last.fm's `from`).
     ///   - before: only scrobbles at or before this time (Last.fm's `to`).
+    ///   - page: which page of the range, from 1 at the newest.
     public func recentTracks(
         session: LastFMSession,
         after: Date? = nil,
         before: Date? = nil,
+        page: Int = 1,
         limit: Int = historyPageLimit
     ) async throws -> ScrobbleHistoryPage {
         var parameters: [String: String] = [
@@ -266,7 +276,7 @@ public struct LastFMClient: Sendable {
             "user": session.username,
             "sk": session.sessionKey,
             "limit": String(min(limit, Self.historyPageLimit)),
-            "page": "1",
+            "page": String(max(page, 1)),
         ]
         if let after { parameters["from"] = String(Int(after.timeIntervalSince1970)) }
         if let before { parameters["to"] = String(Int(before.timeIntervalSince1970)) }
@@ -350,7 +360,7 @@ public struct LastFMClient: Sendable {
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
 
         // Check the body first. Last.fm's errors usually come with a plain 400.
-        if let code = json?["error"] as? Int {
+        if let code = Self.integer(json?["error"]) {
             throw LastFMError.service(code: code, message: json?["message"] as? String ?? "")
         }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {

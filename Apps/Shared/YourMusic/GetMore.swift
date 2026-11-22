@@ -609,29 +609,37 @@ final class GetMore {
     }
 
     /// Follows Lidarr while it fetches what was asked: its queue every half minute, and your
-    /// servers synced once an album leaves the queue, which is when it's been filed.
+    /// servers synced once an album leaves the queue, which is when it's been filed. Holds
+    /// nothing between looks, so it ends with Get More.
     private func watchLidarr() {
         guard lidarrWatch == nil else { return }
         lidarrWatch = Task { [weak self] in
             var seen: Set<String> = []
             for _ in 0..<(3 * 60 * 2) {
-                guard let self, let lidarr = music.lidarr else { return }
-                await lidarr.refreshActivity()
-                let asked = requests.filter { $0.value.route == .lidarr && $0.value.status == .waiting && $0.value.doneAt == nil }
-                guard !asked.isEmpty else { break }
-                let queued = Set(asked.compactMap { key, request in
-                    lidarrQueueItem(for: Album(title: request.title, artist: request.artist)) == nil ? nil : key
-                })
-                // Out of the queue since the last look: filed, so your servers have it to sync.
-                if !seen.subtracting(queued).isEmpty {
-                    for server in music.servers.onlineServers { await music.servers.sync(server.id) }
-                }
+                guard let queued = await self?.lookAtLidarr(since: seen) else { break }
                 seen = queued
                 try? await Task.sleep(for: .seconds(30))
                 guard !Task.isCancelled else { return }
             }
             self?.lidarrWatch = nil
         }
+    }
+
+    /// One look at Lidarr's queue for the albums asked of it.
+    /// - Returns: the ones still queued, or nil once nothing asked is waiting.
+    private func lookAtLidarr(since seen: Set<String>) async -> Set<String>? {
+        guard let lidarr = music.lidarr else { return nil }
+        await lidarr.refreshActivity()
+        let asked = requests.filter { $0.value.route == .lidarr && $0.value.status == .waiting && $0.value.doneAt == nil }
+        guard !asked.isEmpty else { return nil }
+        let queued = Set(asked.compactMap { key, request in
+            lidarrQueueItem(for: Album(title: request.title, artist: request.artist)) == nil ? nil : key
+        })
+        // Out of the queue since the last look: filed, so your servers have it to sync.
+        if !seen.subtracting(queued).isEmpty {
+            for server in music.servers.onlineServers { await music.servers.sync(server.id) }
+        }
+        return queued
     }
 
     // MARK: - Get More

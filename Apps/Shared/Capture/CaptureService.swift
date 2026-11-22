@@ -94,14 +94,38 @@ public final class CaptureService {
 
     private static var sharedService: CaptureService?
 
+    /// Whether the library on disk opens again after this run couldn't open it, so relaunching
+    /// saves what this run kept aside. Checked on every ``catchUp()``.
+    public private(set) var libraryOpensOnRelaunch = false
+
     /// Retries whatever is outstanding: unresolved ids, missing artwork, failed playlist
     /// writes, unsent scrobbles. Called at launch and on coming back to the front.
     public func catchUp() async {
+        if store.isLibraryUnavailable, !libraryOpensOnRelaunch {
+            libraryOpensOnRelaunch = await store.libraryOpensNow()
+        }
         await closeStaleSessions()
         await mergeSyncedDuplicates()
         await coordinator.drainPendingWrites()
         await scrobbler.drain()
     }
+
+    /// Plays Last.fm wasn't sent and Tracks stopped trying with. See
+    /// ``ScrobbleService/failedScrobbleCounts()``.
+    public func failedScrobbleCounts() async -> UnsentScrobbles {
+        await scrobbler.failedScrobbleCounts()
+    }
+
+    /// Sends the plays that can still go to Last.fm again. See ``ScrobbleService/retryFailed()``.
+    /// - Returns: how many went back in the queue.
+    @discardableResult
+    public func retryFailedScrobbles() async -> Int {
+        await scrobbler.retryFailed()
+    }
+
+    /// What went wrong the last time Last.fm couldn't be reached, in words. Nil once a send
+    /// goes through.
+    public var lastScrobbleError: String? { scrobbler.lastError }
 
     /// Stops keeping what you play until ``resume()``, even across launches.
     public func pause() {
@@ -141,7 +165,7 @@ public final class CaptureService {
             probe: ArtworkRepair.networkProbe()
         ))
 
-        report.cleared = (try? store.clearArtwork(urls: forget)) ?? 0
+        report.cleared = (try? await store.clearArtworkInBackground(urls: forget)) ?? 0
         // Reads and writes the whole file.
         await Self.forgetMissingArtistArtwork()
         report.restored = await coordinator.backfillAllArtwork()

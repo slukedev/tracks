@@ -13,6 +13,10 @@ struct SettingsSheet: View {
     var body: some View {
         NavigationStack(path: $path) {
             Form {
+                if let keptAside = LibraryKeptAside(model: model) {
+                    LibraryKeptAsideRow(keptAside: keptAside)
+                }
+
                 Section {
                     NavigationLink(value: SettingsPage.play) {
                         SettingsRowLabel(title: "Play", systemImage: "play.fill", tint: .indigo, value: model.musicSource.name)
@@ -38,6 +42,10 @@ struct SettingsSheet: View {
                         NavigationLink(value: SettingsPage.iCloud) {
                             SettingsRowLabel(title: "iCloud", systemImage: "icloud.fill", tint: .blue, value: cloud.status.short)
                         }
+                    } else if model.isDemoLaunch {
+                        NavigationLink(value: SettingsPage.iCloud) {
+                            SettingsRowLabel(title: "iCloud", systemImage: "icloud.fill", tint: .blue, value: CloudSyncStatus.unavailable.short)
+                        }
                     }
                 } header: {
                     Text("Connections")
@@ -57,7 +65,7 @@ struct SettingsSheet: View {
             }
         }
         .task {
-            // Demo runs have no real store to sync, so the row stays out of the list.
+            // Sample data has no real store to sync; its row says so instead.
             guard cloud == nil, let store = model.store, !model.isDemoLaunch else { return }
             let settings = CloudSyncSettings(store: store, monitor: model.syncMonitor)
             cloud = settings
@@ -79,6 +87,8 @@ struct SettingsSheet: View {
         case .iCloud:
             if let cloud {
                 CloudSyncPage(sync: cloud)
+            } else {
+                CloudSyncSampleDataPage()
             }
         }
     }

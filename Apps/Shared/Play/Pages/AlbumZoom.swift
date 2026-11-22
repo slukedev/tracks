@@ -1,8 +1,28 @@
 import SwiftUI
 import MusicKit
 
+/// The zoom from a cover into the page it opens, as Music's covers open on iPhone. A tile marks
+/// itself with ``SwiftUI/View/zoomSource(id:)`` and the page it pushes with
+/// ``SwiftUI/View/zoomDestination(id:)``, both with the same id; ``SwiftUI/View/zoomSpace()``
+/// on the stack holds them together. Any `Hashable` id works, so long as the two ends use the
+/// same type. On the Mac, where pages push without a zoom, all three do nothing.
 extension EnvironmentValues {
-    @Entry var albumZoom: Namespace.ID?
+    @Entry var zoomNamespace: Namespace.ID?
+}
+
+extension View {
+    func zoomSpace() -> some View {
+        modifier(ZoomSpace())
+    }
+
+    func zoomSource(id: (some Hashable)?) -> some View {
+        let id: AnyHashable? = if let id { AnyHashable(id) } else { nil }
+        return modifier(ZoomSource(id: id))
+    }
+
+    func zoomDestination(id: some Hashable) -> some View {
+        modifier(ZoomDestination(id: AnyHashable(id)))
+    }
 }
 
 extension PlayRoute {
@@ -13,33 +33,33 @@ extension PlayRoute {
 
 extension View {
     func albumZoomSource(_ route: PlayRoute) -> some View {
-        modifier(AlbumZoomSource(id: route.albumZoomID))
+        zoomSource(id: route.albumZoomID)
     }
 
     func albumZoomSource(album: Album) -> some View {
-        modifier(AlbumZoomSource(id: album.id))
+        zoomSource(id: album.id)
     }
 
     func albumZoomDestination(_ album: Album) -> some View {
-        modifier(AlbumZoomDestination(id: album.id))
+        zoomDestination(id: album.id)
     }
 
     func albumZoomSpace() -> some View {
-        modifier(AlbumZoomSpace())
+        zoomSpace()
     }
 }
 
-private struct AlbumZoomSpace: ViewModifier {
+private struct ZoomSpace: ViewModifier {
     @Namespace private var namespace
 
     func body(content: Content) -> some View {
-        content.environment(\.albumZoom, namespace)
+        content.environment(\.zoomNamespace, namespace)
     }
 }
 
-private struct AlbumZoomSource: ViewModifier {
-    let id: MusicItemID?
-    @Environment(\.albumZoom) private var namespace
+private struct ZoomSource: ViewModifier {
+    let id: AnyHashable?
+    @Environment(\.zoomNamespace) private var namespace
 
     func body(content: Content) -> some View {
         #if os(iOS)
@@ -54,9 +74,9 @@ private struct AlbumZoomSource: ViewModifier {
     }
 }
 
-private struct AlbumZoomDestination: ViewModifier {
-    let id: MusicItemID
-    @Environment(\.albumZoom) private var namespace
+private struct ZoomDestination: ViewModifier {
+    let id: AnyHashable
+    @Environment(\.zoomNamespace) private var namespace
 
     func body(content: Content) -> some View {
         #if os(iOS)

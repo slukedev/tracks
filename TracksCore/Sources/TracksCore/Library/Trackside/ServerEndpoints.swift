@@ -35,10 +35,16 @@ public actor ServerEndpoints {
     private let probe: @Sendable (TracksideServerURL, Duration, [URLQueryItem]) async throws -> TracksidePing
     private var failures = 0
     private var racing: Task<TracksideServerURL?, Never>?
-    private var provenAt: ContinuousClock.Instant?
+    /// When the address in use last proved itself, on ``elapsed``.
+    private var provenAt: Duration?
+    /// Time since these endpoints were made, and a wait on the same clock. A clock of the
+    /// caller's, so the grace, the timeout and a proof's lifetime are measured as it keeps time.
+    private let elapsed: @Sendable () -> Duration
+    private let sleep: @Sendable (Duration) async throws -> Void
 
     /// - Parameters:
     ///   - current: the address to use once proven, such as the last one that worked.
+    ///   - clock: what the grace, the timeout and a proof's lifetime are measured on.
     ///   - probe: asks one address who it is, with the challenge's query.
     ///     ``TracksideClient/ping(at:query:timeout:transport:)`` in the app.
     public init(
@@ -50,6 +56,7 @@ public actor ServerEndpoints {
         localGrace: Duration = .milliseconds(300),
         timeout: Duration = .seconds(2),
         plainHTTPProofLifetime: Duration = .seconds(600),
+        clock: some Clock<Duration> & Sendable = ContinuousClock(),
         probe: @escaping @Sendable (TracksideServerURL, Duration, [URLQueryItem]) async throws -> TracksidePing
     ) {
         self.serverUUID = serverUUID
@@ -60,6 +67,9 @@ public actor ServerEndpoints {
         self.localGrace = localGrace
         self.timeout = timeout
         self.plainHTTPProofLifetime = plainHTTPProofLifetime
+        let start = clock.now
+        self.elapsed = { start.duration(to: clock.now) }
+        self.sleep = { try await clock.sleep(for: $0) }
         self.probe = probe
     }
 
@@ -85,8 +95,8 @@ public actor ServerEndpoints {
         return baseURL
     }
 
-    private func isFresh(_ provenAt: ContinuousClock.Instant) -> Bool {
-        baseURL.scheme?.lowercased() == "https" || ContinuousClock.now - provenAt < plainHTTPProofLifetime
+    private func isFresh(_ provenAt: Duration) -> Bool {
+        baseURL.scheme?.lowercased() == "https" || elapsed() - provenAt < plainHTTPProofLifetime
     }
 
     /// Takes the server's latest list of addresses, as `/me` gives them on each connect.
@@ -103,8 +113,8 @@ public actor ServerEndpoints {
     public func race() async -> TracksideServerURL? {
         if let racing { return await racing.value }
         provenAt = nil
-        let task = Task { [candidates, serverUUID, proofKey, localGrace, timeout, probe] in
-            await Self.pick(from: candidates, serverUUID: serverUUID, proofKey: proofKey, localGrace: localGrace, timeout: timeout, probe: probe)
+        let task = Task { [candidates, serverUUID, proofKey, localGrace, timeout, sleep, probe] in
+            await Self.pick(from: candidates, serverUUID: serverUUID, proofKey: proofKey, localGrace: localGrace, timeout: timeout, sleep: sleep, probe: probe)
         }
         racing = task
         let chosen = await task.value
@@ -112,7 +122,7 @@ public actor ServerEndpoints {
         failures = 0
         if let chosen {
             current.withLock { $0 = chosen.url }
-            provenAt = .now
+            provenAt = elapsed()
         }
         return chosen
     }
@@ -151,6 +161,7 @@ public actor ServerEndpoints {
         proofKey: TracksideEndpointProof.Key,
         localGrace: Duration,
         timeout: Duration,
+        sleep: @escaping @Sendable (Duration) async throws -> Void,
         probe: @escaping @Sendable (TracksideServerURL, Duration, [URLQueryItem]) async throws -> TracksidePing
     ) async -> TracksideServerURL? {
         let usable = candidates.filter { TracksideEndpointProof.allowsCredentials(to: $0.url) }
@@ -168,7 +179,7 @@ public actor ServerEndpoints {
                 }
             }
             group.addTask {
-                try? await Task.sleep(for: timeout)
+                try? await sleep(timeout)
                 return .timeUp
             }
             var waiting = usable.count
@@ -185,7 +196,7 @@ public actor ServerEndpoints {
                     if fastest == nil {
                         fastest = candidate
                         group.addTask {
-                            try? await Task.sleep(for: localGrace)
+                            try? await sleep(localGrace)
                             return .graceOver
                         }
                     }

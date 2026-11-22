@@ -136,8 +136,6 @@ struct PartyView: View {
         if let tracks = localMixes[vibe], tracks.count < PartyMix.minimumSongs, own.isEmpty {
             ContentUnavailableView {
                 Label("Nothing for \(vibe.title) Yet", systemImage: vibe.symbol)
-            } description: {
-                Text("None of your music suits it yet, and none of your playlists look like party ones. Tracks goes by each song's genre.")
             } actions: {
                 Button("Try Another Vibe", action: tryAnotherVibe)
                     .buttonStyle(.glass)

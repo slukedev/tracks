@@ -38,10 +38,7 @@ final class Playlists {
         flushOnExit = NotificationCenter.default.addObserver(forName: exit, object: nil, queue: nil) { [record] _ in
             record.flush()
         }
-        guard let data = try? Data(contentsOf: Self.recordURL),
-              let saved = try? JSONDecoder().decode([TracksPlaylist].self, from: data)
-        else { return }
-        all = saved
+        all = StoredJSON.loadEach([TracksPlaylist].self, from: Self.recordURL) ?? []
     }
 
     /// Most recently changed first, as Music lists them.

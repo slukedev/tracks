@@ -327,7 +327,7 @@ struct LastFMHistoryImporterTests {
         #expect(progress.lastFinished == at(1_000))
     }
 
-    @Test("a later sync only asks for what's new")
+    @Test("a later sync asks for what's new and the two weeks before it")
     func syncsOnlyWhatsNew() async throws {
         let store = try TracksStore(inMemory: true)
         let server = ScrobbleHistoryServer([scrobble("Old", 0), scrobble("Older", -10)])
@@ -340,7 +340,23 @@ struct LastFMHistoryImporterTests {
         #expect(try titles(in: store) == ["New", "Old", "Older"])
         let requests = await server.requests
         let lastRequest = try #require(requests.last)
-        #expect(lastRequest["from"] == String(Int(at(0).timeIntervalSince1970)))
+        let reach = LastFMHistoryImporter.lateScrobbleReach
+        #expect(lastRequest["from"] == String(Int(at(0).addingTimeInterval(-reach).timeIntervalSince1970)))
+    }
+
+    /// An iPod, a car or another app can scrobble days late, dated when it played, below
+    /// where the last run stopped reading.
+    @Test("a scrobble that arrives late with an older date is imported by the next sync")
+    func lateScrobbleIsImported() async throws {
+        let store = try TracksStore(inMemory: true)
+        let server = ScrobbleHistoryServer([scrobble("Old", 0)])
+        try await importer(server, store: store).run()
+
+        await server.add(scrobble("Played Offline", -3 * 24 * 60))
+        let report = try await importer(server, store: store, now: at(2_000)).run()
+
+        #expect(report.imported == 1)
+        #expect(try titles(in: store).sorted() == ["Old", "Played Offline"])
     }
 
     @Test("a run that fails part way carries on from there next time")

@@ -56,6 +56,7 @@ struct ArtworkRepairSection: View {
                 .frame(width: 70)
         } else {
             Button("Repair", action: repair)
+                .help("Find covers that no longer load and fetch them again")
         }
     }
     #endif

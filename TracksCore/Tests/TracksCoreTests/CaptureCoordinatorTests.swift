@@ -141,6 +141,29 @@ struct CaptureCoordinatorTests {
         #expect(settings.playlistID == "p.fake")
     }
 
+    /// A phone restored from another's backup has its rows; the old phone may still be in use,
+    /// so they're left to it for a day, then written here rather than left out for good.
+    @Test("a predecessor's playlist writes are taken over once they've waited a day")
+    func predecessorWritesWait() async throws {
+        let now = Date()
+        let rows = [
+            ("mine", DeviceIdentity.current, now.addingTimeInterval(-60)),
+            ("old", "old-phone", now.addingTimeInterval(-DeviceIdentity.predecessorDelay - 60)),
+            ("recent", "old-phone", now.addingTimeInterval(-3_600)),
+            ("stranger", "someone-else", now.addingTimeInterval(-DeviceIdentity.predecessorDelay - 60)),
+        ]
+        for (id, device, at) in rows {
+            store.context.insert(Capture(songID: id, title: id, artistName: "A", capturedAt: at, deviceID: device))
+        }
+        try store.context.save()
+        let subject = CaptureCoordinator(store: store, settings: settings, playlistWriter: writer, predecessors: { ["old-phone"] })
+        subject.now = { now }
+
+        await subject.drainPendingWrites()
+
+        #expect(writer.addedIDs == ["old", "mine"])
+    }
+
     @Test("an on-demand track is neither stored nor written")
     func ignoresOnDemand() async throws {
         var observation = radio()
@@ -547,7 +570,7 @@ struct CaptureDrainTests {
 /// or four minutes. With "Straight Away", a song is kept the moment it starts, so whether it
 /// is owed to Last.fm has to wait for that.
 @MainActor
-@Suite("Scrobbling follows Last.fm's rule")
+@Suite("Scrobbling follows Last.fm's rule", .timeLimit(.minutes(1)))
 struct ScrobbleRuleTests {
     let store: TracksStore
     private let scratch = ScratchDefaults()
@@ -672,4 +695,59 @@ struct ScrobbleRuleTests {
         await handle(coordinator(), song("Kept"), after: 600)
         #expect(try owed().isEmpty)
     }
+
+    /// Tracks' players only report changes, so a song playing through to its threshold said
+    /// nothing until the next one started, and the app ending first kept it held for good.
+    @Test("a held song that keeps playing to its threshold is released without another observation")
+    func releasedWhenTheThresholdPasses() async throws {
+        let slept = SleepLog()
+        let subject = coordinator()
+        subject.sleep = { duration in slept.record(duration) }
+
+        await handle(subject, song("Kept"), after: 0)
+
+        try await waitUntil { (try? owed()) == ["Kept"] }
+        #expect(slept.durations == [.seconds(90)])
+    }
+
+    @Test("a pause before the threshold stops the release")
+    func pauseStopsTheRelease() async throws {
+        let gate = Gate()
+        let subject = coordinator()
+        subject.sleep = { _ in
+            await gate.wait()
+            try Task.checkCancellation()
+        }
+
+        await handle(subject, song("Kept"), after: 0)
+        await handle(subject, song("Kept", state: .paused), after: 30)
+        gate.open()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(try owed().isEmpty)
+    }
+
+    @Test("a release that comes after the next song started leaves the skipped one held")
+    func releaseAfterTheNextSong() async throws {
+        let gate = Gate()
+        let subject = coordinator()
+        subject.sleep = { _ in await gate.wait() }
+
+        await handle(subject, song("Skipped"), after: 0)
+        await handle(subject, song("Next"), after: 20)
+        gate.open()
+
+        // Only the song still playing when its wait ended.
+        try await waitUntil { (try? owed()) == ["Next"] }
+    }
+}
+
+/// The waits a coordinator asked for.
+private final class SleepLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [Duration] = []
+
+    var durations: [Duration] { lock.withLock { recorded } }
+
+    func record(_ duration: Duration) { lock.withLock { recorded.append(duration) } }
 }

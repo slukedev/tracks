@@ -75,10 +75,8 @@ struct ServerExploring: View {
         let songs = ServerMix.blend(owned: discover.exploring, new: further)
         let goesOn = discover.canExploreMore || servers.contains { discover.forYou[$0.id]?.canGoOn == true }
         LazyVStack(alignment: .leading, spacing: 0) {
-            Text("Keep Exploring")
-                .font(.title3.bold())
-                .accessibilityAddTraits(.isHeader)
-                .padding(.bottom, 8)
+            ShelfHeader(title: String(localized: "Keep Exploring"))
+                .padding(.bottom, Design.Margin.header)
 
             ForEach(songs) { track in
                 HStack(spacing: 4) {
@@ -92,7 +90,7 @@ struct ServerExploring: View {
                     AddFoundSongButton(track: track)
                 }
                 .contextMenu { LocalTrackMenu(track: track, showsStats: true) }
-                Divider().padding(.leading, 60)
+                Divider().padding(.leading, SuggestionRow.cover + Design.Spacing.medium)
             }
 
             if goesOn {
@@ -101,7 +99,7 @@ struct ServerExploring: View {
                     .onDisappear { isEndInView = false }
             }
         }
-        .padding(.horizontal, PlayMetrics.margin)
+        .padding(.horizontal, Design.Margin.page)
         .animation(.snappy, value: songs.count)
         // Again after each lot, while the end's still in view, as each server's budget allows.
         .task(id: "\(isEndInView).\(songs.count)") {
