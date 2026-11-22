@@ -230,8 +230,11 @@ final class PlayFeed {
         request.limit = 10
         guard let response = try? await request.response() else { return .failed }
         let wanted = StatsCalculator.folded(name)
+        // A seasonal station like Holiday Hits may not report `isLive`, so Apple Music being
+        // its provider counts too.
         let match = response.stations.first {
-            StatsCalculator.folded($0.name) == wanted && (!mustBeLive || $0.isLive)
+            StatsCalculator.folded($0.name) == wanted
+                && (!mustBeLive || $0.isLive || $0.stationProviderName == "Apple Music")
         }
         return match.map(StationSearch.found) ?? .none
     }

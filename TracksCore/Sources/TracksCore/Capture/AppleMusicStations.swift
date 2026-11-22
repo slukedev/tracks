@@ -15,7 +15,7 @@ public enum AppleMusicStations {
 
     /// Live stations Apple Music airs only part of the year.
     public static let seasonal = [
-        "Apple Music Holiday",
+        "Holiday Hits",
     ]
 
     /// Every live station in the order they're shown: Apple Music 1, any seasonal station,

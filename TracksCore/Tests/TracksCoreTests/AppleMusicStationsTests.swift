@@ -28,14 +28,14 @@ struct AppleMusicStationsTests {
 
     @Test("a seasonal station joins after Apple Music 1 once heard")
     func seasonalOnceHeard() {
-        let choices = AppleMusicStations.choices(heard: ["Apple Music Holiday"], excluded: [])
-        #expect(choices.prefix(2) == ["Apple Music 1", "Apple Music Holiday"])
+        let choices = AppleMusicStations.choices(heard: ["Holiday Hits"], excluded: [])
+        #expect(choices.prefix(2) == ["Apple Music 1", "Holiday Hits"])
         #expect(choices.count == AppleMusicStations.live.count + 1)
     }
 
     @Test("a seasonal station that's off keeps its switch")
     func excludedSeasonalKeepsSwitch() {
-        let choices = AppleMusicStations.choices(heard: [], excluded: ["Apple Music Holiday"])
-        #expect(choices.contains("Apple Music Holiday"))
+        let choices = AppleMusicStations.choices(heard: [], excluded: ["Holiday Hits"])
+        #expect(choices.contains("Holiday Hits"))
     }
 }
