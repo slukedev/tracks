@@ -13,12 +13,20 @@ public enum AppleMusicStations {
         "Apple Music Chill",
     ]
 
-    /// The stations to offer switches for: the live ones first, then every other station
-    /// Tracks has heard in the order given, then any excluded name neither mentions, so each
-    /// excluded station keeps a switch to turn it back on.
-    public static func choices(heard: [String], excluded: Set<String>) -> [String] {
-        var seen = Set<String>()
-        let known = (live + heard).filter { seen.insert($0).inserted }
-        return known + excluded.subtracting(seen).sorted()
+    /// Live stations Apple Music airs only part of the year.
+    public static let seasonal = [
+        "Apple Music Holiday",
+    ]
+
+    /// Every live station in the order they're shown: Apple Music 1, any seasonal station,
+    /// then the rest. The radio shelf looks these up and shows the ones on air.
+    public static var all: [String] {
+        Array(live.prefix(1)) + seasonal + live.dropFirst()
+    }
+
+    /// The stations Settings offers switches for: only Apple Music's live ones. A seasonal
+    /// station joins once Tracks has heard it, or while it's off, so it can be turned back on.
+    public static func choices(heard: Set<String>, excluded: Set<String>) -> [String] {
+        all.filter { !seasonal.contains($0) || heard.contains($0) || excluded.contains($0) }
     }
 }

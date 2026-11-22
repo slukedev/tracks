@@ -32,9 +32,9 @@ struct StationExclusionsSection: View {
         .onSettingsChangedRemotely { excluded = settings.excludedStations }
     }
 
-    /// Apple's live stations, then the others Tracks has heard. See ``AppleMusicStations``.
+    /// Apple Music's live stations. See ``AppleMusicStations``.
     private var names: [String] {
-        AppleMusicStations.choices(heard: stations.map(\.name), excluded: excluded)
+        AppleMusicStations.choices(heard: Set(stations.map(\.name)), excluded: excluded)
     }
 
     /// On means capturing, so the switch doesn't read as a double negative.

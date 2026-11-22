@@ -169,8 +169,10 @@ final class PlayFeed {
     }
 
     private func loadLiveStations() async -> [FeedItem] {
-        let found = await stations(named: AppleMusicStations.live, mustBeLive: true)
-        return AppleMusicStations.live.compactMap { name in
+        // Seasonal stations the catalog doesn't have live are simply not found.
+        let names = AppleMusicStations.all
+        let found = await stations(named: names, mustBeLive: true)
+        return names.compactMap { name in
             // The LIVE badge says what a subtitle would.
             found[name].map { FeedItem(station: $0, subtitle: "") }
         }
