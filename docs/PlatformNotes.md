@@ -119,3 +119,28 @@ Measured from TestFlight crash reports on iOS 27.2, November 2026.
   `object: nil` hears Apple's frameworks' defaults too.
 - The Xcode debugger turns the watchdog off, so this never shows when running from Xcode.
   Test CarPlay connects and lock/unlock with the app launched from the Home Screen.
+
+## CarPlay
+
+Learned fixing Apple Music in the car, November 2026, iOS 27.2.
+
+- Every push, pop, sheet and Now Playing goes through `CarMover`, one at a time. CarPlay
+  raises an exception when a template already on the stack, or still on its way, is pushed
+  again, and over wireless CarPlay a transition can take seconds or never report back. A move
+  that never reports back frees the car after 15 seconds without sending the same template
+  twice.
+- A row's handler must call its completion, or the car spins the row forever. `RowCompletion`
+  calls it once, when the play is queued or after 8 seconds at the latest.
+- Wrap a tap's play in `PlayStart.run(mayAskForAccess: false, whenQueued:)`. The car can't
+  show MusicKit's access prompt (the phone is usually locked), and `whenQueued` brings up Now
+  Playing the moment the queue is set, before catalog lookups or `prepareToPlay` finish.
+- Nothing slow comes before the queue: the subscription is cached, every catalog lookup has a
+  time limit, and explicit versions get 1.5 seconds.
+- Only one engine owns Now Playing. When Apple Music takes over, the local engine clears
+  `nowPlayingInfo` and its remote command targets but leaves the audio session active.
+  Otherwise CarPlay can stick to the stale entry and send play to the empty player
+  (FB24840951).
+- Car copy never tells the driver to use the iPhone, Settings or another app; Apple's CarPlay
+  Developer Guide forbids it. `CarProblem` maps every player problem to car copy.
+- Each tab draws its local content in one pass first, then adds shelves as they finish, and
+  rebuilds when the car starts or stops limiting lists (`CPSessionConfiguration`).

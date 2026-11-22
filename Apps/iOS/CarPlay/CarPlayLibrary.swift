@@ -5,35 +5,39 @@ import TracksCore
 
 /// Library: where your music is kept, a place at a time, as Music's Library is in the car.
 /// Playlists, Artists, Albums, Songs and Downloaded open their lists, and what you added lately
-/// sits under them as covers. An album, playlist or artist opens as a page with Play and
-/// Shuffle at the top and its songs below, rather than playing at a touch.
+/// sits under them as covers. An album, playlist or artist opens as a page with its cover,
+/// Play and Shuffle at the top and its songs below, rather than playing at a touch.
 extension CarPlaySceneDelegate {
     // MARK: - Apple Music
 
-    func appleMusicLibrarySections() async -> [CPListSection] {
-        guard musicAccess == .authorized, !model.isDemoLaunch else {
-            library.emptyViewTitleVariants = [String(localized: "Library Unavailable")]
-            library.emptyViewSubtitleVariants = [String(localized: "Allow Apple Music access in Tracks on iPhone.")]
-            return []
-        }
-        let places = CPListSection(items: [
+    /// Playlists, Artists, Albums, Songs and Downloaded, which need nothing fetched to show.
+    func appleMusicPlaces() -> CPListSection? {
+        guard musicAccess == .authorized, !model.isDemoLaunch else { return nil }
+        return CPListSection(items: [
             place(String(localized: "Playlists"), symbol: "music.note.list") { [weak self] in await self?.appleMusicPlaylistsPage() },
             place(String(localized: "Artists"), symbol: "music.microphone") { [weak self] in await self?.appleMusicArtistsPage() },
             place(String(localized: "Albums"), symbol: "square.stack") { [weak self] in await self?.appleMusicAlbumsPage() },
             place(String(localized: "Songs"), symbol: "music.note") { [weak self] in await self?.appleMusicSongsPage() },
             place(String(localized: "Downloaded"), symbol: "arrow.down.circle") { [weak self] in await self?.appleMusicDownloadedPage() },
         ])
+    }
+
+    func appleMusicLibrarySections() async -> [CPListSection] {
+        guard let places = appleMusicPlaces() else {
+            library.emptyViewTitleVariants = [String(localized: "No Music")]
+            return []
+        }
         var sections = [places]
 
         var request = MusicLibraryRequest<Album>()
         request.sort(by: \.libraryAddedDate, ascending: false)
         request.limit = 12
         if let albums = try? await request.response().items, !albums.isEmpty {
-            let items = Array(FeedItem.versions(albums.map(FeedItem.init(album:))).prefix(Int(CPMaximumNumberOfGridImages)))
+            let items = Array(FeedItem.versions(albums.map(FeedItem.init(album:))).prefix(shelfLength))
             let (side, scale) = (CPListImageRowItemImageGridElement.maximumImageSize.height, scale)
             let late = CarPlayImages.Late()
-            let images = await CarPlayImages.batch(items.count, standIn: { index in
-                CarPlayImages.generated(seed: items[index].title, side: side, scale: scale)
+            let images = await CarPlayImages.batch(items.count, standIn: { _ in
+                CarPlayImages.placeholder(symbol: "music.note", side: side, scale: scale)
             }, late: { index, image in
                 late.set(index, image)
             }) { index in
@@ -47,7 +51,7 @@ extension CarPlaySceneDelegate {
             let row = CPListImageRowItem(text: nil, imageGridElements: tiles, allowsMultipleLines: false)
             row.listImageRowHandler = { [weak self] _, index, completion in
                 guard items.indices.contains(index), case .album(let album) = items[index].content else { return completion() }
-                self?.open({ await self?.appleMusicAlbumPage(album) }, then: completion)
+                self?.open({ await self?.appleMusicAlbumPage(album) }, then: completion) ?? completion()
             }
             sections.append(CPListSection(items: [row], header: String(localized: "Recently Added"), sectionIndexTitle: nil))
         }
@@ -73,7 +77,7 @@ extension CarPlaySceneDelegate {
             let row = CPListItem(text: playlist.name, detailText: item.subtitle, image: standIn, accessoryImage: nil, accessoryType: .disclosureIndicator)
             mark(row) { [weak self] in self?.isPlaying(playlist.name) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.open({ await self?.appleMusicPlaylistPage(playlist) }, then: completion)
+                self?.open({ await self?.appleMusicPlaylistPage(playlist) }, then: completion) ?? completion()
             }
             rows.append(row)
         }
@@ -102,7 +106,7 @@ extension CarPlaySceneDelegate {
             row.isExplicitContent = album.contentRating == .explicit
             mark(row) { [weak self] in self?.isPlaying(album.title) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.open({ await self?.appleMusicAlbumPage(album) }, then: completion)
+                self?.open({ await self?.appleMusicAlbumPage(album) }, then: completion) ?? completion()
             }
             rows.append(row)
         }
@@ -113,8 +117,8 @@ extension CarPlaySceneDelegate {
         return rows
     }
 
-    /// Artists by name, each in a circle as Music draws them: the picture Apple Music has,
-    /// filled in once the page is open, and a quiet stand-in until then.
+    /// Artists A to Z, indexed by letter, each in a circle as Music draws them: the picture
+    /// Apple Music has, filled in once the page is open, and a quiet stand-in until then.
     private func appleMusicArtistsPage() async -> CPListTemplate {
         var request = MusicLibraryRequest<Artist>()
         request.sort(by: \.name, ascending: true)
@@ -126,7 +130,7 @@ extension CarPlaySceneDelegate {
             let row = CPListItem(text: artist.name, detailText: nil, image: standIn, accessoryImage: nil, accessoryType: .disclosureIndicator)
             mark(row) { [weak self] in self?.isPlaying(artist.name) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.open({ await self?.appleMusicArtistPage(artist) }, then: completion)
+                self?.open({ await self?.appleMusicArtistPage(artist) }, then: completion) ?? completion()
             }
             return row
         }
@@ -134,10 +138,11 @@ extension CarPlaySceneDelegate {
         fillImages(rows) { index in
             await CarPlayImages.artistPicture(named: artists[index].name, side: side, scale: scale, feed: feed)
         }
-        return page(String(localized: "Artists"), [CPListSection(items: rows)], empty: String(localized: "No Artists"))
+        return page(String(localized: "Artists"), byLetter(rows, names: artists.map(\.name)), empty: String(localized: "No Artists"))
     }
 
-    /// An artist in your library: Play and Shuffle their songs, then their albums, newest first.
+    /// An artist in your library: their picture, Play and Shuffle their songs, then their
+    /// albums, newest first.
     private func appleMusicArtistPage(_ artist: Artist) async -> CPListTemplate {
         let player = model.player
         var albumRequest = MusicLibraryRequest<Album>()
@@ -149,13 +154,22 @@ extension CarPlaySceneDelegate {
         let songs = (try? await songRequest.response().items).map(Array.init) ?? []
 
         let context = PlayContext(kind: .artist, title: artist.name)
-        let actions = playRows(
-            detail: Self.count(albums: albums.count, songs: songs.count),
-            play: songs.isEmpty ? nil : { await player.start(.songs(songs), from: context) },
-            shuffle: songs.isEmpty ? nil : { await player.start(.songs(songs), from: context, shuffled: true) }
+        let side = Self.headerThumbnailSide
+        let header = detailsHeader(
+            cover: CarPlayImages.placeholder(symbol: "music.microphone", side: side, scale: scale),
+            title: artist.name,
+            subtitle: Self.count(albums: albums.count, songs: songs.count),
+            playback: HeaderPlayback(
+                isOn: { [weak self] in self?.isPlaying(artist.name) ?? false },
+                play: { await player.start(.songs(songs), from: context) },
+                shuffle: songs.isEmpty ? nil : { await player.start(.songs(songs), from: context, shuffled: true) }
+            )
         )
-        let rows = albumRows(Array(albums.prefix(Self.pageRowLimit))) { album in album.releaseDate.map { String(Calendar.current.component(.year, from: $0)) } }
-        return CPListTemplate(title: artist.name, sections: Self.section(actions) + (rows.isEmpty ? [] : [CPListSection(items: rows, header: String(localized: "Albums"), sectionIndexTitle: nil)]), assistantCellConfiguration: nil)
+        let (scale, feed) = (scale, model.playFeed)
+        // Square: the car frames a header's picture in a rounded square of its own.
+        fillThumbnail(header) { await CarPlayImages.artistPicture(named: artist.name, side: side, scale: scale, feed: feed, round: false) }
+        let rows = albumRows(Array(albums.prefix(CPListTemplate.maximumItemCount))) { album in album.releaseDate.map { String(Calendar.current.component(.year, from: $0)) } }
+        return detailPage(header, [CPListSection(items: rows, header: String(localized: "Albums"), sectionIndexTitle: nil)], empty: String(localized: "No Albums"))
     }
 
     /// Every song, A to Z, under a row that shuffles the lot: in the car, Songs is mostly
@@ -185,7 +199,7 @@ extension CarPlaySceneDelegate {
             row.isExplicitContent = song.contentRating == .explicit
             mark(row) { [weak self] in self?.isPlayingSong(song.id) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.play({ await player.start(.songs(songs, startingAt: index), from: context) }, completion: completion)
+                self?.play({ await player.start(.songs(songs, startingAt: index), from: context) }, completion: completion) ?? completion()
             }
             return row
         }
@@ -218,9 +232,7 @@ extension CarPlaySceneDelegate {
         if !albums.isEmpty {
             sections.append(CPListSection(items: albumRows(albums), header: String(localized: "Albums"), sectionIndexTitle: nil))
         }
-        let downloaded = page(String(localized: "Downloaded"), sections, empty: String(localized: "Nothing Downloaded"))
-        downloaded.emptyViewSubtitleVariants = [String(localized: "Download music in the Music app to play it offline.")]
-        return downloaded
+        return page(String(localized: "Downloaded"), sections, empty: String(localized: "No Downloads"))
     }
 
     func appleMusicAlbumPage(_ album: Album) async -> CPListTemplate {
@@ -232,24 +244,31 @@ extension CarPlaySceneDelegate {
         }
         let context = PlayContext(kind: .album, title: album.title)
         let year = album.releaseDate.map { String(Calendar.current.component(.year, from: $0)) }
-        let actions = playRows(
-            detail: [album.artistName, year].compactMap { $0 }.joined(separator: " · "),
-            play: { await player.start(.album(album), from: context) },
-            shuffle: { await player.start(.album(album), from: context, shuffled: true) }
+        let side = Self.headerThumbnailSide
+        let header = detailsHeader(
+            cover: CarPlayImages.placeholder(symbol: "music.note", side: side, scale: scale),
+            title: album.title,
+            subtitle: Self.line([album.artistName, year]),
+            playback: HeaderPlayback(
+                isOn: { [weak self] in self?.isPlaying(album.title) ?? false },
+                play: { await player.start(.album(album), from: context) },
+                shuffle: songs.isEmpty ? nil : { await player.start(.album(album), from: context, shuffled: true) }
+            )
         )
-        let rows = songs.prefix(Self.pageRowLimit).enumerated().map { index, song in
-            // The track's number where a cover would be, as Music lists an album, so the songs'
-            // names line up with Play and Shuffle above them.
-            let number = CarPlayImages.trackNumber(song.trackNumber ?? index + 1, side: CPListItem.maximumImageSize.height, scale: scale)
-            let row = CPListItem(text: song.title, detailText: song.artistName == album.artistName ? Self.length(song.duration) : song.artistName, image: number)
+        let scale = scale
+        fillThumbnail(header) { await CarPlayImages.cover(for: FeedItem(album: album), side: side, scale: scale) }
+        let numbers = Self.trackNumbers(songs.map(\.trackNumber))
+        let rows = songs.prefix(CPListTemplate.maximumItemCount).enumerated().map { index, song in
+            // The track's number where a cover would be, as Music lists an album.
+            let row = numberedRow(numbers[index], title: song.title, detail: song.artistName == album.artistName ? Self.length(song.duration) : song.artistName)
             row.isExplicitContent = song.contentRating == .explicit
             mark(row) { [weak self] in self?.isPlayingSong(song.id) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.play({ await player.start(.songs(songs, startingAt: index), from: context) }, completion: completion)
+                self?.play({ await player.start(.songs(songs, startingAt: index), from: context) }, completion: completion) ?? completion()
             }
             return row
         }
-        return CPListTemplate(title: album.title, sections: [CPListSection(items: actions + rows)], assistantCellConfiguration: nil)
+        return detailPage(header, [CPListSection(items: rows)], empty: String(localized: "No Songs"))
     }
 
     func appleMusicPlaylistPage(_ playlist: Playlist) async -> CPListTemplate {
@@ -260,45 +279,37 @@ extension CarPlaySceneDelegate {
             return nil
         }
         let context = PlayContext(kind: .playlist, title: playlist.name)
-        let count = String(AttributedString(localized: "^[\(songs.count) song](inflect: true)").characters)
-        let actions = playRows(
-            detail: count,
-            play: { await player.start(.playlist(playlist), from: context) },
-            shuffle: { await player.start(.playlist(playlist), from: context, shuffled: true) }
+        let side = Self.headerThumbnailSide
+        let header = detailsHeader(
+            cover: CarPlayImages.placeholder(symbol: "music.note.list", side: side, scale: scale),
+            title: playlist.name,
+            subtitle: Self.songCount(songs.count),
+            playback: HeaderPlayback(
+                isOn: { [weak self] in self?.isPlaying(playlist.name) ?? false },
+                play: { await player.start(.playlist(playlist), from: context) },
+                shuffle: songs.isEmpty ? nil : { await player.start(.playlist(playlist), from: context, shuffled: true) }
+            )
         )
-        var rows: [CPListItem] = []
-        let listed = Array(songs.prefix(Self.pageRowLimit))
-        let side = CPListItem.maximumImageSize.height
-        let standIn = CarPlayImages.placeholder(symbol: "music.note", side: side, scale: scale)
-        for (index, song) in listed.enumerated() {
-            let row = CPListItem(text: song.title, detailText: song.artistName, image: standIn)
+        let scale = scale
+        fillThumbnail(header) { await CarPlayImages.cover(for: FeedItem(playlist: playlist), side: side, scale: scale) }
+        let rows = songs.prefix(CPListTemplate.maximumItemCount).enumerated().map { index, song in
+            let row = numberedRow(index + 1, title: song.title, detail: song.artistName)
             row.isExplicitContent = song.contentRating == .explicit
             mark(row) { [weak self] in self?.isPlayingSong(song.id) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.play({ await player.start(.songs(songs, startingAt: index), from: context) }, completion: completion)
+                self?.play({ await player.start(.songs(songs, startingAt: index), from: context) }, completion: completion) ?? completion()
             }
-            rows.append(row)
+            return row
         }
-        let scale = scale
-        fillImages(rows) { index in
-            let song = listed[index]
-            let art = song.artwork.map(CoverArt.artwork) ?? .url(nil, seed: song.albumTitle ?? song.title)
-            return await CarPlayImages.cover(art, side: side, scale: scale, album: song.albumTitle.map { ($0, song.artistName) })
-        }
-        let page = CPListTemplate(title: playlist.name, sections: [CPListSection(items: actions + rows)], assistantCellConfiguration: nil)
-        page.emptyViewTitleVariants = [String(localized: "No Songs to Play")]
-        return page
+        return detailPage(header, [CPListSection(items: rows)], empty: String(localized: "No Songs"))
     }
 
     // MARK: - Your music
 
-    func yourMusicLibrarySections() async -> [CPListSection] {
+    /// Your library's places, which need nothing fetched to show.
+    func yourMusicPlaces() -> CPListSection? {
         let music = model.yourMusic
-        guard !music.index.isEmpty else {
-            library.emptyViewTitleVariants = [String(localized: "No Music Yet")]
-            library.emptyViewSubtitleVariants = [String(localized: "Add music in Tracks on iPhone.")]
-            return []
-        }
+        guard !music.index.isEmpty else { return nil }
         var places: [CPListItem] = []
         if !music.playlists.all.isEmpty {
             places.append(place(String(localized: "Playlists"), symbol: "music.note.list") { [weak self] in await self?.localPlaylistsPage() })
@@ -312,18 +323,26 @@ extension CarPlaySceneDelegate {
                 await self?.localSongsPage(music.downloads.tracks.map(music.current), title: String(localized: "Downloaded"))
             })
         }
-        var sections = [CPListSection(items: places)]
+        return CPListSection(items: places)
+    }
 
-        let recent = Array(music.index.recentlyAdded.prefix(Int(CPMaximumNumberOfGridImages)))
+    func yourMusicLibrarySections() async -> [CPListSection] {
+        let music = model.yourMusic
+        guard let places = yourMusicPlaces() else {
+            library.emptyViewTitleVariants = [String(localized: "No Music")]
+            return []
+        }
+        var sections = [places]
+
+        let recent = Array(music.index.recentlyAdded.prefix(shelfLength))
         if !recent.isEmpty {
             let (side, scale) = (CPListImageRowItemImageGridElement.maximumImageSize.height, scale)
             let late = CarPlayImages.Late()
-            let images = await CarPlayImages.batch(recent.count, standIn: { index in
-                CarPlayImages.generated(seed: recent[index].title, side: side, scale: scale)
-            }, late: { index, image in
+            let standIn = CarPlayImages.placeholder(symbol: "music.note", side: side, scale: scale)
+            let images = await CarPlayImages.batch(recent.count, standIn: { _ in standIn }, late: { index, image in
                 late.set(index, image)
             }) { [weak self] index in
-                await self?.localCover(recent[index], side: side) ?? CarPlayImages.generated(seed: recent[index].title, side: side, scale: scale)
+                await self?.localCover(recent[index], side: side) ?? standIn
             }
             let tiles = zip(recent, images).map { album, image in
                 CPListImageRowItemImageGridElement(image: image, imageShape: .roundedRectangle, title: album.displayTitle, accessorySymbolName: nil)
@@ -333,7 +352,7 @@ extension CarPlaySceneDelegate {
             let row = CPListImageRowItem(text: nil, imageGridElements: tiles, allowsMultipleLines: false)
             row.listImageRowHandler = { [weak self] _, index, completion in
                 guard recent.indices.contains(index) else { return completion() }
-                self?.open({ await self?.localAlbumPage(recent[index]) }, then: completion)
+                self?.open({ await self?.localAlbumPage(recent[index]) }, then: completion) ?? completion()
             }
             sections.append(CPListSection(items: [row], header: String(localized: "Recently Added"), sectionIndexTitle: nil))
         }
@@ -347,7 +366,7 @@ extension CarPlaySceneDelegate {
         var firsts: [LocalTrack?] = []
         let side = CPListItem.maximumImageSize.height
         let standIn = CarPlayImages.placeholder(symbol: "music.note.list", side: side, scale: scale)
-        let playlists = Array(music.playlists.recent.prefix(Self.pageRowLimit))
+        let playlists = Array(music.playlists.recent.prefix(CPListTemplate.maximumItemCount))
         for playlist in playlists {
             let songs = music.songs(in: playlist, facts: facts)
             firsts.append(songs.first { $0.artwork != nil } ?? songs.first)
@@ -355,7 +374,7 @@ extension CarPlaySceneDelegate {
             let row = CPListItem(text: playlist.name, detailText: count, image: standIn, accessoryImage: nil, accessoryType: .disclosureIndicator)
             mark(row) { [weak self] in self?.isPlaying(playlist.name) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.open({ await self?.localPlaylistPage(playlist) }, then: completion)
+                self?.open({ await self?.localPlaylistPage(playlist) }, then: completion) ?? completion()
             }
             rows.append(row)
         }
@@ -373,19 +392,36 @@ extension CarPlaySceneDelegate {
         let songs = music.songs(in: playlist, facts: model.playFeed.facts)
         let playable = songs.filter(music.isPlayable)
         let context = PlayContext(kind: .playlist, title: playlist.name)
-        let actions = playRows(
-            detail: String(AttributedString(localized: "^[\(songs.count) song](inflect: true)").characters),
-            play: playable.isEmpty ? nil : { await player.start(.local(playable), from: context) },
-            shuffle: playable.isEmpty ? nil : { await player.start(.local(playable), from: context, shuffled: true) }
+        let side = Self.headerThumbnailSide
+        let header = detailsHeader(
+            cover: CarPlayImages.placeholder(symbol: "music.note.list", side: side, scale: scale),
+            title: playlist.name,
+            subtitle: Self.songCount(songs.count),
+            playback: HeaderPlayback(
+                isOn: { [weak self] in self?.isPlaying(playlist.name) ?? false },
+                play: { await player.start(.local(playable), from: context) },
+                shuffle: playable.isEmpty ? nil : { await player.start(.local(playable), from: context, shuffled: true) }
+            )
         )
-        let rows = localSongRows(playable, context: context)
-        let template = CPListTemplate(title: playlist.name, sections: [CPListSection(items: actions + rows)], assistantCellConfiguration: nil)
-        template.emptyViewTitleVariants = [String(localized: "No Songs to Play")]
-        return template
+        let scale = scale
+        let first = playable.first { $0.artwork != nil }
+        fillThumbnail(header) {
+            guard let first else { return nil }
+            return await CarPlayImages.cover(url: music.artworkURL(first.artwork)?.absoluteString, seed: first.album ?? playlist.name, side: side, scale: scale)
+        }
+        let rows = playable.prefix(CPListTemplate.maximumItemCount).enumerated().map { index, track in
+            let row = numberedRow(index + 1, title: track.title, detail: track.artist)
+            mark(row) { [weak self] in self?.isPlayingTrack(track.id) ?? false }
+            row.handler = { [weak self] _, completion in
+                self?.play({ await player.start(.local(playable, startingAt: index), from: context) }, completion: completion) ?? completion()
+            }
+            return row
+        }
+        return detailPage(header, [CPListSection(items: rows)], empty: String(localized: "No Songs"))
     }
 
     private func localAlbumsPage(_ albums: [LocalAlbum], title: String) async -> CPListTemplate {
-        let listed = Array(albums.prefix(Self.pageRowLimit))
+        let listed = Array(albums.prefix(CPListTemplate.maximumItemCount))
         let rows = localAlbumRows(listed) { $0.artist }
         return page(title, [CPListSection(items: rows)], empty: String(localized: "No Albums"))
     }
@@ -399,7 +435,7 @@ extension CarPlaySceneDelegate {
             let row = CPListItem(text: album.displayTitle, detailText: detail(album), image: standIn, accessoryImage: nil, accessoryType: .disclosureIndicator)
             mark(row) { [weak self] in self?.isPlaying(album.title) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.open({ await self?.localAlbumPage(album) }, then: completion)
+                self?.open({ await self?.localAlbumPage(album) }, then: completion) ?? completion()
             }
             rows.append(row)
         }
@@ -411,15 +447,14 @@ extension CarPlaySceneDelegate {
 
     private func localArtistsPage() async -> CPListTemplate {
         let music = model.yourMusic
-        let artists = Array(music.index.artists.prefix(Self.pageRowLimit))
+        let artists = Array(music.index.artists.prefix(CPListTemplate.maximumItemCount))
         let side = CPListItem.maximumImageSize.height
         let standIn = CarPlayImages.placeholder(symbol: "music.microphone", side: side, scale: scale, round: true)
         let rows = artists.map { artist in
-            let albums = String(AttributedString(localized: "^[\(artist.albums.count) album](inflect: true)").characters)
-            let row = CPListItem(text: artist.name, detailText: albums, image: standIn, accessoryImage: nil, accessoryType: .disclosureIndicator)
+            let row = CPListItem(text: artist.name, detailText: nil, image: standIn, accessoryImage: nil, accessoryType: .disclosureIndicator)
             mark(row) { [weak self] in self?.isPlaying(artist.name) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.open({ await self?.localArtistPage(artist) }, then: completion)
+                self?.open({ await self?.localArtistPage(artist) }, then: completion) ?? completion()
             }
             return row
         }
@@ -429,7 +464,7 @@ extension CarPlaySceneDelegate {
             guard let picture = music.artistPicture(for: artists[index]) else { return nil }
             return await CarPlayImages.circle(await CarPlayImages.cover(picture, side: side, scale: scale))
         }
-        return page(String(localized: "Artists"), [CPListSection(items: rows)], empty: String(localized: "No Artists"))
+        return page(String(localized: "Artists"), byLetter(rows, names: artists.map(\.name)), empty: String(localized: "No Artists"))
     }
 
     /// Songs A to Z under a row that shuffles them all.
@@ -462,12 +497,12 @@ extension CarPlaySceneDelegate {
         let side = CPListItem.maximumImageSize.height
         let standIn = CarPlayImages.placeholder(symbol: "music.note", side: side, scale: scale)
         var rows: [CPListItem] = []
-        let listed = Array(tracks.prefix(Self.pageRowLimit))
+        let listed = Array(tracks.prefix(CPListTemplate.maximumItemCount))
         for (index, track) in listed.enumerated() {
             let row = CPListItem(text: track.title, detailText: track.artist, image: standIn)
             mark(row) { [weak self] in self?.isPlayingTrack(track.id) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.play({ await player.start(.local(tracks, startingAt: index), from: context) }, completion: completion)
+                self?.play({ await player.start(.local(tracks, startingAt: index), from: context) }, completion: completion) ?? completion()
             }
             rows.append(row)
         }
@@ -479,19 +514,31 @@ extension CarPlaySceneDelegate {
         return rows
     }
 
-    /// An artist's page: Play and Shuffle at the top, then their albums.
+    /// An artist's page: their picture, Play and Shuffle at the top, then their albums.
     func localArtistPage(_ artist: LocalArtist) async -> CPListTemplate {
         let music = model.yourMusic
         let player = model.player
         let tracks = artist.tracks.filter(music.isPlayable)
         let context = PlayContext(kind: .artist, title: artist.name)
-        let actions = playRows(
-            detail: Self.count(albums: artist.albums.count, songs: tracks.count),
-            play: tracks.isEmpty ? nil : { await player.start(.local(tracks), from: context) },
-            shuffle: tracks.isEmpty ? nil : { await player.start(.local(tracks), from: context, shuffled: true) }
+        let side = Self.headerThumbnailSide
+        let header = detailsHeader(
+            cover: CarPlayImages.placeholder(symbol: "music.microphone", side: side, scale: scale),
+            title: artist.name,
+            subtitle: Self.count(albums: artist.albums.count, songs: tracks.count),
+            playback: HeaderPlayback(
+                isOn: { [weak self] in self?.isPlaying(artist.name) ?? false },
+                play: { await player.start(.local(tracks), from: context) },
+                shuffle: tracks.isEmpty ? nil : { await player.start(.local(tracks), from: context, shuffled: true) }
+            )
         )
-        let rows = localAlbumRows(Array(artist.albums.prefix(Self.pageRowLimit))) { $0.year.map(String.init) }
-        return CPListTemplate(title: artist.name, sections: Self.section(actions) + (rows.isEmpty ? [] : [CPListSection(items: rows, header: String(localized: "Albums"), sectionIndexTitle: nil)]), assistantCellConfiguration: nil)
+        let scale = scale
+        // Square: the car frames a header's picture in a rounded square of its own.
+        fillThumbnail(header) {
+            guard let picture = music.artistPicture(for: artist) else { return nil }
+            return await CarPlayImages.cover(picture, side: side, scale: scale)
+        }
+        let rows = localAlbumRows(Array(artist.albums.prefix(CPListTemplate.maximumItemCount))) { $0.year.map(String.init) }
+        return detailPage(header, [CPListSection(items: rows, header: String(localized: "Albums"), sectionIndexTitle: nil)], empty: String(localized: "No Albums"))
     }
 
     func localAlbumPage(_ album: LocalAlbum) async -> CPListTemplate {
@@ -499,26 +546,31 @@ extension CarPlaySceneDelegate {
         let player = model.player
         let tracks = album.tracks.filter(music.isPlayable)
         let context = PlayContext(kind: .album, title: album.title)
-        let actions = playRows(
-            detail: [album.artist, album.year.map(String.init)].compactMap { $0 }.joined(separator: " · "),
-            play: tracks.isEmpty ? nil : { await player.start(.local(tracks), from: context) },
-            shuffle: tracks.isEmpty ? nil : { await player.start(.local(tracks), from: context, shuffled: true) }
+        let side = Self.headerThumbnailSide
+        let header = detailsHeader(
+            cover: CarPlayImages.placeholder(symbol: "music.note", side: side, scale: scale),
+            title: album.displayTitle,
+            subtitle: Self.line([album.artist, album.year.map(String.init)]),
+            playback: HeaderPlayback(
+                isOn: { [weak self] in self?.isPlaying(album.title) ?? false },
+                play: { await player.start(.local(tracks), from: context) },
+                shuffle: tracks.isEmpty ? nil : { await player.start(.local(tracks), from: context, shuffled: true) }
+            )
         )
-        let rows = tracks.prefix(Self.pageRowLimit).enumerated().map { index, track in
-            let number = CarPlayImages.trackNumber(track.trackNumber ?? index + 1, side: CPListItem.maximumImageSize.height, scale: scale)
-            let row = CPListItem(text: track.title, detailText: track.artist == album.artist ? Self.length(track.duration) : track.artist, image: number)
+        fillThumbnail(header) { [weak self] in await self?.localCover(album, side: side) }
+        let numbers = Self.trackNumbers(tracks.map(\.trackNumber))
+        let rows = tracks.prefix(CPListTemplate.maximumItemCount).enumerated().map { index, track in
+            let row = numberedRow(numbers[index], title: track.title, detail: track.artist == album.artist ? Self.length(track.duration) : track.artist)
             mark(row) { [weak self] in self?.isPlayingTrack(track.id) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.play({ await player.start(.local(tracks, startingAt: index), from: context) }, completion: completion)
+                self?.play({ await player.start(.local(tracks, startingAt: index), from: context) }, completion: completion) ?? completion()
             }
             return row
         }
-        let template = CPListTemplate(title: album.displayTitle, sections: [CPListSection(items: actions + rows)], assistantCellConfiguration: nil)
-        template.emptyViewTitleVariants = [String(localized: "No Songs to Play")]
-        return template
+        return detailPage(header, [CPListSection(items: rows)], empty: String(localized: "No Songs"))
     }
 
-    private func localCover(_ album: LocalAlbum, side: CGFloat) async -> UIImage {
+    func localCover(_ album: LocalAlbum, side: CGFloat) async -> UIImage {
         await CarPlayImages.cover(url: model.yourMusic.artworkURL(album.artwork)?.absoluteString, seed: album.title, side: side, scale: scale)
     }
 
@@ -529,7 +581,7 @@ extension CarPlaySceneDelegate {
         let image = CarPlayImages.symbol(symbol, side: CPListItem.maximumImageSize.height, scale: scale)
         let row = CPListItem(text: title, detailText: nil, image: image, accessoryImage: nil, accessoryType: .disclosureIndicator)
         row.handler = { [weak self] _, completion in
-            self?.open(make, then: completion)
+            self?.open(make, then: completion) ?? completion()
         }
         return row
     }
@@ -583,46 +635,59 @@ extension CarPlaySceneDelegate {
 
     /// A list page, with what to say when it has nothing in it.
     private func page(_ title: String, _ sections: [CPListSection], empty: String) -> CPListTemplate {
-        let page = CPListTemplate(title: title, sections: sections)
+        let page = CPListTemplate(title: title, sections: Self.capped(sections))
         page.emptyViewTitleVariants = [empty]
         return page
     }
 
-    /// Play and Shuffle, the first rows of an album, playlist or artist, when there's anything
-    /// to play: as Music has them in the car, with the page's name above in the bar. Play
-    /// carries the page's line (the artist and year, or how many songs). Rows rather than a
-    /// header's buttons, which CarPlay doesn't always pass a tap on from. In the same section
-    /// as the songs under them, so the car doesn't open a gap between the two.
-    func playRows(detail: String?, play: (() async -> Void)?, shuffle: (() async -> Void)?) -> [CPListItem] {
-        var rows: [CPListItem] = []
-        if let play {
-            let row = actionRow(String(localized: "Play"), symbol: "play.fill", action: play)
-            row.setDetailText(detail.flatMap { $0.isEmpty ? nil : $0 })
-            rows.append(row)
-        }
-        if let shuffle {
-            rows.append(actionRow(String(localized: "Shuffle"), symbol: "shuffle", action: shuffle))
-        }
-        return rows
+    /// An album, playlist or artist: its header on top and its rows under it. The header says
+    /// the name, so the bar above doesn't again.
+    func detailPage(_ header: CPListTemplateDetailsHeader, _ sections: [CPListSection], empty: String) -> CPListTemplate {
+        let page = CPListTemplate(title: nil, sections: Self.capped(sections.filter { !$0.items.isEmpty }), assistantCellConfiguration: nil)
+        page.listHeader = header
+        page.emptyViewTitleVariants = [empty]
+        return page
     }
 
-    /// Rows as a section of their own, or none when there are none: above a titled section,
-    /// such as an artist's albums.
-    static func section(_ rows: [CPListItem]) -> [CPListSection] {
-        rows.isEmpty ? [] : [CPListSection(items: rows)]
+    /// A song with its number where a cover would be.
+    func numberedRow(_ number: Int, title: String, detail: String?) -> CPListItem {
+        CPListItem(text: title, detailText: detail, image: CarPlayImages.trackNumber(number, side: CPListItem.maximumImageSize.height, scale: scale))
     }
 
-    /// A row that plays something, with its symbol in Tracks’ red where a cover would be.
+    /// Rows under their first letter, with the letter in the car's index, within the number of
+    /// sections the car allows.
+    private func byLetter(_ rows: [CPListItem], names: [String]) -> [CPListSection] {
+        LetterSection.sections(for: names, maximumSections: Int(CPListTemplate.maximumSectionCount)).map { section in
+            CPListSection(items: section.indices.map { rows[$0] }, header: section.letter, sectionIndexTitle: section.letter)
+        }
+    }
+
+    /// A row that plays something, with its symbol where a cover would be.
     func actionRow(_ title: String, symbol: String, action: @escaping () async -> Void) -> CPListItem {
         let row = CPListItem(text: title, detailText: nil, image: CarPlayImages.symbol(symbol, side: CPListItem.maximumImageSize.height, scale: scale))
         row.handler = { [weak self] _, completion in
-            self?.play(action, completion: completion)
+            self?.play(action, completion: completion) ?? completion()
         }
         return row
     }
 
-    /// How many rows a page lists, leaving room in the car's limit for Play and Shuffle.
-    static var pageRowLimit: Int { max(1, CPListTemplate.maximumItemCount - 2) }
+    /// An album's own track numbers when they tell its songs apart, or their places in it.
+    /// A compilation's discs, or tags filled in by hand, can repeat a number.
+    static func trackNumbers(_ numbers: [Int?]) -> [Int] {
+        let known = numbers.compactMap(\.self)
+        guard known.count == numbers.count, Set(known).count == known.count else { return Array(1...max(1, numbers.count)) }
+        return known
+    }
+
+    /// "Artist · 2024": what's known, in a line.
+    static func line(_ parts: [String?]) -> String? {
+        let known = parts.compactMap { $0?.isEmpty == false ? $0 : nil }
+        return known.isEmpty ? nil : known.joined(separator: " · ")
+    }
+
+    static func songCount(_ songs: Int) -> String {
+        String(AttributedString(localized: "^[\(songs) song](inflect: true)").characters)
+    }
 
     /// "4 albums · 38 songs".
     static func count(albums: Int, songs: Int) -> String {

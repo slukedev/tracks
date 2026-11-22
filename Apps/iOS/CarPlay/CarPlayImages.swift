@@ -10,18 +10,36 @@ import CarPlay
 /// are fetched and drawn at the car screen's scale, and everything Tracks draws itself (a mix's
 /// four covers, a mood's field, Tracks Radio) is the phone's own artwork, rendered, so the car
 /// and the phone look like the same app.
+///
+/// What isn't artwork (stand-ins, symbols, track numbers) is drawn for both the car's light
+/// and dark screens, since the car switches with the time of day and its headlights.
 @MainActor
 enum CarPlayImages {
+    /// The car screen's look: light or dark. Drawn pictures resolve to it, and keep the other
+    /// in their `UIImageAsset` for a car that switches on its own.
+    static var style: UIUserInterfaceStyle = .dark
+
     /// Finished images by what they show, so rebuilding a tab doesn't draw every cover again.
     /// A few hundred, or about 32 MB of pixels, at most, then it starts over: it lives as long
     /// as the app, which can be days with the music on.
     private static var cache: [String: UIImage] = [:]
     private static var cacheBytes = 0
+    /// Covers that didn't load, so a rebuild shows their stand-in rather than asking again.
+    private static var missing: Set<String> = []
 
-    private static func cached(_ key: String, _ make: () async -> UIImage) async -> UIImage {
+    /// A cover by `key`, or its stand-in when it can't be had. The stand-in isn't kept under
+    /// the cover's key: it's drawn for the car's light or dark screen.
+    private static func cached(_ key: String, standIn: @autoclosure () -> UIImage, _ make: () async -> UIImage?) async -> UIImage {
         if let image = cache[key] { return image }
-        let image = await make()
+        guard !missing.contains(key) else { return standIn() }
+        guard let image = await make() else {
+            missing.insert(key)
+            return standIn()
+        }
         keep(image, as: key)
+        // Drawing a tile holds the main thread, and a tab draws a dozen in a row as the car
+        // connects: a turn between them lets the car's own scene work through.
+        await Task.yield()
         return image
     }
 
@@ -31,9 +49,25 @@ enum CarPlayImages {
             cache.removeAll()
             cacheBytes = 0
             tints.removeAll()
+            missing.removeAll()
         }
         cache[key] = image
         cacheBytes += bytes
+    }
+
+    /// A picture drawn once for a light screen and once for a dark one, joined in one asset,
+    /// and resolved to the car's look now.
+    private static func styled(_ key: String, _ draw: (UITraitCollection) -> UIImage) -> UIImage {
+        let full = "\(key)|\(style.rawValue)"
+        if let image = cache[full] { return image }
+        let light = UITraitCollection(userInterfaceStyle: .light)
+        let dark = UITraitCollection(userInterfaceStyle: .dark)
+        let asset = UIImageAsset()
+        asset.register(draw(light), with: light)
+        asset.register(draw(dark), with: dark)
+        let image = asset.image(with: style == .light ? light : dark)
+        keep(image, as: full)
+        return image
     }
 
     // MARK: - Many at once
@@ -144,14 +178,13 @@ enum CarPlayImages {
 
     // MARK: - Covers
 
-    /// A cover from the history, or its generated stand-in when it has none or won't load.
+    /// A cover from the history, or a neutral stand-in when it has none or won't load.
     static func cover(url: String?, seed: String, side: CGFloat, scale: CGFloat) async -> UIImage {
-        await cached("\(url ?? seed)|\(side)|\(scale)") {
-            if let url, let address = URL(string: url),
-               let image = await ArtworkImages.shared.image(for: ArtworkImages.Key(url: address, pixels: Int(side * scale))) {
-                return UIImage(cgImage: image, scale: scale, orientation: .up)
-            }
-            return generated(seed: seed, side: side, scale: scale)
+        await cached("\(url ?? seed)|\(side)|\(scale)", standIn: placeholder(symbol: "music.note", side: side, scale: scale)) {
+            guard let url, let address = URL(string: url),
+                  let image = await ArtworkImages.shared.image(for: ArtworkImages.Key(url: address, pixels: Int(side * scale)))
+            else { return nil }
+            return UIImage(cgImage: image, scale: scale, orientation: .up)
         }
     }
 
@@ -163,17 +196,17 @@ enum CarPlayImages {
             let pixels = Int(side * scale)
             let url = artwork.url(width: pixels, height: pixels).flatMap { $0.scheme?.hasPrefix("http") == true ? $0 : nil }
             let key = "artwork|\(url?.absoluteString ?? "")|\(album?.title ?? "")|\(album?.artist ?? "")|\(playlist ?? "")|\(side)|\(scale)"
-            return await cached(key) {
+            return await cached(key, standIn: placeholder(symbol: playlist == nil ? "music.note" : "music.note.list", side: side, scale: scale)) {
                 if let url, let image = await ArtworkImages.shared.image(for: ArtworkImages.Key(url: url, pixels: pixels)) {
                     return UIImage(cgImage: image, scale: scale, orientation: .up)
                 }
                 // Library covers have an address only MusicKit's own views can load, and some
                 // catalog ones don't load at all: the phone's media library by name, then the
                 // same album in Apple Music's catalog.
-                if let album, let image = await LibraryArtwork.album(title: album.title, artist: album.artist, side: side) {
+                if let album, let image = await LibraryArtwork.album(title: album.title, artist: album.artist, side: side, scale: scale) {
                     return image
                 }
-                if let playlist, let covers = await LibraryArtwork.playlist(named: playlist, side: side / 2), !covers.isEmpty {
+                if let playlist, let covers = await LibraryArtwork.playlist(named: playlist, side: side / 2, scale: scale), !covers.isEmpty {
                     return await mosaic(covers, symbol: nil, side: side, scale: scale)
                 }
                 if let album, let found = await catalogCover(title: album.title, artist: album.artist, pixels: pixels),
@@ -181,7 +214,7 @@ enum CarPlayImages {
                    let image = await ArtworkImages.shared.image(for: ArtworkImages.Key(url: address, pixels: pixels)) {
                     return UIImage(cgImage: image, scale: scale, orientation: .up)
                 }
-                return generated(seed: album?.title ?? playlist ?? artwork.alternateText ?? "\(pixels)", side: side, scale: scale)
+                return nil
             }
         case .url(let url, let seed):
             return await cover(url: url, seed: seed, side: side, scale: scale)
@@ -211,36 +244,46 @@ enum CarPlayImages {
         return url.absoluteString
     }
 
-    static func generated(seed: String, side: CGFloat, scale: CGFloat) -> UIImage {
-        render(GeneratedCover(seed: seed).frame(width: side, height: side), scale: scale)
-    }
-
     // MARK: - Tracks’ own artwork
 
     /// A mix as the phone draws it: four of its covers to a square, and its symbol in the corner.
+    /// With fewer than four covers to be had, the first alone; with none, the stand-in.
     static func mix(_ mix: Mix, side: CGFloat, scale: CGFloat, badged: Bool = true) async -> UIImage {
-        let covers = mix.covers
+        let covers = Array(mix.covers.prefix(4))
         let symbol = badged ? mix.kind.symbol : nil
-        let key = "mix|\(symbol ?? "")|" + covers.prefix(4).map { $0.url ?? $0.seed }.joined(separator: "+") + "|\(side)|\(scale)"
-        return await cached(key) {
-            guard covers.count >= 4 else {
-                let single = await cover(url: covers.first?.url, seed: covers.first?.seed ?? mix.id, side: side, scale: scale)
-                return await mosaic([single], symbol: symbol, side: side, scale: scale)
-            }
+        let key = "mix|\(symbol ?? "")|" + covers.map { $0.url ?? $0.seed }.joined(separator: "+") + "|\(side)|\(scale)"
+        return await cached(key, standIn: placeholder(symbol: "music.note.list", side: side, scale: scale)) {
             // Side by side: four fetches one after another made a mix the slowest card.
-            let four = Array(covers.prefix(4))
-            async let first = cover(url: four[0].url, seed: four[0].seed, side: side / 2, scale: scale)
-            async let second = cover(url: four[1].url, seed: four[1].seed, side: side / 2, scale: scale)
-            async let third = cover(url: four[2].url, seed: four[2].seed, side: side / 2, scale: scale)
-            async let fourth = cover(url: four[3].url, seed: four[3].seed, side: side / 2, scale: scale)
-            return await mosaic(await [first, second, third, fourth], symbol: symbol, side: side, scale: scale)
+            let quarter = covers.count >= 4 ? side / 2 : side
+            let found = await withTaskGroup(of: (Int, UIImage?).self) { group in
+                for (index, cover) in covers.enumerated() {
+                    group.addTask { (index, await loadedCover(url: cover.url, side: quarter, scale: scale)) }
+                }
+                var found: [Int: UIImage] = [:]
+                for await (index, image) in group { found[index] = image }
+                return found
+            }
+            let tiles = covers.indices.compactMap { found[$0] }
+            if tiles.count == 4 { return await mosaic(tiles, symbol: symbol, side: side, scale: scale) }
+            guard let first = covers.indices.first(where: { found[$0] != nil }), let small = found[first] else { return nil }
+            // Fetched for a quarter of the square: fetched again to fill it.
+            let single = quarter == side ? small : await loadedCover(url: covers[first].url, side: side, scale: scale) ?? small
+            return await mosaic([single], symbol: symbol, side: side, scale: scale)
         }
+    }
+
+    /// A cover from its address, or nil when it has none or it doesn't load.
+    private static func loadedCover(url: String?, side: CGFloat, scale: CGFloat) async -> UIImage? {
+        guard let url, let address = URL(string: url),
+              let image = await ArtworkImages.shared.image(for: ArtworkImages.Key(url: address, pixels: Int(side * scale)))
+        else { return nil }
+        return UIImage(cgImage: image, scale: scale, orientation: .up)
     }
 
     /// Tracks Radio for the car: its colour, and the car large where the radio waves would be.
     /// Without its name, which the car writes itself beside or under it.
     static func tracksRadio(side: CGFloat, scale: CGFloat) async -> UIImage {
-        await cached("tracksRadio|\(side)|\(scale)") {
+        await cached("tracksRadio|\(side)|\(scale)", standIn: UIImage()) {
             render(CarRadioTile(side: side), scale: scale)
         }
     }
@@ -267,7 +310,7 @@ enum CarPlayImages {
 
     private static var tints: [ObjectIdentifier: (image: UIImage, color: UIColor)] = [:]
     /// One for every tint: a context is costly to make. Core Image contexts are thread safe.
-    private nonisolated(unsafe) static let averaging = CIContext(options: [.workingColorSpace: NSNull()])
+    private nonisolated static let averaging = CIContext(options: [.workingColorSpace: NSNull()])
 
     /// Off the main actor: Core Image averages the picture.
     @concurrent
@@ -297,7 +340,7 @@ enum CarPlayImages {
     /// A mood as the phone's shelf draws it: its field, and its symbol, here centred and whole
     /// since the car sets the name under it.
     static func mood(_ mood: Mood, side: CGFloat, scale: CGFloat) async -> UIImage {
-        await cached("mood|\(mood.rawValue)|\(side)|\(scale)") {
+        await cached("mood|\(mood.rawValue)|\(side)|\(scale)", standIn: UIImage()) {
             render(CarMoodTile(mood: mood, side: side), scale: scale)
         }
     }
@@ -305,7 +348,7 @@ enum CarPlayImages {
     /// A genre as the phone's tile draws it: its colour, and its symbol whole in the middle,
     /// as a mood's, since the car sets the name under it.
     static func genre(_ genre: MusicGenre, side: CGFloat, scale: CGFloat) async -> UIImage {
-        await cached("genre|\(genre.id)|\(side)|\(scale)") {
+        await cached("genre|\(genre.id)|\(side)|\(scale)", standIn: UIImage()) {
             render(CarGenreTile(genre: genre, side: side), scale: scale)
         }
     }
@@ -333,68 +376,55 @@ enum CarPlayImages {
         }
     }
 
-    /// A symbol in Tracks’ red, centred on a square the size of a row's cover, so rows that
-    /// stand for a place (Playlists, Albums) line up with rows that have covers.
+    /// A symbol centred on a square the size of a row's cover, in the car's own text colour for
+    /// its light or dark screen, so rows that stand for a place (Playlists, Albums) line up with
+    /// rows that have covers.
     static func symbol(_ name: String, side: CGFloat, scale: CGFloat) -> UIImage {
-        let key = "symbol|\(name)|\(side)|\(scale)"
-        if let image = cache[key] { return image }
-        let image = drawSymbol(name, side: side, scale: scale)
-        keep(image, as: key)
-        return image
-    }
-
-    private static func drawSymbol(_ name: String, side: CGFloat, scale: CGFloat) -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = scale
-        let configuration = UIImage.SymbolConfiguration(pointSize: side * 0.5, weight: .medium)
-        let symbol = UIImage(systemName: name, withConfiguration: configuration)?
-            .withTintColor(UIColor(TracksRadioArt.color), renderingMode: .alwaysOriginal)
-        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
-            guard let symbol else { return }
-            let origin = CGPoint(x: (side - symbol.size.width) / 2, y: (side - symbol.size.height) / 2)
-            symbol.draw(at: origin)
+        // Drawn in each look's colour: the car doesn't tint a row's template image.
+        styled("symbol|\(name)|\(side)|\(scale)") { traits in
+            drawGlyph(name, in: CGSize(width: side, height: side), pointSize: side * 0.5, color: UIColor.label.resolvedColor(with: traits), scale: scale)
         }
     }
-
-    /// A song's number on an album, centred on a square the size of a row's cover, in the grey
-    /// Music uses for it: readable on the car's dark screen and on its light one.
+    /// A song's number on an album, centred on a square the size of a row's cover, in the
+    /// secondary grey Music uses for it.
     static func trackNumber(_ number: Int, side: CGFloat, scale: CGFloat) -> UIImage {
-        let key = "number|\(number)|\(side)|\(scale)"
-        if let image = cache[key] { return image }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = scale
-        let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
-            let font = UIFont.monospacedDigitSystemFont(ofSize: side * 0.36, weight: .medium)
-            let text = NSAttributedString(string: "\(number)", attributes: [.font: font, .foregroundColor: UIColor(white: 0.56, alpha: 1)])
-            let size = text.size()
-            text.draw(at: CGPoint(x: (side - size.width) / 2, y: (side - size.height) / 2))
-        }
-        keep(image, as: key)
-        return image
-    }
-
-    /// A quiet stand-in while a row's picture loads: a grey tile, or circle for an artist, with
-    /// a faint symbol. Neutral on purpose, so it never passes for a real cover.
-    static func placeholder(symbol: String, side: CGFloat, scale: CGFloat, round: Bool = false) -> UIImage {
-        let key = "placeholder|\(symbol)|\(side)|\(scale)|\(round)"
-        if let image = cache[key] { return image }
-        let image = drawPlaceholder(symbol: symbol, side: side, scale: scale, round: round)
-        keep(image, as: key)
-        return image
-    }
-
-    private static func drawPlaceholder(symbol: String, side: CGFloat, scale: CGFloat, round: Bool) -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = scale
-        let rect = CGRect(x: 0, y: 0, width: side, height: side)
-        return UIGraphicsImageRenderer(size: rect.size, format: format).image { _ in
-            UIColor(white: 0.5, alpha: 0.22).setFill()
-            (round ? UIBezierPath(ovalIn: rect) : UIBezierPath(roundedRect: rect, cornerRadius: side * 0.12)).fill()
-            let configuration = UIImage.SymbolConfiguration(pointSize: side * 0.36, weight: .medium)
-            if let glyph = UIImage(systemName: symbol, withConfiguration: configuration)?
-                .withTintColor(UIColor(white: 0.5, alpha: 0.75), renderingMode: .alwaysOriginal) {
-                glyph.draw(at: CGPoint(x: rect.midX - glyph.size.width / 2, y: rect.midY - glyph.size.height / 2))
+        styled("number|\(number)|\(side)|\(scale)") { traits in
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = scale
+            return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
+                let font = UIFont.monospacedDigitSystemFont(ofSize: side * 0.36, weight: .medium)
+                let color = UIColor.secondaryLabel.resolvedColor(with: traits)
+                let text = NSAttributedString(string: number.formatted(), attributes: [.font: font, .foregroundColor: color])
+                let size = text.size()
+                text.draw(at: CGPoint(x: (side - size.width) / 2, y: (side - size.height) / 2))
             }
+        }
+    }
+
+    /// A quiet stand-in while a picture loads, or where there's none: a grey tile, or circle
+    /// for an artist, with a faint symbol. Neutral on purpose, so it never passes for a cover.
+    static func placeholder(symbol: String, side: CGFloat, scale: CGFloat, round: Bool = false) -> UIImage {
+        styled("placeholder|\(symbol)|\(side)|\(scale)|\(round)") { traits in
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = scale
+            let rect = CGRect(x: 0, y: 0, width: side, height: side)
+            return UIGraphicsImageRenderer(size: rect.size, format: format).image { _ in
+                UIColor.systemGray5.resolvedColor(with: traits).setFill()
+                (round ? UIBezierPath(ovalIn: rect) : UIBezierPath(roundedRect: rect, cornerRadius: side * 0.12)).fill()
+                let glyph = drawGlyph(symbol, in: rect.size, pointSize: side * 0.36, color: UIColor.systemGray.resolvedColor(with: traits), scale: scale)
+                glyph.draw(in: rect)
+            }
+        }
+    }
+
+    private static func drawGlyph(_ name: String, in size: CGSize, pointSize: CGFloat, color: UIColor, scale: CGFloat) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)
+        let symbol = UIImage(systemName: name, withConfiguration: configuration)?.withTintColor(color, renderingMode: .alwaysOriginal)
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            guard let symbol else { return }
+            symbol.draw(at: CGPoint(x: (size.width - symbol.size.width) / 2, y: (size.height - symbol.size.height) / 2))
         }
     }
 
@@ -412,7 +442,7 @@ enum CarPlayImages {
 
     /// An artist's picture from Apple Music, round: the one the phone already found for them,
     /// or the catalog's, by name. Nil when there's none, and the row keeps its stand-in.
-    static func artistPicture(named name: String, side: CGFloat, scale: CGFloat, feed: PlayFeed) async -> UIImage? {
+    static func artistPicture(named name: String, side: CGFloat, scale: CGFloat, feed: PlayFeed, round: Bool = true) async -> UIImage? {
         let known = ArtistArtworkCache().urls[StatsCalculator.folded(name)]
         let address: String? = if let known {
             known
@@ -422,68 +452,12 @@ enum CarPlayImages {
             nil
         }
         guard let address, let url = URL(string: address), url.scheme?.hasPrefix("http") == true else { return nil }
-        return await cached("artist|\(address)|\(side)|\(scale)") {
-            guard let image = await ArtworkImages.shared.image(for: ArtworkImages.Key(url: url, pixels: Int(side * scale))) else {
-                return placeholder(symbol: "music.microphone", side: side, scale: scale, round: true)
-            }
-            return await circle(UIImage(cgImage: image, scale: scale, orientation: .up))
+        let standIn = placeholder(symbol: "music.microphone", side: side, scale: scale, round: round)
+        return await cached("artist|\(address)|\(side)|\(scale)|\(round)", standIn: standIn) {
+            guard let image = await ArtworkImages.shared.image(for: ArtworkImages.Key(url: url, pixels: Int(side * scale))) else { return nil }
+            let picture = UIImage(cgImage: image, scale: scale, orientation: .up)
+            return round ? await circle(picture) : picture
         }
-    }
-
-    /// The ring for Now Playing's button: the song's play count in a faint circle that fills
-    /// as the song plays, until it counts, then a check. The count says what the ring is about
-    /// at a glance, where an empty circle read as a spinner. Drawn as a template, so the car
-    /// colours it as its other buttons.
-    static func keepRing(_ status: KeepStatus, plays: Int) -> UIImage {
-        let side: CGFloat = 28
-        // Drawn to the edge of its square, with no margin of its own: the car sizes every
-        // button's picture to the same box, and a margin left the ring smaller than the
-        // symbols beside it.
-        if status == .kept {
-            let configuration = UIImage.SymbolConfiguration(pointSize: side * 0.8, weight: .semibold)
-            return UIImage(systemName: "checkmark.circle.fill", withConfiguration: configuration)?
-                .withRenderingMode(.alwaysTemplate) ?? UIImage()
-        }
-        guard case .counting(let fill) = status else { return UIImage() }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 3
-        let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
-            let width: CGFloat = 2.4
-            let rect = CGRect(x: 0, y: 0, width: side, height: side).insetBy(dx: width / 2, dy: width / 2)
-            let track = UIBezierPath(ovalIn: rect)
-            track.lineWidth = width
-            UIColor.black.withAlphaComponent(0.3).setStroke()
-            track.stroke()
-            if fill > 0 {
-                let arc = UIBezierPath(
-                    arcCenter: CGPoint(x: rect.midX, y: rect.midY),
-                    radius: rect.width / 2,
-                    startAngle: -.pi / 2,
-                    endAngle: -.pi / 2 + 2 * .pi * fill,
-                    clockwise: true
-                )
-                arc.lineWidth = width
-                arc.lineCapStyle = .round
-                UIColor.black.setStroke()
-                arc.stroke()
-            }
-            // Inside: the plays so far, or a note for a song never heard before.
-            let inner = rect.width - width * 2
-            if plays > 0 {
-                let label = plays < 1000 ? "\(plays)" : "1K+"
-                let size: CGFloat = label.count <= 1 ? 12.5 : label.count == 2 ? 11 : 8.5
-                let font = UIFont.systemFont(ofSize: size, weight: .bold).rounded
-                let text = NSAttributedString(string: label, attributes: [.font: font, .foregroundColor: UIColor.black])
-                let bounds = text.boundingRect(with: CGSize(width: inner, height: inner), options: [.usesLineFragmentOrigin], context: nil)
-                text.draw(at: CGPoint(x: rect.midX - bounds.width / 2, y: rect.midY - bounds.height / 2))
-            } else {
-                let configuration = UIImage.SymbolConfiguration(pointSize: 10.5, weight: .bold)
-                if let note = UIImage(systemName: "music.note", withConfiguration: configuration)?.withTintColor(.black, renderingMode: .alwaysOriginal) {
-                    note.draw(at: CGPoint(x: rect.midX - note.size.width / 2, y: rect.midY - note.size.height / 2))
-                }
-            }
-        }
-        return image.withRenderingMode(.alwaysTemplate)
     }
 
     // MARK: - Drawing
@@ -524,14 +498,6 @@ enum CarPlayImages {
         let renderer = ImageRenderer(content: view)
         renderer.scale = scale
         return renderer.uiImage ?? UIImage()
-    }
-}
-
-private extension UIFont {
-    /// The same font in SF Rounded, as the phone's numbers are drawn.
-    var rounded: UIFont {
-        guard let descriptor = fontDescriptor.withDesign(.rounded) else { return self }
-        return UIFont(descriptor: descriptor, size: pointSize)
     }
 }
 
@@ -607,7 +573,7 @@ nonisolated enum LibraryArtwork {
     private static var isAllowed: Bool { MPMediaLibrary.authorizationStatus() == .authorized }
 
     @concurrent
-    static func album(title: String, artist: String?, side: CGFloat) async -> UIImage? {
+    static func album(title: String, artist: String?, side: CGFloat, scale: CGFloat) async -> UIImage? {
         guard isAllowed else { return nil }
         let query = MPMediaQuery.albums()
         query.addFilterPredicate(MPMediaPropertyPredicate(value: title, forProperty: MPMediaItemPropertyAlbumTitle))
@@ -617,12 +583,12 @@ nonisolated enum LibraryArtwork {
             let item = collection.representativeItem
             return item?.albumArtist == artist || item?.artist == artist
         } ?? albums.first
-        return match?.representativeItem?.artwork?.image(at: CGSize(width: side, height: side))
+        return match?.representativeItem?.artwork?.image(at: CGSize(width: side, height: side)).map { fitted($0, side: side, scale: scale) }
     }
 
     /// Up to four different covers from a playlist's songs, for a mosaic like Apple Music's.
     @concurrent
-    static func playlist(named name: String, side: CGFloat) async -> [UIImage]? {
+    static func playlist(named name: String, side: CGFloat, scale: CGFloat) async -> [UIImage]? {
         guard isAllowed else { return nil }
         let query = MPMediaQuery.playlists()
         query.addFilterPredicate(MPMediaPropertyPredicate(value: name, forProperty: MPMediaPlaylistPropertyName))
@@ -633,11 +599,31 @@ nonisolated enum LibraryArtwork {
             let album = item.albumTitle ?? item.title ?? ""
             guard !seen.contains(album), let image = item.artwork?.image(at: CGSize(width: side, height: side)) else { continue }
             seen.insert(album)
-            covers.append(image)
+            covers.append(fitted(image, side: side, scale: scale))
             if covers.count == 4 { break }
         }
         // Fewer than four different albums: the first cover alone reads better than a repeat.
         return covers.count >= 4 ? covers : Array(covers.prefix(1))
+    }
+
+    /// The media library's artwork comes at whatever size it was stored, often many times the
+    /// size asked for: drawn again to the square the car shows, at its scale, so neither the car
+    /// nor the cache holds more than that.
+    private static func fitted(_ image: UIImage, side: CGFloat, scale: CGFloat) -> UIImage {
+        let pixels = side * scale
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return image }
+        if abs(size.width * image.scale - pixels) < 1, abs(size.height * image.scale - pixels) < 1 { return image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = true
+        // Filled and centred, so a cover that isn't square isn't squashed.
+        let fill = max(side / size.width, side / size.height)
+        let drawn = CGSize(width: size.width * fill, height: size.height * fill)
+        let origin = CGPoint(x: (side - drawn.width) / 2, y: (side - drawn.height) / 2)
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
+            image.draw(in: CGRect(origin: origin, size: drawn))
+        }
     }
 }
 
@@ -655,19 +641,11 @@ extension CarPlayImages {
         for each in Mood.allCases { images.append(await mood(each, side: tile, scale: scale)) }
         images.append(await tracksRadio(side: card.height, scale: scale))
         for mix in model.playFeed.mixes.mixes.prefix(3) { images.append(await self.mix(mix, side: card.height, scale: scale)) }
-        images.append(live(generated(seed: "Station", side: row, scale: scale)))
+        images.append(live(placeholder(symbol: "dot.radiowaves.left.and.right", side: row, scale: scale)))
         images.append(symbol("music.note.list", side: row, scale: scale))
         images.append(symbol("square.stack", side: row, scale: scale))
-        // Now Playing's ring at each stage, white as the car draws it on its dark screen.
-        let rings: [(KeepStatus, Int)] = [(.counting(0), 0), (.counting(0.4), 7), (.counting(0.8), 42), (.counting(0.5), 318), (.kept, 43)]
-        for (status, plays) in rings {
-            let ring = keepRing(status, plays: plays).withTintColor(.white, renderingMode: .alwaysOriginal)
-            let format = UIGraphicsImageRendererFormat()
-            format.scale = scale
-            images.append(UIGraphicsImageRenderer(size: CGSize(width: 56, height: 56), format: format).image { _ in
-                ring.draw(in: CGRect(x: 0, y: 0, width: 56, height: 56))
-            })
-        }
+        images.append(placeholder(symbol: "music.note", side: row, scale: scale))
+        images.append(trackNumber(7, side: row, scale: scale))
 
         let gap: CGFloat = 12
         let width = max(720, images.reduce(gap) { $0 + $1.size.width + gap })
