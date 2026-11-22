@@ -5,15 +5,14 @@ import TracksCore
 /// SharePlay in the car: a code on the car's screen for passengers to scan with their iPhone's
 /// Camera, which opens Tracks on their iPhone to add songs to Up Next here.
 ///
-/// It opens from the top of Up Next, where the songs they add will go, as the phone's SharePlay
-/// sits in Up Next's header. The code works while its page is open, and for as long as anyone
+/// It opens from the end of Up Next, where the songs they add will go. The code works while its page is open, and for as long as anyone
 /// who scanned it stays, so there's nothing to turn on and nothing left on by mistake. Under
 /// the code, the songs passengers have added, and End SharePlay once anyone has joined.
 extension CarPlaySceneDelegate {
-    /// Up Next's first row: SharePlay, and who's joined.
+    /// Up Next's last row: SharePlay, and who's joined once anyone has.
     func sharePlayRow() -> CPListItem {
         let sharePlay = SharePlayController.shared
-        let detail = sharePlay.role == .host ? SharePlayWords.people(sharePlay.guestCount) : String(localized: "Let passengers add songs")
+        let detail = sharePlay.role == .host ? SharePlayWords.people(sharePlay.guestCount) : nil
         let image = CarPlayImages.symbol("shareplay", side: CPListItem.maximumImageSize.height, scale: scale)
         let row = CPListItem(text: String(localized: "SharePlay"), detailText: detail, image: image, accessoryImage: nil, accessoryType: .disclosureIndicator)
         row.handler = { [weak self] _, completion in
@@ -43,7 +42,7 @@ extension CarPlaySceneDelegate {
         // Playing, which it goes back to.
         push(page) { [weak self] in
             // Didn't make it on screen (another move under way): let it go, code and all.
-            guard let self, sharePlayPage === page, interface?.templates.contains(where: { $0 === page }) != true else { return }
+            guard let self, sharePlayPage === page, mover?.isOnTrail(ObjectIdentifier(page)) != true else { return }
             sharePlayPageGone()
         }
     }
@@ -87,23 +86,11 @@ extension CarPlaySceneDelegate {
 
     /// Closes the page, trying again a moment later if CarPlay is busy (a sheet going away).
     /// Gone from the trail some other way, it's let go here.
-    private func closeSharePlayPage(attempt: Int = 0) {
-        guard let page = sharePlayPage, let interface else { return }
-        guard let index = interface.templates.firstIndex(where: { $0 === page }), index > 0 else {
+    private func closeSharePlayPage() {
+        guard let page = sharePlayPage else { return }
+        popAway(page) { [weak self] in
+            guard let self, sharePlayPage === page else { return }
             sharePlayPageGone()
-            return
-        }
-        let retry = { [weak self] (closed: Bool, _: Error?) in
-            guard !closed, attempt < 3 else { return }
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(500))
-                self?.closeSharePlayPage(attempt: attempt + 1)
-            }
-        }
-        if interface.topTemplate === page {
-            interface.popTemplate(animated: true, completion: retry)
-        } else {
-            interface.pop(to: interface.templates[index - 1], animated: true, completion: retry)
         }
     }
 
@@ -129,34 +116,25 @@ extension CarPlaySceneDelegate {
         let sharePlay = SharePlayController.shared
         let side = CPThumbnailImage.maximumImageSize(forAspectRatio: 1)
         let title: String
-        let subtitle: String
+        let subtitle: String?
         let body: [String]
         let image: UIImage
         switch sharePlay.codeStatus {
         case .needsLocalNetwork:
             image = CarPlayImages.placeholder(symbol: "network.slash", side: side.width, scale: scale)
             title = String(localized: "Local Network Is Off")
-            subtitle = String(localized: "Passengers can't join by code")
-            body = [
-                String(localized: "When you've stopped, turn on Local Network for Tracks in Settings on iPhone."),
-                String(localized: "Turn on Local Network for Tracks in Settings."),
-            ]
+            subtitle = nil
+            body = []
         case .failed:
             image = CarPlayImages.placeholder(symbol: "qrcode", side: side.width, scale: scale)
             title = String(localized: "Getting the Code Ready")
-            subtitle = String(localized: "Trying again…")
+            subtitle = nil
             body = []
         case .off, .starting, .ready:
             image = sharePlayCodeImage(side: side.width)
             title = String(localized: "Scan to Add Songs")
             subtitle = SharePlayWords.people(sharePlay.guestCount)
-            body = SharePlayCodeImage.isForEveryone ? [
-                String(localized: "Passengers point their iPhone's Camera at this code to add songs to Up Next."),
-                String(localized: "Scan with iPhone Camera to add songs."),
-            ] : [
-                String(localized: "Passengers point their iPhone's Camera at this code to add songs to Up Next. They'll need Tracks."),
-                String(localized: "Scan with iPhone Camera to add songs. Needs Tracks."),
-            ]
+            body = SharePlayCodeImage.isForEveryone ? [] : [String(localized: "Passengers need Tracks.")]
         }
         return CPListTemplateDetailsHeader(
             thumbnail: CPThumbnailImage(image: image),
@@ -205,7 +183,7 @@ extension CarPlaySceneDelegate {
             }
             sections.append(CPListSection(items: rows, header: String(localized: "Added by Passengers"), sectionIndexTitle: nil))
         } else if sharePlay.guestCount > 0 {
-            let row = CPListItem(text: String(localized: "Songs passengers add show up here."), detailText: nil)
+            let row = CPListItem(text: String(localized: "No Songs Added"), detailText: nil)
             row.isEnabled = false
             sections.append(CPListSection(items: [row], header: String(localized: "Added by Passengers"), sectionIndexTitle: nil))
         }

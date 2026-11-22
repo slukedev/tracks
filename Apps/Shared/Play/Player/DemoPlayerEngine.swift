@@ -1,4 +1,5 @@
 import Foundation
+import MediaPlayer
 import SwiftUI
 import TracksCore
 
@@ -23,6 +24,14 @@ final class DemoPlayerEngine: PlayerEngine {
     private var ticker: Task<Void, Never>?
     /// Only ever goes up, so no two queue entries share an id.
     private var nextEntryNumber = 0
+
+    /// Whether this pretend player fills Now Playing for the lock screen and CarPlay. Only in a
+    /// demo launch: a preview makes one too, and mustn't take over the device's Now Playing.
+    private let publishesNowPlaying = DemoMode.isRequestedAtLaunch
+    private var hasRemoteCommands = false
+    /// The song whose artwork Now Playing has, or is being drawn.
+    private var artworkFor: String?
+    private var artworkTask: Task<Void, Never>?
 
     /// Sample songs a station draws from, taken from the sample history.
     private let songsForStations: () -> [HistorySong]
@@ -85,7 +94,7 @@ final class DemoPlayerEngine: PlayerEngine {
             return
         }
         queue.insert(contentsOf: tracks, at: next ? index + 1 : queue.count)
-        onChange?()
+        changed()
     }
 
     func pause() {
@@ -94,7 +103,7 @@ final class DemoPlayerEngine: PlayerEngine {
         resumedAt = nil
         status = .paused
         ticker?.cancel()
-        onChange?()
+        changed()
     }
 
     func resume() async throws {
@@ -102,7 +111,7 @@ final class DemoPlayerEngine: PlayerEngine {
         resumedAt = .now
         status = .playing
         startTicker()
-        onChange?()
+        changed()
     }
 
     func skipToNext() async throws {
@@ -120,22 +129,22 @@ final class DemoPlayerEngine: PlayerEngine {
     func seek(to time: TimeInterval) {
         elapsedBeforeResume = max(0, time)
         resumedAt = status == .playing ? .now : nil
-        onChange?()
+        changed()
     }
 
     func setShuffled(_ isShuffled: Bool) {
         self.isShuffled = isShuffled
         guard isShuffled, index + 1 < queue.count else {
-            onChange?()
+            changed()
             return
         }
         queue[(index + 1)...].shuffle()
-        onChange?()
+        changed()
     }
 
     func setRepeat(_ mode: PlayerRepeat) {
         repeatMode = mode
-        onChange?()
+        changed()
     }
 
     func jump(toUpNext offset: Int) async throws {
@@ -148,14 +157,122 @@ final class DemoPlayerEngine: PlayerEngine {
         let places = IndexSet(offsets.map { $0 + index + 1 }.filter(queue.indices.contains))
         guard !places.isEmpty else { return }
         queue.remove(atOffsets: places)
-        onChange?()
+        changed()
     }
 
     func moveUpNext(from offsets: IndexSet, to destination: Int) {
         let places = IndexSet(offsets.map { $0 + index + 1 }.filter(queue.indices.contains))
         guard !places.isEmpty else { return }
         queue.move(fromOffsets: places, toOffset: min(max(destination + index + 1, index + 1), queue.count))
+        changed()
+    }
+
+    // MARK: - Now Playing
+
+    /// Tells the screens, and Now Playing on the lock screen and in the car.
+    private func changed() {
+        publishNowPlaying()
         onChange?()
+    }
+
+    private func publishNowPlaying() {
+        guard publishesNowPlaying else { return }
+        let center = MPNowPlayingInfoCenter.default()
+        guard let current, status != .stopped else {
+            center.nowPlayingInfo = nil
+            center.playbackState = .stopped
+            artworkTask?.cancel()
+            artworkFor = nil
+            return
+        }
+        addRemoteCommands()
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: current.title,
+            MPMediaItemPropertyArtist: current.artistName,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: playbackTime,
+            MPNowPlayingInfoPropertyPlaybackRate: status == .playing ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+        ]
+        if let album = current.albumTitle { info[MPMediaItemPropertyAlbumTitle] = album }
+        if let duration = current.duration { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        if artworkFor == current.id, let artwork = center.nowPlayingInfo?[MPMediaItemPropertyArtwork] {
+            info[MPMediaItemPropertyArtwork] = artwork
+        }
+        center.nowPlayingInfo = info
+        center.playbackState = status == .playing ? .playing : .paused
+        guard artworkFor != current.id else { return }
+        artworkFor = current.id
+        artworkTask?.cancel()
+        let cover = current.cover
+        let id = current.id
+        artworkTask = Task { [weak self] in
+            guard let picture = await Self.picture(for: cover), !Task.isCancelled, self?.current?.id == id,
+                  var info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+            else { return }
+            info[MPMediaItemPropertyArtwork] = Self.nowPlayingArtwork(picture)
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        }
+    }
+
+    /// The sample song's cover: its address, or the drawn cover the sample screens show for it.
+    private static func picture(for cover: CoverArt) async -> CGImage? {
+        guard case .url(let address, let seed) = cover else { return nil }
+        if let address, let url = URL(string: address), let image = await ArtworkImages.shared.image(for: ArtworkImages.Key(url: url, pixels: 600)) {
+            return image
+        }
+        let renderer = ImageRenderer(content: GeneratedCover(seed: seed).frame(width: 300, height: 300))
+        renderer.scale = 2
+        return renderer.cgImage
+    }
+
+    /// Made off the main actor: MediaPlayer asks for the picture on a queue of its own.
+    nonisolated private static func nowPlayingArtwork(_ picture: CGImage) -> MPMediaItemArtwork {
+        let size = CGSize(width: picture.width, height: picture.height)
+        return MPMediaItemArtwork(boundsSize: size) { @Sendable _ in
+            #if canImport(UIKit)
+            UIImage(cgImage: picture)
+            #else
+            NSImage(cgImage: picture, size: size)
+            #endif
+        }
+    }
+
+    /// Play, pause and skip from the lock screen and the car, for the pretend player.
+    private func addRemoteCommands() {
+        guard !hasRemoteCommands else { return }
+        hasRemoteCommands = true
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.addTarget { [weak self] _ in
+            Self.onMain { Task { try? await self?.resume() } }
+            return .success
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            Self.onMain { self?.pause() }
+            return .success
+        }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            Self.onMain {
+                guard let self else { return }
+                if self.status == .playing { self.pause() } else { Task { try? await self.resume() } }
+            }
+            return .success
+        }
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            Self.onMain { self?.advance(by: 1) }
+            return .success
+        }
+        center.previousTrackCommand.addTarget { [weak self] _ in
+            Self.onMain { Task { try? await self?.skipToPrevious() } }
+            return .success
+        }
+    }
+
+    nonisolated private static func onMain(_ body: @escaping @MainActor @Sendable () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated(body)
+        } else {
+            Task { @MainActor in body() }
+        }
     }
 
     // MARK: - The pretend clock
@@ -176,7 +293,7 @@ final class DemoPlayerEngine: PlayerEngine {
             resumedAt = nil
             status = .paused
             ticker?.cancel()
-            onChange?()
+            changed()
         }
     }
 
@@ -185,7 +302,7 @@ final class DemoPlayerEngine: PlayerEngine {
         resumedAt = playing ? .now : nil
         status = playing ? .playing : .paused
         if playing { startTicker() } else { ticker?.cancel() }
-        onChange?()
+        changed()
     }
 
     private func startTicker() {

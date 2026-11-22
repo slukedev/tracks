@@ -3,33 +3,32 @@ import CarPlay
 import MusicKit
 import TracksCore
 
-/// Genres in the car, in Radio under the moods: the ones you play most as tiles, each a tap
-/// from its station (your songs in it and new finds from its charts, picked as it plays). The
-/// row's name opens every genre as a list, each a tap from playing too. With your own music,
-/// only the genres in it.
+/// Genres in the car, in Radio under the moods: one line of the ones you play most as tiles,
+/// each a tap from its station (your songs in it and new finds from its charts, picked as it
+/// plays). The row's name opens every genre as a list. With your own music, only the genres
+/// in it.
 extension CarPlaySceneDelegate {
     func genreSection() async -> CPListSection? {
         let all = await genreItems()
         guard !all.isEmpty else { return nil }
         let model = self.model
-        // About a line of your genres, as many as the moods above draw in one: the rest are on
-        // the list.
-        let shown = Array(all.prefix(Self.genreTileCount))
+        // One line: past it the car keeps the room and draws nothing. The rest are on the list.
+        let shown = Array(all.prefix(shelfLength))
         let side = CPListImageRowItemImageGridElement.maximumImageSize.height
         var tiles: [CPListImageRowItemImageGridElement] = []
         for item in shown {
             let image = await CarPlayImages.genre(item.genre, side: side, scale: scale)
             tiles.append(CPListImageRowItemImageGridElement(image: image, imageShape: .roundedRectangle, title: item.genre.title, accessorySymbolName: nil))
         }
-        let row = CPListImageRowItem(text: String(localized: "Genres"), imageGridElements: tiles, allowsMultipleLines: true)
+        let row = CPListImageRowItem(text: String(localized: "Genres"), imageGridElements: tiles, allowsMultipleLines: false)
         row.userInfo = Self.contentToken(shown.map(\.genre.id))
         row.listImageRowHandler = { [weak self] _, index, completion in
             guard shown.indices.contains(index) else { return completion() }
             let genre = shown[index].genre
-            self?.play({ await GenrePlayback.start(genre, model: model) }, completion: completion)
+            self?.play({ await GenrePlayback.start(genre, model: model) }, completion: completion) ?? completion()
         }
         row.handler = { [weak self] _, completion in
-            self?.open({ await self?.genresPage(all) }, then: completion)
+            self?.open({ await self?.genresPage(all) }, then: completion) ?? completion()
         }
         return CPListSection(items: [row])
     }
@@ -46,7 +45,7 @@ extension CarPlaySceneDelegate {
             let row = CPListItem(text: genre.title, detailText: nil, image: image)
             mark(row) { [weak self] in self?.isPlaying(genre.title) ?? false }
             row.handler = { [weak self] _, completion in
-                self?.play({ await GenrePlayback.start(genre, model: model) }, completion: completion)
+                self?.play({ await GenrePlayback.start(genre, model: model) }, completion: completion) ?? completion()
             }
             // No covers: nothing of yours in it.
             if item.covers.isEmpty { more.append(row) } else { yours.append(row) }
@@ -59,11 +58,9 @@ extension CarPlaySceneDelegate {
             sections.append(CPListSection(items: more, header: yours.isEmpty ? nil : String(localized: "More Genres"), sectionIndexTitle: nil))
         }
         let page = CPListTemplate(title: String(localized: "Genres"), sections: sections)
-        page.emptyViewTitleVariants = [String(localized: "No Genres Yet")]
+        page.emptyViewTitleVariants = [String(localized: "No Genres")]
         return page
     }
-
-    static let genreTileCount = 7
 
     /// Your genres, worked out again when the source or your music changes, and otherwise at
     /// most every quarter of an hour: it walks the whole history, the order of the genres you

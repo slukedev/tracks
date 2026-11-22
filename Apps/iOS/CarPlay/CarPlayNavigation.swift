@@ -1,11 +1,13 @@
 import UIKit
 import CarPlay
 import os
+import TracksCore
 
 /// Moving between screens in the car. CarPlay throws, and takes the app down with it, when a
-/// screen is pushed twice, a second sheet is presented over the first, or a move fails with no
-/// completion to report to. Every move goes through here: one at a time, each with a completion,
-/// never past the depth CarPlay allows.
+/// screen is pushed twice, a second sheet is presented over the first, or the trail goes past
+/// the depth it allows. Every move goes through the connection's `CarMover`: one at a time,
+/// each checked against the trail as it runs rather than as it was asked for, since a move can
+/// wait behind another for seconds over a wireless connection.
 extension CarPlaySceneDelegate {
     /// The most screens an audio app's trail can hold, the tab bar included.
     static let deepest = 5
@@ -16,94 +18,119 @@ extension CarPlaySceneDelegate {
 
     static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Tracks", category: "CarPlay")
 
-    /// Pushes a screen. Already on the trail, or while another move is under way (a second tap
-    /// before the first page opened), it's left alone. At CarPlay's depth, the trail starts again
-    /// from the tab, under Now Playing when it was there.
+    /// The mover for a car that's just connected, reading that car's trail.
+    static func mover(for interface: CPInterfaceController) -> CarMover {
+        CarMover(
+            trail: { [weak interface] in interface?.templates.map(ObjectIdentifier.init) ?? [] },
+            onError: { what, error in
+                log.error("CarPlay couldn't \(what, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            },
+            onStuck: { what in
+                log.error("CarPlay hasn't finished \(what, privacy: .public); the row stops waiting")
+            }
+        )
+    }
+
+    /// Pushes a screen. Already on the trail or on its way, or while another move is under way
+    /// (a second tap before the first page opened), it's left alone. At CarPlay's depth, the
+    /// trail starts again from the tab, under Now Playing when it was there.
     func push(_ template: CPTemplate, completion: (() -> Void)? = nil) {
-        guard let interface, !isMoving, !interface.templates.contains(where: { $0 === template }) else {
+        guard let interface, let mover, !mover.isOnTrail(ObjectIdentifier(template)) else {
             completion?()
             return
         }
-        guard interface.templates.count >= Self.deepest else {
-            move { done in self.pushStep(template, animated: true, then: done) } completion: { completion?() }
-            return
-        }
-        let nowPlaying = CPNowPlayingTemplate.shared
-        let keepsNowPlaying = template !== nowPlaying && interface.templates.contains { $0 === nowPlaying }
-        move { done in
-            interface.popToRootTemplate(animated: false) { _, error in
-                Self.report(error, "pop to root")
-                guard keepsNowPlaying else { return self.pushStep(template, animated: true, then: done) }
-                self.pushStep(nowPlaying, animated: false) {
-                    self.pushStep(template, animated: true, then: done)
+        mover.run("push", { steps in
+            if steps.depth >= Self.deepest {
+                let nowPlaying = CPNowPlayingTemplate.shared
+                let keepsNowPlaying = template !== nowPlaying && interface.templates.contains { $0 === nowPlaying }
+                guard try await steps.pop({ _ = try await interface.popToRootTemplate(animated: false) }) else { return }
+                if keepsNowPlaying {
+                    try await steps.push(ObjectIdentifier(nowPlaying)) { _ = try await interface.pushTemplate(nowPlaying, animated: false) }
                 }
             }
-        } completion: { completion?() }
+            guard steps.depth < Self.deepest else { return }
+            try await steps.push(ObjectIdentifier(template)) { _ = try await interface.pushTemplate(template, animated: true) }
+        }, completion: { completion?() })
     }
 
     /// Brings Now Playing up: back to it when it's already on the trail, since CarPlay won't
     /// take the same screen twice. Played from deep in a tab, it starts a fresh trail from the
-    /// tab, leaving room above it.
-    func showNowPlaying() {
-        guard let interface, !isMoving else { return }
-        let nowPlaying = CPNowPlayingTemplate.shared
-        if interface.topTemplate === nowPlaying { return }
-        if interface.templates.contains(where: { $0 === nowPlaying }) {
-            move { done in
-                interface.pop(to: nowPlaying, animated: true) { _, error in
-                    Self.report(error, "pop to Now Playing")
-                    done()
-                }
-            } completion: {}
-            return
-        }
-        guard interface.templates.count >= Self.deepestBeforeNowPlaying else {
-            move { done in self.pushStep(nowPlaying, animated: true, then: done) } completion: {}
-            return
-        }
-        move { done in
-            interface.popToRootTemplate(animated: false) { _, error in
-                Self.report(error, "pop to root")
-                self.pushStep(nowPlaying, animated: true, then: done)
+    /// tab, leaving room above it. Asked for while another move runs, it's shown once that one
+    /// is done, if `wanted` still says so then.
+    func showNowPlaying(if wanted: @escaping () -> Bool = { true }) {
+        guard let interface, let mover else { return }
+        mover.run("show Now Playing", whenBusy: .wait("nowPlaying"), { steps in
+            guard wanted() else { return }
+            let nowPlaying = CPNowPlayingTemplate.shared
+            let id = ObjectIdentifier(nowPlaying)
+            guard interface.topTemplate !== nowPlaying else { return }
+            if interface.templates.contains(where: { $0 === nowPlaying }) {
+                try await steps.pop { _ = try await interface.pop(to: nowPlaying, animated: true) }
+                return
             }
-        } completion: {}
+            guard !steps.isOnTrail(id) else { return }
+            if steps.depth >= Self.deepestBeforeNowPlaying {
+                guard try await steps.pop({ _ = try await interface.popToRootTemplate(animated: false) }) else { return }
+            }
+            try await steps.push(id) { _ = try await interface.pushTemplate(nowPlaying, animated: true) }
+        })
     }
 
     /// Goes back a screen.
     func popScreen() {
-        guard let interface, !isMoving, interface.templates.count > 1 else { return }
-        move { done in
-            interface.popTemplate(animated: true) { _, error in
-                Self.report(error, "pop")
-                done()
-            }
-        } completion: {}
+        guard let interface, let mover else { return }
+        mover.run("pop", { steps in
+            guard interface.templates.count > 1 else { return }
+            try await steps.pop { _ = try await interface.popTemplate(animated: true) }
+        })
     }
 
-    /// Shows a sheet, closing any sheet already up first: CarPlay shows one at a time.
+    /// Goes back to the screen under `page`, wherever it is on the trail. Retried a moment
+    /// later, a few times, while CarPlay can't (a push still landing).
+    func popAway(_ page: CPTemplate, attempt: Int = 0, then gone: @escaping () -> Void) {
+        guard let interface, let mover else { return }
+        let popped = Flag()
+        mover.run("close a page", whenBusy: .wait("close.\(ObjectIdentifier(page).hashValue)"), { steps in
+            guard let index = interface.templates.firstIndex(where: { $0 === page }), index > 0 else {
+                popped.value = true
+                return
+            }
+            let below = interface.templates[index - 1]
+            popped.value = try await steps.pop { _ = try await interface.pop(to: below, animated: true) }
+        }, completion: { [weak self] in
+            guard let self else { return }
+            if popped.value || interface.templates.contains(where: { $0 === page }) == false { return gone() }
+            guard attempt < 3, self.interface === interface else { return }
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                self?.popAway(page, attempt: attempt + 1, then: gone)
+            }
+        })
+    }
+
+    /// Shows a sheet, closing any sheet already up first: CarPlay shows one at a time. Asked for
+    /// while another move runs, it waits, and a newer sheet takes its place.
     func present(_ template: CPTemplate) {
-        guard let interface else { return }
-        guard interface.presentedTemplate != nil else {
-            interface.presentTemplate(template, animated: true) { _, error in Self.report(error, "present") }
-            return
-        }
-        interface.dismissTemplate(animated: false) { [weak self] _, error in
-            Self.report(error, "dismiss")
-            guard let interface = self?.interface else { return }
-            interface.presentTemplate(template, animated: true) { _, error in Self.report(error, "present") }
-        }
+        guard let interface, let mover else { return }
+        mover.run("present", whenBusy: .wait("sheet"), { steps in
+            if let shown = interface.presentedTemplate {
+                guard shown !== template else { return }
+                guard try await steps.present({ _ = try await interface.dismissTemplate(animated: false) }) else { return }
+            }
+            try await steps.present { _ = try await interface.presentTemplate(template, animated: true) }
+        })
     }
 
     /// Closes the sheet that's up, then does what's next.
     func dismissSheet(then next: (() -> Void)? = nil) {
-        guard let interface, interface.presentedTemplate != nil else {
+        guard let interface, let mover else {
             next?()
             return
         }
-        interface.dismissTemplate(animated: true) { _, error in
-            Self.report(error, "dismiss")
-            next?()
-        }
+        mover.run("dismiss", whenBusy: .wait("sheet"), { steps in
+            guard interface.presentedTemplate != nil else { return }
+            try await steps.present { _ = try await interface.dismissTemplate(animated: true) }
+        }, completion: { next?() })
     }
 
     /// An alert's OK: closes it.
@@ -112,41 +139,9 @@ extension CarPlaySceneDelegate {
             self?.dismissSheet()
         }
     }
+}
 
-    // MARK: - Steps
-
-    /// Runs a move, marked as under way until it's done, so a second can't start inside it.
-    /// A move CarPlay never finishes is let go after a few seconds, so the car can't stay stuck.
-    private func move(_ steps: (@escaping () -> Void) -> Void, completion: @escaping () -> Void) {
-        isMoving = true
-        moveID &+= 1
-        let id = moveID
-        var isDone = false
-        let done = { [weak self] in
-            guard !isDone else { return }
-            isDone = true
-            if self?.moveID == id { self?.isMoving = false }
-            completion()
-        }
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
-            guard let self, moveID == id, isMoving else { return }
-            Self.log.error("A CarPlay move didn't finish; letting it go")
-            isMoving = false
-        }
-        steps(done)
-    }
-
-    private func pushStep(_ template: CPTemplate, animated: Bool, then next: @escaping () -> Void) {
-        guard let interface, !interface.templates.contains(where: { $0 === template }) else { return next() }
-        interface.pushTemplate(template, animated: animated) { _, error in
-            Self.report(error, "push")
-            next()
-        }
-    }
-
-    private static func report(_ error: (any Error)?, _ what: String) {
-        guard let error else { return }
-        log.error("CarPlay couldn't \(what, privacy: .public): \(error.localizedDescription, privacy: .public)")
-    }
+/// Whether a move got as far as it meant to, read once it's done.
+private final class Flag {
+    var value = false
 }
