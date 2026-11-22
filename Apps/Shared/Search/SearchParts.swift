@@ -19,12 +19,12 @@ struct RecentSearchesSection: View {
             header {
                 SearchSectionTitle("Recently Searched")
                 Spacer(minLength: 0)
-                Button("Clear") { withAnimation(.snappy) { clear() } }
+                Button("Clear") { withAnimation(Design.Motion.row) { clear() } }
                     .buttonStyle(.plain)
                     .font(.subheadline)
                     .foregroundStyle(.tint)
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(recents, id: \.self) { recent in
@@ -34,14 +34,14 @@ struct RecentSearchesSection: View {
                         .contextMenu {
                             if let remove {
                                 Button("Remove from Recent Searches", systemImage: "minus.circle") {
-                                    withAnimation(.snappy) { remove(recent) }
+                                    withAnimation(Design.Motion.row) { remove(recent) }
                                 }
                             }
                         }
                     }
                 }
             }
-            .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
+            .contentMargins(.horizontal, Design.Margin.page, for: .scrollContent)
             .scrollIndicators(.hidden)
         }
     }
@@ -72,23 +72,33 @@ struct SearchChip: View {
 /// The moods and genres, as tiles to open, for before a search: Music's Browse Categories,
 /// made of the rooms Play already has.
 struct BrowseSections: View {
+    /// They play from the history through Apple Music, so they need it allowed, or sample
+    /// data, which has its own.
+    static func isOffered(_ model: AppModel) -> Bool {
+        model.musicSource == .appleMusic && (model.musicAuthorization == .authorized || model.isShowingSampleData)
+    }
+
     @Environment(AppModel.self) private var model
+    @Environment(PlayerModel.self) private var player
     @Environment(PlayFeed.self) private var feed
     /// Nil until they're worked out, which walks the history.
     @State private var genres: [GenreTileItem]?
+    @State private var moodCovers: RoomCovers?
+    @ScaledMetric(relativeTo: .headline) private var tileWidth = Self.tileWidth
+    @ScaledMetric(relativeTo: .headline) private var tileHeight = CategoryCardMetrics.gridHeight
 
     var body: some View {
-        VStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
+        VStack(alignment: .leading, spacing: Design.Margin.section) {
             section("Browse by Mood") {
                 ForEach(Mood.allCases) { mood in
-                    MoodTile(mood: mood, fillsWidth: true)
+                    MoodTile(mood: mood, covers: MoodShelf.art(moodCovers?.byMood[mood]), placement: .grid)
                 }
             }
             if let genres {
                 if !genres.isEmpty {
                     section("Browse by Genre") {
                         ForEach(genres) { item in
-                            GenreTile(item: item, fillsWidth: true)
+                            GenreTile(item: item, placement: .grid)
                         }
                     }
                 }
@@ -97,12 +107,18 @@ struct BrowseSections: View {
                 section("Browse by Genre") {
                     ForEach(0..<(model.musicSource == .appleMusic ? MusicGenre.all.count : 4), id: \.self) { _ in
                         RoundedRectangle(cornerRadius: CategoryCardMetrics.radius, style: .continuous)
-                            .fill(.quaternary)
-                            .aspectRatio(CategoryCardMetrics.aspect, contentMode: .fit)
+                            .fill(Color.placeholderFill)
+                            .frame(height: min(tileHeight, CategoryCardMetrics.gridHeight * 1.6))
                     }
                 }
                 .accessibilityHidden(true)
             }
+        }
+        .task(id: model.library.revision) {
+            let (history, signals) = (model.library.history, player.signals)
+            let found = await OffMainActor.run { RoomCovers(history: history, signals: signals, limit: 3) }
+            guard !Task.isCancelled else { return }
+            moodCovers = found
         }
         .task(id: GenresKey(source: model.musicSource, revision: model.library.revision, songs: model.yourMusic.index.tracks.count)) {
             guard model.library.isLoaded else { return }
@@ -111,13 +127,13 @@ struct BrowseSections: View {
     }
 
     private func section(_ title: LocalizedStringKey, @ViewBuilder tiles: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Design.Spacing.medium) {
             SearchSectionTitle(title)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileWidth), spacing: 12)], spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: min(tileWidth, Self.tileWidth * 2.2)), spacing: Design.Spacing.medium)], spacing: Design.Spacing.medium) {
                 tiles()
             }
         }
-        .padding(.horizontal, PlayMetrics.margin)
+        .padding(.horizontal, Design.Margin.page)
     }
 
     #if os(macOS)
@@ -143,7 +159,7 @@ struct SearchSectionTitle: View {
 
     var body: some View {
         Text(title)
-            .font(.title3.bold())
+            .font(.sectionTitle)
             .accessibilityAddTraits(.isHeader)
     }
 }
@@ -189,11 +205,11 @@ struct SearchLead<SongsTitle: View, Songs: View>: View {
         // A yes or no, never a size, so the choice can't feed back into the width it reads.
         .onGeometryChange(for: Bool.self) { $0.size.width >= Self.cardWidth + Self.gap + Self.songsWidth } action: { isWide = $0 }
         #endif
-        .padding(.horizontal, PlayMetrics.margin)
+        .padding(.horizontal, Design.Margin.page)
     }
 
     private var stacked: some View {
-        VStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
+        VStack(alignment: .leading, spacing: Design.Margin.section) {
             topBlock
                 #if os(macOS)
                 .frame(maxWidth: Self.cardWidth)
@@ -301,22 +317,16 @@ struct TopResultCard: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if let play = result.play {
-                // The song playing pauses and goes on from here, rather than starting over.
-                Button(action: isCurrent ? player.togglePlayPause : play) {
-                    Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
-                        .contentTransition(.symbolEffect(.replace))
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.black)
-                        .frame(width: 48, height: 48)
-                        .background(.white, in: .circle)
-                        .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
-                }
-                .buttonStyle(.pressable)
-                // A fixed circle, so its symbol can't outgrow it at the largest text sizes.
-                .dynamicTypeSize(.large)
-                .padding(16)
-                // Reached as the card's Play action with VoiceOver.
-                .accessibilityHidden(true)
+                    let pauses = isCurrent && player.isPlaying
+                    // The song playing pauses and goes on from here, rather than starting over.
+                    CoverPlayButton(
+                        title: pauses ? "Pause" : "Play",
+                        systemImage: pauses ? "pause.fill" : "play.fill",
+                        action: isCurrent ? player.togglePlayPause : play
+                    )
+                    .padding(Design.Spacing.large)
+                    // Reached as the card's Play action with VoiceOver.
+                    .accessibilityHidden(true)
                 }
             }
             .contentShape(.rect(cornerRadius: 18))

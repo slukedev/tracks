@@ -35,7 +35,7 @@ struct WeekdayChart: View {
         .chartTextSize()
     }
 
-    static let weekdayStyle = AnyShapeStyle(Color.accentColor.gradient)
+    static let weekdayStyle = AnyShapeStyle(Color.accentColor)
     static let weekendStyle = AnyShapeStyle(Color.accentColor.opacity(0.5))
 }
 

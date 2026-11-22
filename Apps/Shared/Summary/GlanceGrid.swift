@@ -1,76 +1,63 @@
 import SwiftUI
 import TracksCore
 
-/// Four small numbers under the listening card.
+/// Four figures for the range in one panel: artists, songs, what was new and the streak.
+/// Plain labels over the figures, as Fitness and Screen Time set them: colour would mean
+/// nothing here, since none of them is a category.
 struct GlanceGrid: View {
     let summary: StatsSummary
     var columns = 2
 
     var body: some View {
-        TileGrid(tiles: tiles, columns: columns)
+        Card {
+            FigureGrid(figures: figures, columns: columns)
+        }
     }
 
-    private var tiles: [GlanceTile] {
+    private var figures: [GlanceFigure] {
         [
-            GlanceTile(
-                title: "Artists",
-                value: summary.uniqueArtistCount.formatted(),
-                symbol: "music.microphone",
-                tint: .pink
-            ),
-            GlanceTile(
-                title: "Different Songs",
-                value: summary.uniqueSongCount.formatted(),
-                symbol: "music.note.list",
-                tint: .blue
-            ),
-            // Over all time every song was new once, so this would only repeat Different Songs.
+            GlanceFigure(title: "Artists", value: Text(summary.uniqueArtistCount.formatted()), number: summary.uniqueArtistCount),
+            GlanceFigure(title: "Songs", value: Text(summary.uniqueSongCount.formatted()), number: summary.uniqueSongCount),
+            // Over all time every song was new once, so this would only repeat Songs.
             summary.range == .allTime
-                ? GlanceTile(
-                    title: "Albums",
-                    value: summary.uniqueAlbumCount.formatted(),
-                    symbol: "square.stack",
-                    tint: .purple
-                )
-                : GlanceTile(
+                ? GlanceFigure(title: "Albums", value: Text(summary.uniqueAlbumCount.formatted()), number: summary.uniqueAlbumCount)
+                : GlanceFigure(
                     title: "New to You",
-                    value: summary.firstTimeHeardCount.formatted(),
-                    symbol: "sparkles",
-                    tint: .purple,
-                    detail: summary.newArtistCount > 0 ? "^[\(summary.newArtistCount) new artist](inflect: true)" : nil
+                    value: Text(summary.firstTimeHeardCount.formatted()),
+                    number: summary.firstTimeHeardCount,
+                    detail: summary.newArtistCount > 0 ? Text("^[\(summary.newArtistCount) new artist](inflect: true)") : nil
                 ),
-            GlanceTile(
+            GlanceFigure(
                 title: "Streak",
-                value: summary.streak.current.formatted(),
-                symbol: "flame.fill",
-                tint: .orange,
-                unit: "^[\(summary.streak.current) day](inflect: true)",
+                value: Text("^[\(summary.streak.current) day](inflect: true)"),
+                number: summary.streak.current,
                 detail: summary.streak.longest > summary.streak.current
-                    ? "Best: ^[\(summary.streak.longest) day](inflect: true)"
+                    ? Text("Best: ^[\(summary.streak.longest) day](inflect: true)")
                     : nil
             ),
         ]
     }
 }
 
-/// Tiles in rows of `columns`, one column at accessibility text sizes.
-struct TileGrid: View {
-    let tiles: [GlanceTile]
+/// Figures in rows of `columns`, one column at accessibility text sizes, each row's cells
+/// as tall as the tallest.
+struct FigureGrid: View {
+    let figures: [GlanceFigure]
     var columns = 2
-    var spacing: CGFloat = 12
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        let columns = typeSize.isAccessibilitySize ? 1 : self.columns
-        let rows = stride(from: 0, to: tiles.count, by: columns).map { Array(tiles[$0..<min($0 + columns, tiles.count)]) }
-        // Grid rather than LazyVGrid so every tile in a row, and a single column, share heights.
-        Grid(horizontalSpacing: spacing, verticalSpacing: spacing) {
+        let columns = typeSize.isAccessibilitySize ? 1 : max(1, self.columns)
+        let rows = stride(from: 0, to: figures.count, by: columns).map { Array(figures[$0..<min($0 + columns, figures.count)]) }
+        Grid(alignment: .topLeading, horizontalSpacing: Design.Spacing.large, verticalSpacing: Design.Spacing.large) {
             ForEach(rows.indices, id: \.self) { row in
-                GridRow {
-                    ForEach(rows[row].indices, id: \.self) { column in
-                        rows[row][column]
+                if row > 0 {
+                    Divider().gridCellUnsizedAxes(.horizontal)
+                }
+                GridRow(alignment: .top) {
+                    ForEach(rows[row]) { figure in
+                        figure.frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    // Keeps a short last row's tiles the width of the rest.
                     if rows[row].count < columns {
                         ForEach(rows[row].count..<columns, id: \.self) { _ in
                             Color.clear.gridCellUnsizedAxes(.vertical)
@@ -82,42 +69,66 @@ struct TileGrid: View {
     }
 }
 
-struct GlanceTile: View {
+/// A label, a figure and an optional line under it.
+struct GlanceFigure: View, Identifiable {
     let title: LocalizedStringKey
-    let value: String
-    let symbol: String
-    let tint: Color
-    /// Replaces the plain value with an inflected phrase, e.g. "12 days".
-    var unit: LocalizedStringKey?
-    var detail: LocalizedStringKey?
+    let value: Text
+    /// The figure as a number, so a change rolls its digits.
+    var number: Double?
+    var detail: Text?
+    var valueFont: Font = .statFigure
+
+    init(title: LocalizedStringKey, value: Text, number: Int? = nil, detail: Text? = nil, valueFont: Font = .statFigure) {
+        self.title = title
+        self.value = value
+        self.number = number.map(Double.init)
+        self.detail = detail
+        self.valueFont = valueFont
+    }
+
+    var id: String { "\(title)" }
 
     var body: some View {
-        Card(padding: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Label(title, systemImage: symbol)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(tint)
-                    .lineLimit(1)
-                Group {
-                    if let unit {
-                        Text(unit)
-                    } else {
-                        Text(value)
-                    }
-                }
-                .font(.system(.title2, design: .rounded, weight: .bold))
+        VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            value
+                .font(valueFont)
                 .monospacedDigit()
-                .contentTransition(.numericText())
+                .contentTransition(number.map { .numericText(value: $0) } ?? .numericText())
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                if let detail {
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+            if let detail {
+                detail
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .accessibilityElement(children: .combine)
     }
 }
+
+#if DEBUG
+#Preview("Glance") {
+    ScrollView {
+        GlanceGrid(summary: .preview())
+            .padding(Design.Margin.page)
+    }
+}
+
+#Preview("Glance, four across") {
+    GlanceGrid(summary: .preview(), columns: 4)
+        .padding(Design.Margin.page)
+        .frame(width: 800)
+}
+
+#Preview("Glance, AX5") {
+    ScrollView {
+        GlanceGrid(summary: .preview(.allTime))
+            .padding(Design.Margin.page)
+    }
+    .dynamicTypeSize(.accessibility5)
+}
+#endif

@@ -5,6 +5,7 @@ import TracksCore
 /// Opening at login, the Dock, Apple Music access, and About.
 struct GeneralSettingsPane: View {
     @Environment(MacAppBehaviour.self) private var behaviour
+    @Environment(AppModel.self) private var model
     @AppStorage("showMenuBarExtra") private var showsMenuBarExtra = true
     @State private var launchesAtLogin = false
 
@@ -18,6 +19,10 @@ struct GeneralSettingsPane: View {
                 systemImage: "gearshape.fill",
                 tint: .gray
             )
+
+            if let keptAside = LibraryKeptAside(model: model) {
+                LibraryKeptAsideRow(keptAside: keptAside)
+            }
 
             Section {
                 if let loginDetail {

@@ -227,10 +227,9 @@ private struct PreviewControl: View {
             if isQuiet {
                 Image(systemName: "play.fill")
                     .font(.system(size: size * 0.24, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .frame(width: size * 0.5, height: size * 0.5)
-                    .background(.black.opacity(0.4), in: .circle)
-                    .shadow(color: .black.opacity(0.2), radius: 2)
+                    .glassEffect(.regular, in: .circle)
             } else {
                 RoundedRectangle(cornerRadius: CoverImage.radius(for: size), style: .continuous)
                     .fill(.black.opacity(0.45))

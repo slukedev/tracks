@@ -49,7 +49,9 @@ struct PartyVibeChips: View {
                 .foregroundStyle(isSelected ? vibe.color : .white)
                 .padding(.horizontal, 14)
                 .frame(height: chipHeight)
-                .background(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.18)), in: .capsule)
+                .background(isSelected ? .white : .clear, in: .capsule)
+                // The chosen one is opaque, the rest glass over the field.
+                .glassEffect(isSelected ? .identity : .regular.interactive(), in: .capsule)
                 // A finger's worth to tap, however slim the chip draws.
                 .frame(minHeight: 44)
                 .contentShape(.rect)
@@ -169,9 +171,7 @@ struct PartyTopPick: View {
     private var heading: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("Top Pick")
-                .font(.caption.weight(.semibold))
-                .textCase(.uppercase)
-                .foregroundStyle(.secondary)
+                .eyebrowStyle()
             Text(playlist.name)
                 .font(.title3.bold())
                 .foregroundStyle(.primary)
@@ -210,7 +210,7 @@ struct PartyTopPick: View {
     }
 
     private var buttons: some View {
-        PartyPlayButtons(tint: vibe.palette[1]) {
+        PartyPlayButtons {
             PartyPlayback.play(playlist, player: player)
         } shuffle: {
             PartyPlayback.play(playlist, player: player, shuffled: true)
@@ -218,35 +218,20 @@ struct PartyTopPick: View {
     }
 }
 
-/// Play and Shuffle for a card: Play in the party's colour, Shuffle quiet beside it. The same
-/// width on iPhone, filling the card; their own width on the Mac.
+/// Play and Shuffle for a card: Play opaque, filling the card on iPhone, Shuffle in glass
+/// beside it.
 struct PartyPlayButtons: View {
-    let tint: Color
     var canPlay = true
     let play: () -> Void
     let shuffle: () -> Void
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
-        layout {
-            Button(action: play) {
-                Label("Play", systemImage: "play.fill")
-                    .frame(maxWidth: PartyMetrics.fillsButtons ? .infinity : nil)
+        GlassEffectContainer(spacing: Design.Control.spacing) {
+            HStack(spacing: Design.Control.spacing) {
+                PlayButton(fillsWidth: PartyMetrics.fillsButtons, action: play)
+                GlassCircleButton(title: "Shuffle", systemImage: "shuffle", action: shuffle)
             }
-            .buttonStyle(.glassProminent)
-            .tint(tint)
-            Button(action: shuffle) {
-                Label("Shuffle", systemImage: "shuffle")
-                    .frame(maxWidth: PartyMetrics.fillsButtons ? .infinity : nil)
-            }
-            .buttonStyle(.glass)
-            .tint(.primary)
         }
-        .font(PartyMetrics.buttonFont)
-        .lineLimit(1)
-        .buttonBorderShape(.capsule)
-        .controlSize(.large)
         .disabled(!canPlay)
     }
 }
@@ -400,21 +385,19 @@ struct PartyTilePlaceholder: View {
 // MARK: - Metrics
 
 enum PartyMetrics {
-    static let cardRadius: CGFloat = 22
+    static let cardRadius = Design.Card.radius
     /// Your Party Mix's songs listed at first, and with Show More.
     static let mixCollapsed = 5
     static let mixExpanded = 25
     #if os(macOS)
-    static let cardPadding: CGFloat = 20
+    static let cardPadding = Design.Spacing.xLarge
     static let topPickWidth: CGFloat = 720
     static let fillsButtons = false
-    static let buttonFont = Font.body.weight(.semibold)
-    static let heroTop: CGFloat = 28
+    static let heroTop = Design.Spacing.xxLarge
     #else
-    static let cardPadding: CGFloat = 16
+    static let cardPadding = Design.Card.padding
     static let topPickWidth: CGFloat = .infinity
     static let fillsButtons = true
-    static let buttonFont = Font.headline
-    static let heroTop: CGFloat = 12
+    static let heroTop = Design.Spacing.medium
     #endif
 }

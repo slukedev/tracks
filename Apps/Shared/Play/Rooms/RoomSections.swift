@@ -1,16 +1,17 @@
 import SwiftUI
 import TracksCore
 
-/// A section of a room's page: its title, a line on what's in it where that needs saying, and
-/// an action at the trailing edge.
+/// A section of a room's page: its title, opening a page of its own where there's more, a
+/// line on what's in it where that needs saying, and an action at the trailing edge.
 struct RoomSectionHeader<Trailing: View>: View {
     let title: String
     var note: String?
+    var route: PlayRoute?
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ShelfHeader(title: title) { trailing }
+        VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
+            ShelfHeader(title: title, route: route) { trailing }
             if let note {
                 Text(note)
                     .font(.subheadline)
@@ -18,13 +19,13 @@ struct RoomSectionHeader<Trailing: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.bottom, 4)
+        .padding(.bottom, Design.Spacing.small)
     }
 }
 
 extension RoomSectionHeader where Trailing == EmptyView {
-    init(title: String, note: String? = nil) {
-        self.init(title: title, note: note) { EmptyView() }
+    init(title: String, note: String? = nil, route: PlayRoute? = nil) {
+        self.init(title: title, note: note, route: route) { EmptyView() }
     }
 }
 

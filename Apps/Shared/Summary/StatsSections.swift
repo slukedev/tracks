@@ -4,6 +4,45 @@ import TracksCore
 // The Summary's deeper sections, shared by the iPhone and Mac layouts. Each hides
 // itself when the range has too little in it to say anything.
 
+/// A titled group of panels. With an action, the title opens the whole list, as Music's
+/// "Recently Played ›" does.
+struct SummarySection<Content: View>: View {
+    let title: LocalizedStringKey
+    var action: (() -> Void)?
+    @ViewBuilder var content: Content
+
+    init(_ title: LocalizedStringKey, action: (() -> Void)? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.action = action
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Design.Margin.header) {
+            SectionHeader(title, action: action)
+            content
+        }
+    }
+}
+
+/// Listening by weekday, with the busiest one named under the bars.
+struct WeekdayCard: View {
+    let summary: StatsSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Design.Spacing.medium) {
+            CardLabel(title: "By Day", systemImage: "calendar")
+            WeekdayChart(weekdays: summary.weekdays)
+            if let busiest = summary.weekdays.max(by: { $0.count < $1.count }), busiest.count > 0 {
+                Text("Busiest on \(Calendar.current.weekdaySymbols[busiest.weekday - 1])s.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            DayTypeFootnotes(summary: summary, keysWeekdayChart: true)
+        }
+    }
+}
+
 /// Songs first heard in the range that got played again.
 struct NewFavoritesSection: View {
     let summary: StatsSummary
@@ -11,8 +50,7 @@ struct NewFavoritesSection: View {
 
     var body: some View {
         if !summary.newFavourites.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                SectionHeader("New Favorites")
+            SummarySection("New Favorites") {
                 TopSongsCard(songs: summary.newFavourites, limit: limit)
             }
             .id("favorites")
@@ -27,8 +65,7 @@ struct GenresSection: View {
 
     var body: some View {
         if summary.genresAreInformative || summary.decadesAreInformative {
-            VStack(alignment: .leading, spacing: 10) {
-                SectionHeader("Genres & Eras")
+            SummarySection("Genres & Eras") {
                 CardPair {
                     if summary.genresAreInformative {
                         TopGenresCard(summary: summary)
@@ -86,8 +123,7 @@ struct TrendsSection: View {
 
     var body: some View {
         if summary.paceIsInformative || summary.newVsFamiliarIsInformative {
-            VStack(alignment: .leading, spacing: 10) {
-                SectionHeader("Trends")
+            SummarySection("Trends") {
                 CardPair(minimumWidth: 340) {
                     if summary.paceIsInformative {
                         RunningTotalCard(summary: summary)
@@ -108,8 +144,7 @@ struct VarietySection: View {
 
     var body: some View {
         if summary.uniqueSongCount >= 2 {
-            VStack(alignment: .leading, spacing: 10) {
-                SectionHeader("Variety")
+            SummarySection("Variety") {
                 CardPair {
                     if summary.uniqueArtistCount >= 2 {
                         ArtistMixCard(summary: summary)
@@ -129,8 +164,7 @@ struct RecordsSection: View {
 
     var body: some View {
         if summary.recordsAreInformative {
-            VStack(alignment: .leading, spacing: 10) {
-                SectionHeader("Records")
+            SummarySection("Records") {
                 RecordsGrid(records: summary.records, columns: columns)
             }
             .id("records")
@@ -162,7 +196,7 @@ extension StatsSummary {
     let summary = StatsSummary.preview()
     NavigationStack {
         ScrollView {
-            VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: Design.Margin.section) {
                 NewFavoritesSection(summary: summary)
                 RhythmDetailsRow(summary: summary)
                 TrendsSection(summary: summary)
@@ -191,7 +225,7 @@ extension StatsSummary {
     let summary = StatsSummary.preview()
     NavigationStack {
         ScrollView {
-            VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: Design.Margin.section) {
                 GenresSection(summary: summary)
                 RhythmDetailsRow(summary: summary)
                 TrendsSection(summary: summary)
@@ -220,7 +254,7 @@ extension StatsSummary {
     let summary = StatsSummary.preview()
     NavigationStack {
         ScrollView {
-            VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: Design.Margin.section) {
                 VarietySection(summary: summary)
                 RecordsSection(summary: summary, columns: 2)
             }

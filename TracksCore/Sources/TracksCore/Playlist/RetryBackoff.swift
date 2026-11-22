@@ -19,9 +19,13 @@ struct RetryBackoff: Sendable, Equatable {
     private(set) var notBefore: Date?
 
     /// Whether it's time to try again.
+    ///
+    /// A wait that ends further off than ``maximum`` can only have been set while the clock
+    /// was ahead, and holding to it would leave the service alone for as long as the clock
+    /// was wrong.
     func allows(at now: Date) -> Bool {
         guard let notBefore else { return true }
-        return now >= notBefore
+        return now >= notBefore || notBefore.timeIntervalSince(now) > maximum
     }
 
     mutating func recordFailure(at now: Date) {

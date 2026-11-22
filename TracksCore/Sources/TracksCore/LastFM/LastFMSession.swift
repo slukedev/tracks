@@ -25,103 +25,102 @@ public enum LastFMSessionStore {
         AppGroup.identifier.flatMap { UserDefaults(suiteName: $0) } ?? .standard
     }
 
-    public static var current: LastFMSession? {
-        guard let username = defaults.string(forKey: usernameKey),
-              let key = readKey(for: username)
-        else { return nil }
-        return LastFMSession(username: username, sessionKey: key)
-    }
+    static var live: Vault { Vault(keychain: SystemKeychain(), defaults: defaults) }
 
-    /// Saves the key, and the username only once the key is in the Keychain, so a failed
-    /// save can't leave a username with no key behind it.
-    ///
-    /// - Returns: whether it was saved.
+    public static var current: LastFMSession? { live.current }
+
+    /// - Returns: whether it was saved. When it wasn't, the account connected before, if
+    ///   any, is still the one in use.
     @discardableResult
-    public static func save(_ session: LastFMSession) -> Bool {
-        deleteKey(for: session.username)
-        var item = baseQuery(for: session.username)
-        item[kSecValueData as String] = Data(session.sessionKey.utf8)
-        // The app can launch at login before the first unlock.
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        var status = SecItemAdd(item as CFDictionary, nil)
-        #if os(macOS)
-        if status == errSecMissingEntitlement {
-            // A build without a keychain access group can only use the file-based keychain.
-            item.removeValue(forKey: kSecUseDataProtectionKeychain as String)
-            status = SecItemAdd(item as CFDictionary, nil)
+    public static func save(_ session: LastFMSession) -> Bool { live.save(session) }
+
+    public static func clear() { live.clear() }
+
+    static func readKey(for username: String) -> String? { live.readKey(for: username) }
+
+    /// The session in the Keychain, and the username beside it in `defaults`.
+    struct Vault {
+        let keychain: any KeychainStoring
+        let defaults: UserDefaults
+
+        var current: LastFMSession? {
+            guard let username = defaults.string(forKey: usernameKey),
+                  let key = readKey(for: username)
+            else { return nil }
+            return LastFMSession(username: username, sessionKey: key)
         }
-        #endif
-        guard status == errSecSuccess else {
-            Log.lastFM.error("Couldn't save the Last.fm session: \(status, privacy: .public)")
-            return false
+
+        /// Stores the key in place, then the username, then forgets the account it replaced.
+        /// Nothing is deleted first, so a Keychain that refuses the write (locked, or a
+        /// build without an access group) leaves the previous session working.
+        func save(_ session: LastFMSession) -> Bool {
+            let data = Data(session.sessionKey.utf8)
+            // The app can launch at login before the first unlock.
+            var status = keychain.write(data, to: Self.item(for: session.username), accessibility: .afterFirstUnlock)
+            #if os(macOS)
+            if status == errSecMissingEntitlement {
+                // A build without a keychain access group can only use the file-based keychain.
+                status = keychain.write(data, to: Self.legacyItem(for: session.username), accessibility: .afterFirstUnlock)
+            } else if status == errSecSuccess {
+                keychain.delete(Self.legacyItem(for: session.username))
+            }
+            #endif
+            guard status == errSecSuccess else {
+                Log.lastFM.error("Couldn't save the Last.fm session: \(status, privacy: .public)")
+                return false
+            }
+            let previous = defaults.string(forKey: usernameKey)
+            defaults.set(session.username, forKey: usernameKey)
+            if let previous, previous != session.username { deleteKey(for: previous) }
+            return true
         }
-        defaults.set(session.username, forKey: usernameKey)
-        return true
-    }
 
-    public static func clear() {
-        if let username = defaults.string(forKey: usernameKey) {
-            deleteKey(for: username)
+        func clear() {
+            if let username = defaults.string(forKey: usernameKey) {
+                deleteKey(for: username)
+            }
+            defaults.removeObject(forKey: usernameKey)
         }
-        defaults.removeObject(forKey: usernameKey)
-    }
 
-    /// The data protection keychain, which on the Mac isn't tied to the code signature the
-    /// way the file-based one is. iOS only has this one.
-    static func baseQuery(for username: String) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: username,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-    }
-
-    #if os(macOS)
-    /// Where earlier Mac builds kept the key.
-    static func legacyQuery(for username: String) -> [String: Any] {
-        var query = baseQuery(for: username)
-        query.removeValue(forKey: kSecUseDataProtectionKeychain as String)
-        return query
-    }
-    #endif
-
-    static func deleteKey(for username: String) {
-        SecItemDelete(baseQuery(for: username) as CFDictionary)
-        #if os(macOS)
-        SecItemDelete(legacyQuery(for: username) as CFDictionary)
-        #endif
-    }
-
-    static func readKey(for username: String) -> String? {
-        if let key = readKey(matching: baseQuery(for: username)) { return key }
-        #if os(macOS)
-        // Moved across the first time it's read, so a Mac that connected before this keeps
-        // its account. The old copy stays until the move has worked.
-        guard let key = readKey(matching: legacyQuery(for: username)) else { return nil }
-        var item = baseQuery(for: username)
-        item[kSecValueData as String] = Data(key.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        if SecItemAdd(item as CFDictionary, nil) == errSecSuccess {
-            SecItemDelete(legacyQuery(for: username) as CFDictionary)
+        /// The data protection keychain, which on the Mac isn't tied to the code signature
+        /// the way the file-based one is. iOS only has this one.
+        static func item(for username: String) -> KeychainItem {
+            KeychainItem(service: service, account: username)
         }
-        return key
-        #else
-        return nil
-        #endif
-    }
 
-    private static func readKey(matching base: [String: Any]) -> String? {
-        var query = base
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        /// Where earlier Mac builds kept the key.
+        static func legacyItem(for username: String) -> KeychainItem {
+            KeychainItem(service: service, account: username, isLegacyMacKeychain: true)
+        }
 
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data,
-              let key = String(data: data, encoding: .utf8),
-              !key.isEmpty
-        else { return nil }
-        return key
+        private func deleteKey(for username: String) {
+            keychain.delete(Self.item(for: username))
+            #if os(macOS)
+            keychain.delete(Self.legacyItem(for: username))
+            #endif
+        }
+
+        func readKey(for username: String) -> String? {
+            if let key = key(in: keychain.read(Self.item(for: username))) { return key }
+            #if os(macOS)
+            // Moved across the first time it's read, so a Mac that connected before this keeps
+            // its account. The old copy stays until the move has worked.
+            guard let key = key(in: keychain.read(Self.legacyItem(for: username))) else { return nil }
+            if keychain.write(Data(key.utf8), to: Self.item(for: username), accessibility: .afterFirstUnlock) == errSecSuccess {
+                keychain.delete(Self.legacyItem(for: username))
+            }
+            return key
+            #else
+            return nil
+            #endif
+        }
+
+        private func key(in read: KeychainRead) -> String? {
+            guard case .found(let data) = read,
+                  let key = String(data: data, encoding: .utf8),
+                  !key.isEmpty
+            else { return nil }
+            return key
+        }
     }
 }

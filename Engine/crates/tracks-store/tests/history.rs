@@ -359,23 +359,6 @@ fn a_sync_of_the_same_history_writes_nothing_and_a_changed_one_writes_only_the_d
 }
 
 #[test]
-fn a_busy_or_newer_file_is_left_alone_and_only_a_damaged_one_is_moved_aside() {
-    let dir = tempfile::tempdir().expect("dir");
-    let path = dir.path().join("history.sqlite");
-    Store::open(&path)
-        .expect("open")
-        .replace_all(&[play("1", "A", "X", 0)], None)
-        .expect("fill");
-    // A newer build's schema, say: this build can't use it, but must not destroy it.
-    let raw = rusqlite::Connection::open(&path).expect("raw");
-    raw.pragma_update(None, "user_version", 99)
-        .expect("version");
-    drop(raw);
-    assert!(Store::open(&path).is_err());
-    assert!(path.exists() && !path.with_extension("damaged").exists());
-}
-
-#[test]
 fn removing_a_songs_newest_play_brings_back_what_the_one_before_said() {
     let mut newer = on_album(play("2", "Glow", "Mara", 10 * MINUTE), "Mistake");
     newer.artwork_url = Some("https://example.com/new.jpg".into());

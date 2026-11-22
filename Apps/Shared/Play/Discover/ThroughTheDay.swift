@@ -87,6 +87,16 @@ enum RadioDayWords {
 
 // MARK: - The chart
 
+/// Each minute while the app is in front, so now's mark keeps up; nothing while it isn't.
+private struct MinutesWhileActive: TimelineSchedule {
+    let isActive: Bool
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
+        guard isActive else { return AnyIterator(CollectionOfOne(startDate).makeIterator()) }
+        return AnyIterator(EveryMinuteTimelineSchedule().entries(from: startDate, mode: mode))
+    }
+}
+
 /// The day's energy from midnight to midnight, as the feels chosen draw it: a curve that rises
 /// and falls through the day, coloured from calm indigo to energetic orange, with now marked.
 /// Dragging across it reads out any time of day.
@@ -95,6 +105,7 @@ struct ThroughTheDayChart: View {
     @State private var selectedHour: Double?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.scenePhase) private var scenePhase
 
     #if os(macOS)
     private let height: CGFloat = 120
@@ -109,7 +120,7 @@ struct ThroughTheDayChart: View {
     private var hourMarks: [Double] { typeSize.isAccessibilitySize ? [0, 12, 24] : [0, 6, 12, 18, 24] }
 
     var body: some View {
-        TimelineView(.everyMinute) { context in
+        TimelineView(MinutesWhileActive(isActive: scenePhase == .active)) { context in
             let now = Self.hour(of: context.date)
             let isWeekend = Calendar.current.isDateInWeekend(context.date)
             let shown = selectedHour ?? now

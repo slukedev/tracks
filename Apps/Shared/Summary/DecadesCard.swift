@@ -71,7 +71,7 @@ struct DecadesCard: View {
                 y: .value("Plays", entry.count)
             )
             .foregroundStyle(entry.decade == top?.decade
-                ? AnyShapeStyle(Color.accentColor.gradient)
+                ? AnyShapeStyle(Color.accentColor)
                 : AnyShapeStyle(Color.accentColor.opacity(0.45)))
             .cornerRadius(4)
             .accessibilityLabel(Format.decade(entry.decade))

@@ -7,6 +7,9 @@ import TracksCore
 struct MusicSearchResults: View {
     let query: String
     let scope: SearchScope
+    /// Whether the moods and genres show before a search. The iPhone shows them before the
+    /// field is touched instead.
+    var browses = true
     /// Puts a recent search back in the field.
     let search: (String) -> Void
 
@@ -40,7 +43,7 @@ struct MusicSearchResults: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: Design.Margin.section) {
                 if isBlank {
                     blank
                 } else if model.isShowingSampleData {
@@ -52,9 +55,9 @@ struct MusicSearchResults: View {
             }
             // The page's width even when empty, so the overlay's message has it too.
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 16)
-            .padding(.bottom, 28)
-            .animation(.snappy, value: results.isEmpty)
+            .padding(.top, Design.Spacing.large)
+            .padding(.bottom, Design.Margin.section)
+            .animation(Design.Motion.panel, value: results.isEmpty)
         }
         .overlay { overlay }
         // By the words, so the space typed after one doesn't ask Apple Music again.
@@ -81,7 +84,7 @@ struct MusicSearchResults: View {
     /// The moods and genres before a search of the catalog: they play from the history, so
     /// sample data has them too.
     private var showsBrowse: Bool {
-        scope == .appleMusic && (model.musicAuthorization == .authorized || model.isShowingSampleData)
+        browses && scope == .appleMusic && BrowseSections.isOffered(model)
     }
 
     // MARK: - Results
@@ -233,10 +236,10 @@ struct MusicSearchResults: View {
             } actions: {
                 if model.musicAuthorization == .notDetermined {
                     Button("Allow Apple Music Access") { Task { await model.requestMusicAccess() } }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                 }
             }
-        } else if isBlank, recents.isEmpty, !showsBrowse {
+        } else if browses, isBlank, recents.isEmpty, !showsBrowse {
             ContentUnavailableView(
                 scope == .appleMusic ? "Search Apple Music" : "Search Your Library",
                 systemImage: "magnifyingglass",
@@ -248,7 +251,7 @@ struct MusicSearchResults: View {
             ContentUnavailableView {
                 Label("Couldn't Search", systemImage: "wifi.exclamationmark")
             } description: {
-                Text("Check your connection and try again. Your history is on this device, so you can search it now.")
+                Text("Check your connection and try again.")
             } actions: {
                 Button("Try Again") { attempt += 1 }
                 Button("Search History") { model.search.scope = .history }
@@ -256,7 +259,11 @@ struct MusicSearchResults: View {
         } else if !isBlank, state == .loaded, results.isEmpty {
             SearchNoResults(query: query)
         } else if !isBlank, state == .loading, results.isEmpty {
-            ProgressView()
+            // The songs' places while the first answer comes.
+            LoadingRows(count: 8)
+                .padding(.horizontal, Design.Margin.page)
+                .padding(.top, Design.Spacing.large)
+                .frame(maxHeight: .infinity, alignment: .top)
         }
     }
 

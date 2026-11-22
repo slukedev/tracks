@@ -90,7 +90,7 @@ struct LibraryRecentlyAddedPage: View {
                         }
                     }
                 }
-                .padding(.bottom, PlayMetrics.sectionSpacing)
+                .padding(.bottom, Design.Margin.section)
             }
             .loads(albums, query: query, order: .natural(.added)) { LibrarySortKeys(album: $0) }
             .loads(playlists, query: query, order: .natural(.added)) { LibrarySortKeys(playlist: $0) }
@@ -116,9 +116,9 @@ struct LibraryOverview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: Design.Margin.header) {
                 Text("Library")
-                    .font(.title3.bold())
+                    .font(.sectionTitle)
                     .accessibilityAddTraits(.isHeader)
                 categories
             }
@@ -133,14 +133,16 @@ struct LibraryOverview: View {
         #endif
     }
 
+    /// Music's library rows: a plain list with one-colour symbols, a chevron, and a hairline
+    /// from the label on.
     private var categories: some View {
         VStack(spacing: 0) {
             ForEach(Self.sections) { section in
                 NavigationLink(value: PlayRoute.library(section)) {
-                    HStack(spacing: 14) {
+                    HStack(spacing: Design.Spacing.large) {
                         Image(systemName: section.symbol)
-                            .font(.body)
-                            .foregroundStyle(.tint)
+                            .font(.title3)
+                            .foregroundStyle(.primary)
                             .frame(width: 28)
                         Text(section.title)
                             .foregroundStyle(.primary)
@@ -149,18 +151,15 @@ struct LibraryOverview: View {
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.tertiary)
                     }
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 48)
+                    .frame(minHeight: 50)
                     .contentShape(.rect)
                 }
                 .buttonStyle(RowButtonStyle())
                 if section != Self.sections.last {
-                    Divider().padding(.leading, 58)
+                    Divider().padding(.leading, 28 + Design.Spacing.large)
                 }
             }
         }
-        .background(Color.cardFill)
-        .clipShape(.rect(cornerRadius: 16, style: .continuous))
     }
 
     /// Music's order: Playlists, Artists, Albums, Songs.
@@ -173,7 +172,7 @@ struct LibraryOverview: View {
         return VStack(alignment: .leading, spacing: 12) {
             if albums.phase == .loading || !items.isEmpty {
                 Text("Recently Added")
-                    .font(.title3.bold())
+                    .font(.sectionTitle)
                     .accessibilityAddTraits(.isHeader)
                 if albums.phase == .loading {
                     LibraryGridPlaceholder(count: Self.recentCount, margin: 0)
@@ -186,7 +185,7 @@ struct LibraryOverview: View {
                 }
             }
         }
-        .padding(.top, albums.phase == .loading || !items.isEmpty ? PlayMetrics.sectionSpacing : 0)
+        .padding(.top, albums.phase == .loading || !items.isEmpty ? Design.Margin.section : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

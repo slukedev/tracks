@@ -182,8 +182,13 @@ final class Library {
     ) async throws -> (ListeningHistory, [SessionStat], Int) {
         // The engine takes the same change first, so it's never behind what's published.
         let engine = source?.engine
-        engine?.apply(change)
+        let indexIsCurrent = engine?.apply(change) ?? true
         if case .steps(let steps, let sessions) = change, let next = base?.applying(steps) {
+            // A step it couldn't write leaves the index behind until it's given everything,
+            // and until then the charts fall back to the slower Swift path.
+            if !indexIsCurrent, let engine, let (everything, _) = try await reader.snapshot(after: nil) {
+                engine.sync(everything.captures)
+            }
             return (next, sessions.sorted { $0.startedAt < $1.startedAt }, version)
         }
         let snapshot: ListeningHistoryReader.Snapshot

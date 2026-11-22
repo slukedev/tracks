@@ -36,7 +36,7 @@ struct RemoteMiniPlayer: View {
             .buttonStyle(.plain)
             .accessibilityLabel(Text("\(state.title ?? ""), playing on \(device.nameWithSpeakers)"))
             .accessibilityHint("Shows Your Devices")
-            RemoteTransport(device: device, state: state)
+            RemoteTransport(device: device, state: state, showsPrevious: false)
         }
         .padding(.horizontal, 12)
         .sheet(isPresented: $isShowingPanel) {

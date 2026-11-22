@@ -23,6 +23,8 @@ struct PlaylistPage: View {
     @State private var arranged = PlaylistArrangement.Result()
     @State private var arrangedKey: PlaylistArrangement.Key?
     @AppStorage(PlayPreferences.allowsExplicitKey) private var allowsExplicit = true
+    /// Added from this page, so its circle turns to a check.
+    @State private var isAdded = false
 
     init(playlist: Playlist) {
         self.playlist = playlist
@@ -87,7 +89,7 @@ struct PlaylistPage: View {
                 Section {
                     CollectionMessage(text: String(localized: "Couldn't load this playlist's songs. Check your connection and try again.")) {
                         Button("Try Again") { Task { await load() } }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.glass)
                     }
                 }
             }
@@ -95,9 +97,8 @@ struct PlaylistPage: View {
         .collectionPage(title: playlist.name)
         .toolbar {
             ToolbarItem(placement: .primaryAction) { sortMenu }
-            ToolbarItem(placement: .primaryAction) {
-                Menu("More", systemImage: "ellipsis") { moreItems(playlist) }
-            }
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            CollectionToolbar(share: playlist.url) { moreItems(playlist) }
         }
         .task(id: playlist.id) { await loadOnce() }
         .task(id: EveryPage(order: order, playlist: loaded?.id)) { await loadEverySongIfNeeded() }
@@ -194,12 +195,24 @@ struct PlaylistPage: View {
             note: note(playlist),
             tintCover: cover(playlist),
             canPlay: !(loaded != nil && tracks.isEmpty),
+            secondary: addToLibrary(playlist),
             play: { play(playlist, context: context) },
             shuffle: { shuffle(playlist, context: context) }
         ) {
             moreItems(playlist)
         } cover: { side in
             CoverImage(cover: cover(playlist), size: side)
+        }
+    }
+
+    /// Add to Library beside Play for one of Apple's, a check once added. One already yours
+    /// has More there instead.
+    private func addToLibrary(_ playlist: Playlist) -> CollectionSecondary? {
+        guard !isInLibrary else { return nil }
+        return CollectionSecondary(isAdded ? "Added to Library" : "Add to Library", systemImage: isAdded ? "checkmark" : "plus", isOn: isAdded) {
+            guard !isAdded else { return }
+            isAdded = true
+            player.addToLibrary(playlist) { isAdded = false }
         }
     }
 
@@ -219,12 +232,19 @@ struct PlaylistPage: View {
         Button("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward") {
             player.enqueue(.playlist(playlist), next: false, title: playlist.name)
         }
-        Divider()
-        Button("Add to Library", systemImage: "plus") { player.addToLibrary(playlist) }
+        if !isInLibrary, !isAdded {
+            Divider()
+            Button("Add to Library", systemImage: "plus") {
+                isAdded = true
+                player.addToLibrary(playlist)
+            }
+        }
+        #if os(macOS)
         if let url = playlist.url {
             Divider()
             ShareLink(item: url) { Label("Share Playlist", systemImage: "square.and.arrow.up") }
         }
+        #endif
     }
 
     @ViewBuilder
@@ -237,7 +257,7 @@ struct PlaylistPage: View {
     private func macTracks(_ playlist: Playlist, context: PlayContext) -> some View {
         if (tracks.isEmpty && loaded == nil || !isOrderReady) && !loadFailed && !loadMoreFailed {
             LoadingRows(count: 8)
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 .padding(.top, 12)
         } else if loadFailed {
             CollectionMessage(text: String(localized: "Couldn't load this playlist's songs. Check your connection and try again.")) {
@@ -282,14 +302,14 @@ struct PlaylistPage: View {
                 }
                 if loadMoreFailed, nextBatch != nil {
                     LoadMoreFailedRow { Task { await loadMore() } }
-                        .padding(.horizontal, PlayMetrics.margin)
+                        .padding(.horizontal, Design.Margin.page)
                 }
                 if let hiddenNote {
                     Text(hiddenNote)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, PlayMetrics.margin)
+                        .padding(.horizontal, Design.Margin.page)
                         .padding(.vertical, 8)
                 }
             }

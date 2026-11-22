@@ -44,3 +44,18 @@ public enum LastFMSettingsStatus: Sendable, Equatable {
         return false
     }
 }
+
+extension UnsentScrobbles {
+    /// The Scrobbling group's row, beside its Retry button: "12 Not Sent".
+    public var notSentValue: String {
+        String(localized: "\(retryable) Not Sent")
+    }
+
+    /// The Scrobbling group's footer, when some plays are past what Last.fm takes.
+    public var tooOldLine: String? {
+        guard tooOld > 0 else { return nil }
+        return String(AttributedString(
+            localized: "Last.fm takes only the last two weeks, so ^[\(tooOld) play](inflect: true) can’t be sent."
+        ).characters)
+    }
+}

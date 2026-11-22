@@ -9,15 +9,15 @@ struct PlaysOverTimeCard: View {
 
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: Design.Spacing.medium) {
                 HStack {
-                    CardLabel(title: "Plays Over Time", systemImage: "chart.bar.fill", tint: .accentColor)
+                    CardLabel(title: "Plays Over Time", systemImage: "chart.bar.fill")
                     Spacer()
                     if let selected {
                         ChartReadout(bucket: selected, unit: unit, measure: .plays)
                     }
                 }
-                .animation(.snappy(duration: 0.2), value: selected?.start)
+                .animation(Design.Motion.value, value: selected?.start)
                 ActivityChart(buckets: timeline, unit: unit, measure: .plays, height: 150, selected: $selected)
             }
         }

@@ -12,9 +12,18 @@ public struct LidarrServer: Codable, Sendable, Hashable {
     }
 
     /// An address as someone types it: "192.168.1.20:8686" gains http, "lidarr.example.com"
-    /// gains https, a trailing slash goes. See ``ServerAddress``.
+    /// gains https, a trailing slash goes, and so does the API's own path when it's pasted
+    /// with it, since every request adds that. See ``ServerAddress``.
     public static func address(from text: String) -> URL? {
-        ServerAddress.url(from: text)
+        guard let url = ServerAddress.url(from: text), var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        var path = components.percentEncodedPath
+        for suffix in ["/api/v1", "/api"] where path.lowercased().hasSuffix(suffix) {
+            path.removeLast(suffix.count)
+            break
+        }
+        while path.hasSuffix("/") { path.removeLast() }
+        components.percentEncodedPath = path
+        return components.url
     }
 }
 
@@ -130,13 +139,28 @@ public struct LidarrClient: Sendable {
         try await get("track", ["artistId": String(artistID)])
     }
 
-    /// What's downloading or waiting to be filed.
+    /// What's downloading or waiting to be filed, a page at a time: a discography searched for
+    /// at once queues hundreds. At most ``queuePageLimit`` pages, so a queue gone wrong on
+    /// the server isn't read without end.
     public func queue() async throws -> [LidarrQueueItem] {
-        let page: LidarrPage<LidarrQueueItem> = try await get("queue", [
-            "page": "1", "pageSize": "100", "includeArtist": "true", "includeAlbum": "true",
-        ])
-        return page.records
+        var records: [LidarrQueueItem] = []
+        var seen: Set<Int> = []
+        for number in 1...Self.queuePageLimit {
+            let page: LidarrPage<LidarrQueueItem> = try await get("queue", [
+                "page": String(number), "pageSize": String(Self.queuePageSize), "includeArtist": "true", "includeAlbum": "true",
+            ])
+            let fresh = page.records.filter { seen.insert($0.id).inserted }
+            records += fresh
+            // A short or repeated page is the last, whatever the total said: the queue moves
+            // while it's read.
+            guard page.records.count == Self.queuePageSize, !fresh.isEmpty, page.totalRecords.map({ records.count < $0 }) ?? true else { break }
+            try Task.checkCancellation()
+        }
+        return records
     }
+
+    static let queuePageSize = 100
+    static let queuePageLimit = 10
 
     /// Albums Lidarr follows but doesn't have, newest first.
     public func missing() async throws -> [LidarrAlbum] {
@@ -158,13 +182,16 @@ public struct LidarrClient: Sendable {
 
     // MARK: - Requests
 
-    func request(_ path: String, _ query: [String: String] = [:], method: String = "GET", body: Data? = nil) -> URLRequest {
-        var components = URLComponents(url: server.url.appending(path: "api/v1/\(path)"), resolvingAgainstBaseURL: false)!
+    func request(_ path: String, _ query: [String: String] = [:], method: String = "GET", body: Data? = nil) throws -> URLRequest {
+        guard var components = URLComponents(url: server.url.appending(path: "api/v1/\(path)"), resolvingAgainstBaseURL: false) else {
+            throw URLError(.badURL)
+        }
         if !query.isEmpty {
             components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
             components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         }
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         // In a header, never the address, so the key isn't kept in logs or caches.
         request.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
@@ -178,19 +205,19 @@ public struct LidarrClient: Sendable {
     }
 
     private func get<Value: Decodable>(_ path: String, _ query: [String: String] = [:]) async throws -> Value {
-        try Self.decode(try await transport.send(request(path, query)))
+        try Self.decode(try await transport.send(try request(path, query)))
     }
 
     private func send<Body: Encodable, Value: Decodable>(_ path: String, method: String, body: Body) async throws -> Value {
         let data = try JSONEncoder().encode(body)
-        return try Self.decode(try await transport.send(request(path, method: method, body: data)))
+        return try Self.decode(try await transport.send(try request(path, method: method, body: data)))
     }
 
     /// For requests whose answer doesn't matter, only whether Lidarr took them: some answer
     /// with nothing at all.
     private func perform<Body: Encodable>(_ path: String, method: String, body: Body) async throws {
         let data = try JSONEncoder().encode(body)
-        let response = try await transport.send(request(path, method: method, body: data))
+        let response = try await transport.send(try request(path, method: method, body: data))
         try Self.check(response)
     }
 
@@ -285,6 +312,15 @@ public struct LidarrImage: Codable, Sendable, Hashable {
     public let url: String?
     /// Where the picture comes from, outside Lidarr: loads without Lidarr's key.
     public let remoteUrl: String?
+
+    /// A picture's address over https: Lidarr passes some on from image hosts as plain http,
+    /// which they all serve encrypted too, and Tracks loads nothing from the internet
+    /// unencrypted.
+    static func encrypted(_ text: String) -> URL? {
+        guard var components = URLComponents(string: text) else { return nil }
+        if components.scheme?.lowercased() == "http" { components.scheme = "https" }
+        return components.url
+    }
 }
 
 public struct LidarrStatistics: Codable, Sendable, Hashable {
@@ -323,7 +359,7 @@ public struct LidarrArtist: Codable, Sendable, Hashable, Identifiable {
     /// The artist's picture, from outside Lidarr.
     public var pictureURL: URL? {
         let preferred = images?.first { $0.coverType == "poster" } ?? images?.first
-        return preferred?.remoteUrl.flatMap(URL.init(string:))
+        return preferred?.remoteUrl.flatMap(LidarrImage.encrypted)
     }
 }
 
@@ -353,7 +389,7 @@ public struct LidarrAlbum: Codable, Sendable, Hashable, Identifiable {
 
     public var coverURL: URL? {
         let preferred = images?.first { $0.coverType == "cover" } ?? images?.first
-        return preferred?.remoteUrl.flatMap(URL.init(string:))
+        return preferred?.remoteUrl.flatMap(LidarrImage.encrypted)
     }
 }
 
@@ -388,6 +424,7 @@ public struct LidarrQueueItem: Decodable, Sendable, Hashable, Identifiable {
 
 struct LidarrPage<Record: Decodable & Sendable>: Decodable, Sendable {
     let records: [Record]
+    let totalRecords: Int?
 }
 
 /// What Lidarr does when Tracks adds an artist.

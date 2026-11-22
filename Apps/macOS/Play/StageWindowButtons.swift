@@ -79,44 +79,52 @@ struct StageWindowButtons: View {
     @Environment(StageWindowChrome.self) private var chrome: StageWindowChrome?
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.stageGlassCircle)
-            .help("Close Stage")
-            .accessibilityLabel("Close Stage")
-
-            if let chrome {
-                let label: LocalizedStringKey = chrome.isFullScreen ? "Exit Full Screen" : "Enter Full Screen"
-                Button(action: chrome.toggleFullScreen) {
-                    Image(systemName: chrome.isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                        .contentTransition(.symbolEffect(.replace))
+        GlassEffectContainer(spacing: Design.Control.spacing) {
+            HStack(spacing: Design.Control.spacing) {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
                 }
                 .buttonStyle(.stageGlassCircle)
-                .help(label)
-                .accessibilityLabel(label)
+                .help("Close Stage")
+                .accessibilityLabel("Close Stage")
+
+                if let chrome {
+                    let label: LocalizedStringKey = chrome.isFullScreen ? "Exit Full Screen" : "Enter Full Screen"
+                    Button(action: chrome.toggleFullScreen) {
+                        Image(systemName: chrome.isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .buttonStyle(.stageGlassCircle)
+                    .help(label)
+                    .accessibilityLabel(label)
+                }
             }
         }
     }
 }
 
-/// Stage's round glass buttons on the Mac: brighter under the pointer, pressed in on a click.
+/// Stage's round glass buttons on the Mac, as its iPhone controls are: untinted glass that
+/// picks up the stage's colour by itself, the glyph brightening under the pointer and the
+/// circle dipping on a click, which glass doesn't answer on the Mac.
 struct StageGlassCircleStyle: ButtonStyle {
+    /// Larger than a page's circles: Stage is read from across a room.
+    private static let diameter: CGFloat = 44
     @State private var isHovering = false
+    @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.semibold))
-            .foregroundStyle(.white.opacity(isHovering || configuration.isPressed ? 1 : 0.88))
-            .frame(width: 44, height: 44)
+            .foregroundStyle(.white.opacity(isHovering || configuration.isPressed ? 1 : 0.85))
+            .opacity(isEnabled ? 1 : 0.4)
+            .frame(width: Self.diameter, height: Self.diameter)
             .contentShape(.circle)
-            .glassEffect(.regular.tint(.white.opacity(configuration.isPressed ? 0.2 : isHovering ? 0.12 : 0)).interactive(), in: .circle)
+            .glassEffect(.regular.interactive(), in: .circle)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
             .onHover { isHovering = $0 }
-            .animation(PlayMotion.hover, value: isHovering)
-            .animation(PlayMotion.press, value: configuration.isPressed)
+            .animation(Design.Motion.hover, value: isHovering)
+            .animation(Design.Motion.press, value: configuration.isPressed)
     }
 }
 

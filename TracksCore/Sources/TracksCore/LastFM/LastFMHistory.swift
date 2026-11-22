@@ -99,7 +99,8 @@ public enum LastFMHistory {
     public struct Progress: Codable, Sendable, Equatable {
         /// The account this is about. Another account starts from nothing.
         public var username: String
-        /// Every scrobble at or before this is in Tracks. Nil until a first import finishes.
+        /// Every scrobble at or before this that had arrived by then is in Tracks. Nil until a
+        /// first import finishes.
         public var importedThrough: Date?
         /// The newest scrobble of an unfinished run.
         public var runNewest: Date?
@@ -149,6 +150,10 @@ public final class LastFMHistoryImporter {
 
     /// How many times one page is tried when Last.fm is busy or the network drops.
     static let attempts = 4
+    /// How far back a later run reads again. Last.fm takes scrobbles up to two weeks late,
+    /// dated when they played, so a player that was offline (a car, an iPod, another app)
+    /// adds plays below what an earlier run already read.
+    static let lateScrobbleReach: TimeInterval = 14 * 24 * 60 * 60
 
     public init(client: LastFMClient, session: LastFMSession, store: TracksStore, settings: CaptureSettings = CaptureSettings()) {
         self.client = client
@@ -159,7 +164,8 @@ public final class LastFMHistoryImporter {
 
     /// Reads every scrobble Tracks doesn't have yet.
     ///
-    /// The first run reads the whole history; later ones only what's newer than the last.
+    /// The first run reads the whole history; later ones what's newer than the last, and
+    /// the two weeks before it again for scrobbles that arrived late.
     /// Progress is saved after every page, so cancelling or failing loses at most one page.
     ///
     /// - Parameter update: called after each page.
@@ -185,7 +191,8 @@ public final class LastFMHistoryImporter {
         report: inout Report,
         update: (Report) -> Void
     ) async throws {
-        let after = progress.importedThrough
+        // Read again from before it; the duplicate check skips what's already in.
+        let after = progress.importedThrough?.addingTimeInterval(-Self.lateScrobbleReach)
         // The first page of a fresh run is read up to now, so pages further down don't move
         // as new scrobbles arrive.
         var before = progress.runBefore ?? now()

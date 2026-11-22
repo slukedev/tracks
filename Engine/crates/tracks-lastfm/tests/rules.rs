@@ -167,3 +167,21 @@ proptest! {
         prop_assert!(waits.iter().all(|&wait| (30.0..=900.0).contains(&wait)));
     }
 }
+
+#[test]
+fn a_wait_set_while_the_clock_was_ahead_ends_once_the_clock_is_put_back() {
+    let mut backoff = RetryBackoff::default();
+    backoff.record_failure(T0 + 30.0 * 24.0 * 3600.0);
+    assert!(backoff.allows(T0));
+}
+
+#[test]
+fn a_clock_put_back_by_less_than_the_longest_wait_still_waits() {
+    let mut backoff = RetryBackoff::default();
+    for _ in 0..4 {
+        backoff.record_failure(T0);
+    }
+    assert_eq!(backoff.not_before(), Some(T0 + 240.0));
+    assert!(!backoff.allows(T0 - 600.0));
+    assert!(!backoff.allows(T0 + 239.0));
+}

@@ -37,6 +37,7 @@ struct YourMusicMoodView: View {
         }
         .tint(mood.style.ink)
         .heroTitle(mood.title)
+        .zoomDestination(id: mood.zoomID)
         #if os(iOS)
         .toolbarTitleDisplayMode(.inline)
         #endif
@@ -62,7 +63,6 @@ struct YourMusicMoodView: View {
         return MoodHero(
             mood: mood,
             covers: heroCovers,
-            line: hasLoaded ? mood.tagline : nil,
             facts: yours.isEmpty ? nil : String(AttributedString(localized: "^[\(yours.count) song](inflect: true) in your music").characters)
         ) {
             VStack(alignment: .leading, spacing: 12) {
@@ -157,7 +157,7 @@ struct YourMusicMoodView: View {
                     .foregroundStyle(.tint)
                 }
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
         }
     }
 

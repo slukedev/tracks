@@ -49,7 +49,8 @@ struct TopChartView: View {
 
     var body: some View {
         page
-            .navigationTitle(kindSelection == nil ? kind.navigationTitle : "Charts")
+            // As the Charts tab's root the tab names the page; on its own, its kind does.
+            .modifier(ChartTitle(title: kindSelection == nil ? kind.navigationTitle : nil))
             .sourceScopeSubtitle(sources.scope)
             .toolbar { toolbar }
             .task(id: snapshotID) {
@@ -153,6 +154,7 @@ struct TopChartView: View {
     }
 
     /// The period's name, which opens the calendar.
+    #if os(macOS)
     private var titleButton: some View {
         Button {
             isPickingDate = true
@@ -177,6 +179,7 @@ struct TopChartView: View {
         .accessibilityHint(span == .allTime ? Text(verbatim: "") : Text("Opens a calendar to pick a date."))
         .popover(isPresented: $isPickingDate, arrowEdge: .bottom) { datePicker }
     }
+    #endif
 
     /// The dates the title leaves out, like the days of This Week.
     @ViewBuilder
@@ -195,52 +198,29 @@ struct TopChartView: View {
 
     private var playButtons: some View {
         let songs = playback.playable(shown?.songs ?? [])
-        return HStack(spacing: 10) {
-            Button {
+        return HStack(spacing: Design.Control.spacing) {
+            PlayButton {
                 playback.play(songs, title: playTitle)
-            } label: {
-                Label("Play", systemImage: "play.fill")
-                    #if os(iOS)
-                    .frame(maxWidth: .infinity)
-                    #endif
             }
-            .buttonStyle(.glassProminent)
-            Button {
+            GlassCircleButton(title: "Shuffle", systemImage: "shuffle") {
                 playback.play(songs, shuffled: true, title: playTitle)
-            } label: {
-                Label("Shuffle", systemImage: "shuffle")
-                    #if os(iOS)
-                    .frame(maxWidth: .infinity)
-                    #endif
             }
-            .buttonStyle(.glass)
         }
-        .buttonBorderShape(.capsule)
-        #if os(iOS)
-        .controlSize(.large)
-        #endif
         .disabled(songs.isEmpty)
-        .help("Play the songs of this chart in order, or shuffled")
     }
 
     private func empty(_ snapshot: ChartSnapshot) -> some View {
         ContentUnavailableView {
             Label(snapshot.hasHistory ? snapshot.period.emptyTitle : "No Charts Yet", systemImage: "waveform")
         } description: {
-            if !snapshot.hasHistory {
-                Text("Your top \(Text(kind.title)) appear here once you've listened to some music.")
-            } else if sources.scope != .all {
+            if sources.scope != .all, snapshot.hasHistory {
                 Text("Nothing from \(Text(sources.scope.title)) was played in this \(Text(span.unitName)).")
             }
         } actions: {
+            // One way on: the steps and the toolbar's Today cover the rest.
             if let earlier = snapshot.earlier {
                 Button("Go to \(earlier.title())") { show(earlier) }
-                    .buttonStyle(.glassProminent)
-                    .buttonBorderShape(.capsule)
-            }
-            if !snapshot.period.isCurrent() {
-                Button(span.currentLabel) { anchor = nil }
-                    .buttonStyle(.glass)
+                    .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
             }
         }
@@ -287,7 +267,7 @@ struct TopChartView: View {
             }
         }
         if sources.isOffered {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .primaryAction) {
                 SourceScopeMenu(scope: sources.selection)
             }
         }
@@ -339,9 +319,9 @@ struct TopChartView: View {
                 ChartActivityCard(kind: kind, period: period, activity: shown.activity, entries: shown.entries, entryPlays: shown.entryPlays, deepest: shown.deepest, open: open)
             }
         } else {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.cardFill)
+            CardBackground()
                 .frame(height: 290)
+                .redacted(reason: .placeholder)
         }
     }
 
@@ -361,28 +341,19 @@ struct TopChartView: View {
             }
         } else {
             LoadingRows()
+                #if os(macOS)
+                // In from the margin the song rows' highlights reach past, as their text is.
+                .padding(.horizontal, 10)
+                #endif
         }
     }
 
     #if os(iOS)
-    private var titleFont: Font { .title.bold() }
+    private var titleFont: Font { .sectionTitle }
 
     private var page: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(spacing: 12) {
-                    if let kindSelection {
-                        Picker("Chart", selection: kindSelection) {
-                            ForEach(ChartKind.allCases) { kind in
-                                Text(kind.title).tag(kind)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                    }
-                    spanPicker
-                }
-
+            VStack(alignment: .leading, spacing: Design.Spacing.xLarge) {
                 header
                 activity
                 if hasEntries {
@@ -390,23 +361,72 @@ struct TopChartView: View {
                 }
                 chart
             }
-            .padding(.horizontal, PlayMetrics.margin)
-            .padding(.bottom, 24)
+            .padding(.horizontal, Design.Margin.page)
+            .padding(.top, Design.Spacing.small)
+            .padding(.bottom, Design.Margin.section)
         }
-        .background(Color.pageBackground)
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        // On the glass over the scroll edge, where it stays to hand as the chart scrolls.
+        .safeAreaBar(edge: .top) {
+            if let kindSelection {
+                Picker("Chart", selection: kindSelection) {
+                    ForEach(ChartKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, Design.Margin.page)
+                .padding(.bottom, Design.Spacing.small)
+            }
+        }
     }
 
-    /// The period's name and dates, with the steps either side.
+    /// The period's name, which chooses the span or a date: one place for "when", as the
+    /// title of a Calendar view is.
+    private var periodMenu: some View {
+        Menu {
+            Picker("Period", selection: $span) {
+                ForEach(ChartSpan.allCases) { span in
+                    Text(span.label).tag(span)
+                }
+            }
+            .pickerStyle(.inline)
+            if span != .allTime {
+                Button("Go to Date", systemImage: "calendar") { isPickingDate = true }
+            }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: Design.Spacing.small) {
+                Text(period.title())
+                    .font(titleFont)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(.rect)
+        }
+        .menuOrder(.fixed)
+        .buttonStyle(.plain)
+        .accessibilityHint(Text("Chooses the period, or a date."))
+        .popover(isPresented: $isPickingDate, arrowEdge: .bottom) { datePicker }
+    }
+
+    /// The period's name and dates, with the steps beside them as Calendar has them, or under
+    /// them at the accessibility sizes, where beside them they'd leave the name a word wide.
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                titleButton
+        AdaptiveStack(spacing: Design.Spacing.small) {
+            VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
+                periodMenu
                 datesLine
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if span != .allTime {
-                HStack(spacing: 8) {
+                HStack(spacing: 0) {
                     Button("Earlier", systemImage: "chevron.backward") { show(shown?.earlier) }
                         .disabled(!canGoBack)
                         .accessibilityHint(earlierHelp)
@@ -415,9 +435,12 @@ struct TopChartView: View {
                         .accessibilityHint(laterHelp)
                 }
                 .labelStyle(.iconOnly)
-                .buttonStyle(.glass)
+                .buttonStyle(.borderless)
+                .font(.title3.weight(.semibold))
+                .frame(minHeight: Design.Control.minimumTarget)
+                .controlSize(.large)
                 .buttonBorderShape(.circle)
-                .fontWeight(.semibold)
+                .frame(minWidth: Design.Control.minimumTarget * 2)
             }
         }
     }
@@ -438,7 +461,7 @@ struct TopChartView: View {
                             }
                             activity
                         }
-                        .padding(PlayMetrics.margin)
+                        .padding(Design.Margin.page)
                     }
                     .scrollIndicators(.never)
                     .frame(width: 460)
@@ -447,8 +470,8 @@ struct TopChartView: View {
                         chart
                             .frame(maxWidth: kind == .songs ? 960 : .infinity, alignment: .leading)
                             .padding(.leading, kind == .songs ? 8 : 18)
-                            .padding(.trailing, PlayMetrics.margin - 10)
-                            .padding(.vertical, PlayMetrics.margin - 8)
+                            .padding(.trailing, Design.Margin.page - 10)
+                            .padding(.vertical, Design.Margin.page - 8)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -465,7 +488,7 @@ struct TopChartView: View {
                             // A song row's highlight reaches past the text's margin.
                             .padding(.horizontal, kind == .songs ? -10 : 0)
                     }
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
                     .padding(.vertical, 20)
                 }
             }
@@ -475,7 +498,6 @@ struct TopChartView: View {
             isWide = wide
             Self.wasWide = wide
         }
-        .background(Color.pageBackground)
     }
 
     private var headerTitle: some View {
@@ -494,6 +516,30 @@ extension ChartKind {
         case .songs: "Top Songs"
         case .artists: "Top Artists"
         case .albums: "Top Albums"
+        }
+    }
+}
+
+extension ChartKind {
+    /// The symbol beside each chart in the title's menu.
+    var symbol: String {
+        switch self {
+        case .songs: "music.note"
+        case .artists: "music.microphone"
+        case .albums: "square.stack"
+        }
+    }
+}
+
+/// The page's title, or none for a page whose container gives it one.
+private struct ChartTitle: ViewModifier {
+    let title: LocalizedStringKey?
+
+    func body(content: Content) -> some View {
+        if let title {
+            content.navigationTitle(title)
+        } else {
+            content
         }
     }
 }

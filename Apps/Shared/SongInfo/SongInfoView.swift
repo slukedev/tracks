@@ -72,19 +72,19 @@ struct SongInfoPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: Design.Card.sectionSpacing) {
                 SongInfoHeader(subject: subject, info: info)
                 if isWide {
-                    HStack(alignment: .top, spacing: Metrics.sectionSpacing) {
+                    HStack(alignment: .top, spacing: Design.Card.sectionSpacing) {
                         // Each column its own height: cards fill what they're offered, and the
                         // shorter column would otherwise stretch its cards to the taller one.
-                        VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+                        VStack(alignment: .leading, spacing: Design.Card.sectionSpacing) {
                             historySections
                             musicSections
                         }
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+                        VStack(alignment: .leading, spacing: Design.Card.sectionSpacing) {
                             aboutSections
                             lastFMSections
                         }

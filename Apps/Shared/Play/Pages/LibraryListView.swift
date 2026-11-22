@@ -15,7 +15,7 @@ struct LibraryListView: View {
         if LibraryLaunch.showsOverview {
             ScrollView {
                 LibraryOverview()
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
             }
             .navigationTitle("Play")
         } else {
@@ -206,12 +206,12 @@ private struct LibraryPlaylistsPage: View {
                     }
                 }
             }
-            .padding(.bottom, PlayMetrics.sectionSpacing)
+            .padding(.bottom, Design.Margin.section)
         }
         #else
         LibraryPagerContent(pager: pager, query: query, section: .playlists, isList: true) {
             LoadingRows(count: 10)
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
         } content: {
             ForEach(pager.items) { playlist in
                 NavigationLink(value: PlayRoute.playlist(playlist)) {
@@ -337,7 +337,7 @@ private struct LibraryAlbumsPage: View {
                 }
             }
             .padding(.top, topPadding)
-            .padding(.bottom, PlayMetrics.sectionSpacing)
+            .padding(.bottom, Design.Margin.section)
         }
         .toolbar {
             if pager.offersOrder {

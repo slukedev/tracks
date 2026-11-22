@@ -54,6 +54,7 @@ struct TrackRow: View {
 
     @Environment(PlayerModel.self) private var player
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.pageTone) private var pageTone
     @ScaledMetric(relativeTo: .body) private var coverSide: CGFloat = Self.cover
     @ScaledMetric(relativeTo: .body) private var numberWidth: CGFloat = 28
 
@@ -67,6 +68,10 @@ struct TrackRow: View {
     private static let minimumHeight: CGFloat = 44
     #endif
 
+    /// The page's own type colours: a plain list's cell resolves `.secondary` to the system's
+    /// grey, not the page's, which measured 2.8:1 on a red page.
+    private var ink: PageInkColors { PageInkColors(tone: pageTone) }
+
     var body: some View {
         HStack(spacing: 12) {
             leading
@@ -74,7 +79,7 @@ struct TrackRow: View {
                 HStack(spacing: 6) {
                     Text(title)
                         .font(.body)
-                        .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                        .foregroundStyle(isCurrent ? ink.accent : ink.primary)
                         // At the largest sizes a title wraps rather than losing most of itself.
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                     if isExplicit {
@@ -84,7 +89,7 @@ struct TrackRow: View {
                 if let subtitle, !subtitle.isEmpty {
                     ArtistLinks(text: subtitle, artist: artist, title: title)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(ink.secondary)
                         .lineLimit(1)
                 }
                 // At the largest sizes the fact goes under the name, which needs the width.
@@ -102,7 +107,7 @@ struct TrackRow: View {
                 Text(PlayCountText.short(plays))
                     .font(.subheadline)
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(ink.secondary)
                     .lineLimit(1)
                     .fixedSize()
                     .accessibilityLabel(PlayCountText.spoken(plays))
@@ -120,7 +125,7 @@ struct TrackRow: View {
         Text(detail)
             .font(.subheadline)
             .monospacedDigit()
-            .foregroundStyle(.secondary)
+            .foregroundStyle(ink.secondary)
             .lineLimit(1)
     }
 
@@ -138,14 +143,12 @@ struct TrackRow: View {
         } else if let number {
             Group {
                 if isCurrent {
-                    playingGlyph(.accentColor)
-                        .frame(width: numberWidth, height: numberWidth)
-                        .glassEffect(.regular, in: .circle)
+                    playingGlyph(pageTone?.accentColor ?? .accentColor)
                 } else {
                     Text(number, format: .number)
                         .font(.body)
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(ink.secondary)
                 }
             }
             .frame(width: numberWidth)
@@ -181,12 +184,14 @@ struct CurrentSongReader<Content: View>: View {
 
 /// Music's "E" for explicit songs.
 struct ExplicitBadge: View {
+    @Environment(\.pageTone) private var pageTone
+
     var body: some View {
         Text(verbatim: "E")
             .font(.caption2.weight(.bold))
-            .foregroundStyle(Color.pageBackground)
+            .foregroundStyle(pageTone?.backgroundColor ?? Color.pageBackground)
             .frame(width: 14, height: 14)
-            .background(.secondary, in: .rect(cornerRadius: 3, style: .continuous))
+            .background(PageInkColors(tone: pageTone).secondary, in: .rect(cornerRadius: 3, style: .continuous))
             .accessibilityLabel("Explicit")
     }
 }

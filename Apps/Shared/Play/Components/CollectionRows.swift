@@ -59,7 +59,7 @@ struct CollectionMessage<Actions: View>: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
-        .padding(.horizontal, PlayMetrics.margin)
+        .padding(.horizontal, Design.Margin.page)
         #if os(iOS)
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)

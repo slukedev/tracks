@@ -15,8 +15,8 @@ struct NowPlayingCard: View {
 
     var body: some View {
         if let song = capture.nowPlaying {
-            Card(padding: 12) {
-                HStack(spacing: 12) {
+            Card(padding: Design.Spacing.medium) {
+                HStack(spacing: Design.Spacing.medium) {
                     cover(of: song)
                     VStack(alignment: .leading, spacing: 2) {
                         Label {
@@ -62,28 +62,63 @@ struct NowPlayingCard: View {
     }
 }
 
-/// When the real store couldn't be opened and we fell back to memory, nothing will be kept.
+/// What's wrong with the library, above everything else on Summary, as Settings puts
+/// something that needs you first. Nothing while the library is open, which is every run but
+/// a broken one.
 struct StoreWarningBanner: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        // The reason is for diagnostics, in the backing's description, not for the banner.
-        if !model.isShowingSampleData, case .inMemory = model.store?.backing {
+        if let keptAside = LibraryKeptAside(model: model) {
+            StatusPanel(title: Text(LibraryKeptAside.title), systemImage: "tray.full.fill") {
+                keptAside.status
+            }
+            .contentTransition(.opacity)
+        } else if !model.isShowingSampleData, case .inMemory = model.store?.backing {
+            // The reason is for diagnostics, in the backing's description, not for the panel.
+            StatusPanel(title: Text("Listening Isn't Being Saved"), systemImage: "exclamationmark.triangle.fill") {
+                Text("Tracks couldn't open its library. Quit and reopen Tracks to try again.")
+            }
+        }
+    }
+}
+
+/// A status in a panel: an orange symbol, a title and one line.
+struct StatusPanel<Line: View>: View {
+    let title: Text
+    let systemImage: String
+    @ViewBuilder var line: Line
+
+    var body: some View {
+        Card {
             Label {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Your listening isn't being saved")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Tracks couldn't open its library, so what you play now will be lost when it quits. Quit and reopen Tracks to try again.")
-                        .font(.caption)
+                VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
+                    title
+                        .font(.headline)
+                    line
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } icon: {
-                Image(systemName: "exclamationmark.triangle.fill")
+                Image(systemName: systemImage)
                     .foregroundStyle(.orange)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.orange.opacity(0.12), in: .rect(cornerRadius: Metrics.cardRadius, style: .continuous))
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The library's status and what's playing, at the top of Summary. Each hides itself.
+struct StatusPanels: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if LibraryKeptAside(model: model) != nil || model.capture?.nowPlaying != nil || model.hasBanner {
+            VStack(spacing: Design.Card.spacing) {
+                StoreWarningBanner()
+                NowPlayingCard()
+            }
         }
     }
 }
@@ -91,7 +126,7 @@ struct StoreWarningBanner: View {
 /// The first-run screen: what Tracks does, before there's any history.
 struct WelcomeView: View {
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: Design.Spacing.xxLarge) {
             ContentUnavailableView {
                 Label("No Listening Yet", systemImage: "waveform")
             } description: {
@@ -115,8 +150,8 @@ struct MusicAccessCard: View {
 
     var body: some View {
         if !model.isShowingSampleData, model.musicAuthorization != .authorized {
-            Card(padding: 14) {
-                VStack(alignment: .leading, spacing: 10) {
+            Card {
+                VStack(alignment: .leading, spacing: Design.Spacing.medium) {
                     Label {
                         Text(title)
                             .font(.subheadline.weight(.semibold))
@@ -191,3 +226,27 @@ struct MusicAccessCard: View {
     private static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media")
     #endif
 }
+
+#if DEBUG
+#Preview("Status") {
+    VStack(spacing: Design.Card.spacing) {
+        StatusPanel(title: Text(LibraryKeptAside.title), systemImage: "tray.full.fill") {
+            LibraryKeptAside(opensOnRelaunch: false).status
+        }
+        StatusPanel(title: Text(LibraryKeptAside.title), systemImage: "tray.full.fill") {
+            LibraryKeptAside(opensOnRelaunch: true).status
+        }
+    }
+    .padding(Design.Margin.page)
+}
+
+#Preview("Status, AX5") {
+    ScrollView {
+        StatusPanel(title: Text(LibraryKeptAside.title), systemImage: "tray.full.fill") {
+            LibraryKeptAside(opensOnRelaunch: true).status
+        }
+        .padding(Design.Margin.page)
+    }
+    .dynamicTypeSize(.accessibility5)
+}
+#endif

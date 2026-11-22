@@ -2,38 +2,47 @@ import SwiftUI
 import MusicKit
 import TracksCore
 
-/// A shelf's title with an action at its trailing edge, as Music's are.
+/// A shelf's title, 22 points as Music's are, with a chevron when it opens a page of its own
+/// and an action at its trailing edge.
 struct ShelfHeader<Trailing: View>: View {
     let title: String
+    /// Where the title goes, with a chevron after it, as Music's "Recently Played ›" does.
+    var route: PlayRoute?
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        // At accessibility sizes the link goes under the title rather than breaking it.
-        AdaptiveStack(verticalAlignment: .firstTextBaseline, spacing: 4) {
-            Text(title)
-                .font(.title3.bold())
+        // At accessibility sizes the action goes under the title rather than breaking it.
+        AdaptiveStack(verticalAlignment: .firstTextBaseline, spacing: Design.Spacing.xSmall) {
+            if let route {
+                NavigationLink(value: route) {
+                    HStack(alignment: .firstTextBaseline, spacing: Design.Spacing.xSmall) {
+                        Text(title)
+                        Image(systemName: "chevron.forward")
+                            .font(.title3.weight(.semibold))
+                            .imageScale(.small)
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.sectionTitle)
+                    .foregroundStyle(.primary)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(SectionLinkButtonStyle())
                 .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
+            } else {
+                Text(title)
+                    .font(.sectionTitle)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            Spacer(minLength: Design.Spacing.small)
             trailing
                 .font(.subheadline)
         }
     }
 }
 
-/// "Find More", into one of the finders.
-struct FindMoreLink: View {
-    let route: PlayRoute
-
-    var body: some View {
-        NavigationLink(value: route) {
-            HStack(spacing: 3) {
-                Text("Find More")
-                Image(systemName: "chevron.forward")
-                    .font(.caption.weight(.semibold))
-            }
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.tint)
+extension ShelfHeader where Trailing == EmptyView {
+    init(title: String, route: PlayRoute? = nil) {
+        self.init(title: title, route: route) { EmptyView() }
     }
 }
 
@@ -401,10 +410,8 @@ struct SuggestedSongsSection: View {
         let showsLoading = columns.isEmpty && (isLoading || hasMore)
         let isEndInView = showsLoading || columns.last.map { columnsInView.contains($0.id) } ?? false
         if showsRadio || !songs.isEmpty || isLoading || unanswered > 0 {
-            VStack(alignment: .leading, spacing: 10) {
-                ShelfHeader(title: String(localized: "Suggested Songs")) {
-                    if !songs.isEmpty { FindMoreLink(route: .songFinder(.forYou)) }
-                }
+            VStack(alignment: .leading, spacing: Design.Margin.header) {
+                ShelfHeader(title: String(localized: "Suggested Songs"), route: songs.isEmpty ? nil : .songFinder(.forYou))
                 .padding(.horizontal, PlayMetrics.margin)
 
                 ScrollView(.horizontal) {
@@ -417,7 +424,7 @@ struct SuggestedSongsSection: View {
                                 ForEach(column.items) { suggestion in
                                     row(suggestion)
                                     if suggestion.id != column.items.last?.id {
-                                        Divider().padding(.leading, 60)
+                                        Divider().padding(.leading, SuggestionRow.cover + Design.Spacing.medium)
                                     }
                                 }
                             }
@@ -507,10 +514,8 @@ struct KeepExploringSection: View {
         let unanswered = rest.unanswered(in: music, source: model.musicSource)
         if !songs.isEmpty || discovery.canExpand && discovery.hasSeeded && !discovery.songs.isEmpty {
             LazyVStack(alignment: .leading, spacing: 0) {
-                Text("Keep Exploring")
-                    .font(.title3.bold())
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.bottom, 8)
+                ShelfHeader(title: String(localized: "Keep Exploring"))
+                    .padding(.bottom, Design.Margin.header)
 
                 ForEach(songs) { suggestion in
                     ListedSuggestionRow(suggestion: suggestion) {
@@ -521,7 +526,7 @@ struct KeepExploringSection: View {
                     }
                     .equatable()
                     .contextMenu { SuggestionMenu(suggestion: suggestion) }
-                    Divider().padding(.leading, 64)
+                    Divider().padding(.leading, SuggestionRow.cover + Design.Spacing.medium)
                 }
 
                 if unanswered == 0, discovery.canExpand, discovery.expandFailed {
@@ -568,10 +573,8 @@ struct SuggestedArtistsShelf: View {
 
     var body: some View {
         if !discovery.artists.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                ShelfHeader(title: String(localized: "Suggested Artists")) {
-                    FindMoreLink(route: .artistFinder)
-                }
+            VStack(alignment: .leading, spacing: Design.Margin.header) {
+                ShelfHeader(title: String(localized: "Suggested Artists"), route: .artistFinder)
                 .padding(.horizontal, PlayMetrics.margin)
 
                 ScrollView(.horizontal) {
@@ -616,7 +619,7 @@ private struct RetryArtistTile: View {
                     .font(.title2)
                     .foregroundStyle(.secondary)
                     .frame(width: side, height: side)
-                    .background(Color(.secondarySystemFill), in: .circle)
+                    .background(Color.placeholderFill, in: .circle)
                 Text("Try Again")
                     .font(.subheadline.weight(.medium))
             }
@@ -635,11 +638,11 @@ private struct LoadingArtistTile: View {
         let side = min(side, 180)
         VStack(spacing: 8) {
             Circle()
-                .fill(Color(.secondarySystemFill))
+                .fill(Color.placeholderFill)
                 .frame(width: side, height: side)
             VStack(spacing: 6) {
-                Capsule().fill(Color(.secondarySystemFill)).frame(width: side * 0.6, height: 10)
-                Capsule().fill(Color(.tertiarySystemFill)).frame(width: side * 0.4, height: 9)
+                Capsule().fill(Color.placeholderFill).frame(width: side * 0.6, height: 10)
+                Capsule().fill(Color.placeholderFill.opacity(0.6)).frame(width: side * 0.4, height: 9)
             }
         }
         .frame(width: side)

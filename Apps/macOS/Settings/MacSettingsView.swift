@@ -36,10 +36,14 @@ struct MacSettingsView: View {
             Tab("Last.fm", systemImage: "waveform", value: .lastFM) {
                 LastFMSettingsPage(connection: lastFM)
             }
-            // Demo runs have no real store to sync, so the pane stays out of the window.
-            if let cloud {
+            // Sample data has no real store to sync; its pane says so instead.
+            if cloud != nil || model.isDemoLaunch {
                 Tab("iCloud", systemImage: "icloud", value: .iCloud) {
-                    CloudSyncPage(sync: cloud)
+                    if let cloud {
+                        CloudSyncPage(sync: cloud)
+                    } else {
+                        CloudSyncSampleDataPage()
+                    }
                 }
             }
             Tab("Devices", systemImage: "laptopcomputer.and.iphone", value: .devices) {
@@ -56,7 +60,7 @@ struct MacSettingsView: View {
                 cloud = CloudSyncSettings(store: store, monitor: model.syncMonitor)
             }
             // A pane that isn't there this run falls back to General.
-            if pane == .iCloud, cloud == nil { pane = .general }
+            if pane == .iCloud, cloud == nil, !model.isDemoLaunch { pane = .general }
         }
     }
 }

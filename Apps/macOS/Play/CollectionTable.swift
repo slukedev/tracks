@@ -46,11 +46,10 @@ struct CollectionMacLayout<Header: View, Content: View>: View {
                 header
                 content
                     .frame(maxWidth: .infinity, alignment: .top)
-                    .padding(.bottom, 28)
+                    .padding(.bottom, Design.Margin.section)
             }
         }
-        .background(Color.pageBackground)
-        // The glow runs on under the bar, as Music's headers do.
+        // The page runs on under the toolbar, which softens it at the scroll edge.
         .headerUnderBar()
         #if DEBUG
         .task { CollectionScreenshotSetup.apply() }
@@ -154,7 +153,7 @@ struct CollectionTable<SongMenu: View>: View {
                 row(track, index: index, columns: columns)
             }
         }
-        .padding(.horizontal, PlayMetrics.margin - 10)
+        .padding(.horizontal, Design.Margin.page - 10)
         .onGeometryChange(for: Bool.self) { $0.size.width > 720 } action: { isWide = $0 }
         .focusable()
         .focused($isFocused)
@@ -442,7 +441,7 @@ private struct CollectionSongRow: View {
         }
         .contentShape(.rect)
         .onHover { hovering in
-            withAnimation(PlayMotion.hover) { isHovered = hovering }
+            withAnimation(Design.Motion.hover) { isHovered = hovering }
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])

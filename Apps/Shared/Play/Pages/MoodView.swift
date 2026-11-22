@@ -18,21 +18,6 @@ extension Mood {
         }
     }
 
-    var tagline: String {
-        switch self {
-        case .feelGood: String(localized: "Songs you can't help singing along to.")
-        case .energy: String(localized: "Fast and loud.")
-        case .workout: String(localized: "Songs to run to.")
-        case .focus: String(localized: "Music with fewer words.")
-        case .chill: String(localized: "Slow songs for an easy evening.")
-        case .love: String(localized: "Songs for someone.")
-        case .drive: String(localized: "Songs for the car.")
-        case .heartbreak: String(localized: "Songs for after a breakup.")
-        case .party: String(localized: "Big songs for a full room.")
-        case .sleep: String(localized: "Quiet music for lights out.")
-        }
-    }
-
     var symbol: String {
         switch self {
         case .feelGood: "sun.max.fill"
@@ -47,6 +32,9 @@ extension Mood {
         case .sleep: "moon.stars.fill"
         }
     }
+
+    /// What its tile and its page zoom between by.
+    var zoomID: String { "mood.\(rawValue)" }
 
     /// The mood's deepest colour, for type and tints over white.
     var color: Color { palette[0] }
@@ -97,7 +85,6 @@ extension View {
 private struct HeroTitle: ViewModifier {
     let title: String
     @State private var isShown = false
-    @State private var isUnderBar = false
 
     func body(content: Content) -> some View {
         #if os(iOS)
@@ -105,7 +92,7 @@ private struct HeroTitle: ViewModifier {
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top > Self.threshold
             } action: { _, shown in
-                withAnimation(.easeOut(duration: 0.2)) { isShown = shown }
+                withAnimation(Design.Motion.fade) { isShown = shown }
             }
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -117,22 +104,18 @@ private struct HeroTitle: ViewModifier {
                 }
             }
         #else
-        // The name in the bar once the big one has gone under it. Empty rather than removed
-        // before then: a Mac window without a title drops the bar's material.
+        // The name in the bar once the big one has gone under it. Until then the window has
+        // no title, so the bar draws no material over the hero, as Music's heroes meet it.
         content
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top > Self.threshold
             } action: { _, shown in
                 isShown = shown
             }
-            .navigationTitle(isShown ? title : "")
-            // The field meets the top edge clean until the page scrolls under the bar.
-            .toolbarBackgroundVisibility(isUnderBar ? .automatic : .hidden, for: .windowToolbar)
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top > 8
-            } action: { _, under in
-                isUnderBar = under
-            }
+            .navigationTitle(title)
+            .toolbar(removing: isShown ? nil : .title)
+            .scrollEdgeEffectHidden(!isShown, for: .top)
+            .scrollEdgeEffectStyle(.soft, for: .top)
         #endif
     }
 
@@ -185,12 +168,13 @@ enum MoodShelfItem: Identifiable {
 struct MoodTile: View {
     let mood: Mood
     var covers: [CoverArt] = []
-    var fillsWidth = false
+    var placement = CategoryCardPlacement.shelf
 
     var body: some View {
         // Party opens its own page, for finding a party's playlist.
         NavigationLink(value: mood == .party ? PlayRoute.party : PlayRoute.mood(mood)) {
-            CategoryCard(title: mood.title, symbol: mood.symbol, color: mood.base, covers: covers, fillsWidth: fillsWidth)
+            CategoryCard(title: mood.title, symbol: mood.symbol, color: mood.base, covers: covers, placement: placement)
+                .zoomSource(id: mood == .party ? nil : mood.zoomID)
         }
         .buttonStyle(.categoryCard)
         .accessibilityLabel(mood.title)
@@ -282,12 +266,15 @@ struct MoodView: View {
                         Shelf(title: String(localized: "Stations"), items: stations) { FeedTile(item: $0) }
                     }
                 }
-                .padding(.top, 24)
+                .padding(.top, Design.Spacing.small)
             }
-            .padding(.bottom, 32)
+            .padding(.bottom, Design.Spacing.xxxLarge)
+            // The page's links and the playing song take the room's colour; the bar stays
+            // monochrome over the art.
+            .tint(style.ink)
         }
-        .tint(style.ink)
         .heroTitle(mood.title)
+        .zoomDestination(id: mood.zoomID)
         .toolbar {
             // Your own music has no new songs from Apple Music to mix in.
             if model.musicSource == .appleMusic {
@@ -309,32 +296,50 @@ struct MoodView: View {
     // MARK: Hero
 
     private func hero(_ style: RoomStyle) -> some View {
-        MoodHero(mood: mood, covers: heroCovers, line: room.map { $0.habit?.line ?? mood.tagline }, facts: roomText?.facts) {
-            VStack(alignment: .leading, spacing: 12) {
-                ArtworkPlayRow(
-                    title: playTitle,
-                    symbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
-                    tint: mood.base,
-                    canPlay: canPlay,
-                    shuffle: yours.isEmpty ? nil : { shuffleYours() },
-                    play: playOrPause
-                ) {
-                    if let session = mood.session {
-                        ArtworkRoundMenu(title: session.title, symbol: session.symbol, isOn: player.sleepTimer != nil) {
-                            sessionItems(session)
+        ArtworkHero(covers: heroCovers, color: mood.base) {
+            VStack(alignment: .leading, spacing: 0) {
+                Label(String(localized: "Mood"), systemImage: mood.symbol)
+                    .eyebrowStyle()
+                Text(mood.title)
+                    .font(.pageTitle)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .padding(.top, Design.Spacing.xxSmall)
+                    .accessibilityAddTraits(.isHeader)
+                // Held while your songs are read, so the actions don't move when it arrives.
+                Text(roomText?.facts ?? " ")
+                    .font(.subheadline)
+                    .opacity(roomText?.facts == nil ? 0 : 0.8)
+                    .accessibilityHidden(roomText?.facts == nil)
+                    .padding(.top, Design.Spacing.xxSmall)
+                VStack(alignment: .leading, spacing: Design.Spacing.medium) {
+                    ArtworkPlayRow(
+                        title: playTitle,
+                        symbol: isOn && player.isPlaying ? "pause.fill" : "play.fill",
+                        tint: mood.base,
+                        canPlay: canPlay,
+                        shuffle: yours.isEmpty ? nil : { shuffleYours() },
+                        play: playOrPause
+                    ) {
+                        if let session = mood.session {
+                            ArtworkRoundMenu(title: session.title, symbol: session.symbol, isOn: player.sleepTimer != nil) {
+                                sessionItems(session)
+                            }
                         }
                     }
+                    MoodLeanChips(mood: mood, lean: $lean)
                 }
-                MoodLeanChips(mood: mood, lean: $lean)
+                .frame(maxWidth: Self.controlsWidth, alignment: .leading)
+                .padding(.top, Design.Spacing.xLarge)
             }
-            .frame(maxWidth: Self.controlsWidth, alignment: .leading)
+            .frame(maxWidth: Self.wordsWidth, alignment: .leading)
         }
         .onChange(of: lean) { steer() }
     }
 
     private var heroCovers: [CoverArt] {
-        if let room, !room.isEmpty { return room.covers(12) }
-        return newSongs.prefix(12).map { $0.song.artwork.map(CoverArt.artwork) ?? .url(nil, seed: $0.song.albumTitle ?? $0.song.title) }
+        if let room, !room.isEmpty { return room.covers(CoverBlendPictures.limit) }
+        return newSongs.prefix(CoverBlendPictures.limit).map { $0.song.artwork.map(CoverArt.artwork) ?? .url(nil, seed: $0.song.albumTitle ?? $0.song.title) }
     }
 
     @ViewBuilder
@@ -365,8 +370,10 @@ struct MoodView: View {
 
     #if os(macOS)
     private static let controlsWidth: CGFloat = 520
+    private static let wordsWidth: CGFloat = 560
     #else
     private static let controlsWidth: CGFloat = .infinity
+    private static let wordsWidth: CGFloat = .infinity
     #endif
 
     /// The mood's flow is on, playing or paused.
@@ -398,11 +405,8 @@ struct MoodView: View {
         if let roomText, case let songs = roomText.signature, !songs.isEmpty {
             let shown = Array(songs.prefix(showsAllSignature ? songs.count : style.pace.rows))
             VStack(alignment: .leading, spacing: 0) {
-                RoomSectionHeader(title: signature.title, note: signature.note) {
-                    RoomSectionAction(title: "Play", symbol: "play.fill", ink: style.ink) {
-                        play(songs, title: signature.title, shuffled: false)
-                    }
-                }
+                // No Play of its own: the hero's plays the mood, and a row plays these from it.
+                RoomSectionHeader(title: signature.title)
                 RoomColumns(items: shown, ruleInset: signature.isSequence ? RoomSongRow.numberedTextInset : RoomSongRow.textInset) { song in
                     historyRow(song, number: signature.isSequence ? (songs.firstIndex(of: song) ?? 0) + 1 : nil, detail: roomText.signatureDetails[song.id] ?? nil) {
                         play(songs, startingAt: song, title: signature.title)
@@ -423,10 +427,7 @@ struct MoodView: View {
             RoomSectionHeader(title: title)
             if let room {
                 if room.isEmpty {
-                    RoomNote(
-                        text: String(localized: "None of your songs suit \(mood.title) yet. Tracks goes by each song's genre, so they'll gather here as you play."),
-                        symbol: mood.symbol
-                    )
+                    RoomNote(text: String(localized: "No \(mood.title) Songs Yet"), symbol: mood.symbol)
                 } else {
                     let kinds = Array(room.kinds().prefix(8))
                     let songs = kinds.first { $0.name == kind }?.songs ?? room.songs
@@ -476,11 +477,7 @@ struct MoodView: View {
     private func newToYou(_ style: RoomStyle) -> some View {
         let visible = newSongs.visible(in: model.yourMusic, source: model.musicSource, mode: suggestionMode)
         VStack(alignment: .leading, spacing: 0) {
-            RoomSectionHeader(title: String(localized: "New to You")) {
-                if !newSongs.isEmpty {
-                    FindMoreLink(route: .songFinder(.mood(mood)))
-                }
-            }
+            RoomSectionHeader(title: String(localized: "New to You"), route: newSongs.isEmpty ? nil : .songFinder(.mood(mood)))
             switch reach {
             case .loading:
                 LoadingRows(count: style.pace.rows)
@@ -805,7 +802,15 @@ private struct RoomText {
         let signature = mood.signature
         let songs = signature.songs(room)
         self.signature = songs
-        signatureDetails = Dictionary(songs.map { ($0.id, signature.detail($0)) }, uniquingKeysWith: { first, _ in first })
+        var details: [ListeningRoom.Song.ID: String?] = [:]
+        var previous: String?
+        for song in songs where details[song.id] == nil {
+            let detail = signature.detail(song)
+            let shown: String? = signature.marksChanges && detail == previous ? nil : detail
+            details[song.id] = .some(shown)
+            previous = detail
+        }
+        signatureDetails = details
         facts = mood.facts(for: room)
     }
 }

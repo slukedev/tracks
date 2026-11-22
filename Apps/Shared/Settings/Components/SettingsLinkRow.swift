@@ -11,15 +11,17 @@ struct SettingsLinkRow: View {
     var body: some View {
         Link(destination: destination) {
             HStack {
+                // The Mac's settings list their links as words, as System Settings does; glyphs
+                // of different widths left the titles ragged.
+                #if os(macOS)
+                Text(title)
+                #else
                 Label {
                     Text(title)
                 } icon: {
-                    #if os(macOS)
-                    Image(systemName: systemImage)
-                    #else
                     SettingsIconTile(systemImage: systemImage, color: tint)
-                    #endif
                 }
+                #endif
                 Spacer()
                 Image(systemName: "arrow.up.forward")
                     .font(.footnote.weight(.semibold))

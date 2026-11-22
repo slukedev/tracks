@@ -142,12 +142,12 @@ struct SharePlayGuestPage: View {
             ContentUnavailableView {
                 Label("Allow Local Network", systemImage: "network")
             } description: {
-                Text("Tracks connects straight to the iPhone that's playing. Turn on Local Network for Tracks in Settings to join.")
+                Text("Turn on Local Network for Tracks in Settings to join.")
             } actions: {
                 Button("Open Settings") {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
             }
         case .joining:
             ContentUnavailableView {
@@ -164,7 +164,7 @@ struct SharePlayGuestPage: View {
                 Text("Songs you added stay in their Up Next.")
             } actions: {
                 Button("Close") { sharePlay.closeEnded() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
             }
         case .joined:
             joined
@@ -192,10 +192,10 @@ struct SharePlayGuestPage: View {
             searchResults
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
+                VStack(alignment: .leading, spacing: Design.Margin.section) {
                     SharePlayHostCard(track: snapshot?.nowPlaying, isPlaying: snapshot?.isPlaying == true)
                     if sharePlay.isReconnecting {
-                        SharePlayNotice(text: "Reconnecting to their iPhone. Stay close to it to keep adding songs.", systemImage: "wifi.exclamationmark")
+                        SharePlayNotice(text: "Reconnecting to their iPhone.", systemImage: "wifi.exclamationmark")
                     }
                     if let notice {
                         SharePlayNotice(text: notice.text, systemImage: notice.symbol)
@@ -208,7 +208,7 @@ struct SharePlayGuestPage: View {
                         SharePlayLibraryLinks()
                     }
                 }
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 .padding(.top, 12)
                 .padding(.bottom, 28)
             }
@@ -220,7 +220,7 @@ struct SharePlayGuestPage: View {
                       let found = await CoverTint.glow(for: .url(track.artworkURL, seed: track.title)),
                       !Task.isCancelled
                 else { return }
-                withAnimation(PlayMotion.tint) { glow = found }
+                withAnimation(Design.Motion.tint) { glow = found }
             }
         }
     }
@@ -229,10 +229,10 @@ struct SharePlayGuestPage: View {
     private var notice: (text: LocalizedStringKey, symbol: String)? {
         guard let snapshot else { return nil }
         if snapshot.isStation {
-            return ("A station is playing on their iPhone, so there's no queue to add to. You can add songs once they play something else.", "dot.radiowaves.left.and.right")
+            return ("A station is playing, so there's no Up Next to add to.", "dot.radiowaves.left.and.right")
         }
         if snapshot.source == .yourMusic {
-            return ("Their iPhone is playing its own music, so it adds the songs it has.", "music.note.house")
+            return ("Their iPhone is playing its own music, so only songs it has are added.", "music.note.house")
         }
         return nil
     }
@@ -250,7 +250,7 @@ struct SharePlayGuestPage: View {
                     }
                 }
                 if snapshot.upNext.isEmpty {
-                    Text("Nothing's queued after this song. Search for one to play next.")
+                    Text("Search for a song to play next.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -289,7 +289,7 @@ struct SharePlayGuestPage: View {
         if authorization != .authorized {
             ScrollView {
                 accessCard
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
                     .padding(.top, 16)
             }
         } else if searchState == .failed {
@@ -319,7 +319,7 @@ struct SharePlayGuestPage: View {
                         }
                     }
                 }
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 .padding(.top, 16)
                 .padding(.bottom, 28)
             }
@@ -471,25 +471,23 @@ private struct SharePlayAccessCard: View {
             switch authorization {
             case .notDetermined:
                 Button("Allow Apple Music Access", action: requestAccess)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .disabled(isRequesting || model.isShowingSampleData)
                     .padding(.top, 4)
             case .denied:
                 Button("Open Settings", action: openSettings)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .padding(.top, 4)
             default:
                 EmptyView()
             }
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.fill.quinary, in: .rect(cornerRadius: 16, style: .continuous))
     }
 
     private var message: LocalizedStringKey {
         switch authorization {
-        case .notDetermined: "Allow Tracks to use Apple Music to search for songs to add, and to pick them from your library and playlists. You don't need a subscription to search."
+        case .notDetermined: "Search Apple Music for songs to add. No subscription needed."
         case .restricted: "Screen Time or a device profile doesn't allow Apple Music access, so you can't search here."
         default: "To find songs to add, turn on Media & Apple Music for Tracks in Settings."
         }
@@ -670,7 +668,7 @@ private struct SharePlayUpNextPage: View {
                         .padding(.top, 12)
                 }
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
             .padding(.vertical, 12)
         }
         .navigationTitle("Up Next")

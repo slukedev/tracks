@@ -58,11 +58,7 @@ public actor ListenOutbox {
     public init(file: URL, batchSize: Int = 1_000) {
         self.file = file
         self.batchSize = max(1, batchSize)
-        if let data = try? Data(contentsOf: file), let saved = try? TracksideJSON.decoder.decode([ServerListen].self, from: data) {
-            listens = saved
-        } else {
-            listens = []
-        }
+        listens = StoredJSON.loadEach([ServerListen].self, from: file, decoder: TracksideJSON.decoder) ?? []
     }
 
     /// Keeps a play to send. A play already waiting is kept once.

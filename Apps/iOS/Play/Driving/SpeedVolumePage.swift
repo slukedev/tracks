@@ -19,35 +19,35 @@ struct SpeedVolumePage: View {
         let standing = standing
         let status = SpeedVolumeWords.status(standing)
         ScrollViewReader { proxy in
-        Form {
-            SettingsHero(
-                "Louder at Speed",
-                subtitle: status.tone.apply(to: Text(status.line)),
-                systemImage: "gauge.with.dots.needle.67percent",
-                tint: SpeedCurve.tint
-            )
+            Form {
+                SettingsHero(
+                    "Louder at Speed",
+                    subtitle: status.tone.apply(to: Text(status.line)),
+                    systemImage: "gauge.with.dots.needle.67percent",
+                    tint: SpeedCurve.tint
+                )
 
-            Section {
-                Toggle("Louder at Speed", isOn: Binding(get: { speedVolume.isOn }, set: speedVolume.setOn))
-            } footer: {
-                Text(SpeedVolumeWords.switchFooter(standing))
-                    .contentTransition(.opacity)
-            }
+                Section {
+                    Toggle("Louder at Speed", isOn: Binding(get: { speedVolume.isOn }, set: speedVolume.setOn))
+                } footer: {
+                    Text(SpeedVolumeWords.switchFooter(standing))
+                        .contentTransition(.opacity)
+                }
 
-            if standing.isOn {
-                amountSection(standing)
-                accessSection(standing)
-                    .id(Self.accessID)
+                if standing.isOn {
+                    amountSection(standing)
+                    accessSection(standing)
+                        .id(Self.accessID)
+                }
             }
-        }
-        #if DEBUG
-        // -TracksSettingsScroll access opens the page at Access, for screenshots.
-        .task {
-            guard UserDefaults.standard.string(forKey: "TracksSettingsScroll") == "access" else { return }
-            try? await Task.sleep(for: .seconds(1))
-            proxy.scrollTo(Self.accessID, anchor: .top)
-        }
-        #endif
+            #if DEBUG
+            // -TracksSettingsScroll access opens the page at Access, for screenshots.
+            .task {
+                guard UserDefaults.standard.string(forKey: "TracksSettingsScroll") == "access" else { return }
+                try? await Task.sleep(for: .seconds(1))
+                proxy.scrollTo(Self.accessID, anchor: .top)
+            }
+            #endif
         }
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: standing.isOn)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: standing.location)

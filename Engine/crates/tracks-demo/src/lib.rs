@@ -131,10 +131,15 @@ pub fn song_metadata(seed: u64) -> Vec<DemoSongMetadata> {
     result
 }
 
+/// The most days [`plays`] makes: ten years, far more than any screen needs, and a bound
+/// on the memory a mistyped launch argument can ask for.
+pub const MAX_DAYS: u32 = 3_650;
+
 /// About `days` days of listening ending at `now_ms` (Unix milliseconds), oldest first, with
-/// the last two weeks unbroken. Days start and weekends fall in `zone`. A time outside what
-/// a calendar can hold gives no plays.
+/// the last two weeks unbroken, up to [`MAX_DAYS`]. Days start and weekends fall in `zone`.
+/// A time outside what a calendar can hold gives no plays.
 pub fn plays(now_ms: i64, zone: &TimeZone, days: u32, seed: u64) -> Vec<DemoPlay> {
+    let days = days.min(MAX_DAYS);
     let Ok(now) = Timestamp::from_millisecond(now_ms) else {
         return Vec::new();
     };
@@ -393,6 +398,17 @@ mod tests {
 
     fn sample() -> Vec<DemoPlay> {
         plays(NOW, &zone(), DEFAULT_DAYS, DEFAULT_SEED)
+    }
+
+    #[test]
+    fn a_huge_number_of_days_is_held_to_ten_years() {
+        let most = plays(NOW, &zone(), u32::MAX, DEFAULT_SEED);
+        let earliest = NOW - i64::from(MAX_DAYS + 1) * DAY_MS;
+        assert!(most.first().is_some_and(|p| p.played_at_ms >= earliest));
+        assert_eq!(
+            most.len(),
+            plays(NOW, &zone(), MAX_DAYS, DEFAULT_SEED).len()
+        );
     }
 
     #[test]

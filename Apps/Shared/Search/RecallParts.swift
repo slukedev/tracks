@@ -10,7 +10,7 @@ struct RecallSuggestionsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SearchSectionTitle("Search by When You Heard It")
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(phrases, id: \.self) { phrase in
@@ -20,7 +20,7 @@ struct RecallSuggestionsSection: View {
                     }
                 }
             }
-            .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
+            .contentMargins(.horizontal, Design.Margin.page, for: .scrollContent)
             .scrollIndicators(.hidden)
         }
     }
@@ -62,7 +62,7 @@ struct RecallHeader: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if let play {
                 Button("Play", systemImage: "play.fill", action: play)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     .buttonBorderShape(.capsule)
                     .fixedSize()
             }
@@ -107,7 +107,7 @@ struct HistoryRecallHint: View {
                 .contentShape(.rect(cornerRadius: 14))
             }
             .buttonStyle(.pressable)
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
             .accessibilityElement(children: .combine)
         }
     }
@@ -119,11 +119,11 @@ struct HistoryRecallHint: View {
         VStack(alignment: .leading, spacing: 24) {
             RecallSuggestionsSection(phrases: ["This Morning", "Last Night", "Radio This Week", "In September"]) { _ in }
             RecallHeader(title: RecallTitle(HistoryRecall.parse("radio last week"), anchor: nil)) {}
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
             RecallHeader(title: RecallTitle(HistoryRecall.parse("90s jazz on the radio late at night in september"), anchor: nil), play: nil)
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
             RecallHeader(title: RecallTitle(HistoryRecall.parse("after x"), anchor: "Everything I Meant to Say on the Drive Home, Pt. 2")) {}
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
             HistoryRecallHint(query: "last tuesday evening") {}
         }
         .padding(.vertical, 16)

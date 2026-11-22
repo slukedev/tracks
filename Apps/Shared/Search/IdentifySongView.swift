@@ -123,9 +123,9 @@ struct IdentifyPhaseView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .animation(reduceMotion ? nil : .snappy, value: phase)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: phase)
         #if os(iOS)
-        .sensoryFeedback(.success, trigger: isFound) { _, now in now }
+        .sensoryFeedback(Design.Haptic.done, trigger: isFound) { _, now in now }
         #endif
     }
 
@@ -192,15 +192,14 @@ struct IdentifyPhaseView: View {
     @ViewBuilder
     private func actions(_ song: IdentifiedSong) -> some View {
         if player.canPlay(songID: song.songID) {
-            Button("Play", systemImage: "play.fill") { play(song) }
-                .buttonStyle(.borderedProminent)
+            PlayButton { play(song) }
         }
         if song.lastPlay != nil {
             Button("Show in History", systemImage: "clock.arrow.circlepath") { showInHistory(song) }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
         } else if let searchAppleMusic {
             Button("Search Apple Music", systemImage: "magnifyingglass") { searchAppleMusic(song) }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
         }
     }
 
@@ -216,7 +215,7 @@ struct IdentifyPhaseView: View {
             Text(message)
         } actions: {
             Button(action.title, action: action.run)
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
         }
     }
 

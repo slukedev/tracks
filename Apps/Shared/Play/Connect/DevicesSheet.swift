@@ -12,13 +12,19 @@ struct DevicesSheet: View {
                 .navigationTitle("Your Devices")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done", role: .confirm, action: close)
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close", systemImage: "xmark", role: .close, action: close)
                     }
                 }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
+}
+#endif
+
+#if os(iOS) && DEBUG
+#Preview("Your Devices") {
+    PlayPreviewHost { Color.clear.sheet(isPresented: .constant(true)) { DevicesSheet {} } }
 }
 #endif

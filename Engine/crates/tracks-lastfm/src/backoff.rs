@@ -24,6 +24,7 @@ impl Default for RetryBackoff {
 
 impl RetryBackoff {
     /// A backoff with these limits, in seconds.
+    #[must_use]
     pub fn new(initial: f64, maximum: f64) -> Self {
         Self {
             initial,
@@ -34,18 +35,25 @@ impl RetryBackoff {
     }
 
     /// Failures since the last success.
+    #[must_use]
     pub fn failures(&self) -> u32 {
         self.failures
     }
 
     /// Nothing is tried before this. `None` when the last attempt worked.
+    #[must_use]
     pub fn not_before(&self) -> Option<f64> {
         self.not_before
     }
 
     /// Whether it's time to try again.
+    ///
+    /// A wait that ends further off than the longest one could was set while the clock was
+    /// ahead, or the clock has since been put back, so it no longer holds anything up.
+    #[must_use]
     pub fn allows(&self, now: f64) -> bool {
-        self.not_before.is_none_or(|not_before| now >= not_before)
+        self.not_before
+            .is_none_or(|not_before| now >= not_before || not_before - now > self.maximum)
     }
 
     /// Records a failure at `now`; the wait is measured from it.

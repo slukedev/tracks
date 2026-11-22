@@ -21,6 +21,9 @@ struct LoadingRows: View {
         }
         .accessibilityElement()
         .accessibilityLabel(Text("Loading"))
+        #if os(iOS)
+        .listRowBackground(Color.clear)
+        #endif
     }
 
     /// Titles of different lengths, so the rows read as a list rather than a pattern.
@@ -78,5 +81,8 @@ struct LoadMoreFailedRow: View {
                 .controlSize(.small)
         }
         .frame(minHeight: LoadingRow.height)
+        #if os(iOS)
+        .listRowBackground(Color.clear)
+        #endif
     }
 }

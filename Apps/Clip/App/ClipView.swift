@@ -33,7 +33,7 @@ struct ClipView: View {
                     Label("Joining SharePlay", systemImage: "shareplay")
                 } description: {
                     Text(session.isSlowToConnect
-                        ? "Still connecting. Check that you're online, and that the iPhone that's playing is too."
+                        ? "Still connecting. Check that both iPhones are online."
                         : "Connecting to the iPhone that's playing.")
                 } actions: {
                     ProgressView()
@@ -45,7 +45,7 @@ struct ClipView: View {
                     Text("Songs you added stay in their Up Next.")
                 } actions: {
                     Button("Get Tracks") { model.offersTracks = true }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                 }
             case .joined:
                 ClipJoinedView(model: model, session: session)
@@ -54,7 +54,7 @@ struct ClipView: View {
             ContentUnavailableView {
                 Label("Scan a SharePlay Code", systemImage: "qrcode.viewfinder")
             } description: {
-                Text("Open the Camera and point it at the code on the car's screen, or on the iPhone that's playing.")
+                Text("Point the Camera at the code on the car's screen or the iPhone that's playing.")
             }
         }
     }
@@ -118,10 +118,10 @@ private struct ClipJoinedView: View {
     private var notice: (text: LocalizedStringKey, symbol: String)? {
         guard let snapshot else { return nil }
         if snapshot.isStation {
-            return ("A station is playing on their iPhone, so there's no queue to add to. You can add songs once they play something else.", "dot.radiowaves.left.and.right")
+            return ("A station is playing, so there's no Up Next to add to.", "dot.radiowaves.left.and.right")
         }
         if snapshot.source == .yourMusic {
-            return ("Their iPhone is playing its own music, so it adds the songs it has.", "music.note.house")
+            return ("Their iPhone is playing its own music, so only songs it has are added.", "music.note.house")
         }
         return nil
     }
@@ -134,7 +134,7 @@ private struct ClipJoinedView: View {
                     .font(.title3.bold())
                     .accessibilityAddTraits(.isHeader)
                 if snapshot.upNext.isEmpty {
-                    Text("Nothing's queued after this song. Search for one to play next.")
+                    Text("Search for a song to play next.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -176,6 +176,7 @@ private struct ClipJoinedView: View {
         } else if model.results.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel("Searching")
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
@@ -402,17 +403,15 @@ private struct ClipLibraryCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Add From Your Library", systemImage: "music.note.list")
                 .font(.headline)
-            Text("With Tracks, you can also pick songs from your Apple Music library and playlists.")
+            Text("Pick songs from your library and playlists with Tracks.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Get Tracks", action: getTracks)
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .padding(.top, 4)
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.fill.quinary, in: .rect(cornerRadius: 16, style: .continuous))
     }
 }
 

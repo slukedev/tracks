@@ -150,7 +150,7 @@ struct SharePlayLibraryPageView: View {
                         SharePlayResultRow(song: song)
                     }
                 }
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 .padding(.vertical, 12)
             }
         } else {
@@ -183,7 +183,7 @@ struct SharePlayLibraryPageView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 .padding(.vertical, 12)
             }
         } else {

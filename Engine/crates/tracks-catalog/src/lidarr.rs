@@ -60,10 +60,12 @@ pub struct AddOptions {
 }
 
 impl Lidarr {
-    /// A client for Lidarr at `base` (`http://nas:8686`), with its API key.
+    /// A client for Lidarr at `base` (`http://nas:8686`), with its API key. The address is
+    /// read as [`base_url`] reads it; one that can't be Lidarr's is kept as typed, so its
+    /// requests fail as an unreachable address rather than reach somewhere else.
     pub fn new(base: &str, key: &str) -> Self {
         Self {
-            base: base.trim().trim_end_matches('/').to_owned(),
+            base: base_url(base).unwrap_or_else(|| base.trim().trim_end_matches('/').to_owned()),
             key: key.trim().to_owned(),
         }
     }
@@ -146,11 +148,19 @@ impl Lidarr {
         )
     }
 
-    /// What's downloading or waiting to be filed.
+    /// What's downloading or waiting to be filed: its first page.
     pub fn queue(&self) -> Request {
+        self.queue_page(1)
+    }
+
+    /// One page of the queue, from 1, of [`QUEUE_PAGE_SIZE`] items. A discography searched
+    /// for at once queues hundreds; [`QueuePage::next`] says whether to ask for another.
+    pub fn queue_page(&self, page: u32) -> Request {
+        let page = page.max(1).to_string();
+        let size = QUEUE_PAGE_SIZE.to_string();
         self.get(
             "queue",
-            &[("page", "1"), ("pageSize", "100"), ("includeArtist", "true"), ("includeAlbum", "true")],
+            &[("page", &page), ("pageSize", &size), ("includeArtist", "true"), ("includeAlbum", "true")],
         )
     }
 
@@ -173,6 +183,50 @@ impl Lidarr {
         request.body = serde_json::to_vec(body).unwrap_or_default();
         request
     }
+}
+
+/// Items asked for in each page of the queue.
+pub const QUEUE_PAGE_SIZE: u32 = 100;
+/// Pages of the queue read at most, so a queue gone wrong on the server isn't read without end.
+pub const QUEUE_PAGE_LIMIT: u32 = 10;
+
+/// Lidarr's address as someone types it: `http://` added when there's no scheme, since
+/// Lidarr is almost always on the home network, the API's own path dropped when it's pasted
+/// with it, and trailing slashes gone. `None` for an empty address or one that isn't http or
+/// https.
+pub fn base_url(text: &str) -> Option<String> {
+    let text = text.trim();
+    // Split before the slashes go, so "http://" alone isn't read as a host named "http:".
+    let with_scheme = match text.split_once("://") {
+        Some((scheme, rest)) => {
+            let rest = rest.trim_end_matches('/');
+            let scheme = scheme.to_ascii_lowercase();
+            if (scheme != "http" && scheme != "https") || rest.is_empty() {
+                return None;
+            }
+            format!("{scheme}://{rest}")
+        }
+        None => {
+            let trimmed = text.trim_end_matches('/');
+            if trimmed.is_empty() {
+                return None;
+            }
+            format!("http://{trimmed}")
+        }
+    };
+    let mut base = with_scheme.as_str();
+    for suffix in ["/api/v1", "/api"] {
+        if base.len() > suffix.len() && base[base.len() - suffix.len()..].eq_ignore_ascii_case(suffix) {
+            base = &base[..base.len() - suffix.len()];
+            break;
+        }
+    }
+    let base = base.trim_end_matches('/');
+    let host = base.split_once("://").map_or("", |(_, rest)| rest);
+    if host.is_empty() || host.starts_with('/') {
+        return None;
+    }
+    Some(base.to_owned())
 }
 
 #[derive(Serialize)]
@@ -264,7 +318,18 @@ fn picture(images: &[Image], preferred: &str) -> Option<String> {
         .iter()
         .find(|i| i.cover_type == preferred)
         .or_else(|| images.first())
-        .and_then(|i| i.remote_url.clone())
+        .and_then(|i| i.remote_url.as_deref())
+        .map(encrypted)
+}
+
+/// A picture's address over https: Lidarr passes on some from image hosts as plain http,
+/// which every one of them also serves encrypted, and the apps load nothing from the
+/// internet unencrypted.
+fn encrypted(url: &str) -> String {
+    match url.get(..7) {
+        Some(scheme) if scheme.eq_ignore_ascii_case("http://") => format!("https://{}", &url[7..]),
+        _ => url.to_owned(),
+    }
 }
 
 /// An artist: one Lidarr follows (with an id) or a search result it doesn't yet.
@@ -452,9 +517,23 @@ impl From<RawQueueItem> for LidarrQueueItem {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Page<T> {
     #[serde(default = "Vec::new")]
     records: Vec<T>,
+    #[serde(default, rename = "page")]
+    number: Option<u32>,
+    #[serde(default)]
+    total_records: Option<u64>,
+}
+
+/// One page of the queue, and whether there's another.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueuePage {
+    pub items: Vec<LidarrQueueItem>,
+    /// The page to ask for next, or `None` once this is the last or [`QUEUE_PAGE_LIMIT`] is
+    /// reached.
+    pub next: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -519,7 +598,23 @@ pub fn parse_tracks(response: &Response) -> Result<Vec<LidarrTrack>> {
 }
 
 pub fn parse_queue(response: &Response) -> Result<Vec<LidarrQueueItem>> {
-    decode::<Page<RawQueueItem>>(response).map(|page| page.records.into_iter().map(Into::into).collect())
+    parse_queue_page(response, 1).map(|page| page.items)
+}
+
+/// A page of the queue, asked for as page `asked`. A short page is the last whatever the
+/// total says, since the queue moves while it's read.
+pub fn parse_queue_page(response: &Response, asked: u32) -> Result<QueuePage> {
+    let page = decode::<Page<RawQueueItem>>(response)?;
+    let number = page.number.unwrap_or(asked).max(1);
+    let full = page.records.len() >= QUEUE_PAGE_SIZE as usize;
+    let more_by_total = page
+        .total_records
+        .is_none_or(|total| u64::from(number) * u64::from(QUEUE_PAGE_SIZE) < total);
+    let next = (full && more_by_total && number < QUEUE_PAGE_LIMIT).then_some(number + 1);
+    Ok(QueuePage {
+        items: page.records.into_iter().map(Into::into).collect(),
+        next,
+    })
 }
 
 // MARK: - Reading what Lidarr has

@@ -51,7 +51,8 @@ extension SubsonicClient: MusicServerClient {
     }
 
     /// Subsonic takes one play at a time, and has no way to send one without its song. Plays
-    /// sent before one fails are answered for, so they aren't sent twice.
+    /// sent before one fails are answered for, so they aren't sent twice. A song the server
+    /// no longer has is let go of, so it can't hold back the plays behind it for good.
     public func submitListens(_ listens: [ServerListen]) async throws -> [String: ServerListenStatus] {
         var results: [String: ServerListenStatus] = [:]
         for listen in listens {
@@ -61,6 +62,9 @@ extension SubsonicClient: MusicServerClient {
             }
             do {
                 try await scrobble(songID: songID, at: listen.startedAt, submission: true)
+            } catch SubsonicError.notFound {
+                results[listen.id] = .rejected
+                continue
             } catch {
                 if results.isEmpty { throw error }
                 break

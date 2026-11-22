@@ -16,8 +16,6 @@ struct YourMusicScreen: View {
     @AppStorage(PlayPreferences.tracksRadioKey) private var isRadioOn = true
     @AppStorage(SuggestionMode.storageKey) private var suggestionMode = SuggestionMode.everything
     @AppStorage(PlayPreferences.layoutKey) private var storedLayout = ""
-    @AppStorage(NearbyDevices.storageKey) private var showsDevices = true
-    @State private var showsSettings = LaunchScene.opensPlaySettings
     @State private var importMode: ImportMode?
     @State private var addsServer = false
     /// A server whose password needs typing again.
@@ -29,12 +27,18 @@ struct YourMusicScreen: View {
     var body: some View {
         ScrollView {
             // Lazy, so shelves below the fold are made, and ask their servers, as they come.
-            LazyVStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
+            LazyVStack(alignment: .leading, spacing: Design.Margin.section) {
+                #if os(macOS)
+                Text("Listen Now")
+                    .font(.pageTitle)
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.horizontal, Design.Margin.page)
+                #endif
                 if !music.index.isEmpty {
                     content
                 } else if !music.servers.syncing.isEmpty || (!music.hasScanned && music.servers.servers.isEmpty) {
                     // Reading the files, or a server's first sync.
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Design.Spacing.small) {
                         if !music.servers.syncing.isEmpty {
                             Label("Getting your server's songs…", systemImage: "arrow.triangle.2.circlepath")
                                 .font(.subheadline)
@@ -42,7 +46,7 @@ struct YourMusicScreen: View {
                         }
                         LoadingRows(count: 6)
                     }
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
                 } else if !music.servers.onlineServers.isEmpty {
                     // A server that answered with no songs, as one that finds songs elsewhere
                     // often does: what it picks for you leads, to play and add.
@@ -54,53 +58,39 @@ struct YourMusicScreen: View {
                         importFolder: { importMode = .folder },
                         addServer: { addsServer = true }
                     )
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
                 }
             }
             #if os(macOS)
-            .padding(.top, 20)
+            .padding(.top, Design.Spacing.xLarge)
             #else
-            .padding(.top, 4)
+            .padding(.top, Design.Spacing.xSmall)
             #endif
-            .padding(.bottom, 24)
+            .padding(.bottom, Design.Margin.section)
         }
         .launchScroll()
         .overlay(alignment: .top) {
             if let result = music.lastImport {
                 ImportBanner(result: result)
-                    .padding(.top, 8)
+                    .padding(.top, Design.Spacing.small)
                     .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.snappy, value: music.lastImport?.added)
+        .animation(Design.Motion.panel, value: music.lastImport.map { [$0.added, $0.skipped, $0.outOfSpace] })
         #if os(iOS)
-        .navigationTitle("Play")
+        .tabRoot("Play", opensSettingsAtLaunch: LaunchScene.opensPlaySettings) {
+            ToolbarItem(placement: .primaryAction) { addMusicMenu }
+        }
         #else
-        // No title over the page, and its glow meets the top edge until it scrolls under the bar.
+        // The title is in the page, and its glow meets the top edge until it scrolls under the bar.
         .headerUnderBar()
-        #endif
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                #if os(iOS)
-                if showsDevices { DevicesButton() }
-                #endif
-                Menu("Add Music", systemImage: "plus") {
-                    Button("Import Songs", systemImage: "music.note") { importMode = .files }
-                    Button("Import a Folder", systemImage: "folder") { importMode = .folder }
-                    #if os(macOS)
-                    Button("Show Music Folder in Finder", systemImage: "folder.badge.gearshape") {
-                        LibraryFolders.prepare()
-                        NSWorkspace.shared.activateFileViewerSelecting([LibraryFolders.music])
-                    }
-                    #endif
-                    Divider()
-                    Button("Connect a Server", systemImage: "server.rack") { addsServer = true }
-                }
-                #if os(iOS)
-                Button("Settings", systemImage: "gearshape") { showsSettings = true }
-                #endif
+            ToolbarItem(placement: .primaryAction) {
+                addMusicMenu
+                    .help("Import songs or connect a server")
             }
         }
+        #endif
         .fileImporter(
             isPresented: Binding(get: { importMode != nil }, set: { if !$0 { importMode = nil } }),
             allowedContentTypes: importMode == .folder ? [.folder] : [.audio],
@@ -110,9 +100,6 @@ struct YourMusicScreen: View {
                 Task { await music.importItems(urls) }
             }
         }
-        #if os(iOS)
-        .sheet(isPresented: $showsSettings) { SettingsSheet() }
-        #endif
         .sheet(isPresented: $addsServer) { ServerForm() }
         .sheet(item: $signingIn) { server in ServerForm(editing: server) }
         .refreshCommand()
@@ -143,6 +130,21 @@ struct YourMusicScreen: View {
         )) {
             guard music.getMore.canGet else { return }
             await music.getMore.loadSuggestions(taste: feed.favoriteArtists.map { GetMoreRanking.Taste(name: $0.name, plays: $0.plays) })
+        }
+    }
+
+    private var addMusicMenu: some View {
+        Menu("Add Music", systemImage: "plus") {
+            Button("Import Songs", systemImage: "music.note") { importMode = .files }
+            Button("Import a Folder", systemImage: "folder") { importMode = .folder }
+            #if os(macOS)
+            Button("Show Music Folder in Finder", systemImage: "folder.badge.gearshape") {
+                LibraryFolders.prepare()
+                NSWorkspace.shared.activateFileViewerSelecting([LibraryFolders.music])
+            }
+            #endif
+            Divider()
+            Button("Connect a Server", systemImage: "server.rack") { addsServer = true }
         }
     }
 
@@ -282,7 +284,7 @@ struct YourMusicScreen: View {
     private var content: some View {
         ForEach(music.servers.servers.filter { ServerProblem(music.servers.status[$0.id]) != nil }) { server in
             ServerProblemCard(server: server, signIn: { signingIn = server })
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
         }
         let sections = layout.visible.filter { $0.isOffered(for: .yourMusic) }
         ForEach(sections) { section in
@@ -324,7 +326,7 @@ struct YourMusicScreen: View {
                 }
             } else if radioHere {
                 TracksRadioRow()
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
             }
         case .recentlyPlayed:
             if !shelves.recentlyPlayed.isEmpty {
@@ -372,7 +374,7 @@ struct YourMusicScreen: View {
             #if os(iOS)
             // The Mac's library is in its sidebar.
             LibraryList()
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
             #endif
         case .appleMusic:
             // What your servers pick for you, and their own shelves, where Apple Music's picks
@@ -416,13 +418,13 @@ private struct ServerProblemCard: View {
 
     var body: some View {
         let problem = ServerProblem(music.servers.status[server.id])
-        HStack(alignment: .center, spacing: 14) {
+        HStack(alignment: .center, spacing: Design.Spacing.medium) {
             Image(systemName: symbol(problem))
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .frame(width: 28)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
                 Text(title(problem))
                     .font(.subheadline.weight(.semibold))
                 Text(message(problem))
@@ -430,11 +432,10 @@ private struct ServerProblemCard: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: Design.Spacing.small)
             if case .wrongPassword = problem {
                 Button(server.isTrackside ? "Pair Again" : "Sign In", action: signIn)
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
+                    .buttonStyle(.glass)
             } else if isRetrying {
                 ProgressView()
                     .frame(minWidth: 44)
@@ -446,12 +447,11 @@ private struct ServerProblemCard: View {
                         isRetrying = false
                     }
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
+                .buttonStyle(.glass)
             }
         }
-        .padding(16)
-        .background(Color.cardFill, in: .rect(cornerRadius: 16, style: .continuous))
+        .padding(Design.Card.padding)
+        .background(Color.cardFill, in: .rect(cornerRadius: Design.Card.radius, style: .continuous))
         .accessibilityElement(children: .contain)
     }
 
@@ -537,26 +537,18 @@ private struct LibraryList: View {
     private static let recentCount = 6
 
     var body: some View {
-        VStack(alignment: .leading, spacing: PlayMetrics.sectionSpacing) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Library")
-                    .font(.title3.bold())
-                    .accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: Design.Margin.section) {
+            VStack(alignment: .leading, spacing: Design.Spacing.xSmall) {
+                ShelfHeader(title: String(localized: "Library"))
                 rows
             }
             let recent = Array(music.index.recentlyAdded.prefix(Self.recentCount))
             if !recent.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Recently Added")
-                            .font(.title3.bold())
-                            .accessibilityAddTraits(.isHeader)
-                        Spacer()
-                        if music.index.albums.count > recent.count {
-                            NavigationLink("See All", value: PlayRoute.yourMusic(.recentlyAdded))
-                                .font(.subheadline)
-                        }
-                    }
+                VStack(alignment: .leading, spacing: Design.Margin.header) {
+                    ShelfHeader(
+                        title: String(localized: "Recently Added"),
+                        route: music.index.albums.count > recent.count ? .yourMusic(.recentlyAdded) : nil
+                    )
                     LibraryGrid(margin: 0) {
                         ForEach(recent) { album in
                             LocalAlbumGridTile(album: album)
@@ -572,7 +564,7 @@ private struct LibraryList: View {
             ForEach(lists) { list in
                 row(list.title, symbol: list.symbol, route: .yourMusic(list), status: status(of: list))
                 if list != lists.last || lidarr.isSetUp {
-                    Divider().padding(.leading, 58)
+                    Divider().padding(.leading, Self.textInset)
                 }
             }
             if lidarr.isSetUp {
@@ -584,9 +576,10 @@ private struct LibraryList: View {
                 )
             }
         }
-        .background(Color.cardFill)
-        .clipShape(.rect(cornerRadius: 16, style: .continuous))
     }
+
+    /// Where a row's words start, for the rule under it: Music's library list, on the page.
+    private static let textInset: CGFloat = 28 + Design.Spacing.medium
 
     /// Music's order, Playlists, Artists, Albums, Songs, then Downloads once there's a server
     /// to download from or anything downloaded.
@@ -605,10 +598,10 @@ private struct LibraryList: View {
 
     private func row(_ title: LocalizedStringKey, symbol: String, route: PlayRoute, status: String?) -> some View {
         NavigationLink(value: route) {
-            HStack(spacing: 14) {
+            HStack(spacing: Design.Spacing.medium) {
                 Image(systemName: symbol)
-                    .font(.body)
-                    .foregroundStyle(.tint)
+                    .font(.title3)
+                    .foregroundStyle(.primary)
                     .frame(width: 28)
                 Text(title)
                     .foregroundStyle(.primary)
@@ -623,11 +616,10 @@ private struct LibraryList: View {
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 16)
             .frame(minHeight: 48)
             .contentShape(.rect)
         }
-        .buttonStyle(RowButtonStyle())
+        .buttonStyle(.pressable)
     }
 }
 #endif
@@ -641,38 +633,32 @@ private struct YourMusicWelcome: View {
     let addServer: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: -10) {
-                ForEach(["waveform", "folder.fill", "server.rack"], id: \.self) { symbol in
-                    Image(systemName: symbol)
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 56, height: 56)
-                        .background(Color.accentColor.gradient, in: .circle)
-                        .overlay { Circle().stroke(Color.cardFill, lineWidth: 3) }
-                }
-            }
-            .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Design.Spacing.large) {
+            Image(systemName: hasServers ? "wifi.exclamationmark" : "music.note.house")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Design.Spacing.small) {
                 Text(title)
                     .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
                 Text(message)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            VStack(spacing: 10) {
+            VStack(spacing: Design.Spacing.medium) {
                 Button(action: importFiles) {
-                    Label("Import Songs", systemImage: "music.note").frame(maxWidth: .infinity)
+                    Label("Import Songs", systemImage: "music.note").frame(maxWidth: Self.buttonWidth)
                 }
-                .buttonStyle(.borderedProminent)
-                Button(action: importFolder) {
-                    Label("Import a Folder", systemImage: "folder").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glassProminent)
                 Button(action: addServer) {
-                    Label("Connect a Server", systemImage: "server.rack").frame(maxWidth: .infinity)
+                    Label("Connect a Server", systemImage: "server.rack").frame(maxWidth: Self.buttonWidth)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
+                Button(action: importFolder) {
+                    Label("Import a Folder", systemImage: "folder").frame(maxWidth: Self.buttonWidth)
+                }
+                .buttonStyle(.glass)
             }
             .controlSize(.large)
             .buttonBorderShape(.capsule)
@@ -681,52 +667,75 @@ private struct YourMusicWelcome: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(22)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.cardFill, in: .rect(cornerRadius: Metrics.cardRadius, style: .continuous))
+        .frame(maxWidth: 560, alignment: .leading)
+        .padding(.top, Design.Spacing.xLarge)
     }
 
+    #if os(macOS)
+    private static let buttonWidth: CGFloat = 240
+    #else
+    private static let buttonWidth: CGFloat = .infinity
+    #endif
+
     private var title: LocalizedStringKey {
-        hasServers ? "Nothing Here Yet" : "Your Music, Your Way"
+        hasServers ? "Can't Reach Your Server" : "Add Your Music"
     }
 
     private var folderNote: LocalizedStringKey {
         #if os(macOS)
-        "You can also drop music into the Tracks Music folder, which Add Music shows in Finder. FLAC, ALAC, MP3, AAC, WAV and AIFF all play."
+        "Or drop songs into the Tracks Music folder, which Add Music shows in Finder. FLAC, ALAC, MP3, AAC, WAV and AIFF all play."
         #else
-        "You can also drop music into On My iPhone › Tracks › Music in the Files app. FLAC, ALAC, MP3, AAC, WAV and AIFF all play."
+        "Or drop songs into On My iPhone › Tracks › Music in the Files app. FLAC, ALAC, MP3, AAC, WAV and AIFF all play."
         #endif
     }
 
     private var message: LocalizedStringKey {
         #if os(macOS)
         hasServers
-            ? "Your server can't be reached right now. Try again from Settings, or import songs to this Mac."
-            : "Play the FLAC and other files you own, and music from your own server. Every song you play is kept in your history, with Tracks Radio, mixes and moods made from all of it."
+            ? "Try again from Settings, or import songs to this Mac."
+            : "Import songs you own, or connect your music server."
         #else
         hasServers
-            ? "Your server can't be reached right now. Pull down to try again, or import songs to this iPhone."
-            : "Play the FLAC and other files you own, and music from your own server. Every song you play is kept in your history, with Tracks Radio, mixes and moods made from all of it."
+            ? "Pull down to try again, or import songs to this iPhone."
+            : "Import songs you own, or connect your music server."
         #endif
     }
 }
 
-/// "Added 12 songs", for a moment after an import.
+/// "Added 12 songs", for a moment after an import, and what didn't fit if some didn't.
 private struct ImportBanner: View {
     let result: FileScanner.ImportResult
 
     var body: some View {
-        Label(message, systemImage: result.added > 0 ? "checkmark.circle.fill" : "info.circle.fill")
-            .font(.subheadline.weight(.semibold))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .glassEffect(.regular, in: .capsule)
+        Label {
+            VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
+                Text(message)
+                if result.outOfSpace > 0, result.added > 0 {
+                    Text("Not enough space for some songs.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } icon: {
+            Image(systemName: symbol)
+        }
+        .font(.subheadline.weight(.semibold))
+        .padding(.horizontal, Design.Spacing.large)
+        .padding(.vertical, Design.Spacing.medium)
+        .glassEffect(.regular, in: .capsule)
+        .padding(.horizontal, Design.Margin.page)
+    }
+
+    private var symbol: String {
+        if result.added > 0 { return "checkmark.circle.fill" }
+        return result.outOfSpace > 0 ? "externaldrive.badge.exclamationmark" : "info.circle.fill"
     }
 
     private var message: String {
         if result.added > 0 {
             return String(AttributedString(localized: "Added ^[\(result.added) song](inflect: true)").characters)
         }
+        if result.outOfSpace > 0 { return String(localized: "Not enough space for some songs.") }
         return result.skipped > 0 ? String(localized: "Already in your music") : String(localized: "No songs found to add")
     }
 }

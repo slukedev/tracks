@@ -258,3 +258,29 @@ fn only_a_last_fm_rejection_of_the_request_is_the_scrobbles_fault() {
         assert!(!error.is_retryable(), "{error:?}");
     }
 }
+
+#[test]
+fn last_fms_own_try_again_is_retryable_and_costs_the_scrobbles_nothing() {
+    let operation_failed = LastFmError::Service {
+        code: 8,
+        message: "Operation failed - Most likely the backend service failed. Please try again."
+            .to_owned(),
+    };
+    assert!(operation_failed.is_retryable());
+    assert!(!operation_failed.is_the_scrobbles_fault());
+    assert!(!operation_failed.is_account_problem());
+}
+
+#[test]
+fn only_invalid_parameters_and_invalid_resource_are_the_scrobbles_fault() {
+    let fault: Vec<i64> = (0..100)
+        .filter(|&code| {
+            LastFmError::Service {
+                code,
+                message: String::new(),
+            }
+            .is_the_scrobbles_fault()
+        })
+        .collect();
+    assert_eq!(fault, [6, 7]);
+}

@@ -55,6 +55,17 @@ struct RetryBackoffTests {
         #expect(backoff.allows(at: t0.addingTimeInterval(offset)) == allowed)
     }
 
+    /// The 30 second wait set at `t0`, seen from a clock put back by `shift`: only a wait
+    /// ending more than the maximum away gives it away.
+    @Test("a wait set while the clock was ahead doesn't hold once it's put back", arguments: [
+        (0.0, false), (-870.0, false), (-871.0, true), (-30.0 * 86_400, true),
+    ])
+    func clockPutBack(shift: TimeInterval, allowed: Bool) {
+        var backoff = RetryBackoff()
+        backoff.recordFailure(at: t0)
+        #expect(backoff.allows(at: t0.addingTimeInterval(shift)) == allowed)
+    }
+
     @Test("many failures in a row never overflow the maximum", arguments: [100, 10_000])
     func noOverflow(count: Int) throws {
         var backoff = RetryBackoff()

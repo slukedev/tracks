@@ -21,7 +21,7 @@ struct SessionsCard: View {
                         x: .value("Length", String(entry.length.rawValue)),
                         y: .value("Sessions", entry.count)
                     )
-                    .foregroundStyle(Color.accentColor.gradient)
+                    .foregroundStyle(Color.accentColor)
                     .cornerRadius(4)
                     .accessibilityLabel(entry.length.spokenLabel)
                     .accessibilityValue(Text("^[\(entry.count) session](inflect: true)"))

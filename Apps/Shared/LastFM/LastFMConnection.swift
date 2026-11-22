@@ -72,7 +72,10 @@ final class LastFMConnection {
                     if Task.isCancelled { return }
                     do {
                         let session = try await client.session(for: token)
-                        LastFMSessionStore.save(session)
+                        guard LastFMSessionStore.save(session) else {
+                            self?.state = .failed(String(localized: "Couldn’t save your Last.fm account on this device. Try again."))
+                            return
+                        }
                         self?.state = .connected(username: session.username)
                         return
                     } catch LastFMError.notAuthorised {

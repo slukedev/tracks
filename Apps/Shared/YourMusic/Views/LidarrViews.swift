@@ -170,7 +170,13 @@ struct LidarrConnectForm: View {
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if isInsecure {
+                    Label(MusicServers.insecureAddressReason, systemImage: "lock.open")
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .animation(Design.Motion.fade, value: isInsecure)
             .formStyle(.columns)
             .padding(.horizontal, 20)
             HStack(spacing: 8) {
@@ -207,12 +213,13 @@ struct LidarrConnectForm: View {
                             Label(problem, systemImage: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.red)
                         }
-                        #if os(macOS)
-                        Text("Find the API key in Lidarr under Settings › General. It's kept in this Mac's keychain, and sent only to your Lidarr.")
-                        #else
+                        if isInsecure {
+                            Label(MusicServers.insecureAddressReason, systemImage: "lock.open")
+                                .foregroundStyle(.red)
+                        }
                         Text("Find the API key in Lidarr under Settings › General. It's kept in this iPhone's Keychain, and sent only to your Lidarr.")
-                        #endif
                     }
+                    .animation(Design.Motion.fade, value: isInsecure)
                 }
             }
             .navigationTitle("Connect Lidarr")
@@ -238,7 +245,12 @@ struct LidarrConnectForm: View {
     }
 
     private var canConnect: Bool {
-        LidarrServer.address(from: address) != nil && !key.trimmingCharacters(in: .whitespaces).isEmpty
+        LidarrServer.address(from: address) != nil && !isInsecure && !key.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Plain http to anywhere but the home network, which Tracks never sends a key over.
+    private var isInsecure: Bool {
+        LidarrServer.address(from: address).map(ServerAddress.isExposed) ?? false
     }
 
     private func fill() {
@@ -356,7 +368,7 @@ struct LidarrPage: View {
                             Task { player.confirm(await lidarr.search(albums: [album.id])) }
                         }
                         .labelStyle(.iconOnly)
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                         .buttonBorderShape(.circle)
                         .accessibilityLabel("Search for \(album.title)")
                     }
@@ -387,7 +399,7 @@ struct LidarrPage: View {
                 ForEach(Section.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
             .padding(.vertical, 8)
         }
         #endif
@@ -421,7 +433,7 @@ struct LidarrPage: View {
         } actions: {
             if section == .artists, lidarr.isConnected {
                 Button("Add Artist") { addsArtist = true }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
             }
         }
     }
@@ -748,7 +760,7 @@ struct LidarrArtistPage: View {
                 }
                 if !hasLoaded {
                     LoadingRows(count: 5)
-                        .padding(.horizontal, PlayMetrics.margin)
+                        .padding(.horizontal, Design.Margin.page)
                 } else {
                     VStack(spacing: 0) {
                         ForEach(albums) { album in
@@ -760,7 +772,7 @@ struct LidarrArtistPage: View {
                             }
                         }
                     }
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
                 }
             }
         }
@@ -797,7 +809,7 @@ struct LidarrArtistPage: View {
             Button("Search") {
                 run(album) { await lidarr.search(albums: [album.id]) }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
             .buttonBorderShape(.capsule)
             .controlSize(rowControlSize)
             .help("Ask Lidarr to Search for \(album.title)")
@@ -805,7 +817,7 @@ struct LidarrArtistPage: View {
             Button("Get") {
                 run(album) { await lidarr.request(album: album.title, by: artist) }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
             .buttonBorderShape(.capsule)
             .controlSize(rowControlSize)
             .help("Get \(album.title) with Lidarr")
@@ -856,7 +868,7 @@ private struct LidarrOverview: View {
                     .font(.callout.weight(.semibold))
             }
         }
-        .padding(.horizontal, PlayMetrics.margin)
+        .padding(.horizontal, Design.Margin.page)
     }
 }
 
@@ -908,7 +920,7 @@ struct LidarrAddArtistSheet: View {
             HStack {
                 Spacer()
                 Button("Done") { dismiss() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
             }
             .padding(20)
@@ -979,7 +991,7 @@ struct LidarrAddArtistSheet: View {
                     .accessibilityLabel("Already Following")
             } else {
                 Button("Add") { add(artist) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
                     .help("Add \(artist.artistName) to Lidarr")
@@ -1058,3 +1070,12 @@ struct GetWithLidarrButton: View {
         }
     }
 }
+
+#if DEBUG && os(macOS)
+#Preview("Connect Lidarr") {
+    // Sample data, so the preview never opens the real store or Keychain.
+    UserDefaults.standard.setVolatileDomain(["TracksDemoData": true], forName: UserDefaults.argumentDomain)
+    return LidarrConnectForm()
+        .environment(AppModel().lidarr)
+}
+#endif

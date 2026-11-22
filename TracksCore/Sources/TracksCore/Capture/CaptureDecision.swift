@@ -44,6 +44,9 @@ public enum CaptureDecision: Sendable, Equatable {
         /// Playing, but not long enough to count yet. The caller uses `needs` to know when
         /// to check again.
         case tooShort(playedFor: TimeInterval, needs: TimeInterval)
+        /// Passed every check, but the store couldn't save it, as on a full disk. Nothing was
+        /// kept, so the next observation of the song tries again.
+        case saveFailed
     }
 
     public var isCapture: Bool {

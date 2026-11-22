@@ -551,8 +551,9 @@ final class PlayerModel {
         add { try await Self.addToAppleMusicLibrary(song) }
     }
 
-    func addToLibrary(_ album: Album) {
-        add {
+    /// `failed` runs if it couldn't be added, so a button that showed it added can take that back.
+    func addToLibrary(_ album: Album, failed: @escaping () -> Void = {}) {
+        add(failed: failed) {
             #if os(iOS)
             try await MusicLibrary.shared.add(album)
             #else
@@ -561,8 +562,8 @@ final class PlayerModel {
         }
     }
 
-    func addToLibrary(_ playlist: Playlist) {
-        add {
+    func addToLibrary(_ playlist: Playlist, failed: @escaping () -> Void = {}) {
+        add(failed: failed) {
             #if os(iOS)
             try await MusicLibrary.shared.add(playlist)
             #else
@@ -669,13 +670,14 @@ final class PlayerModel {
         return response.data
     }
 
-    private func add(_ work: @escaping () async throws -> Void) {
+    private func add(failed: @escaping () -> Void = {}, _ work: @escaping () async throws -> Void) {
         Task {
             do {
                 try await MusicKitPlayerEngine.checkAccess()
                 try await work()
                 confirm(String(localized: "Added to Library"))
             } catch {
+                failed()
                 report(error, couldnt: String(localized: "Couldn't Add to Library"))
             }
         }
@@ -1724,12 +1726,14 @@ final class PlayerModel {
     // MARK: - Saving
 
     /// Saves songs from the history to the Apple Music library as a new playlist.
-    func saveAsPlaylist(named name: String, songs: [HistorySong]) {
+    /// `failed` runs if it couldn't be saved, so a button that showed it saved can take that back.
+    func saveAsPlaylist(named name: String, songs: [HistorySong], failed: @escaping () -> Void = {}) {
         Task {
             do {
                 try await MusicKitPlayerEngine.checkAccess()
                 let found = try await MusicKitPlaybackService.songs(for: songs.map(\.songID).filter { !$0.isEmpty })
                 guard !found.isEmpty else {
+                    failed()
                     problem = .nothingToPlay
                     return
                 }
@@ -1744,6 +1748,7 @@ final class PlayerModel {
                 #endif
                 confirm(String(localized: "Saved to Your Library"))
             } catch {
+                failed()
                 report(error, couldnt: String(localized: "Couldn't Save Playlist"))
             }
         }

@@ -118,7 +118,7 @@ private struct AlbumTrackRow: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.horizontal, Metrics.cardPadding)
+        .padding(.horizontal, Design.Card.padding)
         .padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
@@ -153,7 +153,7 @@ struct SongInfoArtistSection: View {
             Card(padding: 0) {
                 VStack(spacing: 0) {
                     ForEach(rows.indices, id: \.self) { index in
-                        if index > 0 { InsetDivider(inset: Metrics.cardPadding + Self.coverSize + 12) }
+                        if index > 0 { InsetDivider(inset: Design.Card.padding + Self.coverSize + 12) }
                         TopSongRow(subject: rows[index].subject, mix: rows[index].mix)
                     }
                 }
@@ -188,7 +188,7 @@ private struct TopSongRow: View {
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, Metrics.cardPadding)
+            .padding(.horizontal, Design.Card.padding)
             .padding(.vertical, 8)
             .contentShape(.rect)
         }

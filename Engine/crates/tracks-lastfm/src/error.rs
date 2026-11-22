@@ -33,9 +33,13 @@ pub enum LastFmError {
     MalformedResponse,
 }
 
-/// Service codes worth trying again later: 11 service offline, 16 temporarily unavailable,
-/// 29 rate limit.
-const RETRYABLE_CODES: [i64; 3] = [11, 16, 29];
+/// Service codes worth trying again later: 8 operation failed (Last.fm's own "try again"),
+/// 11 service offline, 16 temporarily unavailable, 29 rate limit.
+const RETRYABLE_CODES: [i64; 4] = [8, 11, 16, 29];
+
+/// Service codes about what a request carried: 6 invalid parameters, 7 invalid resource.
+/// Any other code says nothing about the scrobbles in it.
+const REQUEST_CONTENT_CODES: [i64; 2] = [6, 7];
 
 /// Service codes about the build's credentials or the account: 4 authentication failed,
 /// 9 invalid session key, 10 invalid API key, 13 invalid signature, 14 and 15 token not
@@ -44,6 +48,7 @@ const ACCOUNT_CODES: [i64; 7] = [4, 9, 10, 13, 14, 15, 26];
 
 impl LastFmError {
     /// Whether trying again later could succeed.
+    #[must_use]
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::Http { status } => *status == 429 || *status >= 500,
@@ -60,6 +65,7 @@ impl LastFmError {
     ///
     /// Not retryable, but not the songs' fault either: charging them an attempt would give up
     /// on a whole queue of listening because a session was revoked.
+    #[must_use]
     pub fn is_account_problem(&self) -> bool {
         match self {
             Self::NotConfigured | Self::NotConnected | Self::NotAuthorised => true,
@@ -68,13 +74,15 @@ impl LastFmError {
         }
     }
 
-    /// Whether a failed scrobble request says something about the scrobbles in it, so each
-    /// is charged an attempt.
+    /// Whether a failed scrobble request says something about the scrobbles in it.
     ///
-    /// Only an error Last.fm itself sent back counts. An outage, a rate limit, the account,
-    /// a proxy's bare 4xx or a page that isn't Last.fm's would fail any request.
+    /// Only Last.fm refusing what the request carried counts. An outage, a rate limit, the
+    /// account, a code this crate doesn't know, a proxy's bare 4xx or a page that isn't
+    /// Last.fm's would fail any request, and charging the rows for it would give up on
+    /// listening because of something no song did.
+    #[must_use]
     pub fn is_the_scrobbles_fault(&self) -> bool {
-        matches!(self, Self::Service { .. }) && !self.is_retryable() && !self.is_account_problem()
+        matches!(self, Self::Service { code, .. } if REQUEST_CONTENT_CODES.contains(code))
     }
 }
 

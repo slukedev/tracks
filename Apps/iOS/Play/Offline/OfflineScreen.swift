@@ -24,7 +24,6 @@ struct OfflineScreen: View {
     @Environment(PlayerModel.self) private var player
     @Environment(PlayFeed.self) private var feed
     @Environment(DownloadedSongs.self) private var downloads
-    @State private var showsSettings = LaunchScene.opensPlaySettings
     /// The mixes and most played shelves, worked out off the main actor when the downloads
     /// or the history's mixes change.
     @State private var shelves = OfflineShelves()
@@ -34,37 +33,28 @@ struct OfflineScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: Design.Margin.section) {
                 OfflineBanner()
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
 
                 if !model.isShowingSampleData, model.musicAuthorization != .authorized {
                     PlayAccessCard()
-                        .padding(.horizontal, PlayMetrics.margin)
+                        .padding(.horizontal, Design.Margin.page)
                 } else if downloads.songs.isEmpty {
                     if downloads.hasLoaded {
                         emptyState
-                            .padding(.horizontal, PlayMetrics.margin)
+                            .padding(.horizontal, Design.Margin.page)
                     } else {
                         LoadingRows(count: 6)
-                            .padding(.horizontal, PlayMetrics.margin)
+                            .padding(.horizontal, Design.Margin.page)
                     }
                 } else {
                     content
                 }
             }
-            .padding(.top, 4)
-            .padding(.bottom, 24)
+            .padding(.bottom, Design.Margin.section)
         }
-        .navigationTitle("Play")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Settings", systemImage: "gearshape") { showsSettings = true }
-            }
-        }
-        .sheet(isPresented: $showsSettings) {
-            SettingsSheet()
-        }
+        .tabRoot("Play", opensDevicesAtLaunch: true, opensSettingsAtLaunch: LaunchScene.opensPlaySettings)
         .refreshable { await downloads.load() }
         .task(id: feed.hasBuilt) { await downloads.loadIfNeeded() }
         .task(id: OfflineShelves.Key(downloads: downloads.revision, feed: feed.rebuilds)) {
@@ -81,7 +71,7 @@ struct OfflineScreen: View {
     private var content: some View {
         let songs = downloads.songs
         playButtons(songs)
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
 
         let mixes = shelves.mixes
         if !mixes.isEmpty {
@@ -103,29 +93,19 @@ struct OfflineScreen: View {
         }
 
         allSongs
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
     }
 
     private func playButtons(_ songs: [OfflineSong]) -> some View {
         let context = PlayContext.songs(String(localized: "Downloaded"))
-        return HStack(spacing: 12) {
-            Button {
+        return HStack(spacing: Design.Control.spacing) {
+            PlayButton {
                 player.play(downloads.byTitle.request(), from: context)
-            } label: {
-                Label("Play", systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
             }
-            Button {
+            GlassCircleButton(title: "Shuffle", systemImage: "shuffle") {
                 player.play(songs.request(), from: context, shuffled: true)
-            } label: {
-                Label("Shuffle", systemImage: "shuffle")
-                    .frame(maxWidth: .infinity)
             }
         }
-        .font(.headline)
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 12))
-        .controlSize(.large)
     }
 
     /// Every downloaded song, A to Z, as Music lists songs.
@@ -133,11 +113,8 @@ struct OfflineScreen: View {
         let songs = downloads.byTitle
         let context = PlayContext.songs(String(localized: "Downloaded"))
         return LazyVStack(alignment: .leading, spacing: 0) {
-            ShelfHeader(title: String(localized: "Downloaded Songs")) {
-                Text(songs.count, format: .number)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.bottom, 8)
+            ShelfHeader(title: String(localized: "Downloaded Songs"))
+                .padding(.bottom, Design.Margin.header)
 
             ForEach(songs.enumerated(), id: \.element.id) { index, song in
                 OfflineSongRow(song: song, index: index, songs: songs, context: context)
@@ -148,8 +125,8 @@ struct OfflineScreen: View {
     private var emptyState: some View {
         PlayStateCard(
             symbol: "arrow.down.circle",
-            title: String(localized: "Nothing Downloaded Yet"),
-            message: String(localized: "Songs you download in Apple Music play here without a connection. To download the songs you add to your library from Tracks, turn on Automatic Downloads in Settings › Apps › Music.")
+            title: String(localized: "Nothing Downloaded"),
+            message: String(localized: "Songs you download in Music play here without a connection.")
         ) {
             EmptyView()
         }
@@ -232,34 +209,18 @@ private struct OfflineBanner: View {
 
     var body: some View {
         let isOnline = music.network.isOnline
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: isOnline ? "arrow.down.circle.fill" : "wifi.slash")
-                .font(.title3)
-                .foregroundStyle(.tint)
-                .frame(width: 28)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(isOnline ? "Offline Mode" : "You're Offline")
-                    .font(.headline)
-                Text(isOnline
-                    ? "Only songs downloaded to this iPhone."
-                    : "Playing songs downloaded to this iPhone. Every song is still kept.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        AdaptiveStack(verticalAlignment: .firstTextBaseline, spacing: Design.Spacing.small) {
+            Label(isOnline ? "Offline Mode" : "You're Offline", systemImage: isOnline ? "arrow.down.circle" : "wifi.slash")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
             Spacer(minLength: 0)
             if isOnline {
-                Button("Turn Off") {
-                    withAnimation { isOfflineModeOn = false }
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
+                Button("Turn Off") { isOfflineModeOn = false }
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.borderless)
             }
         }
-        .padding(14)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 16, style: .continuous))
-        .accessibilityElement(children: .combine)
+        .frame(minHeight: Design.Control.minimumTarget)
     }
 }
 
@@ -333,3 +294,9 @@ private struct OfflineSongMenu: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Offline") {
+    PlayPreviewHost { OfflineScreen().environment(DownloadedSongs(isDemo: true) { [] }) }
+}
+#endif

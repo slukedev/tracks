@@ -610,6 +610,8 @@ final class YourMusic {
     /// Playing on, they go once they've played.
     private func downloadForRadio(_ tracks: [LocalTrack]) {
         guard !tracks.isEmpty else { return }
+        for track in tracks { radioOnly.fetched(track.id) }
+        saveRadioOnly()
         isDownloadingForRadio = true
         defer { isDownloadingForRadio = false }
         downloads.download(tracks)
@@ -620,17 +622,15 @@ final class YourMusic {
     /// A download asked for by anything but Tracks Radio is one you want: it stays, even once
     /// the radio has played the song.
     private func downloadsAsked(_ tracks: [LocalTrack]) {
-        guard !isDownloadingForRadio else { return }
-        let identities = Set(tracks.map(\.identity))
-        guard !radioOnly.isDisjoint(with: identities) else { return }
-        radioOnly.subtract(identities)
+        guard !isDownloadingForRadio, radioOnly.asked(tracks.map(\.id)) else { return }
         saveRadioOnly()
     }
 
-    /// Songs, by identity, downloaded only for Tracks Radio to play: with Delete After Playing
-    /// on, their downloads go once they've played. Kept between launches.
-    private(set) var radioOnly: Set<String> = Set(UserDefaults.standard.stringArray(forKey: YourMusic.radioOnlyKey) ?? [])
-    static let radioOnlyKey = "radioOnlyDownloads"
+    /// Downloads, by track id, made only for Tracks Radio to play: with Delete After Playing
+    /// on, they go once they've played. Kept between launches. Builds that kept these by song
+    /// rather than by copy are forgotten, so a download of yours is never taken for one.
+    private(set) var radioOnly = DownloadsForRadio(ids: UserDefaults.standard.stringArray(forKey: YourMusic.radioOnlyKey) ?? [])
+    static let radioOnlyKey = "radioOnlyDownloadIDs"
 
     /// Songs a server found for you, so the player can play them by name, as Tracks Radio does
     /// with Picked for You's.
@@ -886,60 +886,69 @@ extension YourMusic: RadioDownloads {
 
     func prepare(_ song: HistorySong) {
         guard !isDemo, let track = track(for: song).map(resolved), track.isFromServer, fetchUnasked(track) == .download else { return }
-        noteRadioOnly(track.identity)
+        let copies = index.tracks(withIdentity: track.identity).map(\.id) + [track.id]
+        guard DownloadsForRadio.shouldFetch(copies: copies, isOnDevice: { self.downloads.isDownloaded($0) || self.downloads.isDownloading($0) }) else { return }
         downloadForRadio([track])
     }
 
     func finishedPlaying(_ song: HistorySong) -> Bool {
         let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
-        guard PlayPreferences.radioDeletesAfterPlaying, radioOnly.contains(identity) else { return false }
+        let copies = copyIDs(of: song)
+        guard PlayPreferences.radioDeletesAfterPlaying, copies.contains(where: radioOnly.contains) else { return false }
         // One you've put in a playlist since is one you want.
         guard !playlists.all.contains(where: { $0.identities.contains(identity) }) else {
             keep(song)
             return false
         }
-        let ids = index.tracks(withIdentity: identity).map(\.id).filter { downloads.isDownloaded($0) || downloads.isDownloading($0) }
+        let radios = radioOnly.played(copies: copies)
+        saveRadioOnly()
+        let ids = radios.filter { downloads.isDownloaded($0) || downloads.isDownloading($0) }
         guard !ids.isEmpty else { return false }
         downloads.remove(Set(ids))
         return true
     }
 
     func keep(_ song: HistorySong) {
-        let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
-        radioOnly.remove(identity)
-        saveRadioOnly()
+        if radioOnly.asked(copyIDs(of: song)) { saveRadioOnly() }
         guard let track = track(for: song).map(resolved), track.isFromServer, fetchUnasked(track) == .download else { return }
         downloads.download([track])
     }
 
     /// Whether a song was downloaded only to play on Tracks Radio, and goes after it plays.
     func isRadioOnly(_ track: LocalTrack) -> Bool {
-        PlayPreferences.radioDeletesAfterPlaying && radioOnly.contains(track.identity)
+        PlayPreferences.radioDeletesAfterPlaying && (radioOnly.contains(track.id) || radioOnly.contains(resolved(track).id))
     }
 
-    private func noteRadioOnly(_ identity: String) {
-        radioOnly.insert(identity)
-        saveRadioOnly()
+    /// Every copy of a song in your music, by id.
+    private func copyIDs(of song: HistorySong) -> [String] {
+        let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
+        var ids = index.tracks(withIdentity: identity).map(\.id)
+        if let track = track(for: song) { ids += [track.id, resolved(track).id] }
+        return ids
     }
 
     private func saveRadioOnly() {
-        UserDefaults.standard.set(Array(radioOnly), forKey: Self.radioOnlyKey)
+        UserDefaults.standard.set(Array(radioOnly.ids), forKey: Self.radioOnlyKey)
     }
 
     func decline(_ song: HistorySong) {
         let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
-        let copies = index.tracks(withIdentity: identity).map(\.id)
-        let downloading = copies.filter(downloads.isDownloading)
+        let copies = copyIDs(of: song)
+        // Only the radio's own: a download of yours on its way is left be.
+        let downloading = copies.filter { radioOnly.contains($0) && downloads.isDownloading($0) }
         if !downloading.isEmpty { downloads.cancel(Set(downloading)) }
         // No longer the radio's: a download of it you make later is yours, and stays.
-        guard radioOnly.remove(identity) != nil else { return }
+        var released = radioOnly
+        let radios = released.played(copies: copies)
+        guard !radios.isEmpty else { return }
+        radioOnly = released
         saveRadioOnly()
         // One already here only for the radio to play goes, as it would have once played,
         // unless you've put it in a playlist since.
         guard PlayPreferences.radioDeletesAfterPlaying,
               !playlists.all.contains(where: { $0.identities.contains(identity) })
         else { return }
-        let downloaded = copies.filter(downloads.isDownloaded)
+        let downloaded = radios.filter(downloads.isDownloaded)
         if !downloaded.isEmpty { downloads.remove(Set(downloaded)) }
     }
 }

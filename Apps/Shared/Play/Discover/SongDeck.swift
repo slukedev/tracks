@@ -285,26 +285,19 @@ struct SongDeck: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            HStack(spacing: 18) {
-                roundButton("Pass", systemImage: "xmark", size: 52, prominent: false, action: pass)
-                    .help("Pass (→)")
-                    .disabled(position >= suggestions.count - 1)
-                roundButton("Play", systemImage: "play.fill", size: 68, prominent: true) { play(suggestion) }
-                    .help("Play (Return)")
-                roundButton(picks.contains(suggestion) ? "Kept" : "Keep", systemImage: picks.contains(suggestion) ? "heart.fill" : "heart", size: 52, prominent: false, action: keep)
-                    .help("Keep in Your Picks (↑)")
-                Menu {
-                    SuggestionMenu(suggestion: suggestion) { dismiss([suggestion]) }
-                } label: {
-                    Label("More", systemImage: "ellipsis")
-                        .labelStyle(.iconOnly)
+            // Opaque Play in the middle, the rest in glass around it, as on a hero.
+            GlassEffectContainer(spacing: Design.Control.spacing) {
+                HStack(spacing: Design.Spacing.large) {
+                    GlassCircleButton(title: "Pass", systemImage: "xmark", action: pass)
+                        .disabled(position >= suggestions.count - 1)
+                    PlayButton(shape: .circle) { play(suggestion) }
+                    GlassCircleButton(title: picks.contains(suggestion) ? "Kept" : "Keep", systemImage: "heart", isOn: picks.contains(suggestion), action: keep)
+                    GlassCircleMenu(title: "More") {
+                        SuggestionMenu(suggestion: suggestion) { dismiss([suggestion]) }
+                    }
                 }
-                .menuIndicator(.hidden)
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .fixedSize()
             }
-            .padding(.top, 18)
+            .padding(.top, Design.Spacing.large)
 
             HStack(spacing: 12) {
                 if position > 0 {
@@ -322,20 +315,6 @@ struct SongDeck: View {
         .multilineTextAlignment(Self.isWide ? .leading : .center)
     }
 
-    private func roundButton(_ title: LocalizedStringKey, systemImage: String, size: CGFloat, prominent: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: size * 0.36, weight: .bold))
-                .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                .frame(width: size, height: size)
-                .background(prominent ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.regularMaterial), in: .circle)
-                .contentShape(.circle)
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(.pressable)
-        .accessibilityLabel(Text(title))
-    }
-
     // MARK: - Coming up
 
     /// What's under the pile, to skip ahead to.
@@ -343,10 +322,9 @@ struct SongDeck: View {
     private var comingUp: some View {
         let next = Array(suggestions.dropFirst(position + 1).prefix(20))
         if !next.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Coming Up")
-                    .font(.title3.bold())
-                    .padding(.horizontal, PlayMetrics.margin)
+            VStack(alignment: .leading, spacing: Design.Margin.header) {
+                ShelfHeader(title: String(localized: "Coming Up"))
+                    .padding(.horizontal, Design.Margin.page)
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(next.enumerated(), id: \.element.id) { offset, suggestion in
@@ -371,7 +349,7 @@ struct SongDeck: View {
                         }
                     }
                 }
-                .contentMargins(.horizontal, PlayMetrics.margin, for: .scrollContent)
+                .contentMargins(.horizontal, Design.Margin.page, for: .scrollContent)
                 .scrollIndicators(.hidden)
             }
         }
@@ -398,20 +376,17 @@ private struct PicksTray: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: Design.Shelf.lineGap) {
                     Text("Your Picks")
-                        .font(.title3.bold())
+                        .font(.headline)
                     Text(String(AttributedString(localized: "^[\(picks.count) song](inflect: true) kept").characters))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button {
+                PlayButton {
                     player.play(.songs(picks.map(\.song)), from: .songs(String(localized: "Your Picks")))
-                } label: {
-                    Label("Play", systemImage: "play.fill")
                 }
-                .buttonStyle(.glassProminent)
                 if !player.isDemo, model.musicSource == .appleMusic {
                     Button {
                         for pick in picks { player.addToLibrary(pick.song) }
@@ -424,6 +399,7 @@ private struct PicksTray: View {
                     .buttonStyle(.glass)
             }
             .buttonBorderShape(.capsule)
+            .controlSize(.large)
 
             ScrollView(.horizontal) {
                 HStack(spacing: 10) {
@@ -441,8 +417,8 @@ private struct PicksTray: View {
             }
             .scrollIndicators(.hidden)
         }
-        .padding(18)
-        .background(Color.cardFill, in: .rect(cornerRadius: 20, style: .continuous))
-        .padding(.horizontal, PlayMetrics.margin)
+        .padding(Design.Card.padding)
+        .background(Color.cardFill, in: .rect(cornerRadius: Design.Card.radius, style: .continuous))
+        .padding(.horizontal, Design.Margin.page)
     }
 }

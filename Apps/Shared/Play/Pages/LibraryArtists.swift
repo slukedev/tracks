@@ -340,9 +340,9 @@ struct LibraryArtistDetail<Albums: View>: View {
             }
             // A readable width on a wide display, where the buttons would drift far from the name.
             .frame(maxWidth: Self.maximumWidth, alignment: .leading)
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
             .padding(.top, 4)
-            .padding(.bottom, PlayMetrics.sectionSpacing)
+            .padding(.bottom, Design.Margin.section)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -390,7 +390,7 @@ struct LibraryArtistSplitPlaceholder: View {
                     }
                 }
             }
-            .padding(.horizontal, PlayMetrics.margin)
+            .padding(.horizontal, Design.Margin.page)
             .padding(.top, 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }

@@ -21,6 +21,7 @@ struct DevicesButton: View {
         } label: {
             // An image rather than a label: a toolbar draws a label's icon in its own colour.
             Image(systemName: elsewhere?.kind.symbol ?? "laptopcomputer.and.iphone")
+                .symbolRenderingMode(.monochrome)
                 .foregroundStyle(elsewhere == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
                 .contentTransition(.symbolEffect(.replace))
         }

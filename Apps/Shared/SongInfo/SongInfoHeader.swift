@@ -11,15 +11,9 @@ struct SongInfoHeader: View {
     @Environment(YourMusic.self) private var music
     @Environment(\.openPlayRoute) private var openPlayRoute
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// The round buttons' symbol area, so they stay as tall as Play beside them at any size.
-    #if os(macOS)
-    @ScaledMetric(relativeTo: .body) private var moreSide: CGFloat = 16
-    #else
-    @ScaledMetric(relativeTo: .body) private var moreSide: CGFloat = 20
-    #endif
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Design.Spacing.large) {
             let layout = typeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
                 : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
@@ -124,40 +118,27 @@ struct SongInfoHeader: View {
     private var buttons: some View {
         let actions = actions
         let showsRound = !typeSize.isAccessibilitySize
-        return HStack(spacing: 10) {
-            if let play {
-                Button("Play", systemImage: "play.fill", action: play)
-                    .buttonStyle(.glassProminent)
-            }
-            if showsRound {
-                if let station = actions.createStation {
-                    RoundButton(title: "Create Station", systemImage: "dot.radiowaves.left.and.right", side: moreSide, action: station)
+        return GlassEffectContainer(spacing: Design.Control.spacing) {
+            HStack(spacing: Design.Control.spacing) {
+                if let play {
+                    PlayButton(action: play)
                 }
-                if let add = actions.addToLibrary {
-                    RoundButton(title: "Add to Library", systemImage: "plus", side: moreSide, action: add)
+                if showsRound {
+                    if let station = actions.createStation {
+                        GlassCircleButton(title: "Create Station", systemImage: "dot.radiowaves.left.and.right", action: station)
+                    }
+                    if let add = actions.addToLibrary {
+                        GlassCircleButton(title: "Add to Library", systemImage: "plus", action: add)
+                    }
+                    if let share = actions.share {
+                        ShareButton(share: share)
+                    }
                 }
-                if let share = actions.share {
-                    ShareButton(share: share, side: moreSide)
+                GlassCircleMenu(title: "More", systemImage: "ellipsis") {
+                    SongMenuItems(showsRound ? actions.withoutRoundButtons : actions)
                 }
             }
-            Menu {
-                SongMenuItems(showsRound ? actions.withoutRoundButtons : actions)
-            } label: {
-                // As tall as Play beside it.
-                Image(systemName: "ellipsis")
-                    .frame(width: moreSide, height: moreSide)
-            }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .accessibilityLabel("More")
-            #if os(macOS)
-            .help("More")
-            #endif
         }
-        .buttonBorderShape(.capsule)
-        .controlSize(.large)
     }
 
     // MARK: - Actions
@@ -214,30 +195,9 @@ struct SongInfoHeader: View {
     #endif
 }
 
-/// A round glass button with only its symbol, named for VoiceOver and the pointer.
-private struct RoundButton: View {
-    let title: LocalizedStringKey
-    let systemImage: String
-    let side: CGFloat
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .frame(width: side, height: side)
-        }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .accessibilityLabel(Text(title))
-        #if os(macOS)
-        .help(Text(title))
-        #endif
-    }
-}
-
+/// Share as a glass circle, matching the buttons beside it.
 private struct ShareButton: View {
     let share: SongShare
-    let side: CGFloat
 
     var body: some View {
         Group {
@@ -246,8 +206,7 @@ private struct ShareButton: View {
             case .text(let text): ShareLink(item: text) { icon }
             }
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .buttonStyle(.plain)
         .accessibilityLabel("Share")
         #if os(macOS)
         .help("Share")
@@ -256,7 +215,7 @@ private struct ShareButton: View {
 
     private var icon: some View {
         Image(systemName: "square.and.arrow.up")
-            .frame(width: side, height: side)
+            .glassCircle()
     }
 }
 

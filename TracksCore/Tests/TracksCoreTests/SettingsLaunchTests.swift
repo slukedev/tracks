@@ -66,6 +66,8 @@ struct SettingsLaunchTests {
     @Test("an identity minted before the first launch still leaves it fresh")
     func identityAloneIsFresh() {
         group.defaults.set("A-DEVICE", forKey: DeviceIdentity.defaultsKey)
+        group.defaults.set(true, forKey: DeviceIdentity.keychainKey)
+        group.defaults.set(["AN-OLD-DEVICE"], forKey: DeviceIdentity.predecessorsKey)
         #expect(registry.prepareForLaunch(isDemo: false, stores: stores) == .fresh)
         #expect(OnboardingRecord.load(from: group.defaults).needsWelcome)
     }

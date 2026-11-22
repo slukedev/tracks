@@ -52,7 +52,7 @@ private struct OnboardingWelcome: View {
                 .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .safeAreaInset(edge: .bottom) {
+        .safeAreaBar(edge: .bottom) {
             OnboardingPrimaryButton("Continue", action: proceed)
         }
         #endif
@@ -188,7 +188,7 @@ private struct OnboardingSetup: View {
             }
         }
         .formStyle(.grouped)
-        .safeAreaInset(edge: .bottom) {
+        .safeAreaBar(edge: .bottom) {
             OnboardingPrimaryButton("Start Listening", action: onboarding.finish)
         }
     }
@@ -426,16 +426,17 @@ private struct OnboardingPrimaryButton: View {
             Text(title)
                 .font(.headline)
                 .frame(maxWidth: .infinity)
-                #if os(iOS)
-                .padding(.vertical, 6)
-                #endif
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.glassProminent)
         .buttonBorderShape(.capsule)
+        #if os(iOS)
+        .controlSize(.extraLarge)
+        #else
         .controlSize(.large)
+        #endif
         .keyboardShortcut(.defaultAction)
         .padding(.horizontal, horizontalPadding)
-        .padding(.vertical, 16)
+        .padding(.vertical, Design.Spacing.large)
         #if os(macOS)
         .frame(maxWidth: 280)
         #endif

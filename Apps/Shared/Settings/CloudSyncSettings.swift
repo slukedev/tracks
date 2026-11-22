@@ -80,6 +80,7 @@ final class CloudSyncSettings {
 /// Mac's iCloud pane.
 struct CloudSyncPage: View {
     @Bindable var sync: CloudSyncSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // Relative times ("synced 5 minutes ago") keep up while the page is open.
@@ -132,15 +133,9 @@ struct CloudSyncPage: View {
                     }
                 }
 
-                Section {
-                    Text("Your listening history, stations and sessions, your settings, and the songs you’ve removed.")
-                } header: {
-                    Text("What Syncs")
-                } footer: {
-                    Text("It all stays in your private iCloud.")
-                }
+                CloudSyncContentsSection()
             }
-            .animation(.default, value: status)
+            .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: status)
         }
         .task { await sync.refresh() }
         #if os(macOS)
@@ -179,3 +174,43 @@ struct CloudSyncPage: View {
         }
     }
 }
+
+/// What iCloud carries, said the same way wherever iCloud is described.
+private struct CloudSyncContentsSection: View {
+    var body: some View {
+        Section {
+            Text("Your listening history, stations and sessions, your settings, and the songs you’ve removed.")
+        } header: {
+            Text("What Syncs")
+        } footer: {
+            Text("It all stays in your private iCloud.")
+        }
+    }
+}
+
+/// iCloud while Tracks shows sample data, which never touches a real store: unavailable,
+/// said plainly, rather than a page with nothing on it.
+struct CloudSyncSampleDataPage: View {
+    var body: some View {
+        Form {
+            SettingsHero(
+                "iCloud",
+                subtitle: Text("Not available while Tracks shows sample data."),
+                systemImage: "icloud.fill",
+                tint: .blue
+            )
+            CloudSyncContentsSection()
+        }
+        #if os(macOS)
+        .settingsPane()
+        #else
+        .settingsPage("iCloud")
+        #endif
+    }
+}
+
+#if DEBUG
+#Preview("iCloud, Sample Data") {
+    NavigationStack { CloudSyncSampleDataPage() }
+}
+#endif

@@ -9,7 +9,7 @@ import SwiftUI
 /// twice, charts and all, once for each arrangement.
 struct CardPair<Content: View>: View {
     var minimumWidth: CGFloat = 320
-    var spacing: CGFloat = Metrics.cardSpacing
+    var spacing: CGFloat = Design.Card.spacing
     @ViewBuilder var content: Content
     @Environment(\.dynamicTypeSize) private var typeSize
 

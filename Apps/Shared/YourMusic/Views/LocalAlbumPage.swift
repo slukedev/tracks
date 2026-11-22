@@ -62,7 +62,7 @@ struct ServerAlbumPage: View {
             header
         } content: {
             LoadingRows(count: 8, showsCover: false)
-                .padding(.horizontal, PlayMetrics.margin)
+                .padding(.horizontal, Design.Margin.page)
                 .padding(.top, 12)
         }
         #endif
@@ -146,7 +146,7 @@ struct LocalAlbumContent: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .textCase(nil)
-                            .listRowInsets(EdgeInsets(top: 12, leading: PlayMetrics.margin, bottom: 4, trailing: PlayMetrics.margin))
+                            .listRowInsets(EdgeInsets(top: 12, leading: Design.Margin.page, bottom: 4, trailing: Design.Margin.page))
                     }
                 } footer: {
                     if disc.number == discs.last?.number {
@@ -173,7 +173,7 @@ struct LocalAlbumContent: View {
                     }
                 } header: {
                     MissingSongsHeader(gaps: gaps)
-                        .listRowInsets(EdgeInsets(top: 16, leading: PlayMetrics.margin, bottom: 6, trailing: PlayMetrics.margin))
+                        .listRowInsets(EdgeInsets(top: 16, leading: Design.Margin.page, bottom: 6, trailing: Design.Margin.page))
                 }
             }
         }
@@ -186,15 +186,9 @@ struct LocalAlbumContent: View {
         .toolbar {
             if let found = foundAlbum {
                 ToolbarItem(placement: .primaryAction) { getAlbumButton(found) }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
             }
-            if album.tracks.contains(where: \.isFromServer) {
-                ToolbarItem(placement: .primaryAction) {
-                    AlbumDownloadButton(tracks: album.tracks.filter(\.isFromServer))
-                }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Menu("More", systemImage: "ellipsis") { moreItems }
-            }
+            CollectionToolbar { moreItems }
         }
         .confirmationDialog(deleteTitle, isPresented: isDeleting, titleVisibility: .visible) {
             deleteActions
@@ -241,7 +235,7 @@ struct LocalAlbumContent: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, PlayMetrics.margin)
+                        .padding(.horizontal, Design.Margin.page)
                         .padding(.vertical, 8)
                 }
                 if let gaps, music.getMore.canGet, !gaps.missing.isEmpty {
@@ -264,7 +258,7 @@ struct LocalAlbumContent: View {
                             }
                         }
                     }
-                    .padding(.horizontal, PlayMetrics.margin)
+                    .padding(.horizontal, Design.Margin.page)
                     .padding(.top, 20)
                     .transition(.opacity)
                 }
@@ -278,12 +272,6 @@ struct LocalAlbumContent: View {
         .toolbar {
             if let found = foundAlbum {
                 ToolbarItem(placement: .primaryAction) { getAlbumButton(found) }
-            }
-            if album.tracks.contains(where: \.isFromServer) {
-                ToolbarItem(placement: .primaryAction) {
-                    AlbumDownloadButton(tracks: album.tracks.filter(\.isFromServer))
-                        .help("Download Album")
-                }
             }
         }
         .confirmationDialog(deleteTitle, isPresented: isDeleting, titleVisibility: .visible) {
@@ -315,12 +303,23 @@ struct LocalAlbumContent: View {
             format: album.format,
             tintCover: cover,
             canPlay: !playable.isEmpty,
+            secondary: download,
             play: { player.play(.local(playable), from: context) },
             shuffle: { player.play(.local(playable), from: context, shuffled: true) }
         ) {
             moreItems
         } cover: { side in
             LocalCover(artwork: album.artwork, seed: album.title, size: side)
+        }
+    }
+
+    /// A server's album downloads whole from beside Play, showing how far it's got.
+    private var download: CollectionSecondary? {
+        let fromServer = album.tracks.filter(\.isFromServer)
+        guard !fromServer.isEmpty else { return nil }
+        return CollectionSecondary {
+            AlbumDownloadButton(tracks: fromServer)
+                .help("Download Album")
         }
     }
 
@@ -348,7 +347,7 @@ struct LocalAlbumContent: View {
         }
         let found = await music.getMore.gaps(in: album)
         guard !Task.isCancelled else { return }
-        withAnimation(PlayMotion.panel) { gaps = found }
+        withAnimation(Design.Motion.panel) { gaps = found }
     }
 
     /// An album a server found for you rather than one in your music: its songs, to get.
@@ -450,7 +449,7 @@ struct AlbumDownloadButton: View {
             }
             .accessibilityLabel("Downloaded")
         } else {
-            Button("Download", systemImage: "arrow.down.circle") {
+            Button("Download", systemImage: "arrow.down") {
                 downloads.download(tracks)
             }
         }

@@ -43,7 +43,7 @@ struct SongInfoHistorySection: View {
                 .init(title: "First Heard", value: Format.shortDate(song.firstHeard)),
                 .init(title: "Last Heard", value: Format.shortDate(song.lastHeard)),
             ]
-        return VStack(alignment: .leading, spacing: Metrics.cardSpacing) {
+        return VStack(alignment: .leading, spacing: Design.Card.spacing) {
             StatStrip(items: items)
             if profile.timeline.count(where: { $0.count > 0 }) > 1 {
                 PlaysOverTimeCard(timeline: profile.timeline, unit: profile.timelineUnit)
@@ -69,7 +69,7 @@ private struct SongTimeOfDayCard: View {
         let busiest = parts.map(\.plays).max() ?? 0
         Card {
             VStack(alignment: .leading, spacing: 12) {
-                CardLabel(title: "Time of Day", systemImage: "clock", tint: .accentColor)
+                CardLabel(title: "Time of Day", systemImage: "clock")
                 if typeSize.isAccessibilitySize {
                     VStack(alignment: .leading, spacing: 14) {
                         ForEach(parts) { part in
@@ -162,7 +162,7 @@ struct SongInfoDetailsSection: View {
                         if let note {
                             AboutNote(title: subject.title, text: note)
                                 .font(.subheadline)
-                                .padding(.horizontal, Metrics.cardPadding)
+                                .padding(.horizontal, Design.Card.padding)
                                 .padding(.vertical, 12)
                             if !rows.isEmpty { InsetDivider() }
                         }
@@ -250,7 +250,7 @@ private struct FactRow: View {
         }
         .font(.subheadline)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Metrics.cardPadding)
+        .padding(.horizontal, Design.Card.padding)
         .padding(.vertical, 11)
         .accessibilityElement(children: .combine)
     }
@@ -335,7 +335,7 @@ private struct CreditRow: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Metrics.cardPadding)
+        .padding(.horizontal, Design.Card.padding)
         .padding(.vertical, 9)
         .accessibilityElement(children: .combine)
     }
@@ -417,7 +417,7 @@ private struct LinkGroup: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
                     .font(.footnote)
-                    .padding(.horizontal, Metrics.cardPadding)
+                    .padding(.horizontal, Design.Card.padding)
             }
         }
         ForEach(shown) { link in
@@ -487,7 +487,7 @@ struct SongInfoLastFMSection: View {
                         TagCapsule(text: tag)
                     }
                 }
-                .padding(.horizontal, Metrics.cardPadding)
+                .padding(.horizontal, Design.Card.padding)
                 .padding(.vertical, 12)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Tags: \(info.tags.formatted(.list(type: .and)))"))
@@ -496,7 +496,7 @@ struct SongInfoLastFMSection: View {
                 if !info.tags.isEmpty { InsetDivider() }
                 AboutNote(title: subject.title, text: summary)
                     .font(.subheadline)
-                    .padding(.horizontal, Metrics.cardPadding)
+                    .padding(.horizontal, Design.Card.padding)
                     .padding(.vertical, 12)
             }
             if let url = info.url {
@@ -509,7 +509,7 @@ struct SongInfoLastFMSection: View {
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.tertiary)
                     }
-                    .padding(.horizontal, Metrics.cardPadding)
+                    .padding(.horizontal, Design.Card.padding)
                     .padding(.vertical, 11)
                     .contentShape(.rect)
                 }
@@ -540,13 +540,13 @@ private struct LastFMSkeleton: View {
             HStack(spacing: 6) {
                 ForEach(["Indie Pop", "Dream Pop", "Chill"], id: \.self) { TagCapsule(text: $0) }
             }
-            .padding(.horizontal, Metrics.cardPadding)
+            .padding(.horizontal, Design.Card.padding)
             .padding(.vertical, 12)
             InsetDivider()
             Text(verbatim: "A song by an artist, written over one winter and played on the radio long before it was ever released as a single.")
                 .font(.subheadline)
                 .lineLimit(3)
-                .padding(.horizontal, Metrics.cardPadding)
+                .padding(.horizontal, Design.Card.padding)
                 .padding(.vertical, 12)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -631,7 +631,7 @@ struct SongLinkRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Metrics.cardPadding)
+        .padding(.horizontal, Design.Card.padding)
         .padding(.vertical, 10)
         .contentShape(.rect)
     }
@@ -646,7 +646,7 @@ struct GroupTitle: View {
             .font(.footnote.weight(.semibold))
             .foregroundStyle(.secondary)
             .textCase(.uppercase)
-            .padding(.horizontal, Metrics.cardPadding)
+            .padding(.horizontal, Design.Card.padding)
             .padding(.top, 14)
             .padding(.bottom, 2)
             .accessibilityAddTraits(.isHeader)
@@ -654,7 +654,7 @@ struct GroupTitle: View {
 }
 
 struct InsetDivider: View {
-    var inset: CGFloat = Metrics.cardPadding
+    var inset: CGFloat = Design.Card.padding
 
     var body: some View {
         Divider().padding(.leading, inset)
@@ -689,7 +689,7 @@ struct SkeletonRows: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Metrics.cardPadding)
+                .padding(.horizontal, Design.Card.padding)
             }
         }
         .redacted(reason: .placeholder)

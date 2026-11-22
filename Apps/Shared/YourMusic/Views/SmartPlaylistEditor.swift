@@ -55,7 +55,7 @@ struct SmartPlaylistEditor: View {
                     }
                     .onDelete { rules.conditions.remove(atOffsets: $0) }
                     Button("Add Rule", systemImage: "plus.circle.fill") {
-                        withAnimation(.snappy) { rules.conditions.append(SmartRules.Condition(field: .artist)) }
+                        withAnimation(Design.Motion.row) { rules.conditions.append(SmartRules.Condition(field: .artist)) }
                     }
                 } header: {
                     Text("Rules")
@@ -69,7 +69,7 @@ struct SmartPlaylistEditor: View {
                     Picker("Order", selection: $rules.order) {
                         ForEach(SmartRules.Order.allCases) { Text($0.title).tag($0) }
                     }
-                    Toggle("Limit", isOn: $isLimited.animation(.snappy))
+                    Toggle("Limit", isOn: $isLimited.animation(Design.Motion.panel))
                     if isLimited {
                         Stepper(value: $limit, in: 5...1_000, step: 5) {
                             Text("^[\(limit) song](inflect: true)")
@@ -79,17 +79,17 @@ struct SmartPlaylistEditor: View {
                 } footer: {
                     Text("^[\(matching) song](inflect: true) fit right now. It changes as your music and plays do.")
                         .contentTransition(.numericText())
-                        .animation(.snappy, value: matching)
+                        .animation(Design.Motion.value, value: matching)
                 }
             }
             .navigationTitle(playlistID == nil ? "New Smart Playlist" : "Edit Rules")
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", role: .cancel) { dismiss() }
+                    Button("Cancel", systemImage: "xmark", role: .cancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(playlistID == nil ? "Create" : "Done", action: save)
+                    Button(playlistID == nil ? "Create" : "Done", systemImage: "checkmark", action: save)
                 }
             }
             .onAppear(perform: fill)

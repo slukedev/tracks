@@ -6,13 +6,14 @@ import TracksCore
 /// Tracks knows a song's genre and nothing of its tempo, so none of these claim to.
 struct MoodSignature {
     let title: String
-    /// What's in it and why, under its title.
-    let note: String
     /// Numbered, where the order is the point.
     var isSequence = false
     let songs: (ListeningRoom) -> [ListeningRoom.Song]
     /// The fact at each row's trailing edge.
     let detail: (ListeningRoom.Song) -> String?
+    /// Whether the fact shows only where it changes from the row above, as a genre heading a
+    /// run of songs does, rather than on every row.
+    var marksChanges = false
 }
 
 extension Mood {
@@ -21,64 +22,57 @@ extension Mood {
         case .chill:
             MoodSignature(
                 title: String(localized: "Wind Down"),
-                note: String(localized: "Your evening songs, from the liveliest genres to the calmest."),
                 isSequence: true,
                 songs: { $0.windDown() },
-                detail: { $0.genre }
+                detail: { $0.genre },
+                marksChanges: true
             )
         case .sleep:
             MoodSignature(
                 title: String(localized: "After Dark"),
-                note: String(localized: "The ones you mostly play after ten at night."),
                 songs: { $0.lateNight() },
                 detail: { PlayCountText.short($0.plays) }
             )
         case .focus:
             MoodSignature(
                 title: String(localized: "Instrumental First"),
-                note: String(localized: "Classical, ambient and scores first, then the rest."),
                 songs: { $0.instrumentalFirst() },
-                detail: { $0.genre }
+                detail: { $0.genre },
+                marksChanges: true
             )
         case .workout, .party:
             MoodSignature(
                 title: String(localized: "On Repeat This Month"),
-                note: String(localized: "Your most played in the last 30 days."),
                 songs: { $0.thisMonth() },
                 detail: { String(localized: "\($0.recentPlays) this month") }
             )
         case .energy:
             MoodSignature(
                 title: String(localized: "Morning Lift"),
-                note: String(localized: "The ones you mostly play before noon."),
                 songs: { $0.mornings() },
                 detail: { PlayCountText.short($0.plays) }
             )
         case .feelGood:
             MoodSignature(
                 title: String(localized: "Still Feels Good"),
-                note: String(localized: "First played over a year ago, and still on lately."),
                 songs: { $0.throwbacks() },
                 detail: { String(localized: "Since \($0.firstHeard.formatted(.dateTime.year()))") }
             )
         case .love:
             MoodSignature(
                 title: String(localized: "Month After Month"),
-                note: String(localized: "The ones you keep coming back to."),
                 songs: { $0.monthAfterMonth() },
                 detail: { String(AttributedString(localized: "^[\($0.months) month](inflect: true)").characters) }
             )
         case .heartbreak:
             MoodSignature(
                 title: String(localized: "Over and Over"),
-                note: String(localized: "Songs you've played three times or more in one day."),
                 songs: { $0.overAndOver() },
                 detail: { String(localized: "\($0.bestDay) in a day") }
             )
         case .drive:
             MoodSignature(
                 title: String(localized: "Heard on the Road"),
-                note: String(localized: "Played on drives Tracks noticed."),
                 songs: { $0.onTheRoad() },
                 detail: { String(localized: "\($0.drivePlays) on the road") }
             )

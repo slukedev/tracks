@@ -107,6 +107,17 @@ nonisolated extension LibraryDemo {
         catalog.albums += decode(Album.self, id: longID, type: "albums", attributes: #""name":"Everything I Meant to Say on the Drive Home (Deluxe Edition)","artistName":"Juniper Lane","releaseDate":"2025-05-17","trackCount":14"#)
         catalog.dates[longID] = Dates(added: .now.addingTimeInterval(-3_600), played: nil)
 
+        // Two with light covers, to see a page take a light colour: one near white, one bright.
+        for (index, cover) in lightCovers.enumerated() {
+            let id = MusicItemID("l.demo-album-\(cover.key)")
+            let tracks = (1...8).map { number in
+                #"{"id":"i.demo-\#(cover.key)-\#(number)","type":"songs","attributes":{"name":"\#(cover.songs[number % cover.songs.count]) \#(number)","artistName":"\#(cover.artist)","albumName":"\#(cover.title)","durationInMillis":\#(170_000 + number * 9_000),"trackNumber":\#(number)}}"#
+            }.joined(separator: ",")
+            let artwork = #""artwork":{"width":3000,"height":3000,"url":"https://demo.invalid/\#(cover.key)/{w}x{h}bb.jpg","bgColor":"\#(cover.colour)","textColor1":"1c1c1e"}"#
+            catalog.albums += decode(Album.self, id: id, type: "albums", attributes: #""name":"\#(cover.title)","artistName":"\#(cover.artist)","genreNames":["Pop"],"releaseDate":"2025-0\#(index + 3)-14","trackCount":8,\#(artwork)"#, relationships: #""tracks":{"data":[\#(tracks)]}"#)
+            catalog.dates[id] = Dates(added: .now.addingTimeInterval(-Double(index + 2) * 7_200), played: nil)
+        }
+
         let artistNames = Array(Set(albumPlays.values.map(\.artist))).sorted()
         for (index, name) in artistNames.enumerated() {
             catalog.artists += decode(Artist.self, id: MusicItemID("r.demo-artist-\(index)"), type: "artists", attributes: #""name":"\#(escaped(name))""#)
@@ -139,8 +150,23 @@ nonisolated extension LibraryDemo {
         return catalog
     }
 
-    private static func decode<Item: Decodable>(_: Item.Type, id: MusicItemID, type: String, attributes: String) -> [Item] {
-        let json = #"{"id":"\#(id.rawValue)","type":"\#(type)","attributes":{\#(attributes)}}"#
+    private struct LightCover {
+        let key: String
+        let title: String
+        let artist: String
+        let colour: String
+        let songs: [String]
+    }
+
+    /// `-TracksLibraryPush appleAlbum.white` and `appleAlbum.bright` open these.
+    private static let lightCovers = [
+        LightCover(key: "white", title: "Paper Moon", artist: "Juniper Lane", colour: "f4f1ea", songs: ["Linen", "Morning Glass", "Chalk"]),
+        LightCover(key: "bright", title: "Lemon Grove", artist: "Mara Solis", colour: "f5c518", songs: ["Citrus", "Noon", "Sunroom"]),
+    ]
+
+    private static func decode<Item: Decodable>(_: Item.Type, id: MusicItemID, type: String, attributes: String, relationships: String? = nil) -> [Item] {
+        let related = relationships.map { #","relationships":{\#($0)}"# } ?? ""
+        let json = #"{"id":"\#(id.rawValue)","type":"\#(type)","attributes":{\#(attributes)}\#(related)}"#
         return (try? JSONDecoder().decode(Item.self, from: Data(json.utf8))).map { [$0] } ?? []
     }
 

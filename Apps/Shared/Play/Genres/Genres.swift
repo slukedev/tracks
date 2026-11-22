@@ -218,13 +218,19 @@ private struct GenreKey: Equatable {
     let songs: Int
 }
 
+extension MusicGenre {
+    /// What its tile and its page zoom between by.
+    var zoomID: String { "genre.\(id)" }
+}
+
 struct GenreTile: View {
     let item: GenreTileItem
-    var fillsWidth = false
+    var placement = CategoryCardPlacement.shelf
 
     var body: some View {
         NavigationLink(value: PlayRoute.genre(item.genre)) {
-            CategoryCard(title: item.genre.title, symbol: item.genre.symbol, color: item.genre.color, covers: item.covers, fillsWidth: fillsWidth)
+            CategoryCard(title: item.genre.title, symbol: item.genre.symbol, color: item.genre.color, covers: item.covers, placement: placement)
+                .zoomSource(id: item.genre.zoomID)
         }
         .buttonStyle(.categoryCard)
         .accessibilityLabel(item.genre.title)

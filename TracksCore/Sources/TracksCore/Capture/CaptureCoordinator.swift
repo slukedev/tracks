@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftData
 
 /// The capture loop: observations in, rows and playlist writes out.
@@ -15,6 +16,9 @@ public final class CaptureCoordinator {
     /// Catalog ids for rows that have none, and artwork. Nil in tests that don't need it.
     private let catalogResolver: (any CatalogResolving)?
     private let sessionPolicy: SessionPolicy
+    /// Devices this one was restored or migrated from, whose playlist writes it takes over
+    /// once they've waited ``DeviceIdentity/predecessorDelay``.
+    private let predecessors: @Sendable () -> [String]
 
     /// The most recent decision, for the UI and the probe to show.
     public private(set) var lastDecision: CaptureDecision?
@@ -26,7 +30,8 @@ public final class CaptureCoordinator {
         settings: CaptureSettings = CaptureSettings(),
         playlistWriter: any PlaylistWriter,
         catalogResolver: (any CatalogResolving)? = nil,
-        sessionPolicy: SessionPolicy = .default
+        sessionPolicy: SessionPolicy = .default,
+        predecessors: @escaping @Sendable () -> [String] = { DeviceIdentity.predecessors }
     ) {
         self.store = store
         self.writer = store.writer
@@ -34,6 +39,7 @@ public final class CaptureCoordinator {
         self.playlistWriter = playlistWriter
         self.catalogResolver = catalogResolver
         self.sessionPolicy = sessionPolicy
+        self.predecessors = predecessors
     }
 
     // MARK: - Ingest
@@ -129,10 +135,14 @@ public final class CaptureCoordinator {
             now: now,
             scrobbleHold: hold?.reason
         )
-        if let id = try? await writer.recordCapture(new) {
-            scrobbleWatch = hold?.needs.map {
+        do {
+            let id = try await writer.recordCapture(new)
+            setScrobbleWatch(hold?.needs.map {
                 ScrobbleWatch(id: id, songKey: songKey, needs: $0, played: hold?.played ?? 0, lastSeen: now, isPlaying: true)
-            }
+            })
+        } catch {
+            Log.capture.error("Couldn't keep \(songKey, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .public)")
+            return .ignore(.saveFailed)
         }
         return decision
     }
@@ -169,6 +179,18 @@ public final class CaptureCoordinator {
     }
 
     private var scrobbleWatch: ScrobbleWatch?
+    /// Lets the watched play go once it has played long enough with nothing else observed.
+    ///
+    /// Tracks' players only report a change, so a song that plays through to the threshold
+    /// says nothing until the next one starts. If the app is quit or killed before then, the
+    /// play would stay held for good although it did play long enough.
+    private var watchRelease: Task<Void, Never>?
+    /// Which watch the scheduled release is for. Bumped by every change to the watch, so a
+    /// release already past its wait when an observation lands can tell it's stale.
+    private var watchGeneration = 0
+    /// Waits for the release, replaceable so tests needn't wait minutes.
+    var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+
     /// Whether the first observation since launch has been checked for a play an earlier
     /// run was still watching.
     private var hasLookedForHeldPlay = false
@@ -199,7 +221,7 @@ public final class CaptureCoordinator {
     private func followScrobbleWatch(_ observation: NowPlayingObservation, now: Date) async {
         if !hasLookedForHeldPlay {
             hasLookedForHeldPlay = true
-            if scrobbleWatch == nil { scrobbleWatch = await heldPlayStillPlaying(observation, now: now) }
+            if scrobbleWatch == nil { setScrobbleWatch(await heldPlayStillPlaying(observation, now: now)) }
         }
         guard var watch = scrobbleWatch else { return }
         if watch.isPlaying { watch.played += max(0, now.timeIntervalSince(watch.lastSeen)) }
@@ -210,13 +232,49 @@ public final class CaptureCoordinator {
         watch.isPlaying = isSameSong && observation.playbackState == .playing
 
         if watch.played >= watch.needs {
-            scrobbleWatch = nil
+            setScrobbleWatch(nil)
             await writer.updateCapture(watch.id) { $0.releaseForScrobbling() }
         } else if observation.isCapturable, !isSameSong {
-            scrobbleWatch = nil
+            setScrobbleWatch(nil)
         } else {
-            scrobbleWatch = watch
+            setScrobbleWatch(watch)
         }
+    }
+
+    /// Replaces the watch, and schedules its release for when it will have played enough if
+    /// it keeps playing.
+    private func setScrobbleWatch(_ watch: ScrobbleWatch?) {
+        scrobbleWatch = watch
+        watchGeneration += 1
+        watchRelease?.cancel()
+        watchRelease = nil
+        guard let watch, watch.isPlaying else { return }
+        let remaining = max(0, watch.needs - watch.played)
+        let generation = watchGeneration
+        let sleep = sleep
+        watchRelease = Task { [weak self] in
+            guard (try? await sleep(.seconds(remaining))) != nil, !Task.isCancelled else { return }
+            await self?.releaseWatchedPlay(generation: generation, credit: remaining)
+        }
+    }
+
+    /// Credits the time slept to the watch, if it's still the one scheduled and still
+    /// playing. Taken in turn with the observations, so one that arrived meanwhile wins.
+    private func releaseWatchedPlay(generation: Int, credit: TimeInterval) async {
+        let previous = ingesting
+        let task = Task {
+            _ = await previous?.value
+            guard generation == watchGeneration, var watch = scrobbleWatch, watch.isPlaying else { return }
+            watch.played += credit
+            watch.lastSeen = watch.lastSeen.addingTimeInterval(credit)
+            guard watch.played >= watch.needs else {
+                setScrobbleWatch(watch)
+                return
+            }
+            setScrobbleWatch(nil)
+            await writer.updateCapture(watch.id) { $0.releaseForScrobbling() }
+        }
+        await task.value
     }
 
     /// The watch an earlier run left behind, when the song it held back is still playing.
@@ -331,8 +389,10 @@ public final class CaptureCoordinator {
         // Saved first, so every row has the identity it will keep. Only identities are held
         // across the requests below: sync can merge a row away while one is out.
         store.saveMainContext()
+        let predecessors = predecessors()
+        let cutoff = now().addingTimeInterval(-DeviceIdentity.predecessorDelay)
         let writable = (try? await writer.read { context in
-            try context.fetch(TracksStore.pendingPlaylistWrites())
+            try context.fetch(TracksStore.pendingPlaylistWrites(predecessors: predecessors, predecessorsBefore: cutoff))
                 .filter { !$0.songID.isEmpty }
                 .map(\.persistentModelID)
         }) ?? []

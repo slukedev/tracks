@@ -58,7 +58,7 @@ struct SharePlayQueueControl: View {
                 .background(.white, in: .capsule)
                 .frame(minHeight: 44)
                 .contentShape(.capsule)
-                .animation(PlayMotion.value, value: sharePlay.guestCount)
+                .animation(Design.Motion.value, value: sharePlay.guestCount)
             }
             .accessibilityLabel("SharePlay")
             .accessibilityValue(Text(SharePlayWords.people(sharePlay.guestCount)))

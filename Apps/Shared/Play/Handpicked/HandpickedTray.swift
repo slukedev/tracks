@@ -28,8 +28,8 @@ private struct PickerBar: ViewModifier {
 
     private var bar: some View {
         let hasPicks = !selection.picks.isEmpty
-        return GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
+        return GlassEffectContainer(spacing: Design.Control.spacing) {
+            HStack(spacing: Design.Control.spacing) {
                 #if os(macOS)
                 Button("Cancel", role: .cancel) { selection.cancel() }
                     .buttonStyle(.glass)
@@ -58,24 +58,24 @@ private struct PickerBar: ViewModifier {
             }
         }
         .padding(.horizontal, Self.margin)
-        .padding(.top, 8)
+        .padding(.top, Design.Spacing.small)
         .padding(.bottom, Self.bottom)
-        .animation(.smooth(duration: 0.35), value: hasPicks)
+        .animation(Design.Motion.panel, value: hasPicks)
     }
 
     private static var margin: CGFloat {
         #if os(macOS)
-        16
+        Design.Spacing.large
         #else
-        20
+        Design.Margin.page
         #endif
     }
 
     private static var bottom: CGFloat {
         #if os(macOS)
-        16
+        Design.Spacing.large
         #else
-        4
+        Design.Spacing.xSmall
         #endif
     }
 }
@@ -255,7 +255,6 @@ struct PickedList: View {
             }
             .frame(width: 360, height: 440)
             .scrollContentBackground(.hidden)
-            .background(.background)
         #else
         List { rows }
         #endif

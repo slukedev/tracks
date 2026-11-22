@@ -94,7 +94,7 @@ struct ActivityChart: View {
                     x: .value("Date", bar.bucket.start, unit: unit),
                     y: .value("Amount", bar.value)
                 )
-                .foregroundStyle(Color.accentColor.gradient)
+                .foregroundStyle(Color.accentColor)
                 .cornerRadius(unit == .day ? 3 : 4)
                 .opacity((selectedBucket.map { $0.start != bar.bucket.start } ?? false) ? 0.3 : 1)
                 .accessibilityLabel(bar.dateLabel)
@@ -105,7 +105,7 @@ struct ActivityChart: View {
                 RuleMark(y: .value("Average", average))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                     .foregroundStyle(.secondary)
-                    .annotation(position: .top, alignment: .trailing, spacing: 2) {
+                    .annotation(position: .top, alignment: .leading, spacing: 2) {
                         AverageTag()
                     }
                     .accessibilityHidden(true)
@@ -262,8 +262,8 @@ struct ChartReadout: View {
     }
 }
 
-/// "avg" over a chart's average line, on a plate of what's behind the chart so it still
-/// reads where the line runs into a tall bar. Charts sit in a card by default.
+/// "avg" over a chart's average line, at its leading end clear of the axis labels, on a plate
+/// of what's behind the chart so it still reads where the line runs into a tall bar.
 struct AverageTag<Plate: View>: View {
     @ViewBuilder var plate: Plate
 
@@ -276,6 +276,19 @@ struct AverageTag<Plate: View>: View {
     }
 }
 
-extension AverageTag where Plate == CardFill {
-    init() { plate = CardFill() }
+extension AverageTag where Plate == ChartPlate {
+    init() { plate = ChartPlate() }
+}
+
+/// What's behind a chart: a card by default, the page for a chart on the page itself.
+struct ChartPlate: View {
+    @Environment(\.chartPlate) private var color
+
+    var body: some View {
+        color
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var chartPlate: Color = .cardFill
 }

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftData
 
 /// The store's capture, queue and reconcile work, off the main actor.
@@ -13,6 +14,7 @@ import SwiftData
 /// ``TracksStore/existingCaptures(_:)``), and the work that changes rows often lives here.
 actor HistoryWriter {
     private let container: ModelContainer
+    private static let log = Logger(subsystem: "com.luke.tracks", category: "HistoryWriter")
 
     init(container: ModelContainer) {
         self.container = container
@@ -34,14 +36,24 @@ actor HistoryWriter {
     }
 
     /// Changes one capture, if it still exists. Sync can merge a row away at any time.
+    ///
+    /// A failed save is tried once more: these record what's been done with a play (written
+    /// to the playlist, sent to Last.fm), and losing one does it again on the next drain.
     /// - Returns: whether the change was saved.
     @discardableResult
     func updateCapture(_ id: PersistentIdentifier, _ change: @Sendable (Capture) -> Void) -> Bool {
-        (try? write { context in
-            guard let capture = TracksStore.existingCaptures([id], in: context)[id] else { return false }
-            change(capture)
-            return true
-        }) ?? false
+        for attempt in 1...2 {
+            do {
+                return try write { context in
+                    guard let capture = TracksStore.existingCaptures([id], in: context)[id] else { return false }
+                    change(capture)
+                    return true
+                }
+            } catch {
+                Self.log.error("Couldn't save a change to a play (try \(attempt)): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return false
     }
 
     // MARK: - Capture
@@ -93,10 +105,12 @@ actor HistoryWriter {
         }
     }
 
-    /// See ``TracksStore/closeStaleSessions(in:policy:now:deviceID:)``.
+    /// See ``TracksStore/closeStaleSessions(in:policy:now:deviceID:predecessors:)``.
     /// - Returns: how many were closed.
-    func closeStaleSessions(policy: SessionPolicy, now: Date, deviceID: String) throws -> Int {
-        try write { try TracksStore.closeStaleSessions(in: $0, policy: policy, now: now, deviceID: deviceID).count }
+    func closeStaleSessions(policy: SessionPolicy, now: Date, deviceID: String, predecessors: [String] = []) throws -> Int {
+        try write {
+            try TracksStore.closeStaleSessions(in: $0, policy: policy, now: now, deviceID: deviceID, predecessors: predecessors).count
+        }
     }
 
     // MARK: - Reconciling
@@ -123,6 +137,42 @@ actor HistoryWriter {
         let groups = try await reader.duplicatePlayGroups(policy: policy)
         guard !groups.isEmpty else { return 0 }
         return try write { try TracksStore.mergeDuplicatePlays(groups, in: $0, policy: policy) }
+    }
+
+    /// See ``TracksStore/clearArtworkInBackground(urls:)``.
+    func clearArtwork(urls: Set<String>) throws -> Int {
+        guard !urls.isEmpty else { return 0 }
+        return try write { context in
+            let rows = try TracksStore.capturesWithArtwork(in: urls, context: context)
+            for row in rows { row.artworkURL = nil }
+            return rows.count
+        }
+    }
+
+    /// Saves what runs that couldn't open the library kept aside, once, then lets the file go.
+    /// Plays already in the store are skipped, so a run that saved them but stopped before
+    /// letting the file go doesn't save them twice.
+    /// - Returns: how many plays were saved.
+    func saveUnsavedPlays(from unsavedPlays: UnsavedPlays) -> Int {
+        let plays = unsavedPlays.read()
+        guard !plays.isEmpty else { return 0 }
+        do {
+            let saved = try write { context in
+                var saved = 0
+                for play in plays {
+                    guard try !play.isHeld(in: context) else { continue }
+                    play.insert(into: context)
+                    saved += 1
+                }
+                return saved
+            }
+            unsavedPlays.remove()
+            Self.log.info("Saved \(saved) plays kept aside while the library couldn't be opened")
+            return saved
+        } catch {
+            Self.log.error("Couldn't save the plays kept aside: \(error.localizedDescription, privacy: .public)")
+            return 0
+        }
     }
 
     /// Forgets covers nothing can load, found by `reader`, so the backfill fetches them again.

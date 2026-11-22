@@ -78,12 +78,12 @@ public struct TracksideClient: Sendable {
     }
 
     public static func capabilities(at base: URL, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksideCapabilities {
-        try decode(try await transport.send(request(base, "capabilities")))
+        try decode(try await transport.send(try request(base, "capabilities")))
     }
 
     /// - Parameter query: a challenge from ``TracksideEndpointProof/query(key:nonce:for:)``.
     public static func ping(at base: URL, query: [URLQueryItem] = [], timeout: Duration = .seconds(2), transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePing {
-        var request = request(base, "ping", Dictionary(query.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, last in last }))
+        var request = try request(base, "ping", Dictionary(query.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, last in last }))
         request.timeoutInterval = TimeInterval(timeout.components.seconds) + TimeInterval(timeout.components.attoseconds) / 1e18
         return try decode(try await transport.send(request))
     }
@@ -92,7 +92,7 @@ public struct TracksideClient: Sendable {
     public static func login(at base: URL, username: String, password: String, device: TracksideDeviceInfo, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePairResult {
         try requireSafe(base)
         let body = try TracksideJSON.encoder.encode(TracksideLoginRequest(username: username, password: password, device: device))
-        return try decode(try await transport.send(request(base, "auth/login", method: "POST", body: body)))
+        return try decode(try await transport.send(try request(base, "auth/login", method: "POST", body: body)))
     }
 
     /// Pairs with a code: the eight characters typed from the dashboard, or the secret in a
@@ -100,19 +100,19 @@ public struct TracksideClient: Sendable {
     public static func claim(at base: URL, code: String, device: TracksideDeviceInfo, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePairResult {
         try requireSafe(base)
         let body = try TracksideJSON.encoder.encode(TracksideClaimRequest(code: code, device: device))
-        return try decode(try await transport.send(request(base, "pair/claim", method: "POST", body: body)))
+        return try decode(try await transport.send(try request(base, "pair/claim", method: "POST", body: body)))
     }
 
     /// Asks to be paired from the dashboard: someone signed in there enters the code shown.
     public static func requestPairing(at base: URL, device: TracksideDeviceInfo, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePairRequest {
         try requireSafe(base)
         let body = try TracksideJSON.encoder.encode(TracksidePairRequestBody(device: device))
-        return try decode(try await transport.send(request(base, "pair/requests", method: "POST", body: body)))
+        return try decode(try await transport.send(try request(base, "pair/requests", method: "POST", body: body)))
     }
 
     public static func pollPairing(_ pairing: TracksidePairRequest, at base: URL, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePairPoll {
         try requireSafe(base)
-        return try decode(try await transport.send(request(base, "pair/requests/\(pairing.id)", authorization: "Pair \(pairing.pollSecret)")))
+        return try decode(try await transport.send(try request(base, "pair/requests/\(pairing.id)", authorization: "Pair \(pairing.pollSecret)")))
     }
 
     private static func requireSafe(_ base: URL) throws {
@@ -274,7 +274,7 @@ public struct TracksideClient: Sendable {
     /// The song for keeping, as a background download asks for it: the key goes in the
     /// header, since a background session keeps its requests on disk.
     public func downloadRequest(songID: String, profile: String? = nil) async throws -> URLRequest {
-        var request = Self.request(try await endpoints.provenBaseURL(), "songs/\(songID)/download", profile.map { ["profile": $0] } ?? [:], authorization: bearer)
+        var request = try Self.request(try await endpoints.provenBaseURL(), "songs/\(songID)/download", profile.map { ["profile": $0] } ?? [:], authorization: bearer)
         request.setValue(nil, forHTTPHeaderField: "Accept")
         // A transcode for keeping is made before it's sent, which can take a while.
         request.timeoutInterval = 300
@@ -331,7 +331,7 @@ public struct TracksideClient: Sendable {
 
     /// The events stream's request, picking up after the last event seen.
     func eventsRequest(lastEventID: String?) async throws -> URLRequest {
-        var request = Self.request(try await endpoints.provenBaseURL(), "events", authorization: bearer)
+        var request = try Self.request(try await endpoints.provenBaseURL(), "events", authorization: bearer)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue(lastEventID, forHTTPHeaderField: "Last-Event-ID")
@@ -340,18 +340,19 @@ public struct TracksideClient: Sendable {
         return request
     }
 
-    static func url(_ base: URL, _ path: String, _ query: [String: String] = [:]) -> URL {
-        var components = URLComponents(url: base.appending(path: "api/v1/\(path)"), resolvingAgainstBaseURL: false)!
+    static func url(_ base: URL, _ path: String, _ query: [String: String] = [:]) throws -> URL {
+        guard var components = URLComponents(url: base.appending(path: "api/v1/\(path)"), resolvingAgainstBaseURL: false) else { throw URLError(.badURL) }
         if !query.isEmpty {
             components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
             // URLComponents leaves "+" alone, and servers read it as a space.
             components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         }
-        return components.url!
+        guard let url = components.url else { throw URLError(.badURL) }
+        return url
     }
 
-    static func request(_ base: URL, _ path: String, _ query: [String: String] = [:], method: String = "GET", body: Data? = nil, authorization: String? = nil) -> URLRequest {
-        var request = URLRequest(url: url(base, path, query))
+    static func request(_ base: URL, _ path: String, _ query: [String: String] = [:], method: String = "GET", body: Data? = nil, authorization: String? = nil) throws -> URLRequest {
+        var request = URLRequest(url: try url(base, path, query))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(authorization, forHTTPHeaderField: "Authorization")
@@ -364,28 +365,28 @@ public struct TracksideClient: Sendable {
     }
 
     func get<Value: Decodable>(_ path: String, _ query: [String: String] = [:]) async throws -> Value {
-        try Self.decode(try await exchange(Self.request(try await endpoints.provenBaseURL(), path, query, authorization: bearer)))
+        try Self.decode(try await exchange(try Self.request(try await endpoints.provenBaseURL(), path, query, authorization: bearer)))
     }
 
     func send<Value: Decodable>(_ path: String, method: String, headers: [String: String] = [:]) async throws -> Value {
-        var request = Self.request(try await endpoints.provenBaseURL(), path, method: method, authorization: bearer)
+        var request = try Self.request(try await endpoints.provenBaseURL(), path, method: method, authorization: bearer)
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         return try Self.decode(try await exchange(request))
     }
 
     func send<Body: Encodable, Value: Decodable>(_ path: String, method: String, body: Body, headers: [String: String] = [:]) async throws -> Value {
-        var request = Self.request(try await endpoints.provenBaseURL(), path, method: method, body: try TracksideJSON.encoder.encode(body), authorization: bearer)
+        var request = try Self.request(try await endpoints.provenBaseURL(), path, method: method, body: try TracksideJSON.encoder.encode(body), authorization: bearer)
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         return try Self.decode(try await exchange(request))
     }
 
     /// For requests whose answer is only whether the server took them.
     func perform(_ path: String, method: String) async throws {
-        try Self.check(try await exchange(Self.request(try await endpoints.provenBaseURL(), path, method: method, authorization: bearer)))
+        try Self.check(try await exchange(try Self.request(try await endpoints.provenBaseURL(), path, method: method, authorization: bearer)))
     }
 
     func perform<Body: Encodable>(_ path: String, method: String, body: Body) async throws {
-        try Self.check(try await exchange(Self.request(try await endpoints.provenBaseURL(), path, method: method, body: try TracksideJSON.encoder.encode(body), authorization: bearer)))
+        try Self.check(try await exchange(try Self.request(try await endpoints.provenBaseURL(), path, method: method, body: try TracksideJSON.encoder.encode(body), authorization: bearer)))
     }
 
     /// Sends a request, and tells the endpoints whether the server could be reached, so a
@@ -410,17 +411,29 @@ public struct TracksideClient: Sendable {
         }
     }
 
+    /// An address that can't be built goes to the server's root, which refuses it, without
+    /// the token.
     private func media(_ path: String, _ query: [String: String]) -> URL {
-        withMediaToken(Self.url(endpoints.baseURL, path, query))
+        let base = endpoints.baseURL
+        return (try? Self.url(base, path, query)).map(withMediaToken) ?? base
     }
 
+    /// Only an address at the server in use carries the token: one the server hands out for
+    /// somewhere else, such as a cover from the web, never sees it.
     private func withMediaToken(_ url: URL) -> URL {
-        guard let mediaToken, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        guard let mediaToken, Self.isSameOrigin(url, endpoints.baseURL),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else { return url }
         var items = (components.queryItems ?? []).filter { $0.name != "mt" }
         items.append(URLQueryItem(name: "mt", value: mediaToken.token))
         components.queryItems = items
         components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         return components.url ?? url
+    }
+
+    static func isSameOrigin(_ url: URL, _ base: URL) -> Bool {
+        url.scheme?.lowercased() == base.scheme?.lowercased()
+            && TracksideEndpointProof.authority(of: url) == TracksideEndpointProof.authority(of: base)
     }
 
     /// Resolves a server's path against the address in use. The server's paths start at

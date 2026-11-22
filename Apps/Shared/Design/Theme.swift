@@ -154,17 +154,11 @@ extension SessionLength {
     }
 }
 
+/// Insight cards' measures. Read ``Design/Card`` and ``Design/Margin`` in new code.
 enum Metrics {
-    #if os(iOS)
-    static let cardRadius: CGFloat = 26
-    static let cardPadding: CGFloat = 16
-    static let sectionSpacing: CGFloat = 28
+    static let cardRadius = Design.Card.radius
+    static let cardPadding = Design.Card.padding
+    static let sectionSpacing = Design.Card.sectionSpacing
     /// Between cards in a row or a column.
-    static let cardSpacing: CGFloat = 12
-    #else
-    static let cardRadius: CGFloat = 16
-    static let cardPadding: CGFloat = 16
-    static let sectionSpacing: CGFloat = 24
-    static let cardSpacing: CGFloat = 16
-    #endif
+    static let cardSpacing = Design.Card.spacing
 }

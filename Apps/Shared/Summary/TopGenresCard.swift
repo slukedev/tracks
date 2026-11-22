@@ -75,7 +75,7 @@ private struct GenreRow: View {
             ProportionBar(
                 fraction: fraction,
                 style: isTop
-                    ? AnyShapeStyle(Color.accentColor.gradient)
+                    ? AnyShapeStyle(Color.accentColor)
                     : AnyShapeStyle(Color.accentColor.opacity(0.45)),
                 height: 6
             )

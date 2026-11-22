@@ -58,13 +58,13 @@ struct ServerArtistPage: View {
                     message: String(localized: "\(serverName) didn't answer. Check that it's online, then try again.")
                 ) {
                     Button("Try Again") { Task { await load() } }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                 }
             } else {
                 ArtistLoadingSections()
             }
         }
-        .animation(PlayMotion.panel, value: albums?.count)
+        .animation(Design.Motion.panel, value: albums?.count)
         .task { await load() }
     }
 

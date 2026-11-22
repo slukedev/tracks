@@ -176,7 +176,7 @@ struct TracksRadioTile: View {
     }
 }
 
-/// The "…" on the station's artwork: white on its colour, as controls on a coloured field are.
+/// The "…" on the station's artwork: a small circle of glass over it, as Play sits on a tile.
 private struct RadioMenuButton: View {
     @Binding var showsTuner: Bool
 
@@ -187,9 +187,10 @@ private struct RadioMenuButton: View {
             Image(systemName: "ellipsis")
                 .font(.footnote.weight(.bold))
                 .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(.white.opacity(0.22), in: .circle)
-                .frame(width: 44, height: 44)
+                .frame(width: Design.Control.coverButton, height: Design.Control.coverButton)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .environment(\.colorScheme, .dark)
+                .frame(width: Design.Control.minimumTarget, height: Design.Control.minimumTarget)
                 .contentShape(.circle)
         }
         .iconMenuStyle()
@@ -223,7 +224,7 @@ struct TracksRadioRow: View {
     var body: some View {
         let isOn = player.isPlayingTracksRadio
         let tuning = RadioTuning(stored: storedTuning)
-        HStack(alignment: .center, spacing: 16) {
+        HStack(alignment: .center, spacing: Design.Spacing.large) {
             Button {
                 if isOn { player.togglePlayPause() } else { player.playTracksRadio() }
             } label: {
@@ -232,32 +233,29 @@ struct TracksRadioRow: View {
             .buttonStyle(.pressable)
             .accessibilityLabel("Tracks Radio")
 
-            VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(player.isRadioDriving ? "Driving" : "Your Station")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                    Text("Tracks Radio")
-                        .font(.title3.bold())
-                    Text(tuning.summary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                HStack(spacing: 8) {
-                    Button {
-                        if isOn { player.togglePlayPause() } else { player.playTracksRadio() }
-                    } label: {
-                        Label(isOn && player.isPlaying ? "Pause" : "Play", systemImage: isOn && player.isPlaying ? "pause.fill" : "play.fill")
-                            .contentTransition(.symbolEffect(.replace))
+            // The artwork names the station; beside it, only what it's tuned to.
+            VStack(alignment: .leading, spacing: Design.Spacing.medium) {
+                VStack(alignment: .leading, spacing: Design.Spacing.xxSmall) {
+                    if player.isRadioDriving {
+                        Text("Driving")
+                            .eyebrowStyle()
                     }
-                    .buttonStyle(.glassProminent)
-                    Button("Tune…") { showsTuner = true }
-                        .buttonStyle(.glass)
+                    Text(tuning.summary)
+                        .font(.headline)
+                        .lineLimit(3)
                 }
-                .buttonBorderShape(.capsule)
-                .font(.subheadline.weight(.semibold))
+                GlassEffectContainer(spacing: Design.Control.spacing) {
+                    HStack(spacing: Design.Control.spacing) {
+                        PlayButton(
+                            verbatim: isOn && player.isPlaying ? String(localized: "Pause") : String(localized: "Play"),
+                            systemImage: isOn && player.isPlaying ? "pause.fill" : "play.fill",
+                            shape: .circle
+                        ) {
+                            if isOn { player.togglePlayPause() } else { player.playTracksRadio() }
+                        }
+                        GlassCircleButton(title: "Tune", systemImage: "slider.horizontal.3") { showsTuner = true }
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -341,11 +339,9 @@ struct RadioTuner: View {
                 VStack(spacing: 12) {
                     TracksRadioArt(side: 120, isLive: player.isPlayingTracksRadio && player.isPlaying, isDriving: player.isRadioDriving)
                         .shadow(color: .black.opacity(0.15), radius: 12, y: 6)
-                    VStack(spacing: 2) {
-                        Text("Tracks Radio")
-                            .font(.title2.bold())
+                    VStack(spacing: Design.Spacing.xxSmall) {
                         Text(tuning.summary)
-                            .font(.subheadline)
+                            .font(.headline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .contentTransition(.opacity)

@@ -12,7 +12,7 @@ enum LiveUpdate {
 
     /// Nil with Reduce Motion, so the new figures simply appear.
     static func animation(reduceMotion: Bool) -> Animation? {
-        reduceMotion ? nil : .smooth(duration: 0.5)
+        reduceMotion ? nil : Design.Motion.live
     }
 
     /// Runs `body`, animated when `isLive` says the change is new listening on the same
