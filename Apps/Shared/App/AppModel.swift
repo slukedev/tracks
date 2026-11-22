@@ -141,6 +141,8 @@ final class AppModel {
             #if os(iOS)
             TracksPlayerContext.startUsingAfterLaunch()
             #endif
+            // Known ahead, so the first song played doesn't wait to ask Apple's servers.
+            PlayerQuiet.run { AppleMusicSubscription.follow() }
             appleMusicEngine = MusicKitPlayerEngine()
             let startsWithYourMusic = MusicSource.current == .yourMusic
             let local: (any PlayerEngine)? = startsWithYourMusic ? LocalPlayerEngine(music: yourMusic, capture: .yourMusic) : nil

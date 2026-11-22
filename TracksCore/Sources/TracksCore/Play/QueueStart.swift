@@ -15,15 +15,16 @@ public enum QueueStart {
     ///   - wantedIndex: where it is in the list the queue was made from.
     ///   - listCount: how many songs that list has.
     ///   - entryIDs: the queue's songs as the player has them, in order; nil for one it
-    ///     hasn't worked out yet.
+    ///     hasn't worked out yet. Each is read only if it's needed, so it can be lazy: asking
+    ///     the player for an entry's song waits on Apple's player service.
     ///   - current: where the player is in them, if anywhere.
-    public static func correction(
+    public static func correction<IDs: RandomAccessCollection<String?>>(
         wantedID: String,
         wantedIndex: Int,
         listCount: Int,
-        entryIDs: [String?],
+        entryIDs: IDs,
         current: Int?
-    ) -> Int? {
+    ) -> Int? where IDs.Index == Int {
         let target: Int? = if entryIDs.indices.contains(wantedIndex), entryIDs[wantedIndex] == wantedID {
             wantedIndex
         } else if let found = entryIDs.firstIndex(of: wantedID) {

@@ -51,4 +51,16 @@ struct QueueStartTests {
         #expect(QueueStart.correction(wantedID: "d", wantedIndex: 3, listCount: 5, entryIDs: entries, current: 0) == nil)
         #expect(QueueStart.correction(wantedID: "d", wantedIndex: 3, listCount: 5, entryIDs: [], current: nil) == nil)
     }
+
+    @Test("a queue already on the song is told so from that one song, without asking about the rest")
+    func readsOnlyWhatItNeeds() {
+        // Each id read here is a question to Apple's player service on the main thread.
+        var asked: Set<Int> = []
+        let ids = (0..<500).lazy.map { index -> String? in
+            asked.insert(index)
+            return "song\(index)"
+        }
+        #expect(QueueStart.correction(wantedID: "song7", wantedIndex: 7, listCount: 500, entryIDs: ids, current: 7) == nil)
+        #expect(asked == [7])
+    }
 }

@@ -71,12 +71,13 @@ public enum PlayerQuiet {
         }
     }
 
-    /// Holds player work back from now, as the app launches, and around every scene's changes
-    /// after: the phone's window and the car's. Once per process.
+    /// Holds player work back from now, and around every scene's changes after: the phone's
+    /// window and the car's. Call it as the app launches and as each scene connects; it holds
+    /// every time, and starts watching only once per process.
     public static func followScenes() {
+        hold()
         #if os(iOS)
         guard observers.isEmpty else { return }
-        hold()
         let changes: [Notification.Name] = [
             UIScene.willConnectNotification,
             UIScene.willEnterForegroundNotification,
