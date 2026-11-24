@@ -293,9 +293,18 @@ final class YourMusic {
             // Found on a server by searching, when it was suggested.
             return foundOnServers[identity].flatMap { isPlayable($0) ? $0 : nil }
         }
-        if isPlayable(track) { return track }
-        // A server's copy out of reach: a file of the same song will do.
-        return index.tracks(withIdentity: identity).first(where: isPlayable)
+        // Every copy of the song, the best first in Play From order: a file before a
+        // download before a server's stream, unless the person has chosen otherwise.
+        let copies = [track] + index.tracks(withIdentity: identity).filter { $0.id != track.id }
+        return PlayFromOrder.current.choose(copies, place: playFromPlace(of:), canPlay: isPlayable)
+    }
+
+    /// Where a copy plays from, as Play From ranks it.
+    func playFromPlace(of track: LocalTrack) -> PlayFromPlace {
+        switch track.origin {
+        case .file: .source(.device)
+        case .server(let serverID, _): downloads.isDownloaded(track.id) ? .downloads : .source(.server(serverID))
+        }
     }
 
     // MARK: - Songs from outside
@@ -485,7 +494,7 @@ final class YourMusic {
             downloads.download([track])
             return String(localized: "Downloading \u{201C}\(title)\u{201D}")
         }
-        return String(localized: "\u{201C}\(title)\u{201D} Is in Your Music")
+        return String(localized: "\u{201C}\(title)\u{201D} Is in Your Library")
     }
 
     /// Downloads an album Lidarr has filed: found among your server's songs, after a sync if

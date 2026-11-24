@@ -421,14 +421,13 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         let access = accessSection()
         if isFirstBuild(library), access.isEmpty, let places = model.musicSource == .yourMusic ? yourMusicPlaces() : appleMusicPlaces() {
             library.showsSpinnerWhileEmpty = false
-            library.updateSections(Self.capped([places] + (sourceSwitchSection().map { [$0] } ?? [])))
+            library.updateSections(Self.capped([places]))
             builtFrom[ObjectIdentifier(library)] = 0
         }
         let shelves = access.isEmpty ? (model.musicSource == .yourMusic ? await yourMusicLibrarySections() : await appleMusicLibrarySections()) : access
         guard !Task.isCancelled, interface != nil else { return }
         library.showsSpinnerWhileEmpty = false
-        let switchSection = access.isEmpty ? sourceSwitchSection().map { [$0] } ?? [] : []
-        library.updateSections(Self.capped(shelves + switchSection))
+        library.updateSections(Self.capped(shelves))
         libraryBuiltFor = libraryKey
     }
 
@@ -441,18 +440,10 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         update(radio, sections)
     }
 
-    /// The other source, the last thing in Library, when there's music in both: the song on
-    /// carries on from the other source when it has it, so switching while driving doesn't
-    /// stop the music.
-    private func sourceSwitchSection() -> CPListSection? {
-        guard model.isDemoLaunch || (musicAccess == .authorized && model.yourMusic.hasMusic) else { return nil }
-        let other: MusicSource = model.musicSource == .appleMusic ? .yourMusic : .appleMusic
-        return CPListSection(items: [useSourceRow(other)])
-    }
-
-    /// "Use Your Music" or "Use Apple Music".
+    /// "Use Files and Servers", when Apple Music can't play from the car. The car otherwise
+    /// follows the phone's source filter and offers no switch of its own.
     func useSourceRow(_ source: MusicSource) -> CPListItem {
-        let title = source == .yourMusic ? String(localized: "Use Your Music") : String(localized: "Use Apple Music")
+        let title = String(localized: "Use \(source.name)")
         let item = CPListItem(text: title, detailText: nil, image: CarPlayImages.symbol("arrow.left.arrow.right", side: CPListItem.maximumImageSize.height, scale: scale))
         item.handler = { [weak self] _, completion in
             guard let self else { return completion() }

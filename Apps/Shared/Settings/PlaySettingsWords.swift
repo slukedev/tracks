@@ -56,34 +56,10 @@ enum PlaySettingsWords {
             guard standing.songs > 0 || standing.servers > 0 else {
                 return (String(localized: "Add songs or connect a server to start."), .attention)
             }
-            return (String(localized: "Plays Your Music"), .plain)
+            return (String(localized: "Plays Files and Servers"), .plain)
+        case .spotify:
+            return (String(localized: "Plays Spotify"), .plain)
         }
-    }
-
-    // MARK: - Source
-
-    /// Only where to find Quick Switch, which its name doesn't say.
-    static func sourceFooter(quickSwitch: QuickSwitchState) -> String? {
-        #if os(macOS)
-        switch quickSwitch {
-        case .unavailable: nil
-        case .off: String(localized: "Quick Switch puts both in Listen Now’s title.")
-        case .on: String(localized: "Click Listen Now’s title to switch.")
-        }
-        #else
-        switch quickSwitch {
-        case .unavailable: nil
-        case .off: String(localized: "Quick Switch puts both in Play’s title.")
-        case .on: String(localized: "Tap Play’s title to switch.")
-        }
-        #endif
-    }
-
-    enum QuickSwitchState: Equatable {
-        /// Only offered with Apple Music allowed and music of your own.
-        case unavailable
-        case off
-        case on
     }
 
     // MARK: - Around Tracks

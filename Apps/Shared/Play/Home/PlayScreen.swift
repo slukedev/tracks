@@ -90,10 +90,8 @@ struct PlayScreen: View {
 
     #if os(macOS)
     private static let topPadding = Design.Spacing.xLarge
-    private static let hasSidebarLibrary = true
     #else
     private static let topPadding = Design.Spacing.xSmall
-    private static let hasSidebarLibrary = false
     #endif
 
     // MARK: - Sections
@@ -153,13 +151,8 @@ struct PlayScreen: View {
                 PlaceholderShelf(title: String(localized: "Radio"))
             }
         case .library:
-            // The Mac's library is in the sidebar.
-            #if os(iOS)
-            if showsLibrary, !Self.hasSidebarLibrary {
-                LibraryOverview()
-                    .padding(.horizontal, Design.Margin.page)
-            }
-            #endif
+            // The library has its own place: the Library tab, the Mac's sidebar.
+            EmptyView()
         case .appleMusic:
             ForEach(feed.recommendations.prefix(PlayFeed.pickRows)) { recommendation in
                 Shelf(title: recommendation.title, items: recommendation.items) { item in
@@ -252,10 +245,6 @@ struct PlayScreen: View {
 
     /// Apple's live stations only. Personal stations from the history still play from Recently Played.
     private var radio: [FeedItem] { feed.liveStations }
-
-    private var showsLibrary: Bool {
-        !model.isShowingSampleData && model.musicAuthorization == .authorized
-    }
 }
 
 /// What Discover is looked up from. A change to any of it looks again.

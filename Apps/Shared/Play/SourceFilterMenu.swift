@@ -1,179 +1,212 @@
 import SwiftUI
-import AppIntents
-import MusicKit
 import TracksCore
 
-/// Quick Switch: moving between Apple Music and your own music from the Play tab, for someone
-/// who uses both, each for its own times. Off by default, and only offered with both there.
-/// What's playing carries on through a switch, until something from the other is played.
-enum QuickSwitch {
-    static let storageKey = "quickSourceSwitch"
-
-    static var isOn: Bool { UserDefaults.standard.bool(forKey: storageKey) }
-
-    /// Both are there to switch between: Apple Music allowed, and music of your own. Sample
-    /// data has both.
-    @MainActor
-    static func isAvailable(_ music: YourMusic) -> Bool {
-        (MusicAuthorization.currentStatus == .authorized || music.isDemo) && music.hasMusic
-    }
-}
-
 extension View {
-    /// Play's title as a menu of the two sources, with the one playing under it, and a word
-    /// when the other would do better right now: offline, your downloads; your server not
-    /// answering, Apple Music.
-    func quickSourceSwitch() -> some View {
-        modifier(QuickSourceSwitch())
+    /// The source filter under Play's and Library's title (the Mac's toolbar): All Sources,
+    /// each source, Manage Sources…. Only once there are two sources to choose between, and
+    /// never touches what's queued. Plus, offline, the one word at the foot of the page that
+    /// offers what still plays.
+    func sourceFilter() -> some View {
+        modifier(SourceFilterModifier())
     }
 }
 
-private struct QuickSourceSwitch: ViewModifier {
+private struct SourceFilterModifier: ViewModifier {
     @Environment(AppModel.self) private var model
     @Environment(YourMusic.self) private var music
+    @Environment(PlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(QuickSwitch.storageKey) private var isOn = false
-    /// Counts switches made here, for a tap of feedback on each; never the source itself,
+    /// Counts choices made here, for a tap of feedback on each; never the filter itself,
     /// which a Focus or Shortcuts can change too.
-    @State private var switches = 0
+    @State private var choices = 0
+    @State private var managesSources = false
+    #if os(macOS)
+    @AppStorage(MacSettingsPane.storageKey) private var settingsPane = MacSettingsPane.general
+    @Environment(\.openSettings) private var openSettings
+    #endif
 
     func body(content: Content) -> some View {
-        if isOn, QuickSwitch.isAvailable(music) {
-            content
-                #if os(macOS)
-                // Listen Now has no title of its own for a title menu to hang on, so the
-                // source sits where the title would and opens the menu itself.
-                .toolbar {
-                    ToolbarItem(placement: .navigation) {
-                        Menu { picker } label: { MacSourceLabel(source: model.musicSource) }
-                            .menuStyle(.button)
-                            .buttonStyle(.plain)
-                            .menuIndicator(.hidden)
-                            .fixedSize()
-                            // Where a window's title starts.
-                            .padding(.leading, 16)
-                            .accessibilityLabel("Music Source")
-                            .accessibilityValue(model.musicSource.name)
-                            .accessibilityHint("Switches between Apple Music and your music")
-                    }
-                    .sharedBackgroundVisibility(.hidden)
-                }
-                #else
-                .navigationSubtitle(model.musicSource.name)
-                .toolbarTitleMenu { picker }
-                #endif
-                #if os(iOS)
-                // At the top of the page the title is large, and the system gives a large
-                // title no menu: the source under it opens the same one, so switching is a tap
-                // away however far up the page is, the search field showing or not.
-                .toolbar {
-                    ToolbarItem(placement: .largeSubtitle) {
-                        Menu { picker } label: { LargeSourceLabel(source: model.musicSource) }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityLabel("Music Source")
-                            .accessibilityValue(model.musicSource.name)
-                            .accessibilityHint("Switches between Apple Music and your music")
-                    }
-                }
-                #endif
-                // A bar, so the page's scroll edge softens under it as under the tab bar.
-                .safeAreaBar(edge: .bottom) {
-                    if let suggestion {
-                        SwitchSuggestion(suggestion: suggestion) { switchSource(to: suggestion.source) }
-                            .padding(.bottom, Design.Spacing.small)
-                            .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-                    }
-                }
-                .animation(Design.Motion.reduced(Design.Motion.panel, reduceMotion: reduceMotion), value: suggestion?.source)
-                .sensoryFeedback(Design.Haptic.choice, trigger: switches)
-        } else {
-            content
+        let entries = model.sourceEntries.filter(\.canPlay)
+        let selection = model.effectiveSourceSelection
+        Group {
+            if entries.count > 1 {
+                filtered(content, entries: entries, selection: selection)
+            } else {
+                content
+            }
         }
+        // A bar, so the page's scroll edge softens under it as under the tab bar.
+        .safeAreaBar(edge: .bottom) {
+            if isOfflineWithDownloads {
+                OfflineCapsule(play: playDownloads)
+                    .padding(.bottom, Design.Spacing.small)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(Design.Motion.reduced(Design.Motion.panel, reduceMotion: reduceMotion), value: isOfflineWithDownloads)
+        .sensoryFeedback(Design.Haptic.choice, trigger: choices)
+        #if os(iOS)
+        .sheet(isPresented: $managesSources) {
+            NavigationStack {
+                SourcesPage()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done", role: .confirm) { managesSources = false }
+                        }
+                    }
+            }
+        }
+        #endif
     }
 
-    private var picker: some View {
-        Picker("Music Source", selection: Binding(get: { model.musicSource }, set: switchSource(to:))) {
-            ForEach(MusicSource.allCases) { source in
-                Label(source.title, systemImage: source.symbol).tag(source)
+    @ViewBuilder
+    private func filtered(_ content: Content, entries: [SourceEntry], selection: SourceSelection) -> some View {
+        let name = Self.name(of: selection, in: entries)
+        content
+            #if os(macOS)
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Menu { menu(entries) } label: { MacSourceLabel(name: name) }
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        // Where a window's title starts.
+                        .padding(.leading, 16)
+                        .accessibilityLabel("Source")
+                        .accessibilityValue(name)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
+            #else
+            .navigationSubtitle(name)
+            .toolbarTitleMenu { menu(entries) }
+            // At the top of the page the title is large, and the system gives a large title no
+            // menu: the filter under it opens the same one.
+            .toolbar {
+                ToolbarItem(placement: .largeSubtitle) {
+                    Menu { menu(entries) } label: { LargeSourceLabel(name: name) }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel("Source")
+                        .accessibilityValue(name)
+                }
+            }
+            #endif
+    }
+
+    @ViewBuilder
+    private func menu(_ entries: [SourceEntry]) -> some View {
+        let servers = entries.filter(\.id.isServer)
+        let collapsesServers = entries.count > 6 && servers.count > 1
+        Picker("Source", selection: binding) {
+            Text("All Sources").tag(SourceSelection.all)
+            Section {
+                ForEach(collapsesServers ? entries.filter { !servers.contains($0) } : entries) { entry in
+                    option(entry)
+                }
+            }
+        }
+        .pickerStyle(.inline)
+        if collapsesServers {
+            Menu("Servers") {
+                Picker("Servers", selection: binding) {
+                    ForEach(servers) { option($0) }
+                }
+                .pickerStyle(.inline)
+            }
+        }
+        Divider()
+        Button("Manage Sources…", action: manageSources)
+    }
+
+    private func option(_ entry: SourceEntry) -> some View {
+        Label {
+            Text(verbatim: entry.name)
+        } icon: {
+            SourceGlyph(source: entry.id)
+        }
+        .tag(SourceSelection.only(entry.id))
+    }
+
+    private var binding: Binding<SourceSelection> {
+        Binding(get: { model.effectiveSourceSelection }) { selection in
+            guard selection != model.effectiveSourceSelection else { return }
+            choices += 1
+            withAnimation(Design.Motion.reduced(Design.Motion.fade, reduceMotion: reduceMotion)) {
+                model.chooseSources(selection)
             }
         }
     }
 
-    private func switchSource(to source: MusicSource) {
-        guard source != model.musicSource else { return }
-        switches += 1
-        model.switchSource(to: source)
+    private func manageSources() {
+        #if os(macOS)
+        settingsPane = .sources
+        MenuBarFooter.bringSettingsForward(openSettings: openSettings)
+        #else
+        managesSources = true
+        #endif
     }
 
-    /// The other source, when it'd play where this one can't.
-    private var suggestion: SwitchSuggestion.Suggestion? {
-        let downloaded = music.tracks(for: .downloaded)
-        switch model.musicSource {
-        case .appleMusic where !music.network.isOnline && !downloaded.isEmpty:
-            return .init(source: .yourMusic, reason: String(localized: "You're offline"), action: String(localized: "Play Your Downloads"))
-        case .yourMusic where music.network.isOnline && downloaded.isEmpty && serversAreDown:
-            return .init(source: .appleMusic, reason: String(localized: "Your server isn't answering"), action: String(localized: "Switch to Apple Music"))
-        default:
-            return nil
+    static func name(of selection: SourceSelection, in entries: [SourceEntry]) -> String {
+        switch selection {
+        case .all: String(localized: "All Sources")
+        case .only(let source): entries.first { $0.id == source }?.name ?? String(localized: "All Sources")
         }
     }
 
-    /// Every server has been tried and none answered: not just still connecting.
-    private var serversAreDown: Bool {
-        let servers = music.servers.servers
-        return !servers.isEmpty && servers.allSatisfy { server in
-            switch music.servers.status[server.id] {
-            case .offline, .failed, .wrongPassword: true
-            default: false
-            }
-        }
+    /// Offline, with something still to play here.
+    private var isOfflineWithDownloads: Bool {
+        !music.network.isOnline && !music.isDemo && !(music.fileTracks.isEmpty && music.tracks(for: .downloaded).isEmpty)
+    }
+
+    /// Everything that plays with no connection, shuffled.
+    private func playDownloads() {
+        let tracks = music.tracks(for: .downloaded).shuffled()
+        guard !tracks.isEmpty else { return }
+        choices += 1
+        model.switchSource(to: .yourMusic)
+        Task { await player.start(.local(tracks), from: .songs(String(localized: "Downloads"))) }
     }
 }
 
 #if os(iOS)
-/// The source under Play's large title, as its subtitle is drawn, with the chevron that says
-/// it's a menu.
+/// The filter under the large title, as its subtitle is drawn, with the chevron that says it's
+/// a menu. Tall enough to tap, though the words are small.
 private struct LargeSourceLabel: View {
-    let source: MusicSource
+    let name: String
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 3) {
-            Text(source.name)
+            Text(verbatim: name)
+                .lineLimit(1)
+                .truncationMode(.tail)
             Image(systemName: "chevron.down")
                 .font(.caption2.weight(.bold))
                 .imageScale(.small)
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
-        // A finger's worth to tap, though the words are small.
-        .frame(minHeight: 28)
+        .frame(minHeight: Design.Control.minimumTarget)
         .contentShape(.rect)
         .contentTransition(.opacity)
     }
 }
 #endif
 
-/// A small word at the foot of Play, offering the other source.
-private struct SwitchSuggestion: View {
-    struct Suggestion: Equatable {
-        let source: MusicSource
-        let reason: String
-        let action: String
-    }
-
-    let suggestion: Suggestion
-    let switchSource: () -> Void
+/// The one word at the foot of Play while offline: what still plays.
+private struct OfflineCapsule: View {
+    let play: () -> Void
 
     var body: some View {
-        Button(action: switchSource) {
+        Button(action: play) {
             HStack(spacing: 10) {
-                Image(systemName: suggestion.source.symbol)
+                Image(systemName: "arrow.down.circle")
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(suggestion.reason)
+                    Text("You're offline")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(suggestion.action)
+                    Text("Play Downloads")
                         .font(.subheadline.weight(.semibold))
                 }
             }
@@ -186,87 +219,19 @@ private struct SwitchSuggestion: View {
     }
 }
 
-// MARK: - Focus and Shortcuts
-
-extension MusicSource: AppEnum {
-    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Music Source"
-
-    static let caseDisplayRepresentations: [MusicSource: DisplayRepresentation] = [
-        .appleMusic: DisplayRepresentation(title: "Apple Music", image: .init(systemName: "music.note")),
-        .yourMusic: DisplayRepresentation(title: "Your Music", subtitle: "Your files and your servers", image: .init(systemName: "externaldrive.fill")),
-    ]
-}
-
-/// A Focus filter: which music Play plays while a Focus is on, as Apple Music at the gym and
-/// your own lossless files at your desk. When the Focus ends, it goes back to what it was.
-struct MusicSourceFocusFilter: SetFocusFilterIntent {
-    static let title: LocalizedStringResource = "Set Music Source"
-    static let description = IntentDescription("Choose which music source Play uses while this Focus is on.")
-
-    @Parameter(title: "Music Source")
-    var source: MusicSource?
-
-    var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(title: "\(source?.name ?? String(localized: "Unchanged"))")
-    }
-
-    private static let beforeFocusKey = "musicSourceBeforeFocus"
-
-    @MainActor
-    func perform() async throws -> some IntentResult {
-        let model = AppModel.shared
-        let defaults = UserDefaults.standard
-        if let source {
-            // The first Focus to change it remembers what to go back to.
-            if defaults.string(forKey: Self.beforeFocusKey) == nil {
-                defaults.set(model.musicSource.rawValue, forKey: Self.beforeFocusKey)
-            }
-            model.switchSource(to: source)
-        } else if let before = defaults.string(forKey: Self.beforeFocusKey).flatMap(MusicSource.init(rawValue:)) {
-            // The Focus ended, or stopped choosing: back to what it was.
-            defaults.removeObject(forKey: Self.beforeFocusKey)
-            model.switchSource(to: before)
-        }
-        return .result()
-    }
-}
-
-/// Switches Play between Apple Music and your own music, from Shortcuts or the Action button,
-/// without stopping what's playing.
-struct SwitchMusicSourceIntent: AppIntent {
-    static let title: LocalizedStringResource = "Switch Music Source"
-    static let description = IntentDescription("Switches between your music sources. The song playing carries on from the other source when it has it. Leave the source empty to switch to whichever isn't on.")
-
-    @Parameter(title: "Music Source")
-    var source: MusicSource?
-
-    @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        let model = AppModel.shared
-        let target = source ?? (model.musicSource == .appleMusic ? .yourMusic : .appleMusic)
-        guard target != model.musicSource else { return .result(dialog: "Already playing from \(target.name).") }
-        if target == .appleMusic, !model.isDemoLaunch, MusicAuthorization.currentStatus != .authorized {
-            throw PlayIntentError.appleMusicAccess
-        }
-        if await model.switchSourceCarryingOn(to: target) {
-            return .result(dialog: "Now playing from \(target.name).")
-        }
-        return .result(dialog: "Switched to \(target.name).")
-    }
-}
-
 #if os(macOS)
-/// The source in the Mac's title bar, where a window's title sits, with a chevron saying it
+/// The filter in the Mac's title bar, where a window's title sits, with a chevron saying it
 /// opens a menu.
 private struct MacSourceLabel: View {
-    let source: MusicSource
+    let name: String
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(source.name)
+            Text(verbatim: name)
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+                .lineLimit(1)
             Image(systemName: "chevron.down")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))

@@ -87,7 +87,12 @@ All screenshots use the built-in sample data.
 - Now Playing with your play count for the song, a ring that fills until the song is kept,
   Up Next, Create Station, AirPlay and a sleep timer. Settings for explicit songs,
   crossfade (iPhone), the layout, and whether songs elsewhere play in Tracks or Apple Music.
-- Your Music: play the FLAC and other files you own, and your own Subsonic-compatible
+- Sources: add Apple Music, the music on your iPhone or Mac, and your servers, each by its
+  own name, in Settings › Sources. Once there are two, a filter under Play's and Library's
+  title narrows to one or opens to all, without touching what's playing, and Play From
+  decides which copy plays when a song is in several. On iPhone the tabs are Play, Library,
+  Summary and History (Plays and Charts), with Search.
+- Files and servers: play the FLAC and other files you own, and your own Subsonic-compatible
   server (Navidrome and others), with downloads for offline, discovery on your servers, and
   Tracks Radio, mixes and moods made from all of it. Suggestions are checked against what you
   have. With Trackside or Lidarr, Get More fetches what you don't, and artist and album pages

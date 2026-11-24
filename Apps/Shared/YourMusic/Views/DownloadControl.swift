@@ -183,19 +183,19 @@ struct DownloadWords {
         case (.appleMusic, .offline):
             (title, short, symbol) = ("Apple Music Is Offline", "Offline", "wifi.slash")
         case (.yourMusic, .keep):
-            (title, short, symbol) = ("Get on Your Music", "Get", "tray.and.arrow.down")
+            (title, short, symbol) = ("Get on Your Server", "Get", "tray.and.arrow.down")
         case (.yourMusic, .keepRest):
-            (title, short, symbol) = ("Get the Rest on Your Music", "Get the Rest", "tray.and.arrow.down")
+            (title, short, symbol) = ("Get the Rest on Your Server", "Get the Rest", "tray.and.arrow.down")
         case (.yourMusic, .retry):
-            (title, short, symbol) = ("Try Your Music Again", "Try Again", "arrow.clockwise")
+            (title, short, symbol) = ("Try Your Server Again", "Try Again", "arrow.clockwise")
         case (.yourMusic, .inProgress):
-            (title, short, symbol) = ("Getting on Your Music…", "Getting…", "ellipsis.circle")
+            (title, short, symbol) = ("Getting on Your Server…", "Getting…", "ellipsis.circle")
         case (.yourMusic, .done):
-            (title, short, symbol) = ("On Your Music", "On Your Music", "checkmark.circle")
+            (title, short, symbol) = ("On Your Server", "On Your Server", "checkmark.circle")
         case (.yourMusic, .partlyDone):
-            (title, short, symbol) = ("Partly on Your Music", "Partly Got", "circle.lefthalf.filled")
+            (title, short, symbol) = ("Partly on Your Server", "Partly Got", "circle.lefthalf.filled")
         case (.yourMusic, .offline), (.yourMusic, .openInMusic):
-            (title, short, symbol) = ("Your Music Is Offline", "Offline", "wifi.slash")
+            (title, short, symbol) = ("Your Server Is Offline", "Offline", "wifi.slash")
         }
     }
 
@@ -203,7 +203,7 @@ struct DownloadWords {
         switch choice {
         case .ask: "Ask Each Time"
         case .appleMusic: "Apple Music"
-        case .yourMusic: "Your Music"
+        case .yourMusic: "Your Server"
         }
     }
 

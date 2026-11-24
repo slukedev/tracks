@@ -24,7 +24,7 @@ enum SearchScope: String, CaseIterable, Identifiable {
 
     /// The title where the library is your own music rather than Apple Music's.
     func title(for source: MusicSource) -> LocalizedStringKey {
-        self == .library && source == .yourMusic ? "Your Music" : title
+        self == .library && source == .yourMusic ? "Your Library" : title
     }
 
     func prompt(for source: MusicSource) -> Text {

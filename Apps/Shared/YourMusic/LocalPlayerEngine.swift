@@ -965,7 +965,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             playbackState: status == .playing ? .playing : (status == .stopped ? .stopped : .paused),
             playerPosition: playbackTime,
             isStation: false,
-            rawFields: ["source": "Your Music", "origin": track.isFromServer ? "server" : "file"]
+            rawFields: ["source": "Your Music", "origin": track.isFromServer ? "server" : "file", PlayID.observationKey: playID(for: entries[index].id)]
         ))
     }
 
@@ -997,7 +997,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         serverScrobble = (entry.id, started.startedAt, true)
         let track = entry.track
         music.servers.recordListen(ServerListen(
-            id: UUID().uuidString,
+            id: playID(for: entry.id),
             songID: songID,
             startedAt: started.startedAt,
             played: playbackTime,
@@ -1006,6 +1006,17 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             album: track.album,
             duration: track.duration
         ), on: serverID)
+    }
+
+    /// One id for each time a song plays: its history row and the listen its server is told
+    /// of share it, so the play is counted once however many devices report it.
+    private var currentPlay: (entryID: String, id: String)?
+
+    private func playID(for entryID: String) -> String {
+        if let currentPlay, currentPlay.entryID == entryID { return currentPlay.id }
+        let id = PlayID.make()
+        currentPlay = (entryID, id)
+        return id
     }
 
     /// The lock screen's picture. Made off the main actor: MediaPlayer asks for it on a queue

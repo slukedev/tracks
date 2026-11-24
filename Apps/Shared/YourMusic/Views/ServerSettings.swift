@@ -70,7 +70,7 @@ struct DownloadChoiceSection: View {
 
     private var section: some View {
         Section {
-            Toggle("Download to Apple Music or Your Music", isOn: $isOn.animation())
+            Toggle("Download to Apple Music or Your Server", isOn: $isOn.animation())
             if isOn {
                 Picker("Always Use", selection: $preferred) {
                     ForEach(DownloadDefault.allCases, id: \.self) { choice in

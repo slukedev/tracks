@@ -61,14 +61,10 @@ extension PlaySection {
         }
     }
 
-    /// Whether this platform's Play shows the section at all. The Mac's library is in the
-    /// sidebar, so Listen Now never shows it and there's nothing to arrange.
+    /// Whether Play shows the section at all. The library has a place of its own, the Library
+    /// tab on iPhone and the sidebar on the Mac, so Play never shows it.
     var isOffered: Bool {
-        #if os(macOS)
         self != .library
-        #else
-        true
-        #endif
     }
 }
 

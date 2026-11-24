@@ -3,7 +3,7 @@ import TracksCore
 
 /// A pane of the Mac's Settings window, stored so Settings reopens where it was left.
 enum MacSettingsPane: String {
-    case general, play, history, radio, lastFM, iCloud, devices, menuBar
+    case general, sources, play, history, radio, lastFM, iCloud, devices, menuBar
     static let storageKey = "settingsPane"
 }
 
@@ -19,6 +19,11 @@ struct MacSettingsView: View {
         TabView(selection: $pane) {
             Tab("General", systemImage: "gearshape", value: .general) {
                 GeneralSettingsPane()
+            }
+            Tab("Sources", systemImage: "square.stack", value: .sources) {
+                SourcesSettingsPane()
+                    .environment(model.yourMusic)
+                    .environment(model.lidarr)
             }
             Tab("Play", systemImage: "play.circle", value: .play) {
                 // The Settings scene is its own root, so Play's models go in again here.

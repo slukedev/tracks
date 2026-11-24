@@ -38,7 +38,7 @@ private struct PlayerFeedback: ViewModifier {
                     }
                     Button("Not Now", role: .cancel) {}
                 case .needsAppleMusic:
-                    Button("Use Apple Music") { model.musicSource = .appleMusic }
+                    Button("Use Apple Music") { model.chooseSources(.only(.appleMusic)) }
                     Button("Not Now", role: .cancel) {}
                 case .blockedArtist(let name):
                     // Stopped for being theirs: unblocked, it plays on from where it stopped.

@@ -243,7 +243,7 @@ enum PlayerProblem: Error, Equatable {
         case .nothingToPlay: String(localized: "Couldn't Find These Songs")
         case .onlyExplicit: String(localized: "Only Explicit Versions")
         case .explicitSong: String(localized: "Explicit Song")
-        case .notInYourMusic: String(localized: "Not in Your Music")
+        case .notInYourMusic: String(localized: "Not in Your Library")
         case .needsAppleMusic: String(localized: "This Is Apple Music")
         case .blockedArtist(let name): String(localized: "You Blocked \(name)")
         case .failed(_, let title): title ?? String(localized: "Couldn't Play")

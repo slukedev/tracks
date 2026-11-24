@@ -10,7 +10,7 @@ struct RootView: View {
     @State private var summaryPath = LaunchScene.route.map { NavigationPath([$0]) } ?? NavigationPath()
     /// So a link inside a row, like an artist's name on a collaboration, can push.
     @State private var historyPath = NavigationPath()
-    @State private var chartsPath = NavigationPath()
+    @State private var libraryPath = NavigationPath()
     /// Where the app opens also decides where Play sits: first when it's where Tracks opens,
     /// last otherwise, so the opening tab is always far left.
     @AppStorage(OpeningTab.storageKey) private var openingTab: OpeningTab = .standard
@@ -113,7 +113,7 @@ struct RootView: View {
             // Tracks also plays with no window, for CarPlay and Siri.
             .onChange(of: model.playFeed.builtRevision) {
                 // Sample data's own music is made from the sample history, now it's read.
-                if model.musicSource == .yourMusic { model.prepareYourMusic() }
+                model.prepareYourMusic()
                 LaunchScene.startDemoPlayback(model)
                 LaunchScene.openMix(model)
                 #if DEBUG
@@ -171,8 +171,16 @@ struct RootView: View {
                 if old != source {
                     model.playNavigator.path = NavigationPath()
                     model.search.path = NavigationPath()
+                    libraryPath = NavigationPath()
                 }
-                if source == .yourMusic { model.prepareYourMusic() }
+                // Read once whatever the filter: Sources and Library list this device's songs.
+                model.prepareYourMusic()
+            }
+            // A source added or gone: Play stays on one that has music, and Shortcuts offer
+            // the sources there are.
+            .onChange(of: model.playableSources) {
+                model.followSources()
+                if !model.isDemoLaunch { TracksShortcuts.updateAppShortcutParameters() }
             }
             .onChange(of: scenePhase) { _, phase in
                 // Coming back is when to send what's still owed and fold in what synced.
@@ -191,7 +199,7 @@ struct RootView: View {
                     }
                     model.nearby.resume()
                     // Songs dropped into Files while Tracks was away.
-                    if model.musicSource == .yourMusic { Task { await model.yourMusic.scan() } }
+                    Task { await model.yourMusic.scan() }
                 }
             }
         } else {
@@ -203,9 +211,10 @@ struct RootView: View {
         }
     }
 
-    /// The tab Tracks opens to is far left: Play first when it opens to Play, last otherwise.
+    /// The tab Tracks opens to is far left: Play and Library first when it opens to Play,
+    /// last otherwise.
     private var tabOrder: [AppTab] {
-        openingTab == .play ? [.play, .summary, .history, .charts] : [.summary, .history, .charts, .play]
+        openingTab == .play ? [.play, .library, .summary, .history] : [.summary, .history, .play, .library]
     }
 
     @ViewBuilder
@@ -222,31 +231,30 @@ struct RootView: View {
             @Bindable var navigator = navigator
             NavigationStack(path: $navigator.path) {
                 Group {
-                    if model.musicSource == .yourMusic {
-                        YourMusicScreen()
-                    } else {
-                        AppleMusicPlayScreen()
+                    switch model.musicSource {
+                    case .yourMusic: YourMusicScreen()
+                    case .appleMusic, .spotify: AppleMusicPlayScreen()
                     }
                 }
-                .quickSourceSwitch()
+                .sourceFilter()
                 .playDestinations()
                 .tracksDestinations()
             }
             .environment(\.openPlayRoute, OpenPlayRouteAction(stack: "play") { navigator.show($0) })
+        case .library:
+            NavigationStack(path: $libraryPath) {
+                LibraryScreen()
+                    .playDestinations()
+                    .tracksDestinations()
+            }
+            .environment(\.openPlayRoute, OpenPlayRouteAction(stack: "library") { libraryPath.append($0) })
         case .history:
             NavigationStack(path: $historyPath) {
-                HistoryScreen()
+                HistoryTab()
                     .tracksDestinations()
                     .playDestinations()
             }
             .environment(\.openPlayRoute, OpenPlayRouteAction(stack: "history") { historyPath.append($0) })
-        case .charts:
-            NavigationStack(path: $chartsPath) {
-                ChartsScreen()
-                    .tracksDestinations()
-                    .playDestinations()
-            }
-            .environment(\.openPlayRoute, OpenPlayRouteAction(stack: "charts") { chartsPath.append($0) })
         case .search:
             @Bindable var search = model.search
             NavigationStack(path: $search.path) {
@@ -302,10 +310,11 @@ private struct TabMemory: ViewModifier {
 
     /// Back on the saved tab, unless the launch itself asked for a place.
     private func restoreTab() {
-        guard let tab = AppTab(rawValue: savedTab), model.pendingRoute == nil,
+        guard let tab = AppTab(launchName: savedTab), model.pendingRoute == nil,
               LaunchScene.tab == nil, LaunchScene.route == nil,
               !LaunchScene.opensSearch, LaunchScene.searchText == nil
         else { return }
+        if savedTab == AppTab.chartsName { model.historyMode = .charts }
         model.selectedTab = tab
     }
 }

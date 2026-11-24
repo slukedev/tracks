@@ -63,7 +63,7 @@ struct SummaryScreen: View {
         .tabRoot("Summary", opensSettingsAtLaunch: LaunchScene.opensSettings) {
             if sources.isOffered {
                 ToolbarItem(placement: .primaryAction) {
-                    SourceScopeMenu(scope: sources.selection)
+                    SourceScopeMenu(scope: sources.selection, offered: sources.offered)
                 }
             }
         }
@@ -206,10 +206,11 @@ struct SummaryContent: View {
         openPlayRoute(.stats(.highlights(summary.range, periodOffset: summary.periodOffset)))
     }
 
-    /// Moves to the Charts tab, which holds the full lists, rather than pushing a second copy
+    /// Moves to History's charts, which hold the full lists, rather than pushing a second copy
     /// of one inside Summary and leaving the tab bar pointing at the wrong place.
     private func showChart(_ kind: ChartKind) {
         kind.select()
-        model.selectedTab = .charts
+        model.historyMode = .charts
+        model.selectedTab = .history
     }
 }

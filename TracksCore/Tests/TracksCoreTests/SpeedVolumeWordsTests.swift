@@ -55,7 +55,7 @@ struct SpeedVolumeWordsTests {
         let standing = SpeedVolumeStanding(isOn: true, location: .always, isAppleMusic: true, isOnCarPlay: true)
         #expect(standing.blocker == .carSetsVolume)
         #expect(SpeedVolumeWords.status(standing).tone == .plain)
-        #expect(SpeedVolumeWords.switchFooter(standing).contains("Your Music"))
+        #expect(SpeedVolumeWords.switchFooter(standing).contains("files and servers"))
         // Your own music on CarPlay has nothing in its way.
         let yours = SpeedVolumeStanding(isOn: true, location: .always, isOnCarPlay: true)
         #expect(yours.blocker == nil)

@@ -251,7 +251,7 @@ private struct OnboardingSetup: View {
 
     private var yourMusicRow: some View {
         OnboardingRow(
-            "Your Music",
+            "Server",
             detail: OnboardingWords.yourMusic(servers: servers),
             systemImage: "server.rack",
             tint: .indigo,

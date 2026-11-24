@@ -257,7 +257,7 @@ struct TopChartView: View {
         }
         if sources.isOffered {
             ToolbarItem(placement: .primaryAction) {
-                SourceScopeMenu(scope: sources.selection)
+                SourceScopeMenu(scope: sources.selection, offered: sources.offered)
             }
         }
         #else
@@ -268,7 +268,7 @@ struct TopChartView: View {
         }
         if sources.isOffered {
             ToolbarItem(placement: .primaryAction) {
-                SourceScopeMenu(scope: sources.selection)
+                SourceScopeMenu(scope: sources.selection, offered: sources.offered)
             }
         }
         #endif

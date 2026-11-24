@@ -1,11 +1,17 @@
 import SwiftUI
 import TracksCore
 
-/// Where Play's music comes from: Apple Music's catalog, or music you own, as files on this
-/// iPhone and on your own music servers.
+/// Which of Tracks’ players Play draws from: Apple Music's, the one for files and servers, or
+/// Spotify's. Chosen through the source filter (``SourceSelection``), never named in the UI
+/// on its own: the person sees sources by their real names.
+///
+/// Remembered on this device. A value from a newer version reads as Apple Music and stays
+/// stored as it was until the filter changes.
 nonisolated enum MusicSource: String, CaseIterable, Identifiable, Sendable {
     case appleMusic
+    /// Files on this device and every server. The stored value keeps its old name.
     case yourMusic
+    case spotify
 
     var id: String { rawValue }
 
@@ -15,17 +21,42 @@ nonisolated enum MusicSource: String, CaseIterable, Identifiable, Sendable {
         UserDefaults.standard.string(forKey: storageKey).flatMap(MusicSource.init(rawValue:)) ?? .appleMusic
     }
 
-    var title: LocalizedStringKey {
-        switch self {
-        case .appleMusic: "Apple Music"
-        case .yourMusic: "Your Music"
+    /// The player for one source.
+    init(_ source: SourceID) {
+        switch source {
+        case .appleMusic, .unknown: self = .appleMusic
+        case .device, .server: self = .yourMusic
+        case .spotify: self = .spotify
         }
     }
+
+    /// Files and servers together, where one name has to cover them all.
+    static var ownMusicName: String { String(localized: "Files and Servers") }
+
+    /// On This iPhone, On This Mac.
+    static var deviceName: String {
+        #if os(macOS)
+        String(localized: "On This Mac")
+        #else
+        String(localized: "On This iPhone")
+        #endif
+    }
+
+    static var deviceSymbol: String {
+        #if os(macOS)
+        "macbook"
+        #else
+        "iphone"
+        #endif
+    }
+
+    var title: LocalizedStringKey { LocalizedStringKey(name) }
 
     var symbol: String {
         switch self {
         case .appleMusic: "music.note"
-        case .yourMusic: "externaldrive.fill"
+        case .yourMusic: "server.rack"
+        case .spotify: "waveform"
         }
     }
 
@@ -33,7 +64,8 @@ nonisolated enum MusicSource: String, CaseIterable, Identifiable, Sendable {
     var name: String {
         switch self {
         case .appleMusic: String(localized: "Apple Music")
-        case .yourMusic: String(localized: "Your Music")
+        case .yourMusic: Self.ownMusicName
+        case .spotify: String(localized: "Spotify")
         }
     }
 }

@@ -27,7 +27,9 @@ The Last.fm API key and shared secret identify the application. They're read fro
 
 Listening history is stored with SwiftData in an App Group container that only the Tracks widgets share, and mirrored to the user's private CloudKit database. Report anything that lets another app or another iCloud user read it, or that sends it anywhere except the user's iCloud and, if connected, Last.fm.
 
-Passwords for the person's own music servers and the Lidarr API key are stored in the Keychain. Any way of getting at them, or of sending them anywhere but the server they belong to, is in scope.
+Passwords and API keys for the person's own music servers and the Lidarr API key are stored in the Keychain. Any way of getting at them, or of sending them anywhere but the server they belong to, is in scope. So is a Subsonic token or Trackside media token reaching a log, an image cache, Now Playing or any other address handed to the system: cover addresses carry no credentials and are signed only as they're fetched, logs redact every address, and redirects are followed only to the same server. Credentials only cross plain HTTP to nearby addresses (private, link-local, loopback, 100.64/10, `.local`, `home.arpa` and the like).
+
+With Trackside Cloud as the sync backend, the history, settings and hidden lists go to the person's own Trackside server instead of iCloud. Anything that sends them, or the device key, to an address that hasn't proven it is that server is in scope. The Your Devices key is never sent there.
 
 The Mac app sends Apple events to Music under scripting-target entitlements limited to specific access groups. A way to make Tracks control another app, or run a script, beyond those groups is in scope.
 

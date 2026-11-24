@@ -42,11 +42,66 @@ public enum CloudSync {
         set { defaults.set(newValue, forKey: enabledKey) }
     }
 
+    static let backendKey = "TracksSyncBackend"
+
+    /// Where history and settings sync to: iCloud, or Trackside Cloud on one of the person's
+    /// Trackside servers. Device-local. Like the switch, read when the store opens, so a
+    /// change takes effect on the next launch.
+    public static var backend: SyncBackend {
+        get {
+            guard let text = defaults.string(forKey: backendKey) else { return .iCloud }
+            return SyncBackend(stored: text)
+        }
+        set { defaults.set(newValue.stored, forKey: backendKey) }
+    }
+
+    /// Where this run syncs to, read the first time it's asked (as the store opens) and kept
+    /// for the run, so the history and the settings never go two ways at once. Nil when sync
+    /// is off.
+    public static let backendThisRun: SyncBackend? = isEnabled ? backend : nil
+
+    /// Whether the store mirrors to iCloud this run: sync is on, and iCloud is where it goes.
+    /// Moving to Trackside Cloud leaves what iCloud holds where it is, untouched, for a move
+    /// back.
+    public static var mirrorsToICloud: Bool {
+        backendThisRun == .iCloud
+    }
+
+    /// The Trackside server history and settings sync through this run, if any.
+    public static var tracksideServerID: String? {
+        guard case .tracksideCloud(let serverID) = backendThisRun else { return nil }
+        return serverID
+    }
+
     /// Whether captures from before this device synced have its ID yet.
     /// See ``TracksStore/stampLegacyCaptures()``.
     static var hasStampedLegacyCaptures: Bool {
         get { defaults.bool(forKey: stampedKey) }
         set { defaults.set(newValue, forKey: stampedKey) }
+    }
+}
+
+/// Where history and settings sync to.
+public enum SyncBackend: Sendable, Hashable {
+    /// The person's private iCloud: Apple devices only.
+    case iCloud
+    /// Trackside Cloud on one of the person's Trackside servers, by its Tracks entry id:
+    /// every platform Tracks runs on.
+    case tracksideCloud(serverID: String)
+
+    init(stored: String) {
+        if stored.hasPrefix("trackside:") {
+            self = .tracksideCloud(serverID: String(stored.dropFirst("trackside:".count)))
+        } else {
+            self = .iCloud
+        }
+    }
+
+    var stored: String {
+        switch self {
+        case .iCloud: "icloud"
+        case .tracksideCloud(let serverID): "trackside:" + serverID
+        }
     }
 }
 

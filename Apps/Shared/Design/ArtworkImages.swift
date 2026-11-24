@@ -263,7 +263,8 @@ nonisolated final class ArtworkImages: Sendable {
     }
 
     private static func download(_ url: URL, with session: URLSession) async -> Data? {
-        guard let (data, response) = try? await session.data(from: url),
+        // A server's cover address carries no credentials; it's signed only for the fetch.
+        guard let (data, response) = try? await session.data(from: ServerMediaSigning.shared.authorize(url)),
               (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true
         else { return nil }
         return data

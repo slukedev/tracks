@@ -20,12 +20,14 @@ public struct SubsonicServer: Codable, Sendable, Hashable, Identifiable {
     /// Where requests go. For Trackside, the address that answered last, used until the next
     /// race picks one of ``candidateURLs``.
     public var url: URL
+    /// Empty when the server is signed in to with an OpenSubsonic API key instead.
     public var username: String
-    /// Mixed into the password for the token cover addresses carry, so the password itself
-    /// never goes over the wire. Fixed per server, so those addresses stay the same between
-    /// launches and their images stay cached. Every other request gets a salt of its own.
+    /// Kept so entries round-trip with older builds, which signed cover addresses with it.
+    /// Nothing is signed with it now: every request, covers included, gets a salt of its own.
     public var salt: String
     public var kind: ServerKind
+    /// How a Subsonic server is signed in to. Nil reads as a token made from the password.
+    public var authMethod: SubsonicAuthMethod?
     /// Trackside's own id for itself, the same at every address it has.
     public var serverUUID: String?
     /// Every address Trackside can be reached at, as it last said.
@@ -45,7 +47,9 @@ public struct SubsonicServer: Codable, Sendable, Hashable, Identifiable {
         serverUUID: String? = nil,
         candidateURLs: [TracksideServerURL]? = nil,
         deviceID: String? = nil,
-        deviceName: String? = nil
+        deviceName: String? = nil,
+        authMethod: SubsonicAuthMethod? = nil,
+        urlsETag: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -57,10 +61,16 @@ public struct SubsonicServer: Codable, Sendable, Hashable, Identifiable {
         self.candidateURLs = candidateURLs
         self.deviceID = deviceID
         self.deviceName = deviceName
+        self.authMethod = authMethod
+        self.urlsETag = urlsETag
     }
 
+    /// For Trackside: the ETag of the address list last read from `/server/urls`, so the
+    /// next ask is answered with a 304 when nothing changed.
+    public var urlsETag: String?
+
     enum CodingKeys: String, CodingKey {
-        case id, name, url, username, salt, kind, serverUUID, candidateURLs, deviceID, deviceName
+        case id, name, url, username, salt, kind, serverUUID, candidateURLs, deviceID, deviceName, authMethod, urlsETag
     }
 
     /// Entries saved before there was more than one kind are Subsonic servers.
@@ -76,6 +86,8 @@ public struct SubsonicServer: Codable, Sendable, Hashable, Identifiable {
         candidateURLs = try container.decodeIfPresent([TracksideServerURL].self, forKey: .candidateURLs)
         deviceID = try container.decodeIfPresent(String.self, forKey: .deviceID)
         deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName)
+        authMethod = try? container.decodeIfPresent(SubsonicAuthMethod.self, forKey: .authMethod)
+        urlsETag = try container.decodeIfPresent(String.self, forKey: .urlsETag)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -90,9 +102,20 @@ public struct SubsonicServer: Codable, Sendable, Hashable, Identifiable {
         try container.encodeIfPresent(candidateURLs, forKey: .candidateURLs)
         try container.encodeIfPresent(deviceID, forKey: .deviceID)
         try container.encodeIfPresent(deviceName, forKey: .deviceName)
+        try container.encodeIfPresent(authMethod, forKey: .authMethod)
+        try container.encodeIfPresent(urlsETag, forKey: .urlsETag)
     }
 
     public var isTrackside: Bool { kind == .trackside }
+
+    /// Signed in to with an OpenSubsonic API key rather than a username and password.
+    public var usesAPIKey: Bool { authMethod == .apiKey }
+
+    /// Every address the server can be reached at: the ones it was given, or its one.
+    public var addresses: [TracksideServerURL] {
+        let known = candidateURLs.flatMap { $0.isEmpty ? nil : $0 } ?? [TracksideServerURL(url: url, kind: NearbyAddress.isNearby(url) ? .lan : .public)]
+        return TracksideServerURLs.trusted(known)
+    }
 
     public static func makeSalt() -> String {
         String((0..<12).map { _ in "abcdefghijklmnopqrstuvwxyz0123456789".randomElement()! })
@@ -105,10 +128,25 @@ public struct SubsonicServer: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+/// How a Subsonic server is signed in to.
+public enum SubsonicAuthMethod: String, Codable, Sendable, Hashable {
+    /// `t` and `s`: md5 of the password and a salt made for each request.
+    case token
+    /// OpenSubsonic's `apiKey`, where the server offers `apiKeyAuthentication`. Revocable on
+    /// the server, and the password never leaves the person's head.
+    case apiKey
+}
+
 /// Why a server said no.
 public enum SubsonicError: Error, Equatable, Sendable {
-    /// Username or password wrong (Subsonic codes 40 and 41).
+    /// Username, password or API key wrong (Subsonic codes 40, 41 and 44).
     case wrongCredentials
+    /// The server doesn't take this way of signing in (code 42), such as an API key on a
+    /// server without OpenSubsonic's `apiKeyAuthentication`, or a password on one that wants
+    /// a key.
+    case authMethodUnsupported
+    /// A Wi-Fi network's sign-in page answered instead of the server.
+    case captivePortal
     /// The server is too old for what was asked (codes 20 and 30).
     case incompatible
     /// Not found (code 70).
@@ -122,35 +160,62 @@ public enum SubsonicError: Error, Equatable, Sendable {
 /// Sends a request and hands back the body. URLSession in the app; a stub in the tests.
 public protocol SubsonicTransport: Sendable {
     func data(for url: URL) async throws -> (Data, Int)
+    /// The same, giving up after `timeout`, for probing an address.
+    func data(for url: URL, timeout: TimeInterval) async throws -> (Data, Int)
+}
+
+extension SubsonicTransport {
+    public func data(for url: URL, timeout: TimeInterval) async throws -> (Data, Int) {
+        try await data(for: url)
+    }
 }
 
 public struct URLSessionTransport: SubsonicTransport {
     public init() {}
 
     public func data(for url: URL) async throws -> (Data, Int) {
+        try await data(for: url, timeout: 15)
+    }
+
+    /// A redirect to anywhere but the server itself isn't followed: what signs the request
+    /// stays with the server, and a Wi-Fi network sending every request to its sign-in page
+    /// is told apart from a server that's down.
+    public func data(for url: URL, timeout: TimeInterval) async throws -> (Data, Int) {
         var request = URLRequest(url: url)
-        request.timeoutInterval = 20
-        let (data, response) = try await URLSession.shared.data(for: request)
-        return (data, (response as? HTTPURLResponse)?.statusCode ?? 200)
+        request.timeoutInterval = timeout
+        let (data, response) = try await ServerSessions.api.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+        if (300..<400).contains(status) { throw SubsonicError.captivePortal }
+        return (data, status)
     }
 }
 
 /// Talks to one Subsonic server.
 public struct SubsonicClient: Sendable {
     public let server: SubsonicServer
-    /// Kept to sign each request with a fresh salt. Only its salted hash leaves the device.
+    /// The password, kept to sign each request with a fresh salt, so only its salted hash
+    /// leaves the device. Or the API key, for a server signed in to with one.
     private let password: String
     private let transport: any SubsonicTransport
+    /// The server's addresses and the one in use. Nil asks ``SubsonicServer/url`` alone.
+    public let endpoints: SubsonicEndpoints?
 
     /// The API version asked for. 1.16.1 is the last Subsonic release; OpenSubsonic servers
     /// answer to it too.
     static let apiVersion = "1.16.1"
 
-    public init(server: SubsonicServer, password: String, transport: any SubsonicTransport = URLSessionTransport()) {
+    public init(server: SubsonicServer, password: String, transport: any SubsonicTransport = URLSessionTransport(), endpoints: SubsonicEndpoints? = nil) {
         self.server = server
         self.password = password
         self.transport = transport
+        self.endpoints = endpoints
     }
+
+    /// Where requests go now.
+    public var baseURL: URL { endpoints?.baseURL ?? server.url }
+
+    /// Query items that sign a request, which nothing else may carry.
+    static let signingItems: Set<String> = ["u", "t", "s", "p", "apiKey"]
 
     /// md5(password + salt), in lower-case hex, as the API asks.
     static func token(password: String, salt: String) -> String {
@@ -163,29 +228,70 @@ public struct SubsonicClient: Sendable {
     /// of its own. With one salt for good, the token in any address that reached a log
     /// would sign every request after it.
     public func url(_ endpoint: String, _ parameters: [String: String] = [:], json: Bool = true) -> URL {
-        url(endpoint, parameters, json: json, salt: SubsonicServer.makeSalt())
+        // An address that can't be signed goes unsigned: the server refuses it, rather than
+        // Tracks stopping.
+        signedURL(endpoint, parameters, json: json) ?? baseURL.appending(path: "rest/\(endpoint)")
     }
 
-    /// An address that can't be signed goes unsigned: the server refuses it, rather than
-    /// Tracks stopping.
-    private func url(_ endpoint: String, _ parameters: [String: String], json: Bool, salt: String) -> URL {
-        signedURL(endpoint, parameters, json: json, salt: salt) ?? server.url.appending(path: "rest/\(endpoint)")
+    /// The credentials one request carries: a fresh salt and its token, or the API key.
+    func signingItems() -> [URLQueryItem] {
+        switch server.authMethod ?? .token {
+        case .apiKey:
+            return [URLQueryItem(name: "apiKey", value: password)]
+        case .token:
+            let salt = SubsonicServer.makeSalt()
+            return [
+                URLQueryItem(name: "u", value: server.username),
+                URLQueryItem(name: "t", value: Self.token(password: password, salt: salt)),
+                URLQueryItem(name: "s", value: salt),
+            ]
+        }
     }
 
-    private func signedURL(_ endpoint: String, _ parameters: [String: String], json: Bool, salt: String) -> URL? {
-        guard var components = URLComponents(url: server.url.appending(path: "rest/\(endpoint)"), resolvingAgainstBaseURL: false) else { return nil }
+    private func signedURL(_ endpoint: String, _ parameters: [String: String], json: Bool) -> URL? {
+        unsignedURL(endpoint, parameters, json: json).flatMap(authorize)
+    }
+
+    /// An endpoint's address without anything that signs in, as covers are handed around:
+    /// to image caches, Now Playing and the rest of the system. It's signed only as it's
+    /// fetched (``authorize(_:)``).
+    func unsignedURL(_ endpoint: String, _ parameters: [String: String], json: Bool, base: URL? = nil) -> URL? {
+        guard var components = URLComponents(url: (base ?? baseURL).appending(path: "rest/\(endpoint)"), resolvingAgainstBaseURL: false) else { return nil }
         var items = [
-            URLQueryItem(name: "u", value: server.username),
-            URLQueryItem(name: "t", value: Self.token(password: password, salt: salt)),
-            URLQueryItem(name: "s", value: salt),
             URLQueryItem(name: "v", value: Self.apiVersion),
             URLQueryItem(name: "c", value: "Tracks"),
         ]
         if json { items.append(URLQueryItem(name: "f", value: "json")) }
         items += parameters.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
         components.queryItems = items
-        // URLComponents leaves "+" alone, and servers read it as a space: "luke+music@example.com"
-        // would sign in as someone else, and "Florence + the Machine" wouldn't be found.
+        return Self.encodingPlus(components)
+    }
+
+    /// The address signed for one request, with a salt of its own, if it's one of this
+    /// server's API addresses. Nil for anywhere else, which never sees the credentials.
+    public func authorize(_ url: URL) -> URL? {
+        guard isOwn(url), var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let kept = (components.queryItems ?? []).filter { !Self.signingItems.contains($0.name) }
+        components.queryItems = signingItems() + kept
+        return Self.encodingPlus(components)
+    }
+
+    /// Whether an address is this server's API, at any of its addresses.
+    public func isOwn(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased()
+        let path = url.path(percentEncoded: false)
+        return ([baseURL] + server.addresses.map(\.url)).contains { base in
+            let basePath = base.path(percentEncoded: false).hasSuffix("/") ? String(base.path(percentEncoded: false).dropLast()) : base.path(percentEncoded: false)
+            return base.scheme?.lowercased() == scheme
+                && TracksideEndpointProof.authority(of: base) == TracksideEndpointProof.authority(of: url)
+                && path.hasPrefix(basePath + "/rest/")
+        }
+    }
+
+    /// URLComponents leaves "+" alone, and servers read it as a space: "luke+music@example.com"
+    /// would sign in as someone else, and "Florence + the Machine" wouldn't be found.
+    private static func encodingPlus(_ components: URLComponents) -> URL? {
+        var components = components
         components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         return components.url
     }
@@ -204,10 +310,12 @@ public struct SubsonicClient: Sendable {
         url("download", ["id": songID], json: false)
     }
 
-    /// Signed with the server's own salt, so the address is the same every time and the
-    /// image stays cached.
+    /// Without credentials, so the address is the same every time, the image stays cached,
+    /// and an address that reaches a cache, a log or the system signs nothing in. It's
+    /// signed as it's fetched (``authorize(_:)``).
     public func coverArtURL(id: String, size: Int? = nil) -> URL {
-        url("getCoverArt", size.map { ["id": id, "size": String($0)] } ?? ["id": id], json: false, salt: server.salt)
+        let parameters = size.map { ["id": id, "size": String($0)] } ?? ["id": id]
+        return unsignedURL("getCoverArt", parameters, json: false) ?? baseURL.appending(path: "rest/getCoverArt")
     }
 
     // MARK: - Asking
@@ -215,6 +323,26 @@ public struct SubsonicClient: Sendable {
     /// Checks the address and credentials.
     public func ping() async throws {
         _ = try await call("ping")
+    }
+
+    /// The OpenSubsonic extensions the server offers, by name. Asked without signing in, as
+    /// the spec allows; empty for a server that isn't OpenSubsonic.
+    public func openSubsonicExtensions() async throws -> Set<String> {
+        guard let url = unsignedURL("getOpenSubsonicExtensions", [:], json: true) else { return [] }
+        let (data, status) = try await transport.data(for: url)
+        guard let body = try? Self.decode(data, status: status) else { return [] }
+        return Set((body.openSubsonicExtensions ?? []).map(\.name))
+    }
+
+    /// Whether an address answers as a Subsonic server, asked without credentials so a
+    /// stranger's network that answers for it learns nothing.
+    public static func answersAsSubsonic(_ base: URL, timeout: Duration, transport: any SubsonicTransport) async -> Bool {
+        guard var components = URLComponents(url: base.appending(path: "rest/ping"), resolvingAgainstBaseURL: false) else { return false }
+        components.queryItems = [URLQueryItem(name: "v", value: apiVersion), URLQueryItem(name: "c", value: "Tracks"), URLQueryItem(name: "f", value: "json")]
+        guard let url = components.url else { return false }
+        let seconds = TimeInterval(timeout.components.seconds) + TimeInterval(timeout.components.attoseconds) / 1e18
+        guard let (data, _) = try? await transport.data(for: url, timeout: seconds) else { return false }
+        return (try? JSONDecoder().decode(SubsonicResponse.self, from: data)) != nil
     }
 
     /// Every artist on the server.
@@ -286,7 +414,7 @@ public struct SubsonicClient: Sendable {
     /// Tells the server a song played, for its own counts and anything it passes plays on to.
     /// - Parameter submission: false while it starts ("now playing"), true once it counts.
     public func scrobble(songID: String, at date: Date = .now, submission: Bool) async throws {
-        _ = try await call("scrobble", [
+        _ = try await call(retrying: false, "scrobble", [
             "id": songID,
             "time": String(Int(date.timeIntervalSince1970 * 1_000)),
             "submission": submission ? "true" : "false",
@@ -294,11 +422,11 @@ public struct SubsonicClient: Sendable {
     }
 
     public func star(songID: String) async throws {
-        _ = try await call("star", ["id": songID])
+        _ = try await call(retrying: false, "star", ["id": songID])
     }
 
     public func unstar(songID: String) async throws {
-        _ = try await call("unstar", ["id": songID])
+        _ = try await call(retrying: false, "unstar", ["id": songID])
     }
 
     /// An album's animated cover, the square loop Apple Music plays in place of it, where the
@@ -319,10 +447,42 @@ public struct SubsonicClient: Sendable {
         return server.appending(path: path)
     }
 
-    private func call(_ endpoint: String, _ parameters: [String: String] = [:]) async throws -> SubsonicResponse.Body {
-        guard let url = signedURL(endpoint, parameters, json: true, salt: SubsonicServer.makeSalt()) else { throw URLError(.badURL) }
-        let (data, status) = try await transport.data(for: url)
-        return try Self.decode(data, status: status)
+    /// How a read is retried when the network or the server stumbles.
+    static let readRetry = RetryPolicy(attempts: 3, firstDelay: .milliseconds(500), longestDelay: .seconds(4))
+
+    /// Asks the server, each try signed afresh. Reads are tried again after a moment when the
+    /// network or the server stumbles; writes (`retrying: false`) are sent once, since the
+    /// server may have taken one whose answer was lost.
+    private func call(retrying: Bool = true, _ endpoint: String, _ parameters: [String: String] = [:]) async throws -> SubsonicResponse.Body {
+        let policy = retrying ? Self.readRetry : .none
+        return try await policy.run(isTransient: Self.isRetryable) {
+            try await callOnce(endpoint, parameters)
+        }
+    }
+
+    private func callOnce(_ endpoint: String, _ parameters: [String: String]) async throws -> SubsonicResponse.Body {
+        guard let url = signedURL(endpoint, parameters, json: true) else { throw URLError(.badURL) }
+        do {
+            let (data, status) = try await transport.data(for: url)
+            let body = try Self.decode(data, status: status)
+            endpoints?.recordSuccess()
+            return body
+        } catch let error as URLError where Self.isUnreachable(error) {
+            endpoints?.recordFailure()
+            throw error
+        }
+    }
+
+    static func isRetryable(_ error: any Error) -> Bool {
+        switch error {
+        case let error as URLError: [.timedOut, .networkConnectionLost].contains(error.code)
+        case SubsonicError.http(let status): [502, 503, 504].contains(status)
+        default: false
+        }
+    }
+
+    static func isUnreachable(_ error: URLError) -> Bool {
+        [.timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost, .dnsLookupFailed, .notConnectedToInternet, .secureConnectionFailed].contains(error.code)
     }
 
     static func decode(_ data: Data, status: Int) throws -> SubsonicResponse.Body {
@@ -333,7 +493,8 @@ public struct SubsonicClient: Sendable {
         guard body.status == "ok" else {
             let code = body.error?.code ?? 0
             switch code {
-            case 40, 41: throw SubsonicError.wrongCredentials
+            case 40, 41, 44: throw SubsonicError.wrongCredentials
+            case 42, 43: throw SubsonicError.authMethodUnsupported
             case 20, 30: throw SubsonicError.incompatible
             case 70: throw SubsonicError.notFound
             default: throw SubsonicError.server(code: code, message: body.error?.message ?? "")
@@ -575,14 +736,14 @@ public struct SubsonicSearchResult: Sendable, Equatable {
 }
 
 /// The envelope every answer comes in: `{"subsonic-response": {...}}`.
-struct SubsonicResponse: Decodable {
+struct SubsonicResponse: Decodable, Sendable {
     let body: Body
 
     enum CodingKeys: String, CodingKey {
         case body = "subsonic-response"
     }
 
-    struct Body: Decodable {
+    struct Body: Decodable, Sendable {
         let status: String
         let error: ErrorBody?
         let artists: ArtistsIndex?
@@ -596,6 +757,12 @@ struct SubsonicResponse: Decodable {
         let artistInfo2: ArtistInfo?
         /// For getAnimatedArt.
         let animatedArt: AnimatedArt?
+        /// For getOpenSubsonicExtensions.
+        let openSubsonicExtensions: [Extension]?
+    }
+
+    struct Extension: Decodable {
+        let name: String
     }
 
     struct AnimatedArt: Decodable {

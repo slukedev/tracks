@@ -79,15 +79,14 @@ struct TracksShortcuts: AppShortcutsProvider {
             systemImageName: "music.note"
         )
         AppShortcut(
-            intent: SwitchMusicSourceIntent(),
+            intent: ChooseSourceIntent(),
             phrases: [
-                "Switch \(.applicationName) to \(\.$source)",
-                "Play from \(\.$source) in \(.applicationName)",
+                "Show \(\.$source) in \(.applicationName)",
                 "Use \(\.$source) in \(.applicationName)",
-                "Switch music source in \(.applicationName)",
+                "Choose a source in \(.applicationName)",
             ],
-            shortTitle: "Switch Source",
-            systemImageName: "arrow.left.arrow.right"
+            shortTitle: "Choose Source",
+            systemImageName: "line.3.horizontal.decrease"
         )
         AppShortcut(
             intent: PlayOnDeviceIntent(),

@@ -146,12 +146,51 @@ struct SubsonicTests {
         #expect(query(client.streamURL(songID: "7"))["s"] != query(client.streamURL(songID: "7"))["s"])
     }
 
-    /// Covers are cached by address, so theirs can't change between launches.
-    @Test("a cover's address stays the same")
-    func stableCoverAddress() {
+    /// Covers are cached by address, so theirs can't change between launches, and they're
+    /// handed to caches and the system, so they sign nothing in.
+    @Test("a cover's address stays the same and carries no credentials; each fetch is signed afresh")
+    func stableCoverAddress() throws {
         let client = SubsonicClient(server: server, password: "sesame")
-        #expect(client.coverArtURL(id: "al-1", size: 600) == client.coverArtURL(id: "al-1", size: 600))
-        #expect(query(client.coverArtURL(id: "al-1"))["s"] == server.salt)
+        let cover = client.coverArtURL(id: "al-1", size: 600)
+        #expect(cover == client.coverArtURL(id: "al-1", size: 600))
+        for name in ["u", "t", "s", "p", "apiKey"] { #expect(query(cover)[name] == nil) }
+        let first = query(try #require(client.authorize(cover)))
+        let second = query(try #require(client.authorize(cover)))
+        #expect(first["s"] != nil && first["s"] != second["s"])
+        #expect(first["t"] == SubsonicClient.token(password: "sesame", salt: first["s"] ?? ""))
+        #expect(first["id"] == "al-1" && first["size"] == "600")
+        #expect(first["s"] != server.salt)
+    }
+
+    @Test("only the server's own addresses are signed")
+    func signsOnlyItsOwn() throws {
+        let client = SubsonicClient(server: server, password: "sesame")
+        #expect(client.authorize(try #require(URL(string: "https://evil.example.com/rest/getCoverArt?id=1"))) == nil)
+        #expect(client.authorize(try #require(URL(string: "http://music.example.com/rest/getCoverArt?id=1"))) == nil)
+        #expect(client.authorize(try #require(URL(string: "https://music.example.com/elsewhere?id=1"))) == nil)
+        #expect(client.authorize(try #require(URL(string: "https://music.example.com/rest/getCoverArt?id=1"))) != nil)
+    }
+
+    @Test("with an API key, requests carry the key and no username or token")
+    func apiKey() {
+        var keyed = server
+        keyed.username = ""
+        keyed.authMethod = .apiKey
+        let url = SubsonicClient(server: keyed, password: "key-123").url("ping")
+        let query = query(url)
+        #expect(query["apiKey"] == "key-123")
+        #expect(query["u"] == nil && query["t"] == nil && query["s"] == nil)
+    }
+
+    @Test("an entry saved before API keys reads as a password entry, and round-trips")
+    func authMethodRoundTrip() throws {
+        let old = #"{"id":"home","name":"Home","url":"https://music.example.com","username":"luke","salt":"c19b2d"}"#
+        let decoded = try JSONDecoder().decode(SubsonicServer.self, from: Data(old.utf8))
+        #expect(decoded.authMethod == nil && !decoded.usesAPIKey)
+        var keyed = decoded
+        keyed.authMethod = .apiKey
+        let again = try JSONDecoder().decode(SubsonicServer.self, from: JSONEncoder().encode(keyed))
+        #expect(again.usesAPIKey)
     }
 
     @Test("a plus in a username or search reaches the server as a plus")

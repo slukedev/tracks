@@ -39,11 +39,14 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Records: biggest day, longest session, earliest and latest listens.
 - Streaks and new favorites.
 - Top songs, artists and albums for the period, with a mix card for a top artist.
-- Apple Music and Your Music counted together or apart.
+- Every source counted together or apart (Apple Music, files and servers, Spotify), offered
+  for each source with plays.
 - Search sits at the top of Summary.
 
 ### Charts
 
+- In the History tab, a Plays | Charts switch away from the list. `-TracksTab charts` and a
+  saved Charts tab open History on Charts; Summary's See All goes there too.
 - Top songs, artists and albums for any day, week, month, year or all time.
 - Movement since the last period.
 - Songs show when you listened, bar by bar; a bar opens that day.
@@ -79,10 +82,33 @@ See [README.md](README.md) for the legend and how to keep this current.
   Trackside could get.
 - Identify Song: names the song playing nearby with Shazam and finds it in your history.
 
+### Tabs and sources
+
+- Tabs: Play, Library, Summary, History, and Search at the bar's end. Open To puts Play and
+  Library first, or Summary and History first.
+- Library tab: Playlists, Artists, Albums, Songs and Recently Added for the source filter's
+  player; No Music Yet with Add Source when nothing is added.
+- Source filter under Play's and Library's title, once a second source exists: All Sources,
+  each source by its real name (Apple Music, Spotify, On This iPhone, each server's name),
+  Manage Sources…. Past six sources, servers fold into a Servers submenu. Choosing never
+  touches the queue (`AppModel.chooseSources`). All Sources still shows one player's Play
+  page: the one already on while it has a source (`followSources`).
+- Settings › Sources, the first row in Settings: the worst problem (Sign In, 1 Offline) or
+  the source's name or count. Each source has its page: Apple Music, On This iPhone (Import
+  Songs…, Add Folder…), each server's page. Add Source… offers Apple Music, On This iPhone and
+  Server (the server form); Spotify only in builds with the `SPOTIFY` flag.
+- Play From (Settings › Sources, Edit to reorder, synced): which copy plays when a song is in
+  several sources. Default On This iPhone, Downloads, servers, Apple Music, Spotify. Applied
+  where Tracks picks among a song's copies by name (`YourMusic.track(for:)`); the order and
+  its resolver are `PlayFromOrder` in TracksCore.
+- Shortcuts' Choose Source and a Focus filter set the source filter (`ChooseSourceIntent`,
+  `SourceFocusFilter`).
+- Offline with downloads or files: one capsule at the foot of Play and Library, Play Downloads.
+
 ### Play, mixes, Tracks Radio, moods and suggestions
 
-- Play tab plays Apple Music inside Tracks: library, live radio, your stations, albums,
-  playlists and the catalog.
+- Play tab plays inside Tracks: Apple Music's library, live radio, your stations, albums,
+  playlists and the catalog, or your files and servers.
 - The crate: Tracks Radio in front, this hour's mix, Discover and the day's mixes to flip
   through, glowing with the front record's colour.
 - Mixes from your history: time of day, On Repeat, New Finds, All-Time Favorites, Deep Cuts,
@@ -111,7 +137,6 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Party: pick the kind of party and get playlists and a mix from your own songs.
 - Edit Play: reorder or hide its sections.
 - Shake to Play: shake for a song you haven't heard, then Tracks Radio.
-- Quick Switch between Apple Music and Your Music, with a Focus filter.
 - Offline Mode: downloaded Apple Music songs, their mixes and most played, all offline.
 - Play counts beside songs on albums, playlists and in search.
 - Play Next, Play Last and Create Station everywhere.
@@ -136,7 +161,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Stage: the song on a screen of its own with a visualizer, for a TV or a party.
 - Tune Tracks Radio from Up Next.
 
-### Your Music
+### Files and servers
 
 - Play FLAC, ALAC, MP3, AAC, WAV and AIFF: import songs or folders, open them in Tracks from
   anywhere, or drop them into On My iPhone › Tracks › Music.
@@ -166,6 +191,31 @@ See [README.md](README.md) for the legend and how to keep this current.
   or Off.
 - Lidarr: add artists, request albums, see downloading, wanted and coming soon.
 
+#### Servers away from home
+
+- Addresses without a scheme get https unless they can only be nearby (private, link-local,
+  loopback and 100.64/10 addresses, names without a dot, `.local`, `.lan`, `.internal`,
+  `home.arpa`, `.ts.net`), the same rule Trackside uses (`NearbyAddress`). Credentials never
+  cross plain HTTP to anything else. ATS allows only local networking plus those suffixes.
+- Subsonic: every request is signed with a fresh salt. Cover addresses carry no credentials
+  at all (they're cache keys, and reach Now Playing); `ArtworkImages` signs each one as it's
+  fetched through `ServerMediaSigning`. Leave the username blank and enter an OpenSubsonic API
+  key as the password to sign in with the key, where the server offers `apiKeyAuthentication`.
+- A Subsonic server can have several addresses (home, Tailscale, public). They're raced
+  without credentials (`SubsonicEndpoints`, `AddressRace`), the nearby one wins within 300 ms
+  of the first answer, and the race runs again when the network changes or two requests in a
+  row fail. Reads retry with backoff (3 tries); scrobbles and stars are sent once.
+- Redirects are followed only to the same server, so nothing that signs a request leaves it;
+  a Wi-Fi sign-in page shows as "This Wi-Fi network needs you to sign in first".
+- Trackside learns new addresses from `GET /server/urls` (conditional, with `If-None-Match`)
+  when it connects, comes to the front, reconnects its events, or gets a `server_urls` event.
+  The list is read only from a proven address and each new address must prove itself with
+  `/ping` before the key goes there. A `403 https_required` moves Tracks to a proven https
+  address and asks again, without asking for the password.
+- A download that breaks off picks up where it stopped (the system sends `Range` and
+  `If-Range`), on its own up to three times when the connection dropped.
+- Logs never hold a signed address: errors go through `URLRedaction.describe`.
+
 ### Scrobbling and Last.fm
 
 - Connect a Last.fm account in a web sheet; the session key is kept in the Keychain.
@@ -177,14 +227,30 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ### Sync and backup
 
-- History syncs through your private iCloud database (CloudKit), with the Mac.
-- Settings and removed songs sync through the iCloud key-value store. Every setting is listed
-  once in `SettingsRegistry` (TracksCore's `core`, the app's `AppSettingsRegistry.swift`), as
-  synced or kept on the device; renamed keys carry over through `formerKeys`, and a demo
-  launch's changes are undone on the next real launch.
-- A welcome the first time Tracks opens on the device, with Apple Music, Last.fm, Your Music
+- Sync goes to iCloud or to Trackside Cloud on one of your Trackside servers (Settings ›
+  Sync › Sync With; `CloudSync.backend`). The choice applies the next time Tracks opens.
+- iCloud: history through your private iCloud database (CloudKit); settings and removed songs
+  through the iCloud key-value store.
+- Trackside Cloud (`TracksideCloudSync`, `CloudSyncEngine`): plays, sessions, stations,
+  forgotten songs, blocked artists and excluded stations sync as items by lasting id, and
+  settings through `PATCH /cloud/settings` by the same rules as iCloud's (`TracksideCloudSettings`
+  stands in for the key-value store). Pulls follow an opaque cursor and start over from a full
+  snapshot on `410 sync_reset`; pushes go in batches of up to 1,000, idempotent by id, with
+  tombstones for what's gone. The server's `cloud` event, a save here, and coming to the front
+  start a sync. Works with Tracks on Android signed in to the same server.
+- Moving between them loses nothing: the first sync with a server takes what it has, sends up
+  everything here, and the reconciler folds duplicates together. iCloud keeps what it had.
+- Every play has a lasting id (`Capture.playID`, schema V3): new plays get a UUID when they
+  start, older ones a UUIDv5 of their history-index key (`PlayID`), so every device gives a
+  synced row the same id. It's the history index's id, the server listen id and the cloud id.
+- Not yet: playlists and likes over Trackside Cloud, and Nearby Devices pairing without iCloud
+  (on Trackside Cloud, Nearby Devices works only with devices that also share iCloud).
+- Every setting is listed once in `SettingsRegistry` (TracksCore's `core`, the app's
+  `AppSettingsRegistry.swift`), as synced or kept on the device; renamed keys carry over through
+  `formerKeys`, and a demo launch's changes are undone on the next real launch.
+- A welcome the first time Tracks opens on the device, with Apple Music, Last.fm, Server
   and the iCloud restore's progress (`Apps/Shared/Onboarding`).
-- Sync with iCloud can be turned off; Settings › iCloud shows what syncs and what iCloud said.
+- Sync can be turned off; Settings › Sync shows what syncs and where it stands.
 
 ### Devices, Play On and SharePlay
 
@@ -223,7 +289,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   with the Spotlight pass).
 - Siri can learn to use Tracks for a plain "Play music" (SiriKit media intent).
 - App Shortcuts (ten, Apple's limit): Tracks Radio, My Mix, Top Artist, Search, Play a Mix,
-  Play Playlist, Play Music, Switch Source, Play on Device, Bring Music Here.
+  Play Playlist, Play Music, Choose Source, Play on Device, Bring Music Here.
 - Get Top Artist for a period, answered by Siri.
 - Open Artist, Open Song and Open Album intents on indexed entities.
 - Spotlight indexes the artists, songs and albums you've played, your playlists and Tracks'
@@ -251,7 +317,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 ### Privacy
 
 - No Tracks account, no analytics.
-- History on the device and in your private iCloud database.
+- History on the device and in your private iCloud database, or on your own Trackside server
+  when Sync goes there.
 - Last.fm only contacted if you connect; key in the Keychain.
 - Identify Song sends only a signature of the sound, and listens only while showing.
 - Your Devices only connects devices signed in to your iCloud.

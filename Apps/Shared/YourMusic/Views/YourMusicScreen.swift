@@ -365,11 +365,8 @@ struct YourMusicScreen: View {
                 }
             }
         case .library:
-            #if os(iOS)
-            // The Mac's library is in its sidebar.
-            LibraryList()
-                .padding(.horizontal, Design.Margin.page)
-            #endif
+            // The library has its own place: the Library tab, the Mac's sidebar.
+            EmptyView()
         case .appleMusic:
             // What your servers pick for you, and their own shelves, where Apple Music's picks
             // would be.
@@ -523,7 +520,8 @@ struct LocalTrackTile: View {
 #if os(iOS)
 /// Your library on Play, as Apple Music's begins: its parts as rows in Music's order, then
 /// what came into it lately as a grid. The Mac has these in its sidebar.
-private struct LibraryList: View {
+struct LibraryList: View {
+    var showsTitle = true
     @Environment(YourMusic.self) private var music
     @Environment(Lidarr.self) private var lidarr
 
@@ -533,7 +531,9 @@ private struct LibraryList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Design.Margin.section) {
             VStack(alignment: .leading, spacing: Design.Spacing.xSmall) {
-                ShelfHeader(title: String(localized: "Library"))
+                if showsTitle {
+                    ShelfHeader(title: String(localized: "Library"))
+                }
                 rows
             }
             let recent = Array(music.index.recentlyAdded.prefix(Self.recentCount))
@@ -672,7 +672,7 @@ private struct YourMusicWelcome: View {
     #endif
 
     private var title: LocalizedStringKey {
-        hasServers ? "Can't Reach Your Server" : "Add Your Music"
+        hasServers ? "Can't Reach Your Server" : "Add Music"
     }
 
     private var folderNote: LocalizedStringKey {

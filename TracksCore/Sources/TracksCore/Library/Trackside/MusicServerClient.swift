@@ -40,8 +40,12 @@ public protocol MusicServerClient: Sendable {
     /// - Parameter maxBitRate: kilobits a second, or nil for the original file.
     func downloadRequest(songID: String, maxBitRate: Int?) async throws -> URLRequest
 
-    /// A cover's address, the same every time it's asked for while the connection stays the same.
+    /// A cover's address, the same every time it's asked for while the connection stays the
+    /// same, and without anything that signs in: it's handed to caches and the system.
     func artworkURL(id: String, size: Int?) -> URL
+
+    /// The address signed for one fetch, if it's one of this server's; nil for any other.
+    func authorize(_ url: URL) -> URL?
 
     func star(songID: String) async throws
     func unstar(songID: String) async throws

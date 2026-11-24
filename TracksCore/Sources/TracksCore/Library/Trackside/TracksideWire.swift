@@ -334,8 +334,16 @@ public struct TracksideCapabilities: Codable, Sendable, Hashable {
     public var media: Media?
     public var features: Features?
     public var subsonic: Subsonic?
+    /// Present when the server offers Trackside Cloud.
+    public var cloud: Cloud?
 
     public var isTrackside: Bool { product == "trackside" }
+
+    public struct Cloud: Codable, Sendable, Hashable {
+        /// Changes when the server's data is restored from a backup, so cursors from before
+        /// it are refused.
+        public var epoch: String?
+    }
 
     public struct API: Codable, Sendable, Hashable {
         public var versions: [String]?
@@ -379,9 +387,10 @@ public struct TracksideCapabilities: Codable, Sendable, Hashable {
         public var uploads: Bool?
         public var events: Bool?
         public var animatedArt: Bool?
+        public var cloud: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case lyrics, uploads, events
+            case lyrics, uploads, events, cloud
             case animatedArt = "animated_art"
         }
     }
@@ -392,7 +401,7 @@ public struct TracksideCapabilities: Codable, Sendable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case product, name, version, api, auth, media, features, subsonic
+        case product, name, version, api, auth, media, features, subsonic, cloud
         case serverID = "server_id"
         case setupRequired = "setup_required"
     }
@@ -1092,10 +1101,13 @@ struct TracksideErrorEnvelope: Codable, Sendable {
         let reason: String?
         let resetsAt: Date?
         let received: Int?
+        /// With `https_required`: the server's https addresses.
+        let httpsURLs: [String]?
 
         enum CodingKeys: String, CodingKey {
             case field, reason, received
             case resetsAt = "resets_at"
+            case httpsURLs = "https_urls"
         }
     }
 }

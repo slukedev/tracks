@@ -27,14 +27,17 @@ public struct URLSessionTracksideTransport: TracksideTransport {
 enum TracksidePinning {
     static func session(pins: TracksidePins) -> URLSession {
         #if canImport(Security)
-        URLSession(configuration: .default, delegate: Delegate(pins: pins), delegateQueue: nil)
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        return URLSession(configuration: configuration, delegate: Delegate(pins: pins), delegateQueue: nil)
         #else
         URLSession(configuration: .default)
         #endif
     }
 
     #if canImport(Security)
-    final class Delegate: NSObject, URLSessionDelegate, Sendable {
+    final class Delegate: NSObject, URLSessionTaskDelegate, Sendable {
         let pins: TracksidePins
 
         init(pins: TracksidePins) {
@@ -43,6 +46,12 @@ enum TracksidePinning {
 
         func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
             TracksidePinning.answer(challenge, accepts: pins.accepts)
+        }
+
+        /// The device key never follows a redirect off the server: a Wi-Fi sign-in page gets
+        /// the redirect itself back, and the address fails its proof.
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest) async -> URLRequest? {
+            ServerSessions.isSameOrigin(task.originalRequest?.url, request.url) ? request : nil
         }
     }
 

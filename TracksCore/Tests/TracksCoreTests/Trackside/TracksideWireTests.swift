@@ -420,6 +420,7 @@ struct TracksideFixtureTests {
         if has("search_id") { return read(TracksideAcquisitionSearch.self) { $0.inLibrary ?? [] } }
         if has("token"), has("title") { return read(TracksideCandidate.self) }
         if has("token"), has("expires_at") { return read(TracksideMediaToken.self) }
+        if has("server_id"), has("urls") { return read(TracksideServerURLs.self) }
         if has("server_id"), has("time") { return read(TracksidePing.self) }
         if has("state"), has("title"), has("artist") { return read(TracksideAcquisition.self) }
         if has("stream"), has("title"), has("artist") { return read(TracksideExternalPlay.self) }

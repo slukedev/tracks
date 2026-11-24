@@ -22,7 +22,7 @@ enum CloudSchema {
             print("No iCloud container in this build.")
             return 1
         }
-        guard let model = NSManagedObjectModel.makeManagedObjectModel(for: TracksSchemaV1.models) else {
+        guard let model = NSManagedObjectModel.makeManagedObjectModel(for: TracksSchemaV3.models) else {
             print("Couldn't build a Core Data model from the SwiftData schema.")
             return 1
         }

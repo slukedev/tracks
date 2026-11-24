@@ -127,7 +127,7 @@ public enum SpeedVolumeWords {
             return String(localized: "Your volume is what you hear on the highway, and Tracks brings the music down from there as you slow. Your volume buttons work as always.")
         }
         return standing.isOnCarPlay
-            ? String(localized: "With Apple Music, Tracks moves iPhone’s volume, but over CarPlay the car keeps the volume to itself. Songs from Your Music follow your speed on CarPlay too.")
+            ? String(localized: "With Apple Music, Tracks moves iPhone’s volume, but over CarPlay the car keeps the volume to itself. Songs from your files and servers follow your speed on CarPlay too.")
             : String(localized: "With Apple Music, Tracks moves iPhone’s volume. Change it whenever you like, and Tracks follows your speed from there. Over CarPlay, the car keeps the volume to itself.")
     }
 

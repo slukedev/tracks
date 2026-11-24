@@ -26,13 +26,6 @@ extension PlaySettingsWords.Standing {
     }
 }
 
-extension PlaySettingsWords.QuickSwitchState {
-    @MainActor
-    init(music: YourMusic, isOn: Bool) {
-        self = QuickSwitch.isAvailable(music) ? (isOn ? .on : .off) : .unavailable
-    }
-}
-
 /// Merging your Tracks playlists with your Apple Music ones: off until you turn it on, since it
 /// asks for Apple Music.
 struct PlaySettingsPlaylistMerge: View {

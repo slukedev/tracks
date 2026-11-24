@@ -2,7 +2,7 @@ import SwiftUI
 import ServiceManagement
 import TracksCore
 
-/// Opening at login, the Dock, Apple Music access, and About.
+/// Opening at login, the Dock, and About. Apple Music access is in Sources.
 struct GeneralSettingsPane: View {
     @Environment(MacAppBehaviour.self) private var behaviour
     @Environment(AppModel.self) private var model
@@ -41,7 +41,6 @@ struct GeneralSettingsPane: View {
                 Text("Startup")
             }
 
-            AppleMusicAccessSection()
             AboutSection()
         }
         .settingsPane()

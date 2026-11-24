@@ -2,8 +2,7 @@ import SwiftUI
 import MusicKit
 import TracksCore
 
-/// A library row of the sidebar: Apple Music's library, or your own music's, following the
-/// music source.
+/// A library row of the sidebar, for the source the filter is on.
 struct LibraryPage: View {
     let item: SidebarItem
     let source: MusicSource
@@ -13,6 +12,7 @@ struct LibraryPage: View {
 
     var body: some View {
         page
+            .sourceFilter()
             #if DEBUG
             .task(id: model.yourMusic.index.artists.count) {
                 CollectionScreenshotSetup.apply()
@@ -41,7 +41,7 @@ struct LibraryPage: View {
         case (.yourMusic, .downloads): YourMusicList.downloads.page
         case (.yourMusic, .lidarr): LidarrPage()
         default:
-            ContentUnavailableView("Not in \(Text(source.title))", systemImage: item.symbol)
+            ContentUnavailableView("Nothing from \(Text(source.title)) yet", systemImage: item.symbol)
         }
     }
 }
@@ -197,6 +197,6 @@ struct ListenNowPage: View {
                 PlayScreen()
             }
         }
-        .quickSourceSwitch()
+        .sourceFilter()
     }
 }

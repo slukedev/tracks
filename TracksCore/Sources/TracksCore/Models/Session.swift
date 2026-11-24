@@ -28,6 +28,10 @@ public final class Session {
     /// Optional because CloudKit needs every attribute to be optional or defaulted.
     public var deviceID: String?
 
+    /// The session's lasting id, for Trackside Cloud. Nil only for sessions from before
+    /// ids existed, until they're given one. Optional so CloudKit takes it as an additive change.
+    public var sessionID: String?
+
     @Relationship(inverse: \Station.sessions)
     public var station: Station?
 
@@ -43,6 +47,7 @@ public final class Session {
         self.lastActivityAt = startedAt
         self.station = station
         self.deviceID = deviceID
+        self.sessionID = PlayID.make()
     }
 
     public var isOpen: Bool { endedAt == nil }

@@ -4,8 +4,9 @@ import Observation
 import OSLog
 import TracksCore
 
-/// What Settings knows about iCloud sync: the switch, the account, and what the mirror
-/// reported. One per Settings screen, so the root row and the page never disagree.
+/// What Settings knows about sync: the switch, where it goes (iCloud or Trackside Cloud on
+/// one of your Trackside servers), the account, and what each reported. One per Settings
+/// screen, so the root row and the page never disagree.
 @Observable
 final class CloudSyncSettings {
     private let store: TracksStore
@@ -14,6 +15,47 @@ final class CloudSyncSettings {
     /// The switch. Read once when the store opens, so a change applies next launch.
     var wantsSync = CloudSync.isEnabled {
         didSet { CloudSync.isEnabled = wantsSync }
+    }
+
+    /// Where sync goes. Read once when the store opens, so a change applies next launch.
+    var backend = CloudSync.backend {
+        didSet { CloudSync.backend = backend }
+    }
+
+    /// The Trackside Cloud sync running now, for its status. Set by whoever holds the servers.
+    @ObservationIgnored var tracksideCloud: () -> TracksideCloudSync? = { nil }
+
+    /// One of your Trackside servers, which sync can go to.
+    struct ServerChoice: Identifiable, Hashable {
+        let id: String
+        let name: String
+    }
+
+    /// Your Trackside servers, any of which can carry sync, by entry id and name.
+    var tracksideServers: [ServerChoice] {
+        guard let data = UserDefaults.standard.data(forKey: "musicServers"),
+              let servers = try? JSONDecoder().decode([SubsonicServer].self, from: data)
+        else { return [] }
+        return servers.filter(\.isTrackside).map { ServerChoice(id: $0.id, name: $0.name) }
+    }
+
+    /// The server sync goes to, when it's Trackside Cloud and that server is still here.
+    var tracksideServer: ServerChoice? {
+        guard case .tracksideCloud(let id) = backend else { return nil }
+        return tracksideServers.first { $0.id == id }
+    }
+
+    /// Whether what's chosen differs from what this run syncs with, which changes when Tracks
+    /// next opens.
+    var changesNextLaunch: Bool {
+        (wantsSync ? backend : nil) != CloudSync.backendThisRun
+    }
+
+    /// The root row's value, whichever backend.
+    var summary: String {
+        guard wantsSync, case .tracksideCloud = backend else { return status.short }
+        if changesNextLaunch { return String(localized: "On") }
+        return tracksideCloud()?.state.short ?? TracksideCloudSync.State.waiting.short
     }
 
     private var account: CloudSyncStatus.Account?
@@ -27,7 +69,7 @@ final class CloudSyncSettings {
     var status: CloudSyncStatus {
         CloudSyncStatus.resolve(
             isConfigured: CloudSync.isConfigured,
-            wantsSync: wantsSync,
+            wantsSync: wantsSync && backend == .iCloud,
             isRunning: store.backing.isSynced,
             startFailure: store.syncFailureReason,
             account: account,
@@ -52,12 +94,23 @@ final class CloudSyncSettings {
             @unknown default: .unknown
             }
         } catch {
-            Self.log.error("Couldn't read the iCloud account: \(error, privacy: .public)")
+            Self.log.error("Couldn't read the iCloud account: \(URLRedaction.describe(error), privacy: .public)")
             accountError = Self.message(for: error)
         }
     }
 
     private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Tracks", category: "iCloud")
+
+    /// Where sync goes, picked from a menu: iCloud, or one of your Trackside servers.
+    var choice: String {
+        get {
+            switch backend {
+            case .iCloud: "icloud"
+            case .tracksideCloud(let id): id
+            }
+        }
+        set { backend = newValue == "icloud" ? .iCloud : .tracksideCloud(serverID: newValue) }
+    }
 
     /// What went wrong with iCloud, and what happens next, in place of CloudKit's own words.
     nonisolated static func message(for error: any Error) -> String {
@@ -76,8 +129,8 @@ final class CloudSyncSettings {
     }
 }
 
-/// iCloud sync: the switch, where it stands, and what it carries. An iPhone page, and the
-/// Mac's iCloud pane.
+/// Sync: the switch, where it goes, where it stands, and what it carries. An iPhone page,
+/// and the Mac's iCloud pane.
 struct CloudSyncPage: View {
     @Bindable var sync: CloudSyncSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -86,37 +139,47 @@ struct CloudSyncPage: View {
         // Relative times ("synced 5 minutes ago") keep up while the page is open.
         TimelineView(.periodic(from: .now, by: 30)) { context in
             let status = sync.status
+            let server = sync.wantsSync ? sync.tracksideServer : nil
             Form {
-                SettingsHero(
-                    "iCloud",
-                    subtitle: status.tone.apply(to: Text(status.line(now: context.date))),
-                    systemImage: "icloud.fill",
-                    tint: .blue
-                ) {
-                    heroControl(status)
-                }
+                hero(status, server: server, now: context.date)
 
                 #if os(iOS)
-                if status != .unavailable {
+                if status != .unavailable || !sync.tracksideServers.isEmpty {
                     Section {
-                        Toggle("Sync with iCloud", isOn: $sync.wantsSync)
+                        Toggle("Sync", isOn: $sync.wantsSync)
+                        if sync.wantsSync { backendPicker }
                     } footer: {
-                        Text(sync.wantsSync
-                            ? "Changes sync on their own, so there’s nothing to press."
-                            : "Your history stays on this iPhone only.")
+                        footer(server: server)
                             .contentTransition(.opacity)
+                    }
+                }
+                #else
+                if sync.wantsSync, !sync.tracksideServers.isEmpty {
+                    Section {
+                        backendPicker
+                    } footer: {
+                        footer(server: server)
                     }
                 }
                 #endif
 
-                if let reason = status.reason {
-                    Section {
-                        Text(reason)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    } header: {
-                        Text("What iCloud Said")
+                if server == nil {
+                    if let reason = status.reason {
+                        Section {
+                            Text(reason)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        } header: {
+                            Text("What iCloud Said")
+                        }
+                    }
+
+                    if let fix = fix(for: status) {
+                        Section {
+                        } footer: {
+                            Text(fix)
+                        }
                     }
                 }
 
@@ -126,32 +189,89 @@ struct CloudSyncPage: View {
                     }
                 }
 
-                if let fix = fix(for: status) {
-                    Section {
-                    } footer: {
-                        Text(fix)
-                    }
-                }
-
-                CloudSyncContentsSection()
+                CloudSyncContentsSection(server: server?.name)
             }
             .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: status)
+            .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: sync.wantsSync)
+            .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: sync.choice)
         }
         .task { await sync.refresh() }
         #if os(macOS)
         .settingsPane()
         #else
-        .settingsPage("iCloud")
-        .refreshable { await sync.refresh() }
+        .settingsPage("Sync")
+        .refreshable {
+            await sync.refresh()
+            await sync.tracksideCloud()?.sync()
+        }
         #endif
+    }
+
+    @ViewBuilder
+    private func hero(_ status: CloudSyncStatus, server: CloudSyncSettings.ServerChoice?, now: Date) -> some View {
+        if let server {
+            let state = sync.tracksideCloud()?.state ?? .waiting
+            let line = sync.changesNextLaunch ? String(localized: "Starts the next time Tracks opens.") : state.line(now: now)
+            SettingsHero(
+                "\(server.name)",
+                subtitle: (sync.changesNextLaunch ? SettingsTone.attention : state.tone).apply(to: Text(line)),
+                systemImage: "server.rack",
+                tint: .indigo
+            ) {
+                heroControl(status)
+            }
+        } else {
+            SettingsHero(
+                "iCloud",
+                subtitle: status.tone.apply(to: Text(status.line(now: now))),
+                systemImage: "icloud.fill",
+                tint: .blue
+            ) {
+                heroControl(status)
+            }
+        }
+    }
+
+    /// Where sync goes: iCloud, or one of your Trackside servers. Shown only when there's a
+    /// choice to make.
+    @ViewBuilder
+    private var backendPicker: some View {
+        let servers = sync.tracksideServers
+        if !servers.isEmpty {
+            Picker("Sync With", selection: $sync.choice) {
+                if CloudSync.isConfigured {
+                    Text("iCloud").tag("icloud")
+                }
+                ForEach(servers) { server in
+                    Text(server.name).tag(server.id)
+                }
+            }
+        }
+    }
+
+    private func footer(server: CloudSyncSettings.ServerChoice?) -> Text {
+        if !sync.wantsSync {
+            #if os(iOS)
+            return Text("Your history stays on this iPhone only.")
+            #else
+            return Text("Your history stays on this Mac only.")
+            #endif
+        }
+        if sync.changesNextLaunch {
+            return Text("Takes effect the next time Tracks opens. Nothing already synced is lost.")
+        }
+        if server != nil {
+            return Text("Works with Tracks on any device signed in to this server.")
+        }
+        return Text("Changes sync on their own, so there’s nothing to press.")
     }
 
     /// The pane's switch on the Mac. On iPhone it's a row of its own, as in Settings.
     @ViewBuilder
     private func heroControl(_ status: CloudSyncStatus) -> some View {
         #if os(macOS)
-        if status != .unavailable {
-            Toggle("Sync with iCloud", isOn: $sync.wantsSync)
+        if status != .unavailable || !sync.tracksideServers.isEmpty {
+            Toggle("Sync", isOn: $sync.wantsSync)
                 .toggleStyle(.switch)
                 .labelsHidden()
         }
@@ -175,15 +295,22 @@ struct CloudSyncPage: View {
     }
 }
 
-/// What iCloud carries, said the same way wherever iCloud is described.
+/// What sync carries, said the same way wherever sync is described.
 private struct CloudSyncContentsSection: View {
+    /// The Trackside server it goes to, or nil for iCloud.
+    var server: String? = nil
+
     var body: some View {
         Section {
             Text("Your listening history, stations and sessions, your settings, and the songs you’ve removed.")
         } header: {
             Text("What Syncs")
         } footer: {
-            Text("It all stays in your private iCloud.")
+            if let server {
+                Text("It all stays on \(server).")
+            } else {
+                Text("It all stays in your private iCloud.")
+            }
         }
     }
 }

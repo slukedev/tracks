@@ -35,10 +35,11 @@ private struct MacHistoryTable: View {
     @Binding var filter: HistoryFilter
     @Binding var sort: HistorySort
     let source: SourceScope
-    /// Apple Music or Your Music alone, when the person has asked to see them apart.
+    /// One source alone, when the person has asked to see them apart.
     let sourceSelection: Binding<SourceScope>?
     let limit: Int
     let loadMore: () -> Void
+    private var sources = SourceScopeSetting()
 
     /// The page loaded, as values made off the main actor.
     @State private var rows: [HistoryRow] = []
@@ -213,7 +214,7 @@ private struct MacHistoryTable: View {
                     if let sourceSelection {
                         Section("Music") {
                             Picker("Music", selection: sourceSelection) {
-                                ForEach(SourceScope.allCases) { scope in
+                                ForEach(sources.offered) { scope in
                                     Label(scope.title, systemImage: scope.symbol).tag(scope)
                                 }
                             }
@@ -226,7 +227,7 @@ private struct MacHistoryTable: View {
                 }
                 .help(sourceSelection == nil
                     ? "Show only radio, on demand or recovered songs"
-                    : "Show only radio, on demand or recovered songs, or Apple Music or Your Music alone")
+                    : "Show only radio, on demand or recovered songs, or one source alone")
             }
             ToolbarItem {
                 Button("Inspector", systemImage: "sidebar.trailing") {

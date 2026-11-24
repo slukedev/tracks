@@ -68,7 +68,21 @@ final class AppModel {
     /// The song Get Info shows, asked for from any menu.
     let songInfo = SongInfoPresenter()
 
-    /// Where Play's music comes from. Changing it changes the player; whatever was playing stops.
+    /// What Play, Library and Tracks Radio draw from. A filter: changing it never touches
+    /// what's queued. See ``chooseSources(_:)``.
+    var sourceSelection = SourceSelection(rawValue: UserDefaults.standard.string(forKey: SourceSelection.storageKey) ?? "") {
+        didSet {
+            guard sourceSelection != oldValue else { return }
+            UserDefaults.standard.set(sourceSelection.rawValue, forKey: SourceSelection.storageKey)
+        }
+    }
+
+    /// Spotify, when this build has it (the `SPOTIFY` flag) and it's set up. Nil otherwise, and
+    /// then Spotify appears nowhere.
+    var spotify: (any SpotifySource)?
+
+    /// Which player Play draws from. Follows the source filter; set it through
+    /// ``chooseSources(_:)``. Changing it directly changes the player and stops what's playing.
     var musicSource: MusicSource = MusicSource.current {
         didSet {
             guard musicSource != oldValue else { return }
@@ -79,13 +93,17 @@ final class AppModel {
         }
     }
 
-    /// Set for the one change a quick switch makes, so what's playing carries on.
+    /// Set for the one change the source filter makes, so what's playing carries on.
     @ObservationIgnored private var switchesQuietly = false
 
-    /// Switches where Play's music comes from without stopping what's playing: the other
-    /// source's player takes over from the next thing played. For Quick Switch and Focus.
+    /// Switches which player Play draws from without stopping what's playing: the other
+    /// player takes over from the next thing played. A filter narrowed to a source of the
+    /// other player opens to all sources again, so the two never disagree.
     func switchSource(to source: MusicSource) {
         guard source != musicSource else { return }
+        if case .only(let chosen) = sourceSelection, MusicSource(chosen) != source {
+            sourceSelection = .all
+        }
         switchesQuietly = true
         musicSource = source
     }
@@ -103,10 +121,13 @@ final class AppModel {
     var sidebarSelection: SidebarItem? = LaunchScene.sidebar.flatMap(SidebarItem.init(rawValue:))
         ?? (LaunchScene.searchText != nil ? .search : SidebarItem.opening)
 
-    /// The iPhone's tab. Lives here so Summary's "See All" can move to Charts, which owns the
-    /// full lists, instead of pushing a second copy inside Summary.
+    /// The iPhone's tab. Lives here so Summary's "See All" can move to History's charts,
+    /// which own the full lists, instead of pushing a second copy inside Summary.
     /// A launch link opens on Summary, whose stack it's pushed onto (see `RootView`).
     var selectedTab: AppTab = AppModel.launchTab
+
+    /// What the iPhone's History tab shows: every play, or the charts.
+    var historyMode: HistoryMode = LaunchScene.tab == AppTab.chartsName ? .charts : .plays
 
     /// The tab Tracks opens on, for the tab bar to start from without reading `selectedTab`.
     static let launchTab: AppTab = AppTab(launchName: LaunchScene.tab)
@@ -470,8 +491,8 @@ final class AppModel {
         if let device, controlledDeviceID == device.id { controlledDeviceID = nil }
         let carry = state.carry(bringsQueue: NearbyDevices.bringsQueue)
         var sources = [musicSource]
-        if QuickSwitch.isOn, QuickSwitch.isAvailable(yourMusic) {
-            sources.append(musicSource == .appleMusic ? .yourMusic : .appleMusic)
+        if case .all = effectiveSourceSelection {
+            for other in playerSources where !sources.contains(other) { sources.append(other) }
         }
         for source in sources {
             guard let request = await request(for: title, by: artist, album: state.album, duration: state.duration, in: source) else { continue }
@@ -589,6 +610,8 @@ final class AppModel {
                   let songs = try? await MusicKitPlaybackService.songs(for: [candidate.id]), !songs.isEmpty
             else { return nil }
             return .songs(songs)
+        case .spotify:
+            return nil
         }
     }
 
@@ -613,6 +636,9 @@ final class AppModel {
             let engine = LocalPlayerEngine(music: yourMusic, capture: .yourMusic)
             yourMusicEngine = engine
             return engine
+        case .spotify:
+            // Spotify is offered only once its integration is there (see `spotify`).
+            return spotify?.engine ?? appleMusicEngine
         }
     }
 
@@ -637,11 +663,12 @@ final class AppModel {
         }
     }
 
-    /// Songs opened in Tracks from elsewhere: copied into Your Music, which becomes the source,
-    /// and shown on Play.
+    /// Songs opened in Tracks from elsewhere: copied onto this device, and shown on Play with
+    /// every source on.
     func openInYourMusic(_ urls: [URL]) {
         selectedTab = .play
         sidebarSelection = .listenNow
+        sourceSelection = .all
         musicSource = .yourMusic
         prepareYourMusic()
         Task { await yourMusic.importItems(urls) }
@@ -843,15 +870,18 @@ nonisolated final class MainActorSignal: Sendable {
     }
 }
 
-/// The iPhone's tabs.
+/// The iPhone's tabs. Charts is a mode of History (``HistoryMode``).
 enum AppTab: String, Hashable {
-    case summary, play, history, charts
+    case play, library, summary, history
     /// Search, at the tab bar's far end, as Music has it.
     case search
 
+    /// The name Charts had as a tab, still accepted from launch arguments and saved scenes.
+    static let chartsName = "charts"
+
     init?(launchName: String?) {
         guard let launchName else { return nil }
-        self.init(rawValue: launchName)
+        self.init(rawValue: launchName == Self.chartsName ? AppTab.history.rawValue : launchName)
     }
 
     /// Where the app opens, as chosen in Settings: Summary or Play.
@@ -861,21 +891,35 @@ enum AppTab: String, Hashable {
 
     var title: LocalizedStringKey {
         switch self {
-        case .summary: "Summary"
         case .play: "Play"
+        case .library: "Library"
+        case .summary: "Summary"
         case .history: "History"
-        case .charts: "Charts"
         case .search: "Search"
         }
     }
 
     var symbol: String {
         switch self {
-        case .summary: "chart.bar.xaxis"
         case .play: "play.circle"
+        case .library: "square.stack"
+        case .summary: "chart.bar.xaxis"
         case .history: "clock.arrow.circlepath"
-        case .charts: "list.number"
         case .search: "magnifyingglass"
+        }
+    }
+}
+
+/// History on iPhone: every play, or the charts made from them.
+enum HistoryMode: String, Hashable, CaseIterable, Identifiable {
+    case plays, charts
+
+    var id: String { rawValue }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .plays: "Plays"
+        case .charts: "Charts"
         }
     }
 }
@@ -987,7 +1031,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
     static func library(for source: MusicSource, hasLidarr: Bool) -> [SidebarItem] {
         let shared: [SidebarItem] = [.recentlyAdded, .artists, .albums, .songs, .playlists]
         return switch source {
-        case .appleMusic: shared
+        case .appleMusic, .spotify: shared
         case .yourMusic: shared + [.downloads] + (hasLidarr ? [.lidarr] : [])
         }
     }

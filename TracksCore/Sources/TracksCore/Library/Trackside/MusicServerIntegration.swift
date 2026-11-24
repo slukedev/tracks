@@ -62,7 +62,7 @@ public enum ServerCoverAddress {
     }
 
     /// Query items that sign a request rather than say what's asked for.
-    static let signing: Set<String> = ["u", "t", "s", "p", "mt"]
+    static let signing: Set<String> = ["u", "t", "s", "p", "mt", "apiKey"]
 
     /// The file name a cover is kept under: the address without its sign-in, hashed. For
     /// Trackside the address is also cut down to the cover's own path, since artwork ids are

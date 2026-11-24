@@ -2,7 +2,7 @@
 import SwiftUI
 import TracksCore
 
-/// Settings ▸ Play on iPhone: where Play's music comes from, Tracks Radio, where Tracks opens,
+/// Settings ▸ Play on iPhone: downloads and streaming, Tracks Radio, where Tracks opens,
 /// explicit songs, how one song leads into the next, the Play tab's layout, and the memory
 /// behind its mixes. The Mac has its own pane, `PlaySettingsPane`.
 struct PlaySettingsPage: View {
@@ -21,7 +21,6 @@ struct PlaySettingsPage: View {
     @AppStorage(PlayPreferences.radioDownloadsFirstKey) private var radioDownloadsFirst = true
     @AppStorage(PlayPreferences.radioDeletesAfterPlayingKey) private var radioDeletesAfterPlaying = false
     @AppStorage(PlayPreferences.shakeToPlayKey) private var shakeToPlay = true
-    @AppStorage(QuickSwitch.storageKey) private var quickSwitch = false
     @AppStorage(SuggestionMode.storageKey) private var suggestionMode = SuggestionMode.everything
     @AppStorage(OfflineMode.storageKey) private var isOfflineModeOn = false
     @Environment(DownloadedSongs.self) private var downloads
@@ -38,11 +37,11 @@ struct PlaySettingsPage: View {
             Form {
                 SettingsHero("Play", subtitle: status.tone.apply(to: Text(status.line)), systemImage: "play.fill", tint: .indigo)
 
-                sourceSection
                 DownloadChoiceSection()
-                if isYourMusic {
+                if music.hasMusic {
                     yourMusicSections
-                } else {
+                }
+                if !isYourMusic {
                     offlineSection
                 }
                 radioSection
@@ -56,7 +55,7 @@ struct PlaySettingsPage: View {
                 contentSection
                 BlockedArtistsSection()
                 if !isYourMusic {
-                    // Your Music plays gaplessly, with no crossfade, and has its own Play page.
+                    // Files and servers play gaplessly, with no crossfade, and have their own Play page.
                     transitionSection
                     layoutSection
                 }
@@ -95,29 +94,6 @@ struct PlaySettingsPage: View {
         )
     }
 
-    // MARK: - Source
-
-    private var sourceSection: some View {
-        @Bindable var model = model
-        return Section {
-            Picker("Music Source", selection: $model.musicSource) {
-                ForEach(MusicSource.allCases) { source in
-                    Label(source.title, systemImage: source.symbol).tag(source)
-                }
-            }
-            if QuickSwitch.isAvailable(music) {
-                Toggle("Quick Switch", isOn: $quickSwitch)
-            }
-        } header: {
-            Text("Source")
-        } footer: {
-            if let footer = PlaySettingsWords.sourceFooter(quickSwitch: .init(music: music, isOn: quickSwitch)) {
-                Text(footer)
-                    .contentTransition(.opacity)
-            }
-        }
-    }
-
     private var offlineSection: some View {
         Section {
             Toggle("Offline Mode", isOn: $isOfflineModeOn)
@@ -133,37 +109,10 @@ struct PlaySettingsPage: View {
         .task { await downloads.loadIfNeeded() }
     }
 
-    // MARK: - Your Music
+    // MARK: - Files and Servers
 
     @ViewBuilder
     private var yourMusicSections: some View {
-        Section {
-            LabeledContent("Songs on iPhone") {
-                Text(music.fileTracks.count, format: .number)
-                    .monospacedDigit()
-            }
-            // A size of nothing reads as a fault, not a fact.
-            if music.fileBytes > 0 {
-                LabeledContent("Space Used", value: LocalFormat.bytes(music.fileBytes))
-            }
-            Button {
-                Task { await music.scan() }
-            } label: {
-                HStack {
-                    Label(music.isScanning ? "Looking for Songs…" : "Look for New Songs", systemImage: "arrow.clockwise")
-                    Spacer()
-                    if music.isScanning { ProgressView() }
-                }
-            }
-            .disabled(music.isScanning)
-        } header: {
-            Text("On This iPhone")
-        } footer: {
-            Text("Put songs in On My iPhone ▸ Tracks ▸ Music in the Files app.")
-        }
-
-        ServersSection()
-
         Section {
             Picker("Suggest", selection: $suggestionMode) {
                 ForEach(SuggestionMode.allCases) { Text($0.title).tag($0) }

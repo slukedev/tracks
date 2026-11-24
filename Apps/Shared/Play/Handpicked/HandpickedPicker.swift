@@ -259,6 +259,8 @@ struct HandpickedPicker: View {
             return songs.compactMap { music.track(for: HistorySong($0)) }
                 .filter { seen.insert($0.identity).inserted }
                 .map { Handpick($0, music: music) }
+        case .spotify:
+            return []
         }
     }
 
@@ -351,6 +353,7 @@ struct PickSearch {
         switch source {
         case .appleMusic: isDemo ? [.history, .catalog] : [.history, .library, .catalog]
         case .yourMusic: hasServers ? [.yours, .servers] : [.yours]
+        case .spotify: [.history]
         }
     }
 

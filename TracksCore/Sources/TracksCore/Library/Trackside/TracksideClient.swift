@@ -33,6 +33,9 @@ public enum TracksideError: Error, Equatable, Sendable {
     case unproven
     /// Plain HTTP to an address that isn't nearby: a password, code or key isn't sent there.
     case insecureAddress
+    /// The server takes this device's key only over https, and none of its https addresses
+    /// answered. Nothing to sign in to again: an https address that works is enough.
+    case httpsRequired
 }
 
 /// Sends a request and hands back the body and response. URLSession in the app; a stub in tests.
@@ -133,6 +136,23 @@ public struct TracksideClient: Sendable {
 
     public func renewMediaToken() async throws -> TracksideMediaToken {
         try await send("media-token", method: "POST")
+    }
+
+    // MARK: - The server's addresses
+
+    /// The server's addresses, asked of an address that has proven it is the server, unless
+    /// they're still the ones `etag` stands for.
+    /// - Throws: ``TracksideError/notTrackside`` when the list is another server's.
+    public func serverURLs(ifNoneMatch etag: String?) async throws -> TracksideServerURLsAnswer {
+        let response = try await exchange { base in
+            var request = try Self.request(base, "server/urls", authorization: bearer)
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+            return request
+        }
+        if response.1.statusCode == 304 { return .unchanged }
+        let urls: TracksideServerURLs = try Self.decode(response)
+        guard urls.serverID.caseInsensitiveCompare(endpoints.serverUUID) == .orderedSame else { throw TracksideError.notTrackside }
+        return .changed(urls, etag: response.1.value(forHTTPHeaderField: "ETag"))
     }
 
     // MARK: - Browsing
@@ -260,9 +280,30 @@ public struct TracksideClient: Sendable {
         media("songs/\(songID)/stream", profile.map { ["profile": $0] } ?? [:])
     }
 
-    /// Without `size`, the picture as stored.
+    /// Without `size`, the picture as stored. Without the media token too: the address is
+    /// handed to caches and the system, and gets the token only as it's fetched
+    /// (``authorize(_:)``).
     public func artworkURL(id: String, size: Int? = 600) -> URL {
-        media("art/\(id)", size.map { ["size": String($0)] } ?? [:])
+        let base = endpoints.baseURL
+        return (try? Self.url(base, "art/\(id)", size.map { ["size": String($0)] } ?? [:])) ?? base
+    }
+
+    /// A cover's address at the address in use, with the media token, for one fetch. A cover
+    /// address made at another of the server's addresses is moved to the one in use, so a
+    /// cover kept at home still loads away. Nil for an address that isn't the server's art.
+    public func authorize(_ url: URL) -> URL? {
+        let base = endpoints.baseURL
+        if Self.isSameOrigin(url, base) { return withMediaToken(url) }
+        guard ServerCoverAddress.isTracksideArt(url),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let range = components.percentEncodedPath.range(of: "/api/v1/art/")
+        else { return nil }
+        let query = (components.queryItems ?? []).filter { $0.name != "mt" }
+        var reference = URLComponents()
+        reference.percentEncodedPath = String(components.percentEncodedPath[range.lowerBound...])
+        reference.queryItems = query.isEmpty ? nil : query
+        guard let relative = reference.string, let moved = Self.resolve(relative, against: base) else { return nil }
+        return withMediaToken(moved)
     }
 
     /// A media address the server gave, such as a playback decision's, resolved against the
@@ -364,29 +405,84 @@ public struct TracksideClient: Sendable {
         return request
     }
 
+    /// How a read that can safely be asked again is retried when the network or the server
+    /// stumbles. Writes are never retried here: the server may have taken them.
+    static let readRetry = RetryPolicy(attempts: 3, firstDelay: .milliseconds(500), longestDelay: .seconds(4))
+
     func get<Value: Decodable>(_ path: String, _ query: [String: String] = [:]) async throws -> Value {
-        try Self.decode(try await exchange(try Self.request(try await endpoints.provenBaseURL(), path, query, authorization: bearer)))
+        var attempt = 1
+        while true {
+            do {
+                return try Self.decode(try await exchange { try Self.request($0, path, query, authorization: bearer) })
+            } catch let error where attempt < Self.readRetry.attempts && Self.isRetryable(error) {
+                try await Task.sleep(for: Self.readRetry.delay(after: attempt, jitter: Double.random(in: 0...1)))
+                attempt += 1
+            }
+        }
     }
 
     func send<Value: Decodable>(_ path: String, method: String, headers: [String: String] = [:]) async throws -> Value {
-        var request = try Self.request(try await endpoints.provenBaseURL(), path, method: method, authorization: bearer)
-        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-        return try Self.decode(try await exchange(request))
+        try Self.decode(try await exchange { base in
+            var request = try Self.request(base, path, method: method, authorization: bearer)
+            for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+            return request
+        })
     }
 
     func send<Body: Encodable, Value: Decodable>(_ path: String, method: String, body: Body, headers: [String: String] = [:]) async throws -> Value {
-        var request = try Self.request(try await endpoints.provenBaseURL(), path, method: method, body: try TracksideJSON.encoder.encode(body), authorization: bearer)
-        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-        return try Self.decode(try await exchange(request))
+        let data = try TracksideJSON.encoder.encode(body)
+        return try Self.decode(try await exchange { base in
+            var request = try Self.request(base, path, method: method, body: data, authorization: bearer)
+            for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+            return request
+        })
     }
 
     /// For requests whose answer is only whether the server took them.
     func perform(_ path: String, method: String) async throws {
-        try Self.check(try await exchange(try Self.request(try await endpoints.provenBaseURL(), path, method: method, authorization: bearer)))
+        try Self.check(try await exchange { try Self.request($0, path, method: method, authorization: bearer) })
     }
 
     func perform<Body: Encodable>(_ path: String, method: String, body: Body) async throws {
-        try Self.check(try await exchange(try Self.request(try await endpoints.provenBaseURL(), path, method: method, body: try TracksideJSON.encoder.encode(body), authorization: bearer)))
+        let data = try TracksideJSON.encoder.encode(body)
+        try Self.check(try await exchange { try Self.request($0, path, method: method, body: data, authorization: bearer) })
+    }
+
+    /// Whether a failed read is worth asking again in a moment.
+    static func isRetryable(_ error: any Error) -> Bool {
+        switch error {
+        case let error as URLError:
+            [.timedOut, .networkConnectionLost].contains(error.code)
+        case TracksideError.unavailable(_, let retryAfter):
+            (retryAfter ?? 1) <= 5
+        case TracksideError.http(let status):
+            [502, 503, 504].contains(status)
+        default:
+            false
+        }
+    }
+
+    /// Builds a request for the proven address and sends it. When the server answers that it
+    /// takes the key only over https, Tracks moves to an https address that proves itself and
+    /// asks there once more, never asking for the password again.
+    func exchange(_ build: (URL) throws -> URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let response = try await exchange(try build(try await endpoints.provenBaseURL()))
+        guard let advertised = Self.httpsRequired(response) else { return response }
+        if !advertised.isEmpty {
+            await endpoints.add(advertised.map { TracksideServerURL(url: $0, kind: .public, tls: true) })
+        }
+        guard await endpoints.requireHTTPS() != nil else { throw TracksideError.httpsRequired }
+        return try await exchange(try build(try await endpoints.provenBaseURL()))
+    }
+
+    /// The https addresses a `403 https_required` names (possibly none), or nil for any
+    /// other answer.
+    static func httpsRequired(_ response: (Data, HTTPURLResponse)) -> [URL]? {
+        guard response.1.statusCode == 403,
+              let body = try? TracksideJSON.decoder.decode(TracksideErrorEnvelope.self, from: response.0).error,
+              body.code == "https_required"
+        else { return nil }
+        return (body.details?.httpsURLs ?? []).compactMap(URL.init(string:)).filter { $0.scheme?.lowercased() == "https" }
     }
 
     /// Sends a request, and tells the endpoints whether the server could be reached, so a
@@ -486,6 +582,7 @@ public struct TracksideClient: Sendable {
         case "quota_exceeded": return .quotaExceeded(resetsAt: body.details?.resetsAt)
         case "library_unavailable", "transcoder_busy", "unavailable": return .unavailable(code: body.code, retryAfter: retryAfter)
         case "insufficient_storage": return .insufficientStorage
+        case "https_required": return .httpsRequired
         default: return .server(status: status, code: body.code, message: body.message ?? "")
         }
     }

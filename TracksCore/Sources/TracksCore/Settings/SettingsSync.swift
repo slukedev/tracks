@@ -59,8 +59,14 @@ public final class SettingsSync {
     /// the settings travelling as well as the history, or the toggle would only be half
     /// true. Like the store, the switch is read once here, so a change takes effect on the
     /// next launch.
+    ///
+    /// With Trackside Cloud chosen, settings travel through it instead
+    /// (``TracksideCloudSettings``), the same way, by the same rules.
     public static func forCurrentBuild(registry: SettingsRegistry = .core) -> SettingsSync? {
-        guard shouldMirror(enabled: CloudSync.isEnabled, configured: CloudSync.isConfigured)
+        if CloudSync.tracksideServerID != nil {
+            return SettingsSync(cloud: TracksideCloudSettings.shared, registry: registry)
+        }
+        guard shouldMirror(enabled: CloudSync.mirrorsToICloud, configured: CloudSync.isConfigured)
         else { return nil }
         return SettingsSync(registry: registry)
     }

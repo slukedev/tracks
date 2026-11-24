@@ -12,6 +12,17 @@
         }
       }
     },
+    "Choose a source in ${applicationName}": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Choose a source in ${applicationName}"
+          }
+        }
+      }
+    },
     "Find something to play in ${applicationName}": {
       "extractionState": "extracted_with_value",
       "localizations": {
@@ -144,17 +155,6 @@
         }
       }
     },
-    "Play from ${source} in ${applicationName}": {
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Play from ${source} in ${applicationName}"
-          }
-        }
-      }
-    },
     "Play it here with ${applicationName}": {
       "extractionState": "extracted_with_value",
       "localizations": {
@@ -243,24 +243,13 @@
         }
       }
     },
-    "Switch ${applicationName} to ${source}": {
+    "Show ${source} in ${applicationName}": {
       "extractionState": "extracted_with_value",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "new",
-            "value": "Switch ${applicationName} to ${source}"
-          }
-        }
-      }
-    },
-    "Switch music source in ${applicationName}": {
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Switch music source in ${applicationName}"
+            "value": "Show ${source} in ${applicationName}"
           }
         }
       }

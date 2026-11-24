@@ -16,9 +16,10 @@ public struct ListeningHistory: Sendable {
     /// The artists heard for the first time at each play, by identity. Usually empty; a
     /// collaboration can introduce several at once.
     let newArtists: [[String]]
-    /// Whether any play came from Your Music, so the statistics can offer to show it apart.
-    /// Stays true for a history scoped to Apple Music, which still has Your Music to switch to.
-    public let hasYourMusic: Bool
+    /// Every source a play came from, so the statistics can offer to show each apart. Stays
+    /// whole for a scoped history, which still has the others to switch to.
+    public let playedSources: Set<PlaySource>
+    public var hasYourMusic: Bool { playedSources.contains(.yourMusic) }
     /// Every song and every artist heard, for telling whether a play added at the end is the
     /// first of its song or introduces an artist, without walking the history again.
     let heardSongs: Set<String>
@@ -48,7 +49,7 @@ public struct ListeningHistory: Sendable {
         var artists = Set<String>()
         self.newArtists = Self.newArtists(in: ordered, heard: &artists)
         self.heardArtists = artists
-        self.hasYourMusic = ordered.contains { $0.source == .yourMusic }
+        self.playedSources = Set(ordered.map(\.source))
     }
 
     /// This history with plays added after its last one, the same as building it again from
@@ -116,7 +117,7 @@ public struct ListeningHistory: Sendable {
         newArtists = other.newArtists
         heardSongs = other.heardSongs
         heardArtists = other.heardArtists
-        hasYourMusic = other.hasYourMusic
+        playedSources = other.playedSources
         artistArtwork = other.artistArtwork
         songMetadata = other.songMetadata
     }
@@ -137,7 +138,7 @@ public struct ListeningHistory: Sendable {
         var artists = other.heardArtists
         newArtists = other.newArtists + Self.newArtists(in: added, heard: &artists)
         heardArtists = artists
-        hasYourMusic = other.hasYourMusic || added.contains { $0.source == .yourMusic }
+        playedSources = other.playedSources.union(added.map(\.source))
     }
 
     public var isEmpty: Bool { captures.isEmpty }
@@ -153,7 +154,7 @@ public struct ListeningHistory: Sendable {
         seconds = other.seconds
         isFirstHearing = other.isFirstHearing
         heardSongs = other.heardSongs
-        hasYourMusic = other.hasYourMusic
+        playedSources = other.playedSources
         self.artistArtwork = artistArtwork
         self.songMetadata = songMetadata
         if let credited = Self.credited(other.captures, songMetadata: songMetadata) {
@@ -218,7 +219,7 @@ public struct ListeningHistory: Sendable {
         // A part of the history is never added to, so what the whole has heard will do.
         heardSongs = other.heardSongs
         heardArtists = other.heardArtists
-        hasYourMusic = other.hasYourMusic
+        playedSources = other.playedSources
         artistArtwork = other.artistArtwork
         songMetadata = other.songMetadata
     }

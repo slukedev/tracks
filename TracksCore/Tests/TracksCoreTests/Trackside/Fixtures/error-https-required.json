@@ -1,0 +1,12 @@
+{
+  "error": {
+    "code": "https_required",
+    "details": {
+      "https_urls": [
+        "https://music.example.com"
+      ]
+    },
+    "message": "This server takes credentials over https only.",
+    "request_id": "7a1e4c9b2d3f4e5a8b6c0d1e2f3a4b5c"
+  }
+}

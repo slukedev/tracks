@@ -61,7 +61,7 @@ public final class TracksStore {
 
     /// The current schema. Always open a container through ``makeContainer(_:)`` so the
     /// migration plan comes with it.
-    public nonisolated static let schema = Schema(versionedSchema: TracksSchemaV2.self)
+    public nonisolated static let schema = Schema(versionedSchema: TracksSchemaV3.self)
 
     /// Opens the shared container, falling back to in-memory if that fails.
     ///
@@ -75,7 +75,7 @@ public final class TracksStore {
     public init(
         inMemory: Bool = false,
         readOnly: Bool = false,
-        sync: Bool = CloudSync.isEnabled
+        sync: Bool = CloudSync.mirrorsToICloud
     ) throws {
         var pendingSyncFailure: String?
 
@@ -135,7 +135,11 @@ public final class TracksStore {
     /// What a writable open of the library does first.
     private func didOpenLibrary() {
         stampLegacyCaptures()
-        Task { [writer] in _ = await writer.saveUnsavedPlays(from: .standard) }
+        Task { [writer] in
+            _ = await writer.saveUnsavedPlays(from: .standard)
+            // Plays and sessions from before lasting ids get theirs (see ``PlayID``).
+            _ = try? await writer.backfillLastingIDs()
+        }
     }
 
     /// Restores what earlier runs kept aside, so this one shows and keeps it too, then keeps
@@ -487,7 +491,10 @@ public final class TracksStore {
             capturedAt: now,
             // Apple Music or Your Music, so the two can be counted apart.
             source: PlaySource(observation: observation),
-            session: session
+            session: session,
+            // The player's own id for the play, where it gave one, so the server it played
+            // from counts the same play under the same id.
+            playID: observation.rawFields[PlayID.observationKey]
         )
         context.insert(capture)
         session?.lastActivityAt = now
