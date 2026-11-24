@@ -104,6 +104,15 @@ final class PlayerModel {
     /// car and the lock screen skip as the app's own buttons do.
     private func listen(to engine: any PlayerEngine) {
         engine.onChange = { [weak self] in self?.engineChanged() }
+        #if SPOTIFY
+        if let spotify = engine as? SpotifyPlayerEngine {
+            spotify.onNotice = { [weak self] in self?.confirm($0) }
+            spotify.onRemoteNext = { [weak self] in self?.skipToNext() }
+            spotify.onRemotePrevious = { [weak self] in self?.skipToPrevious() }
+            spotify.onAutoSkip = { [weak self] in self?.isAutoSkipping = true }
+            return
+        }
+        #endif
         guard let local = engine as? LocalPlayerEngine else { return }
         local.onNotice = { [weak self] in self?.confirm($0) }
         local.onRemoteNext = { [weak self] in self?.skipToNext() }

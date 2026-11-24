@@ -40,6 +40,11 @@ struct LibraryPage: View {
         case (.yourMusic, .songs): YourMusicList.songs.page
         case (.yourMusic, .downloads): YourMusicList.downloads.page
         case (.yourMusic, .lidarr): LidarrPage()
+        #if SPOTIFY
+        case (.spotify, .albums): SpotifyAlbumsPage().spotifyDestinations()
+        case (.spotify, .playlists): SpotifyPlaylistsPage().spotifyDestinations()
+        case (.spotify, .songs): SpotifyLikedSongsPage().spotifyDestinations()
+        #endif
         default:
             ContentUnavailableView("Nothing from \(Text(source.title)) yet", systemImage: item.symbol)
         }
@@ -191,10 +196,17 @@ struct ListenNowPage: View {
 
     var body: some View {
         Group {
-            if model.musicSource == .yourMusic {
+            switch model.musicSource {
+            case .yourMusic:
                 YourMusicScreen()
-            } else {
+            case .appleMusic:
                 PlayScreen()
+            case .spotify:
+                #if SPOTIFY
+                SpotifyPlayScreen()
+                #else
+                PlayScreen()
+                #endif
             }
         }
         .sourceFilter()

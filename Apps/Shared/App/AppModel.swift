@@ -210,6 +210,15 @@ final class AppModel {
             self.reconciler = nil
             self.lastFMHistory = nil
         }
+        #if SPOTIFY
+        // Sample data never reaches Spotify.
+        if !isDemoLaunch {
+            let spotify = SpotifyService()
+            spotify.isExpensiveNetwork = { [weak yourMusic] in yourMusic?.network.isExpensive ?? false }
+            self.spotify = spotify
+            if musicSource == .spotify { player.use(spotify.engine) }
+        }
+        #endif
         player.makeTracksRadio = TracksRadioSource.make(library: library, discovery: discovery, yourMusic: yourMusic, player: player)
         player.radioDownloads = yourMusic
         player.makeAutoplay = AutoplaySource.make(library: library, yourMusic: yourMusic, player: player)
@@ -611,7 +620,14 @@ final class AppModel {
             else { return nil }
             return .songs(songs)
         case .spotify:
+            #if SPOTIFY
+            guard let spotify = spotifyService, spotify.isConnected,
+                  let song = await spotify.song(title: title, artist: artist, album: album)
+            else { return nil }
+            return .history([song])
+            #else
             return nil
+            #endif
         }
     }
 
@@ -1031,8 +1047,10 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
     static func library(for source: MusicSource, hasLidarr: Bool) -> [SidebarItem] {
         let shared: [SidebarItem] = [.recentlyAdded, .artists, .albums, .songs, .playlists]
         return switch source {
-        case .appleMusic, .spotify: shared
+        case .appleMusic: shared
         case .yourMusic: shared + [.downloads] + (hasLidarr ? [.lidarr] : [])
+        // Spotify's own library: no artists of its own, and nothing to download.
+        case .spotify: [.albums, .songs, .playlists]
         }
     }
 

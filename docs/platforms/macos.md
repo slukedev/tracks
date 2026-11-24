@@ -86,6 +86,11 @@ See [README.md](README.md) for the legend and how to keep this current.
   sidebar keeps its shape; its Library group follows the filter's player.
 - Sources pane in Settings (after General): Apple Music access, Spotify in builds with the
   `SPOTIFY` flag, On This Mac, servers, and Play From (drag to reorder; synced).
+- Spotify (Debug builds with the `SPOTIFY` flag only; see the iPhone page): sign in, one
+  Quality, Sign Out… in the Sources pane; Listen Now and the sidebar's Albums, Songs (liked)
+  and Playlists show your Spotify library; Search searches Spotify. Same player and limits.
+- Settings › General › About › Acknowledgements: the engine's licenses, librespot and psst
+  with their notices in Spotify builds.
 - Play Songs In Tracks or Music; Explicit Songs; Open To.
 - Block artists; Reset Mix Suggestions.
 - Starting music in Tracks pauses Music.

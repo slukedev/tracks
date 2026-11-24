@@ -233,7 +233,13 @@ struct RootView: View {
                 Group {
                     switch model.musicSource {
                     case .yourMusic: YourMusicScreen()
-                    case .appleMusic, .spotify: AppleMusicPlayScreen()
+                    case .appleMusic: AppleMusicPlayScreen()
+                    case .spotify:
+                        #if SPOTIFY
+                        SpotifyPlayScreen()
+                        #else
+                        AppleMusicPlayScreen()
+                        #endif
                     }
                 }
                 .sourceFilter()

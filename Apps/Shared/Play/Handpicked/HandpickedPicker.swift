@@ -260,7 +260,9 @@ struct HandpickedPicker: View {
                 .filter { seen.insert($0.identity).inserted }
                 .map { Handpick($0, music: music) }
         case .spotify:
-            return []
+            // Played by name: Spotify finds each one as it comes up.
+            var seen = Set<String>()
+            return songs.filter { seen.insert($0.songIdentity).inserted }.map(Handpick.init)
         }
     }
 

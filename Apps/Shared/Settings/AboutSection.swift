@@ -23,6 +23,7 @@ struct AboutSection: View {
                 tint: .gray,
                 destination: URL(string: "https://github.com/slukedev/tracks")!
             )
+            AcknowledgementsRow()
         } header: {
             Text("About")
         } footer: {

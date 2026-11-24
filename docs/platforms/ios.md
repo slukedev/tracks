@@ -96,7 +96,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Settings › Sources, the first row in Settings: the worst problem (Sign In, 1 Offline) or
   the source's name or count. Each source has its page: Apple Music, On This iPhone (Import
   Songs…, Add Folder…), each server's page. Add Source… offers Apple Music, On This iPhone and
-  Server (the server form); Spotify only in builds with the `SPOTIFY` flag.
+  Server (the server form); Spotify only in builds with the `SPOTIFY` flag (see Spotify).
 - Play From (Settings › Sources, Edit to reorder, synced): which copy plays when a song is in
   several sources. Default On This iPhone, Downloads, servers, Apple Music, Spotify. Applied
   where Tracks picks among a song's copies by name (`YourMusic.track(for:)`); the order and
@@ -215,6 +215,42 @@ See [README.md](README.md) for the legend and how to keep this current.
 - A download that breaks off picks up where it stopped (the system sends `Range` and
   `If-Range`), on its own up to three times when the connection dropped.
 - Logs never hold a signed address: errors go through `URLRedaction.describe`.
+
+### Spotify (builds you make yourself)
+
+Opt-in and experimental: only in Debug builds with the `SPOTIFY` flag, which
+`Engine/build-apple.sh --spotify` turns on (see the README). App Store and other Release builds
+contain none of it and refuse an engine built with it. Spotify Premium is required.
+
+- Sources › Add Source › Spotify: Sign In with Spotify opens Spotify's page in the system web
+  sheet (shared cookies), while the engine listens on `http://127.0.0.1:<port>/login`, the only
+  redirect librespot's client ID accepts; the sheet closes when the answer arrives. Then
+  Checking… while Tracks confirms Premium and asks for one song's key. Errors: Premium required
+  (Done), Spotify can't play this account in Tracks (Remove, Try Again), can't reach Spotify
+  (Try Again). Cancelling the sheet is not an error.
+- The engine's saved sign-in (never the OAuth tokens) is in the Keychain, this device only,
+  readable after first unlock. Signing out deletes it and forgets every Spotify list and track
+  kept in memory. Nothing from Spotify is written to disk apart from History's plays.
+- Account page: the account's name, Quality on Wi-Fi and on cellular (Normal, High, Very
+  High: 96, 160 and 320 kbps), Sign Out… with a confirmation.
+- Play from Spotify: Recently Played (your Spotify plays from History), Playlists and Albums.
+  Library: Playlists, Albums, Liked Songs and Recently Added. Search's library scope searches
+  Spotify (songs, artists, albums, playlists). Album, playlist and artist pages with Play,
+  Shuffle, Play Next, Play Last and Open in Spotify.
+- Attribution: Spotify's icon (green, or black or white on a cover-coloured page) on every
+  Spotify row and tile; covers never cropped, corners at most 4 pt small and 8 pt large.
+- Playback in Tracks (`SpotifyPlayerEngine`): the engine decodes to 44.1 kHz stereo float PCM;
+  a thread of its own pulls it into a lock-free ring, and an `AVAudioEngine` source node plays
+  from the ring with no locks or allocation on the audio thread. The next song is decoded
+  into the ring behind the current one, so albums are gapless. Seeking, the lock screen,
+  Control Center, headphones, CarPlay's buttons, interruptions, route changes and media
+  services resets all work as for files. Plays are kept in History as Spotify's.
+- Songs from anywhere else in Tracks (mixes, charts, Tracks Radio, Apple Music pages' songs)
+  play by finding each on Spotify: by URI, then ISRC, then title and artist.
+- Known limitation: since November 2026 Spotify refuses audio keys to clients like librespot
+  for accounts it hasn't seen on one before (librespot#1649), and there is no fix. Such an
+  account signs in and browses, but can't play; the page says so.
+- Settings › About › Acknowledgements lists librespot and psst (MIT) with their notices.
 
 ### Scrobbling and Last.fm
 

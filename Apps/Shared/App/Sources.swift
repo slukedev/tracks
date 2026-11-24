@@ -122,7 +122,8 @@ extension AppModel {
                 break
             }
         }
-        if let spotify {
+        // Listed once signed in, or once signed in before and now asking to be again.
+        if let spotify, spotify.isConnected || spotify.needsSignIn {
             entries.append(SourceEntry(
                 id: .spotify,
                 name: String(localized: "Spotify"),

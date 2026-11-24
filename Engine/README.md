@@ -93,9 +93,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy --workspace --all-targets --features tracks-ffi/spotify -- -D warnings
 ```
 
-The build scripts leave Spotify out. To include it, build `tracks-ffi` with `--features spotify`
-and generate the bindings from that library. On Apple platforms the library then also needs
-`Security.framework` (rustls reads the system roots for proxies).
+The build scripts leave Spotify out. `Engine/build-apple.sh --spotify` builds it in for your own
+builds: it writes `Config/Engine.xcconfig` so Debug builds of the apps define `SPOTIFY` and
+link `Security.framework` (rustls reads the system roots for proxies), and Release builds stop
+with an error until the script runs again without `--spotify`. `Engine/build-android.sh
+--sideload` (or `--both`) builds Android's sideload variant with it; its Kotlin bindings rename
+`SpotifyStream.close` to `stop` (`android-bindings.toml`), since UniFFI's Kotlin objects free
+themselves in `close()`. Elsewhere, build `tracks-ffi` with `--features spotify` and generate
+the bindings from that library.
 
 `tests/consistency.rs` in `tracks-store` is a property test: random adds, edits, removals and
 syncs, read between each, must always end exactly where a rebuild from the final history does.

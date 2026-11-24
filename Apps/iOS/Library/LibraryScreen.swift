@@ -47,9 +47,13 @@ struct LibraryScreen: View {
             case .yourMusic:
                 LibraryList(showsTitle: false)
             case .spotify:
+                #if SPOTIFY
+                SpotifyLibraryList()
+                #else
                 CollectionMessage(text: String(localized: "Nothing from Spotify yet"), systemImage: nil) {
                     EmptyView()
                 }
+                #endif
             }
         }
     }

@@ -56,7 +56,8 @@ nonisolated enum MusicSource: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .appleMusic: "music.note"
         case .yourMusic: "server.rack"
-        case .spotify: "waveform"
+        // Where only a symbol fits, as in menus; rows show Spotify's own icon (`SourceGlyph`).
+        case .spotify: "wave.3.right.circle"
         }
     }
 

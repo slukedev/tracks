@@ -26,6 +26,9 @@ Packages/
 # Per-developer signing overrides; see Config/Local.example.xcconfig.
 Config/Local.xcconfig
 
+# Written by Engine/build-apple.sh: whether the engine was built with Spotify.
+Config/Engine.xcconfig
+
 # Agent worktrees and local tool settings.
 .claude/worktrees/
 .claude/settings.local.json
