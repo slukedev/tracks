@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
-import android.util.Log
 import android.widget.Toast
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -13,7 +12,10 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
@@ -36,7 +38,8 @@ import com.luke.tracks.data.PlayKindValue
 import com.luke.tracks.data.PlaySourceValue
 import com.luke.tracks.graph
 import com.luke.tracks.library.CombinedLibrary
-import com.luke.tracks.library.ServerLibrary
+import com.luke.tracks.net.Http
+import com.luke.tracks.net.Logs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -100,6 +103,9 @@ class PlaybackService : MediaLibraryService() {
     private var sleepJob: Job? = null
     private var failuresInARow = 0
 
+    /** Files on the phone, and server songs signed only as each request goes out ([com.luke.tracks.net.ServerLinks]). */
+    private val dataSources by lazy { DefaultDataSource.Factory(this, OkHttpDataSource.Factory(Http.media)) }
+
     override fun onCreate() {
         super.onCreate()
         memory = QueueMemory(this)
@@ -111,7 +117,11 @@ class PlaybackService : MediaLibraryService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, OkHttpDataSource.Factory(ServerLibrary.defaultHttp))))
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(dataSources)
+                    // A dropped connection resumes from where the song broke off, a few times over.
+                    .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(LOAD_RETRIES)),
+            )
             .build()
         player = FreshShufflePlayer(exo)
         player.addListener(listener)
@@ -123,6 +133,7 @@ class PlaybackService : MediaLibraryService() {
         )
         session = MediaLibrarySession.Builder(this, player, callback)
             .setSessionActivity(open)
+            .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader.Builder(this).setDataSourceFactory(dataSources).build()))
             .setMediaButtonPreferences(buttons())
             .build()
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build().apply { setSmallIcon(R.drawable.ic_launcher_monochrome) })
@@ -209,7 +220,7 @@ class PlaybackService : MediaLibraryService() {
      * queue's worth of failures rather than spinning.
      */
     private fun skipUnplayable(error: PlaybackException) {
-        Log.w("Tracks", "Couldn't play ${player.currentMediaItem?.mediaId}", error)
+        Logs.w("Couldn't play ${player.currentMediaItem?.mediaId}", error)
         val title = player.currentMediaItem?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "that song"
         failuresInARow++
         val moveOn = player.hasNextMediaItem() && failuresInARow < player.mediaItemCount
@@ -381,7 +392,7 @@ class PlaybackService : MediaLibraryService() {
     /** Tracks Radio's first songs, opening on [startingWith] when given, set as what plays. */
     private suspend fun radioSongs(startingWith: PlayableSong? = null): List<PlayableSong> {
         val songs = runCatching { graph.radio.start(startingWith) }
-            .onFailure { Log.w("Tracks", "Tracks Radio didn't start", it) }
+            .onFailure { Logs.w("Tracks Radio didn't start", it) }
             .getOrDefault(emptyList())
         if (songs.isEmpty()) {
             say("Add some music, and Tracks Radio will have something to play.")
@@ -640,6 +651,7 @@ class PlaybackService : MediaLibraryService() {
 
     private companion object {
         const val FADE_MS = 10_000L
+        const val LOAD_RETRIES = 6
         /** How far into a song Previous starts it over, as Media3 has it. */
         const val RESTARTS_AFTER_MS = 3_000L
 

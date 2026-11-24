@@ -140,6 +140,8 @@ private val libraries = listOf(
     Library("JNA", "Apache License 2.0"),
     Library("UniFFI", "Mozilla Public License 2.0"),
     Library("The Rust engine's crates (rusqlite, serde and others)", "MIT and Apache License 2.0"),
+    Library("librespot", "MIT License"),
+    Library("psst", "MIT License"),
 )
 
 @Composable

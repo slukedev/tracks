@@ -21,6 +21,9 @@ interface PlayDao {
     @Query("SELECT * FROM plays ORDER BY playedAt")
     suspend fun all(): List<PlayEntity>
 
+    @Query("UPDATE plays SET artworkUri = :artworkUri WHERE id = :id")
+    suspend fun setArtwork(id: String, artworkUri: String?)
+
     @Query("SELECT * FROM plays WHERE id = :id")
     suspend fun byId(id: String): PlayEntity?
 

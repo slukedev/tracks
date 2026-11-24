@@ -13,6 +13,31 @@ val secrets = Properties().apply {
     if (file.exists()) file.inputStream().use(::load)
 }
 
+/**
+ * The upload key for Play, from secrets.properties or the environment (for CI):
+ * upload.storeFile / TRACKS_UPLOAD_STORE_FILE, upload.storePassword / TRACKS_UPLOAD_STORE_PASSWORD,
+ * upload.keyAlias / TRACKS_UPLOAD_KEY_ALIAS and upload.keyPassword / TRACKS_UPLOAD_KEY_PASSWORD.
+ * Null when any is missing.
+ */
+class UploadKey(val store: File, val storePassword: String, val alias: String, val keyPassword: String)
+
+val uploadKey: UploadKey? = run {
+    fun value(property: String, variable: String) =
+        secrets.getProperty(property)?.takeIf { it.isNotBlank() } ?: System.getenv(variable)?.takeIf { it.isNotBlank() }
+    val path = value("upload.storeFile", "TRACKS_UPLOAD_STORE_FILE") ?: return@run null
+    val store = rootProject.file(path)
+    if (!store.exists()) {
+        logger.warn("Tracks: the upload keystore $path doesn't exist; release builds use the debug key.")
+        return@run null
+    }
+    UploadKey(
+        store,
+        value("upload.storePassword", "TRACKS_UPLOAD_STORE_PASSWORD") ?: return@run null,
+        value("upload.keyAlias", "TRACKS_UPLOAD_KEY_ALIAS") ?: return@run null,
+        value("upload.keyPassword", "TRACKS_UPLOAD_KEY_PASSWORD") ?: return@run null,
+    )
+}
+
 android {
     namespace = "com.luke.tracks"
     compileSdk = 37
@@ -30,9 +55,14 @@ android {
     }
 
     signingConfigs {
-        // A release APK anyone can install for testing, signed with the debug key. Replace with
-        // a real upload key before publishing to Play.
-        getByName("debug")
+        uploadKey?.let { key ->
+            create("upload") {
+                storeFile = key.store
+                storePassword = key.storePassword
+                keyAlias = key.alias
+                keyPassword = key.keyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -40,7 +70,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            // Without an upload key, a release build is for this computer only: signed with the
+            // debug key, which Play refuses, and said so in the build output.
+            signingConfig = if (uploadKey != null) signingConfigs.getByName("upload") else signingConfigs.getByName("debug")
         }
     }
 
@@ -129,6 +161,9 @@ dependencies {
     // The desktop JNA (with its native dispatcher) for running the engine in JVM tests.
     testImplementation(libs.jna)
     testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.okhttp.tls)
     testImplementation(libs.robolectric)
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)
@@ -146,4 +181,18 @@ tasks.withType<Test>().configureEach {
     val arch = System.getProperty("os.arch").let { if (it == "amd64" || it == "x86_64") "x86-64" else "aarch64" }
     val dir = (if (os.contains("mac")) "darwin-" else "linux-") + arch
     systemProperty("jna.library.path", file("src/test/resources/$dir").absolutePath)
+}
+
+// Says which key a release is signed with whenever one is built, so a debug-signed release
+// never goes out by mistake.
+val signingNote = if (uploadKey == null) {
+    "Tracks: this release is signed with the DEBUG key and can't go to Play. Add the upload key to secrets.properties (see secrets.example.properties)."
+} else {
+    "Tracks: signing this release with the upload key '${uploadKey?.alias}'."
+}
+val signedForPlay = uploadKey != null
+tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
+    val note = signingNote
+    val forPlay = signedForPlay
+    doFirst { if (forPlay) logger.lifecycle(note) else logger.warn(note) }
 }

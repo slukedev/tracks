@@ -4,13 +4,16 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import com.luke.tracks.library.ServerLibrary
+import com.luke.tracks.net.ServerLinks
 
 private const val IDENTITY = "tracks.identity"
 private const val DURATION = "tracks.durationMs"
 
 /**
  * The song as Media3 carries it. The address also rides in the request metadata, since a
- * MediaController's items reach the session without their local configuration.
+ * MediaController's items reach the session without their local configuration. A server's
+ * address is its [ServerLinks] link, so nothing a controller sees works as a credential.
  */
 fun PlayableSong.toMediaItem(): MediaItem = MediaItem.Builder()
     .setMediaId(mediaId)
@@ -59,6 +62,11 @@ fun MediaItem.toPlayableSong(): PlayableSong {
 
 /** The item with its address put back from the request metadata, ready to play. */
 fun MediaItem.restored(): MediaItem? {
+    // A server's song always plays from its own link, whatever address came with it.
+    ServerLibrary.parseMediaId(mediaId)?.let { (server, song) ->
+        val link = ServerLinks.stream(server, song)
+        return buildUpon().setUri(link).setRequestMetadata(requestMetadata.buildUpon().setMediaUri(link).build()).build()
+    }
     if (localConfiguration != null) return this
     val address = requestMetadata.mediaUri ?: return null
     return buildUpon().setUri(address).build()

@@ -288,7 +288,7 @@ class LastFm internal constructor(private val context: Context, private val grap
         fun owedSince(now: Long = System.currentTimeMillis()): Long = now - 14 * 24 * 3600_000L + 3600_000L
 
         private val http by lazy {
-            OkHttpClient.Builder()
+            com.luke.tracks.net.Http.api.newBuilder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build()

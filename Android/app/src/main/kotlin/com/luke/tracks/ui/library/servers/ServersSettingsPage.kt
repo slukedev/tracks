@@ -31,7 +31,7 @@ import com.luke.tracks.ui.navigation.LocalNavigator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-/** Settings > Servers: add, edit and remove your Subsonic servers. */
+/** Settings > Servers: add, edit and remove your Trackside and Subsonic servers. */
 @Composable
 fun ServersSettingsPage() {
     val context = LocalContext.current
@@ -77,6 +77,7 @@ fun ServersPageContent(entries: List<ServerEntry>, onSync: () -> Unit) {
             onAdd = { editing.add() },
             onEdit = { editing.edit(it) },
             onRemove = { editing.remove(it) },
+            onTrust = { editing.trust(it) },
             modifier = Modifier.padding(top = padding.calculateTopPadding()),
             contentPadding = PaddingValues(bottom = MiniPlayerClearance),
         )

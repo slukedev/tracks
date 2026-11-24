@@ -5,7 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import coil3.ImageLoader
+import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
@@ -92,7 +92,7 @@ object WidgetData {
                 }
             } else {
                 val request = ImageRequest.Builder(context).data(uri).size(300).allowHardware(false).build()
-                (ImageLoader(context).execute(request) as? SuccessResult)?.image?.toBitmap()
+                (context.imageLoader.execute(request) as? SuccessResult)?.image?.toBitmap()
             }
         }.getOrNull()
     }

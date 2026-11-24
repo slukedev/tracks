@@ -22,6 +22,12 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ## Decisions
 
+- 2026-11-24: Cleartext is the app's decision, not the network security config's. The config
+  can't name private address ranges, so it permits cleartext and `net/Http.kt`'s
+  `CleartextGuard` refuses plain http to anything but a nearby address (the iPhone's and
+  Trackside's rule) on every hop, redirects included; the fixed services Tracks talks to are
+  held to https in the config too. Every HTTP client in the app is built from `net/Http.kt`.
+
 - 2026-11-14: Keeping songs from other apps is removed. Tracks only tracks songs played
   through Tracks. The notification listener, its onboarding step, the Listening history and
   excluded apps pages, and the Radio filter are gone. Plays it kept earlier stay in the
@@ -225,7 +231,32 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Device files through MediaStore, with permission handling and change watching. *(untested
   on a device)*
 - Subsonic-compatible servers (Navidrome and others): add, edit, test and remove. Passwords
-  sealed with an Android Keystore key. Song lists cached and synced.
+  sealed with an Android Keystore key. Song lists cached and synced. OpenSubsonic API keys
+  instead of a password where the server offers `apiKeyAuthentication`; every request,
+  covers included, signed with a fresh random salt otherwise.
+- Trackside, the first-party server, with the iPhone's protocol (`library/trackside`): the
+  form tells Trackside from Subsonic as you type the address, then pairs with a dashboard
+  code, approval from the dashboard, a password, or a pasted `trackside://pair` link. The
+  device key is sealed with the Keystore key and sent only as a bearer header, and only to an
+  address that has answered the endpoint proof; songs and covers carry the short-lived media
+  token. Library synced by cursor (snapshot, then changes), the server's addresses refreshed
+  from `/server/urls` (conditional on its ETag, at sync, on coming to the foreground and on a
+  network change; `/me` for older servers), each new one used only once it passes its own proof,
+  `https_required` read as "use the https address", the device revoked on the server when removed. Plays through playback
+  decisions without HLS. *(untested against a real server; built against its wire fixtures)*
+- Away from home: a server's addresses (home network, Tailscale, public; Trackside lists its
+  own, Subsonic takes "Other addresses") are raced like the iPhone's `ServerEndpoints`,
+  preferring the home address when it answers within 300 ms, and raced again after two
+  failed requests or when Android reports a network change. An address counts only once it
+  proves it is the server (Trackside's proof; for Subsonic an unsigned ping in the API's own
+  shape), so a captive portal's page is "not reachable", never a server. 10 s connect and
+  30 s read timeouts; idempotent API requests retried twice with backoff; songs resume from
+  where a dropped connection broke off with range requests. *(network changes and captive
+  portals untested on a device)*
+- Certificates: a server with a self-signed certificate is trusted only once you confirm its
+  fingerprint, and a pinned address that later shows a different certificate is refused until
+  you confirm again (Settings, Servers shows it). Trackside's own announced fingerprints are
+  pinned as on iPhone. Only system CAs are trusted in release builds.
 - Songs, Albums, Artists and Servers, with album and artist pages.
 - Sample music in sample-data mode, so the whole app plays.
 
@@ -238,6 +269,11 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Assistant "play X on Tracks"; "play music on Tracks" starts the radio.
 - Artist-spread shuffle from the engine, written into the queue so every controller sees it.
 - Resumes the last queue after a restart or from Bluetooth.
+- No credential leaves the server layer: queue memory, Room's history, Media3 items (and so
+  Android Auto, Wear and other controllers) and the image cache hold credential-free links
+  (`https://media.tracks-server.invalid/<server>/stream/<song>`), signed by an OkHttp
+  interceptor only as each request goes out. Older saved queues and history covers are
+  cleaned on read. Logs redact `u`, `t`, `s`, `p`, `token`, `apiKey` and `mt`.
 - Quick Settings tile for Tracks Radio, showing the song; press and hold opens Tracks.
 - Dynamic shortcuts for your top two mixes, plus static ones for Radio, Search and Summary.
 - Listening and Last Played Glance widgets with dynamic colors. *(untested on a device)*
@@ -395,6 +431,9 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - Playlists and smart playlists.
 - Lidarr's Wanted and Coming Soon lists, and adding an artist picked from Lidarr's own search.
 - Tell the server about plays (Subsonic `scrobble`).
+- Trackside: live events (SSE), the listen outbox and now playing, scanning a pairing QR code
+  with the camera, opening `trackside://pair` links from outside the app, finding servers on
+  the network (Bonjour `_trackside._tcp`), lyrics, playlists, and the cellular stream profile.
 
 ### Sync and backup
 

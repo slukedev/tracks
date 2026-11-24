@@ -10,10 +10,10 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class SubsonicClientTest {
-    private val server = SubsonicServer(id = "s1", name = "Home", url = "https://music.example.com/navidrome", username = "luke+music@example.com", salt = "fixedsalt")
+    private val server = SubsonicServer(id = "s1", name = "Home", url = "https://music.example.com/navidrome", username = "luke+music@example.com")
 
     private fun client(transport: SubsonicTransport = SubsonicTransport { 200 to OK }) =
-        SubsonicClient(server, password = "sesame", transport = transport, newSalt = { "c19b2d" })
+        SubsonicClient(server, secret = "sesame", transport = transport, newSalt = { "c19b2d" })
 
     @Test fun tokenIsMd5OfPasswordAndSaltInLowerHex() {
         // The example in the Subsonic API documentation.
@@ -47,12 +47,70 @@ class SubsonicClientTest {
         val slow = client().streamUrl("42", maxBitRate = 128)
         assertEquals("128", slow.queryParameter("maxBitRate"))
         assertEquals("mp3", slow.queryParameter("format"))
+    }
 
-        // Covers use the server's own salt, so the address is stable and stays cached.
-        val cover = client().coverArtUrl("al-7", size = 600)
-        assertEquals("fixedsalt", cover.queryParameter("s"))
-        assertEquals(SubsonicClient.token("sesame", "fixedsalt"), cover.queryParameter("t"))
-        assertEquals(cover, client().coverArtUrl("al-7", size = 600))
+    @Test fun everyCoverAddressGetsItsOwnSalt() {
+        // A fixed salt would make a cover address a token that works for as long as the password.
+        val salts = ArrayDeque(listOf("a1", "b2"))
+        val client = SubsonicClient(server, "sesame", { 200 to OK }, newSalt = { salts.removeFirst() })
+        val first = client.coverArtUrl("al-7", size = 600)
+        val second = client.coverArtUrl("al-7", size = 600)
+        assertEquals("a1", first.queryParameter("s"))
+        assertEquals("b2", second.queryParameter("s"))
+        assertEquals(SubsonicClient.token("sesame", "b2"), second.queryParameter("t"))
+        assertTrue(first != second)
+        assertTrue(SubsonicClient.makeSalt() != SubsonicClient.makeSalt())
+    }
+
+    @Test fun apiKeyReplacesTheUsernameAndToken() {
+        val keyed = SubsonicClient(server.copy(auth = SubsonicAuth.ApiKey), "key-123", { 200 to OK }, newSalt = { error("no salt with a key") })
+        val url = keyed.url("ping")
+        assertEquals("key-123", url.queryParameter("apiKey"))
+        // OpenSubsonic refuses a request that names a user alongside a key (error 43).
+        listOf("u", "t", "s", "p").forEach { assertNull(it, url.queryParameter(it)) }
+    }
+
+    @Test fun code50MovesToTheHttpsAddressWithoutAskingForThePasswordAgain() = runBlocking {
+        val home = com.luke.tracks.net.Endpoint("http://100.101.102.103:4533".toHttpUrl(), com.luke.tracks.net.Endpoint.Kind.Tailnet)
+        val public = com.luke.tracks.net.Endpoint("https://music.example.com".toHttpUrl(), com.luke.tracks.net.Endpoint.Kind.Public)
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
+        val endpoints = com.luke.tracks.net.ServerEndpoints(listOf(home, public), home.url, scope, { _, _ -> true })
+        val asked = mutableListOf<HttpUrl>()
+        val client = SubsonicClient(server.copy(url = home.url.toString()), "sesame", { url ->
+            asked += url
+            200 to if (url.isHttps) OK else error(50)
+        }, endpoints = endpoints)
+        client.ping()
+        assertEquals(listOf("http", "https"), asked.map { it.scheme })
+        assertThrows<SubsonicError.HttpsRequired> { SubsonicClient.decode(error(50), 200) }
+    }
+
+    @Test fun apiKeyErrorsReadAsWhatWentWrong() {
+        assertThrows<SubsonicError.WrongKey> { SubsonicClient.decode(error(44), 200) }
+        assertThrows<SubsonicError.AuthUnsupported> { SubsonicClient.decode(error(42), 200) }
+        assertThrows<SubsonicError.AuthUnsupported> { SubsonicClient.decode(error(43), 200) }
+    }
+
+    @Test fun findsWhetherTheServerTakesApiKeysWithoutSigningIn() = runBlocking {
+        val asked = mutableListOf<HttpUrl>()
+        val extensions = """{"subsonic-response":{"status":"ok","openSubsonic":true,"openSubsonicExtensions":[
+            {"name":"transcodeOffset","versions":[1]},{"name":"apiKeyAuthentication","versions":[1]}]}}"""
+        val base = "https://music.example.com/navidrome".toHttpUrl()
+        assertTrue(SubsonicClient.acceptsApiKey(base, { url -> asked += url; 200 to extensions }))
+        assertEquals("/navidrome/rest/getOpenSubsonicExtensions", asked.single().encodedPath)
+        assertNull("asked without credentials", asked.single().queryParameter("u"))
+        val older = """{"subsonic-response":{"status":"ok","openSubsonicExtensions":[{"name":"songLyrics","versions":[1]}]}}"""
+        assertTrue(!SubsonicClient.acceptsApiKey(base, { 200 to older }))
+        assertTrue(!SubsonicClient.acceptsApiKey(base, { 200 to "<html>Sign in to the Wi-Fi</html>" }))
+    }
+
+    @Test fun aCaptivePortalIsNotTheServer() = runBlocking {
+        val base = "http://192.168.1.20:4533".toHttpUrl()
+        // Unsigned ping: Subsonic says a parameter is missing, which still proves it's Subsonic.
+        assertTrue(SubsonicClient.answers(base, { 200 to """{"subsonic-response":{"status":"failed","error":{"code":10,"message":"Required parameter is missing"}}}""" }))
+        assertTrue(!SubsonicClient.answers(base, { 200 to "<html><title>Hotel Wi-Fi</title></html>" }))
+        assertTrue(!SubsonicClient.answers(base, { 302 to "" }))
+        assertTrue(!SubsonicClient.answers(base, { throw java.net.ConnectException("refused") }))
     }
 
     @Test fun similarAndRandomSongsAskTheirOwnEndpoints() = runBlocking {
@@ -184,7 +242,12 @@ class ServerAddressTest {
             "localhost:4533" to "http://localhost:4533",
             "navidrome.local" to "http://navidrome.local",
             "nas" to "http://nas",
-            "music.example.com:4533" to "http://music.example.com:4533",
+            "100.101.102.103:4747" to "http://100.101.102.103:4747",
+            "box.tail1234.ts.net:4533" to "http://box.tail1234.ts.net:4533",
+            "nas.home.arpa" to "http://nas.home.arpa",
+            "10.0.0.2:4533" to "http://10.0.0.2:4533",
+            "172.20.1.1" to "http://172.20.1.1",
+            "169.254.10.1" to "http://169.254.10.1",
             "[fe80::1]:4533" to "http://[fe80::1]:4533",
             "fe80::1" to "http://[fe80::1]",
         ).forEach { (typed, expected) -> assertEquals(typed, expected, url(typed)) }
@@ -194,6 +257,12 @@ class ServerAddressTest {
         mapOf(
             "music.example.com" to "https://music.example.com",
             "music.example.com:443" to "https://music.example.com",
+            // A port says nothing about where a server is: the token must not cross the internet in clear.
+            "music.example.com:4533" to "https://music.example.com:4533",
+            "203.0.113.5:4533" to "https://203.0.113.5:4533",
+            "8.8.8.8" to "https://8.8.8.8",
+            "172.32.0.1:4533" to "https://172.32.0.1:4533",
+            "[2001:db8::1]:4533" to "https://[2001:db8::1]:4533",
             "example.com/navidrome" to "https://example.com/navidrome",
         ).forEach { (typed, expected) -> assertEquals(typed, expected, url(typed)) }
     }
@@ -209,6 +278,14 @@ class ServerAddressTest {
 
     @Test fun refusesWhatCantBeAWebServer() {
         listOf("", "   ", "/", "ftp://nope", "http://", "https:///path").forEach { assertNull(it, url(it)) }
+    }
+
+    @Test fun nearbyHttpOnlyWhenTheHostSaysSo() {
+        // Exposed: plain http that leaves the home network, which Tracks never connects to.
+        assertTrue(com.luke.tracks.net.Nearby.isExposed(ServerAddress.url("http://music.example.com:4533")!!))
+        assertTrue(com.luke.tracks.net.Nearby.isExposed(ServerAddress.url("http://100.128.0.1")!!))
+        assertTrue(!com.luke.tracks.net.Nearby.isExposed(ServerAddress.url("http://100.127.255.1")!!))
+        assertTrue(!com.luke.tracks.net.Nearby.isExposed(ServerAddress.url("https://203.0.113.5")!!))
     }
 
     @Test fun flagsUnencryptedAddresses() {

@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import com.luke.tracks.playback.QueueMemory
 import java.util.UUID
 
 /**
@@ -54,7 +55,25 @@ class HistoryRepository(
 
     /** At launch: brings the index to exactly what Room holds. */
     suspend fun syncIndex() {
-        engine.sync(dao.all())
+        val plays = dao.all()
+        engine.sync(if (scrubSignedCovers(plays)) dao.all() else plays)
+    }
+
+    /**
+     * Plays kept by older versions saved a server's signed cover address, which works as a
+     * credential for as long as the password does. Each becomes its credential-free link.
+     */
+    private suspend fun scrubSignedCovers(plays: List<PlayEntity>): Boolean {
+        var changed = false
+        plays.forEach { play ->
+            val artwork = play.artworkUri ?: return@forEach
+            val stable = QueueMemory.stableArtwork(play.mediaId, artwork)
+            if (stable != artwork) {
+                dao.setArtwork(play.id, stable)
+                changed = true
+            }
+        }
+        return changed
     }
 
     suspend fun replaceAll(plays: List<PlayEntity>) {

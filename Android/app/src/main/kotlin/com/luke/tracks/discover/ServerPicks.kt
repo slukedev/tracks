@@ -2,7 +2,6 @@ package com.luke.tracks.discover
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.luke.tracks.AppGraph
 import com.luke.tracks.engine.Engine
@@ -10,7 +9,10 @@ import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.library.LibraryIndex
 import com.luke.tracks.library.ServerLibrary
 import com.luke.tracks.library.ServerStatus
+import com.luke.tracks.library.MusicServerClient
 import com.luke.tracks.library.SubsonicClient
+import com.luke.tracks.net.Http
+import com.luke.tracks.net.ServerLinks
 import com.luke.tracks.library.SubsonicServer
 import com.luke.tracks.library.SubsonicSong
 import com.luke.tracks.playback.PlayableSong
@@ -234,7 +236,7 @@ class ServerPicksService(
         val artist = walk.nextArtist() ?: return
         budget(server.id).take()
         val found = runCatching { client.search(artist, artists = 0, albums = 0, songs = ARTIST_SONGS).songs }
-            .onFailure { Log.w("Tracks", "For You search failed", it) }.getOrNull()?.map { it.found() } ?: return
+            .onFailure { com.luke.tracks.net.Logs.w("For You search failed", it) }.getOrNull()?.map { it.found() } ?: return
         val start = serverArtistStart(artist, found)
         val like = start.start?.let { index ->
             runCatching { client.similarSongs(found[index.toInt()].id, 15) }.getOrDefault(emptyList()).map { it.found() }
@@ -264,14 +266,13 @@ class ServerPicksService(
      * a stand-in for a cover it couldn't find, and a song shown with it looks unfinished.
      */
     private suspend fun withCovers(server: SubsonicServer, songs: List<FoundSong>): List<FoundSong> = coroutineScope {
-        val client = serverLibrary.client(server)
         val gate = Semaphore(4)
         songs.map { song ->
             async {
                 // Your own songs, from this phone or synced, always have a cover to show.
                 if (index.find(song.identity) != null && song.cover == null) return@async song
                 val cover = song.cover ?: return@async null
-                val url = client?.coverArtUrl(cover, 120)?.toString() ?: return@async null
+                val url = ServerLinks.coverUrl(server.id, cover, 120)
                 gate.withPermit { if (hasCover(url)) song else null }
             }
         }.awaitAll().filterNotNull()
@@ -307,10 +308,10 @@ class ServerPicksService(
     }
 
     /** The server's albums of a kind that are in the library, to open there. */
-    private suspend fun albums(server: SubsonicServer, client: SubsonicClient, type: SubsonicClient.AlbumListType): List<ServerAlbum> =
+    private suspend fun albums(server: SubsonicServer, client: MusicServerClient, type: SubsonicClient.AlbumListType): List<ServerAlbum> =
         runCatching { client.albums(type, size = 15) }.getOrDefault(emptyList()).mapNotNull { album ->
             val id = ServerLibrary.albumId(server.id, album.id)
-            index.album(id)?.let { ServerAlbum(id, it.title, it.artistName, album.coverArt?.let { cover -> client.coverArtUrl(cover, 600).toString() }) }
+            index.album(id)?.let { ServerAlbum(id, it.title, it.artistName, album.coverArt?.let { cover -> ServerLinks.coverUrl(server.id, cover) }) }
         }
 
     // MARK: - Keep exploring
@@ -356,15 +357,14 @@ class ServerPicksService(
     override fun playable(song: ServerSong): PlayableSong? {
         index.find(song.song.identity)?.let { return it }
         val server = server(song.serverId) ?: return null
-        val client = serverLibrary.client(server) ?: return null
         val s = song.song
         return PlayableSong(
             mediaId = ServerLibrary.mediaId(server.id, s.id),
-            uri = Uri.parse(client.streamUrl(s.id).toString()),
+            uri = ServerLinks.stream(server.id, s.id),
             title = s.title,
             artistName = s.artist,
             albumTitle = s.album,
-            artworkUri = s.cover?.let { Uri.parse(client.coverArtUrl(it, 600).toString()) },
+            artworkUri = s.cover?.let { ServerLinks.cover(server.id, it) },
             durationMs = s.durationMs?.toLong(),
             identity = s.identity,
         )
@@ -373,7 +373,7 @@ class ServerPicksService(
     override fun coverUrl(song: ServerSong): String? {
         val cover = song.song.cover ?: return index.find(song.song.identity)?.artworkUri?.toString()
         val server = server(song.serverId) ?: return null
-        return serverLibrary.client(server)?.coverArtUrl(cover, 300)?.toString()
+        return ServerLinks.coverUrl(server.id, cover, 300)
     }
 
     override fun canKeep(serverId: String) = octo.capability(serverId) == FetchCapability.Fetches
@@ -450,7 +450,7 @@ class ServerPicksService(
         const val ARTIST_SONGS = 20
         const val ALBUMS_KEEP_MS = 15 * 60_000L
         val coverHttp: OkHttpClient by lazy {
-            OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
+            Http.media.newBuilder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
         }
     }
 }

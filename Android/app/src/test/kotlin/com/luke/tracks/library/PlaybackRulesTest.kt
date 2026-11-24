@@ -14,6 +14,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import com.luke.tracks.net.Redact
+import com.luke.tracks.net.ServerLinks
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -166,11 +168,10 @@ class LibraryIndexTest {
         assertTrue(index.search("   ").isEmpty())
     }
 
-    @Test fun serverSongsBecomeSignedTracks() {
-        val server = SubsonicServer("s1", "Home", "https://music.example.com", "luke", "fixedsalt")
-        val client = SubsonicClient(server, "pw", { 200 to "" }, newSalt = { "abc" })
+    @Test fun serverSongsBecomeLinksWithoutCredentials() {
+        val server = SubsonicServer("s1", "Home", "https://music.example.com", "luke")
         val tracks = ServerLibrary.tracks(
-            server, client,
+            server,
             listOf(
                 SubsonicSong(id = "101", title = "Undertow", artist = "Low Tide Club", album = "Saltwater", albumId = "al-1", track = 3, duration = 214, coverArt = "al-1"),
                 SubsonicSong(id = "102", title = "", artist = "Nobody"),
@@ -178,9 +179,13 @@ class LibraryIndexTest {
         )
         val song = tracks.single().song
         assertEquals("subsonic:s1:101", song.mediaId)
-        assertEquals("/rest/stream", song.uri.path)
-        assertEquals("101", song.uri.getQueryParameter("id"))
-        assertEquals("fixedsalt", song.artworkUri?.getQueryParameter("s"))
+        assertEquals(ServerLinks.Link("s1", ServerLinks.Kind.Stream, "101"), ServerLinks.parse(song.uri.toString()))
+        assertEquals(ServerLinks.Link("s1", ServerLinks.Kind.Cover, "al-1", 600), ServerLinks.parse(song.artworkUri.toString()))
+        // Nothing in either address can be replayed against the server.
+        listOf(song.uri, song.artworkUri!!).forEach { uri ->
+            assertTrue(uri.queryParameterNames.none { it.lowercase() in Redact.SECRET_PARAMETERS })
+            assertFalse(uri.toString().contains("music.example.com"))
+        }
         assertEquals(214_000L, song.durationMs)
         assertEquals(songIdentity("Undertow", "Low Tide Club"), song.identity)
         assertEquals("subsonic:s1:album:al-1", tracks.single().albumKey)
@@ -189,7 +194,7 @@ class LibraryIndexTest {
     }
 
     @Test fun serversRoundTripWithoutThePassword() {
-        val servers = listOf(SubsonicServer("s1", "Home", "https://music.example.com", "luke", "salt", secret = "c2VhbGVk"))
+        val servers = listOf(SubsonicServer("s1", "Home", "https://music.example.com", "luke", secret = "c2VhbGVk"))
         val json = ServerLibrary.encode(servers)
         assertFalse(json.contains("password"))
         assertEquals(servers, ServerLibrary.parse(json))

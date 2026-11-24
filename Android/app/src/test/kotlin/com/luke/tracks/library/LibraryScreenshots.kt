@@ -22,6 +22,15 @@ import com.luke.tracks.ui.library.LibraryContent
 import com.luke.tracks.ui.library.LibraryTab
 import com.luke.tracks.ui.library.LibraryTarget
 import com.luke.tracks.ui.library.servers.ServerEditorForm
+import com.luke.tracks.ui.library.servers.ServerActions
+import com.luke.tracks.ui.library.servers.TrustDialog
+import com.luke.tracks.library.trackside.PairingPayload
+import com.luke.tracks.library.trackside.TracksideCapabilities
+import com.luke.tracks.library.trackside.TracksidePairRequest
+import com.luke.tracks.library.trackside.TracksidePairResult
+import com.luke.tracks.net.CertificateNeedsTrust
+import com.luke.tracks.net.PinKey
+import okhttp3.HttpUrl
 import com.luke.tracks.ui.library.servers.ServersPageContent
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.Navigator
@@ -56,9 +65,9 @@ object FakeLibrary {
     }
 
     val servers = listOf(
-        ServerEntry(SubsonicServer("s1", "Navidrome at home", "http://192.168.1.20:4533", "luke", "salt"), ServerStatus.Ready(2140)),
-        ServerEntry(SubsonicServer("s2", "Music in the cloud", "https://music.example.com", "luke", "salt"), ServerStatus.Failed("The username or password isn't right.")),
-        ServerEntry(SubsonicServer("s3", "Gonic", "https://gonic.example.net", "luke", "salt"), ServerStatus.Syncing),
+        ServerEntry(SubsonicServer("s1", "Navidrome at home", "http://192.168.1.20:4533", "luke"), ServerStatus.Ready(2140)),
+        ServerEntry(SubsonicServer("s2", "Music in the cloud", "https://music.example.com", "luke"), ServerStatus.Failed("The username or password isn't right.")),
+        ServerEntry(SubsonicServer("s3", "Gonic", "https://gonic.example.net", "luke"), ServerStatus.Syncing),
     )
 }
 
@@ -111,18 +120,46 @@ class LibraryScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     }
 
     @Test fun serverEditor() = snap("server-editor") {
+        EditorFrame {
+            ServerEditorForm(
+                existing = FakeLibrary.servers.first().server,
+                actions = FakeServerActions,
+                onDone = {},
+                onCancel = {},
+                initialInspection = Inspection.Subsonic(acceptsApiKey = false),
+                initialCheck = "",
+            )
+        }
+    }
+
+    @Test fun tracksideEditor() = snap("server-editor-trackside") {
+        EditorFrame {
+            ServerEditorForm(
+                existing = null,
+                actions = FakeServerActions,
+                onDone = {},
+                onCancel = {},
+                initialInspection = Inspection.Trackside(TracksideCapabilities(product = "trackside", name = "Home")),
+            )
+        }
+    }
+
+    @Test fun trustDialog() = snap("server-trust") {
+        Frame {
+            TrustDialog(
+                refusal = CertificateNeedsTrust(PinKey.of("192.168.1.20", 4747), "06298432e8066b29e2223bcc23aa9504b56ae508fabf3435508869b9c3190e22", emptySet()),
+                onTrust = {},
+                onDismiss = {},
+            )
+        }
+    }
+
+    @Composable
+    private fun EditorFrame(content: @Composable () -> Unit) {
         Frame {
             Box(Modifier.padding(top = 120.dp), contentAlignment = Alignment.BottomCenter) {
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), modifier = Modifier.fillMaxWidth()) {
-                    Box(Modifier.padding(top = 28.dp)) {
-                        ServerEditorForm(
-                            existing = FakeLibrary.servers.first().server,
-                            onTest = { _, _, _ -> null },
-                            onSave = { _, _, _, _ -> },
-                            onCancel = {},
-                            initialCheck = "",
-                        )
-                    }
+                    Box(Modifier.padding(top = 28.dp)) { content() }
                 }
             }
         }
@@ -159,4 +196,16 @@ class LibraryScreenshots(dark: Boolean) : ScreenshotTest(dark) {
             LibraryArtistPage(artist, FakeLibrary.index.songsBy(artist), null)
         }
     }
+}
+
+/** Answers the server form without a network. */
+object FakeServerActions : ServerActions {
+    override suspend fun inspect(url: HttpUrl): Inspection = Inspection.Subsonic(acceptsApiKey = true)
+    override fun trustWhileAdding(refusal: CertificateNeedsTrust) {}
+    override suspend fun test(url: HttpUrl, username: String, secret: String, auth: SubsonicAuth, existing: SubsonicServer?): String? = null
+    override suspend fun save(existing: SubsonicServer?, name: String, url: HttpUrl, username: String, secret: String, auth: SubsonicAuth, others: List<HttpUrl>) {}
+    override suspend fun pair(existing: SubsonicServer?, name: String, url: HttpUrl, pairing: ServerLibrary.Pairing) {}
+    override suspend fun pair(payload: PairingPayload) {}
+    override suspend fun requestApproval(url: HttpUrl): TracksidePairRequest = TracksidePairRequest("p1", "481 207", "secret", "2026-11-24T10:00:00Z")
+    override suspend fun awaitApproval(url: HttpUrl, request: TracksidePairRequest): TracksidePairResult? = null
 }

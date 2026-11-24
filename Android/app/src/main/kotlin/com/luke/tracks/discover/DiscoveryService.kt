@@ -8,6 +8,7 @@ import com.luke.tracks.library.KeystoreSecretBox
 import com.luke.tracks.library.LibraryIndex
 import com.luke.tracks.library.ServerEntry
 import com.luke.tracks.library.ServerStatus
+import com.luke.tracks.library.MusicServerClient
 import com.luke.tracks.library.SubsonicClient
 import com.luke.tracks.library.SubsonicServer
 import com.luke.tracks.playback.PlayableSong
@@ -58,7 +59,7 @@ class DiscoveryService(
     private val serverAccess = object : ServerAccess {
         private val empty = MutableStateFlow<List<ServerEntry>>(emptyList())
         override val entries: StateFlow<List<ServerEntry>> get() = library?.servers?.entries ?: empty
-        override fun client(server: SubsonicServer): SubsonicClient? = library?.servers?.client(server)
+        override fun client(server: SubsonicServer): MusicServerClient? = library?.servers?.client(server)
         override suspend fun sync(server: SubsonicServer) { library?.servers?.sync(server) }
     }
     val octo = OctoService(

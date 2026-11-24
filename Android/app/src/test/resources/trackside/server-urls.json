@@ -1,0 +1,22 @@
+{
+  "server_id": "5f0c2b9e-8a3d-4c1e-9b7a-2d6e4f8a1c3b",
+  "urls": [
+    {
+      "kind": "lan",
+      "tls": false,
+      "url": "http://192.168.1.20:4747"
+    },
+    {
+      "fingerprint": "06:29:84:32:e8:06:6b:29:e2:22:3b:cc:23:aa:95:04:b5:6a:e5:08:fa:bf:34:35:50:88:69:b9:c3:19:0e:22",
+      "kind": "tailnet",
+      "tls": true,
+      "url": "https://box.tail1234.ts.net:4747"
+    },
+    {
+      "kind": "public",
+      "tls": true,
+      "url": "https://music.example.com"
+    }
+  ],
+  "version": "\"v7\""
+}

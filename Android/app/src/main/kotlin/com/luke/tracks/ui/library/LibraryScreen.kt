@@ -212,6 +212,7 @@ fun LibraryContent(
                             onAdd = { editing.add() },
                             onEdit = { editing.edit(it) },
                             onRemove = { editing.remove(it) },
+                            onTrust = { editing.trust(it) },
                             contentPadding = PaddingValues(bottom = MiniPlayerClearance),
                         )
                         snapshot.songs.isEmpty() && snapshot.isLoading -> Loading()

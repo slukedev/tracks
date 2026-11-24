@@ -206,9 +206,9 @@ class DiscoverScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     }
 
     private val servers = listOf(
-        ServerEntry(SubsonicServer("s1", "Octo at home", "http://192.168.1.20:4533", "luke", "salt"), ServerStatus.Ready(2140)),
-        ServerEntry(SubsonicServer("s2", "Gonic", "https://gonic.example.net", "luke", "salt"), ServerStatus.Ready(800)),
-        ServerEntry(SubsonicServer("s3", "Music in the cloud", "https://music.example.com", "luke", "salt"), ServerStatus.Failed("The username or password isn't right.")),
+        ServerEntry(SubsonicServer("s1", "Octo at home", "http://192.168.1.20:4533", "luke"), ServerStatus.Ready(2140)),
+        ServerEntry(SubsonicServer("s2", "Gonic", "https://gonic.example.net", "luke"), ServerStatus.Ready(800)),
+        ServerEntry(SubsonicServer("s3", "Music in the cloud", "https://music.example.com", "luke"), ServerStatus.Failed("The username or password isn't right.")),
     )
 
     @Test fun getMusicPage() = snap("discover-getmusic") {

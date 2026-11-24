@@ -3,6 +3,7 @@ package com.luke.tracks.discover
 import android.content.SharedPreferences
 import com.luke.tracks.library.ServerEntry
 import com.luke.tracks.library.ServerStatus
+import com.luke.tracks.library.MusicServerClient
 import com.luke.tracks.library.SubsonicClient
 import com.luke.tracks.library.SubsonicServer
 import com.luke.tracks.library.SubsonicSong
@@ -31,7 +32,7 @@ data class ServerFind(val serverId: String, val serverName: String, val song: Su
 /** The parts of the servers this needs, so tests can stand in for them. */
 interface ServerAccess {
     val entries: StateFlow<List<ServerEntry>>
-    fun client(server: SubsonicServer): SubsonicClient?
+    fun client(server: SubsonicServer): MusicServerClient?
     suspend fun sync(server: SubsonicServer)
 }
 

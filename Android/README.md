@@ -30,8 +30,10 @@ Run `Engine/build-android.sh` once after cloning and after any change in `Engine
 `app/src/main/jniLibs/`, `app/engine-bindings/` and a host copy of the engine under
 `app/src/test/resources/`, all gitignored.
 
-The release build is signed with the debug key so it installs anywhere for testing. Replace
-it with an upload key before publishing to Google Play.
+Release builds are signed with the Play upload key when `secrets.properties` (or the
+`TRACKS_UPLOAD_*` environment variables, for CI) names one; see `secrets.example.properties`.
+Without it a release build is signed with the debug key, which Play refuses, and the build
+prints a warning saying so.
 
 ### Last.fm
 
@@ -44,7 +46,9 @@ and shared secret. Without them the app says Last.fm isn't set up in this build.
 ./gradlew :app:testDebugUnitTest
 ```
 
-Unit tests cover scrobbling, the Subsonic client, playback rules and more.
+Unit tests cover scrobbling, the Subsonic and Trackside clients (against the server's wire
+fixtures in `app/src/test/resources/trackside/`, copied from tracks-companion like
+`TracksCore`'s), address selection, certificate pinning over real TLS, playback rules and more.
 Screenshot tests render every screen in light and dark with Robolectric, against the real
 engine and invented sample history, into `app/build/screenshots/`. See
 `app/src/test/kotlin/com/luke/tracks/Screenshots.kt`.
@@ -55,7 +59,8 @@ engine and invented sample history, into `app/build/screenshots/`. See
 | --- | --- |
 | `engine` | The Rust engine, called off the main thread. |
 | `data` | Room (the history's source of truth), settings, periods, sample data. |
-| `library` | Device files and Subsonic servers, merged. |
+| `library` | Device files, Subsonic and Trackside servers (`library/trackside`), merged. |
+| `net` | The app's HTTP rules: one OkHttp setup, cleartext only nearby, certificate pins, endpoint racing, retries, credential-free media links, log redaction. |
 | `playback` | Media3 service, Android Auto browse tree, player controller, Tracks Radio. |
 | `lastfm` | Connecting, scrobbling and importing, through the engine's Last.fm client. |
 | `widget`, `system` | Glance widgets, Quick Settings tile, shortcuts, notifications. |

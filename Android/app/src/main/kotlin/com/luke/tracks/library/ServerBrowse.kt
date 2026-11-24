@@ -1,6 +1,7 @@
 package com.luke.tracks.library
 
 import android.net.Uri
+import com.luke.tracks.net.ServerLinks
 import com.luke.tracks.playback.PlayableSong
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -22,11 +23,11 @@ data class ServerArtistPage(val name: String, val albums: List<ServerArtistAlbum
  * A song the server found leads there: by its album's and artist's ids where the server
  * gives them, and by name where it doesn't (as for a song Octo found elsewhere).
  */
-class ServerBrowse(val server: SubsonicServer, private val client: SubsonicClient) {
+class ServerBrowse(val server: SubsonicServer, private val client: MusicServerClient) {
     suspend fun album(title: String, artist: String, albumId: String? = null, songId: String? = null): ServerAlbumPage {
         val id = albumId ?: songId?.let { idsOf(it)?.albumId } ?: findAlbum(title, artist) ?: throw SubsonicError.NotFound
         val (found, songs) = client.album(id)
-        val tracks = ServerLibrary.tracks(server, client, songs)
+        val tracks = ServerLibrary.tracks(server, songs)
             .sortedWith(compareBy({ it.disc ?: 1 }, { it.song.trackNumber ?: Int.MAX_VALUE }))
             .map { it.song }
         val album = LibraryAlbum(
@@ -55,7 +56,7 @@ class ServerBrowse(val server: SubsonicServer, private val client: SubsonicClien
             albums = albums.sortedByDescending { it.year ?: 0 }.map {
                 ServerArtistAlbum(it.id, it.name, it.artist ?: name, it.year, it.coverArt?.let { cover -> cover(cover).toString() })
             },
-            songs = ServerLibrary.tracks(server, client, top.await()).map { it.song },
+            songs = ServerLibrary.tracks(server, top.await()).map { it.song },
         )
     }
 
@@ -72,5 +73,5 @@ class ServerBrowse(val server: SubsonicServer, private val client: SubsonicClien
         return client.search(name, artists = 10, albums = 0, songs = 0).artists.firstOrNull { foldedName(it.name) == folded }?.id
     }
 
-    private fun cover(id: String): Uri = Uri.parse(client.coverArtUrl(id, 600).toString())
+    private fun cover(id: String): Uri = ServerLinks.cover(server.id, id)
 }

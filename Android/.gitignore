@@ -11,3 +11,6 @@ secrets.properties
 app/engine-bindings/
 app/src/test/resources/linux-*/
 app/src/test/resources/darwin-*/
+# Signing keys.
+*.jks
+*.keystore
