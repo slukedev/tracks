@@ -28,12 +28,6 @@ struct YourMusicScreen: View {
         ScrollView {
             // Lazy, so shelves below the fold are made, and ask their servers, as they come.
             LazyVStack(alignment: .leading, spacing: Design.Margin.section) {
-                #if os(macOS)
-                Text("Listen Now")
-                    .font(.pageTitle)
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.horizontal, Design.Margin.page)
-                #endif
                 if !music.index.isEmpty {
                     content
                 } else if !music.servers.syncing.isEmpty || (!music.hasScanned && music.servers.servers.isEmpty) {
