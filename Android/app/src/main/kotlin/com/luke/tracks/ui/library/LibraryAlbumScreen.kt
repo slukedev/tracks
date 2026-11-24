@@ -56,7 +56,7 @@ fun LibraryAlbumScreen(albumId: String) {
     val current by remember { graph.player.state.map { it.current?.mediaId } }.collectAsStateWithLifecycle(null)
     val album = index.album(albumId)
     if (album == null) {
-        MissingPage(if (index.snapshot.isLoading) null else "This album isn't in Your Music anymore")
+        MissingPage(if (index.snapshot.isLoading) null else "This album isn't in your library anymore")
         return
     }
     LibraryAlbumPage(album, current, artistId = index.artistIdOf(album.artistName))

@@ -7,10 +7,9 @@
       "url": "http://192.168.1.20:4747"
     },
     {
-      "fingerprint": "06:29:84:32:e8:06:6b:29:e2:22:3b:cc:23:aa:95:04:b5:6a:e5:08:fa:bf:34:35:50:88:69:b9:c3:19:0e:22",
-      "kind": "tailnet",
-      "tls": true,
-      "url": "https://box.tail1234.ts.net:4747"
+      "kind": "lan",
+      "tls": false,
+      "url": "http://home.local:4747"
     },
     {
       "kind": "public",
@@ -18,5 +17,5 @@
       "url": "https://music.example.com"
     }
   ],
-  "version": "\"v7\""
+  "version": "a746df40293cc8d2b0f1b1ea782c9d87"
 }

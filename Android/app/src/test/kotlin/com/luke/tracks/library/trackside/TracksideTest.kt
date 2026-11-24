@@ -312,8 +312,8 @@ class TracksideClientTest {
         proven = true
         val urls = client.serverUrls(null)!!
         assertEquals(SERVER, urls.serverId)
-        assertEquals(listOf("lan", "tailnet", "public"), urls.urls.map { it.kind })
-        assertEquals("06:29:84:32:e8:06:6b:29:e2:22:3b:cc:23:aa:95:04:b5:6a:e5:08:fa:bf:34:35:50:88:69:b9:c3:19:0e:22", urls.urls[1].fingerprint)
+        assertEquals(listOf("lan", "lan", "public"), urls.urls.map { it.kind })
+        assertEquals(listOf(false, false, true), urls.urls.map { it.tls })
         assertEquals("\"v7\"", urls.version)
         assertEquals("/api/v1/server/urls", sent.last().url.encodedPath)
         assertNull(sent.last().header("If-None-Match"))
@@ -347,13 +347,23 @@ class TracksideClientTest {
         val me = TracksideClient(endpoints, key, "d1", null, transport).me()
         assertEquals("luke", me.user.username)
         assertEquals(listOf("http", "https"), sent.map { it.url.scheme })
-        assertEquals(public.url, endpoints.baseUrl)
+        // The refusal's own https addresses join the race; whichever proves itself is used.
+        assertTrue(endpoints.baseUrl.isHttps && endpoints.baseUrl.host in setOf("music.example.com", "home.tail4a2c.ts.net"))
         assertTrue(endpoints.httpsOnly)
 
-        // With no https address, it says so rather than asking for a password.
+        // An address the refusal names is used even when Tracks didn't know it yet.
+        val unknown = ServerEndpoints(listOf(home), home.url, backgroundScope, { _, _ -> true })
+        sent.clear()
+        assertEquals("luke", TracksideClient(unknown, key, "d1", null, transport).me().user.username)
+        assertTrue(sent.last().url.host in setOf("music.example.com", "home.tail4a2c.ts.net"))
+        assertTrue(sent.last().url.isHttps)
+        assertEquals(TracksideClient.httpsUrls(TracksideAnswer(403, fixture("error-https-required.json"))).size, 2)
+
+        // With no https address at all, it says so rather than asking for a password.
+        val bare = TracksideTransport { request, _ -> if (request.url.isHttps) TracksideAnswer(200, fixture("me.json")) else TracksideAnswer(403, """{"error":{"code":"https_required","message":""}}""") }
         val lonely = ServerEndpoints(listOf(home), home.url, backgroundScope, { _, _ -> true })
         try {
-            TracksideClient(lonely, key, "d1", null, transport).me()
+            TracksideClient(lonely, key, "d1", null, bare).me()
             fail("no https address")
         } catch (_: TracksideError.HttpsRequired) {
         }

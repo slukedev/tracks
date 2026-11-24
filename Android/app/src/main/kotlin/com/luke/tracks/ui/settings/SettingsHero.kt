@@ -40,7 +40,7 @@ fun StatusHero(
     shape: RoundedPolygon,
     tone: Tone,
     headline: String,
-    body: String,
+    body: String? = null,
     modifier: Modifier = Modifier,
     actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
@@ -70,8 +70,10 @@ fun StatusHero(
             ) { (h, b) ->
                 Column {
                     Text(h, style = MaterialTheme.typography.headlineSmallEmphasized, color = MaterialTheme.colorScheme.onSurface)
-                    Spacer(Modifier.height(6.dp))
-                    Text(b, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (b != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(b, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             if (actions != null) {

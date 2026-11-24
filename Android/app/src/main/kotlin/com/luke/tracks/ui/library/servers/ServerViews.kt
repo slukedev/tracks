@@ -1,5 +1,7 @@
 package com.luke.tracks.ui.library.servers
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -113,94 +115,6 @@ import kotlinx.coroutines.delay
 import okhttp3.HttpUrl
 import kotlinx.coroutines.launch
 
-/** Your servers as a segmented group, Android 16 Settings style, with a way to add one. */
-@Composable
-fun ServerList(
-    entries: List<ServerEntry>,
-    onAdd: () -> Unit,
-    onEdit: (SubsonicServer) -> Unit,
-    onRemove: (SubsonicServer) -> Unit,
-    modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(),
-    onTrust: (ServerEntry) -> Unit = {},
-) {
-    LazyColumn(modifier.fillMaxSize(), contentPadding = contentPadding) {
-        item(key = "intro") {
-            Text(
-                "Play from your own music server: Trackside, Navidrome, Gonic, Airsonic, Ampache or any other Subsonic-compatible server. Its songs are added to Your Music, your mixes and Tracks Radio.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
-            )
-        }
-        itemsIndexed(entries, key = { _, entry -> entry.server.id }) { i, entry ->
-            ServerRow(
-                entry = entry,
-                index = i,
-                count = entries.size,
-                onEdit = { if (entry.status is ServerStatus.NeedsTrust) onTrust(entry) else onEdit(entry.server) },
-                onRemove = { onRemove(entry.server) },
-                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = ListItemDefaults.SegmentedGap).animateItem(),
-            )
-        }
-        item(key = "add") {
-            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.CenterStart) {
-                FilledTonalButton(onClick = onAdd, modifier = Modifier.heightIn(min = 56.dp), contentPadding = PaddingValues(horizontal = 24.dp)) {
-                    Icon(Icons.Rounded.Add, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Add a server", style = MaterialTheme.typography.titleMedium)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ServerRow(entry: ServerEntry, index: Int, count: Int, onEdit: () -> Unit, onRemove: () -> Unit, modifier: Modifier = Modifier) {
-    var menu by remember { mutableStateOf(false) }
-    val haptics = LocalHapticFeedback.current
-    Box(modifier) {
-        SegmentedListItem(
-            onClick = onEdit,
-            onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); menu = true },
-            onLongClickLabel = "More options",
-            shapes = ListItemDefaults.segmentedShapes(index, count),
-            colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-            leadingContent = {
-                Surface(shape = MaterialShapes.Cookie6Sided.toShape(), color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.size(44.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
-                    }
-                }
-            },
-            supportingContent = { StatusLine(entry) },
-            trailingContent = {
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = "More for ${entry.server.name}") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Edit") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; onEdit() })
-                        DropdownMenuItem(text = { Text("Remove") }, leadingIcon = { Icon(Icons.Rounded.Delete, null) }, onClick = { menu = false; onRemove() })
-                    }
-                }
-            },
-            content = { Text(entry.server.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        )
-    }
-}
-
-@Composable
-private fun StatusLine(entry: ServerEntry) {
-    val address = ServerAddress.display(entry.server.url)
-    val (text, color) = when (val status = entry.status) {
-        ServerStatus.Syncing -> "Getting your songs" to MaterialTheme.colorScheme.onSurfaceVariant
-        is ServerStatus.Ready -> address to MaterialTheme.colorScheme.onSurfaceVariant
-        is ServerStatus.Failed -> status.message to MaterialTheme.colorScheme.error
-        ServerStatus.NeedsPassword -> (if (entry.server.isTrackside) "Pair again to play from it" else "Sign in again to play from it") to MaterialTheme.colorScheme.error
-        is ServerStatus.NeedsTrust -> (if (status.refusal.previous.isEmpty()) "Certificate needs your OK" else "Certificate changed") to MaterialTheme.colorScheme.error
-    }
-    Text(text, color = color, maxLines = 2, overflow = TextOverflow.Ellipsis)
-}
-
 /** Adding, editing and removing servers, and trusting their certificates, from wherever the list is shown. */
 @Stable
 class ServerEditing {
@@ -231,7 +145,7 @@ class ServerEditing {
                 onDismissRequest = { removing = null },
                 icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
                 title = { Text("Remove ${server.name}?") },
-                text = { Text("Its songs are removed from Your Music. Your history isn't affected.") },
+                text = { Text("Your plays stay in History.") },
                 confirmButton = {
                     TextButton(onClick = { removing = null; scope.launch { servers?.remove(server.id) } }) { Text("Remove") }
                 },
@@ -480,7 +394,41 @@ fun ServerEditorForm(
             .animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(if (existing == null) "Add a server" else "Edit ${existing.name}", style = MaterialTheme.typography.headlineSmallEmphasized)
+        Text(if (existing == null) "Add server" else "Edit ${existing.name}", style = MaterialTheme.typography.headlineSmallEmphasized)
+        if (existing == null) {
+            val scan = rememberPairingScanner(
+                onLink = { address = it; check = Check.Idle; approval = null },
+                onProblem = { check = Check.Failed(it) },
+            )
+            FilledTonalButton(onClick = scan, modifier = Modifier.heightIn(min = 48.dp)) {
+                Icon(Icons.Rounded.QrCodeScanner, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Scan code")
+            }
+            // Trackside servers on this network, as they announce themselves; a tap fills the address.
+            val context = LocalContext.current
+            val nearby by remember(context) { com.luke.tracks.library.trackside.NearbyServers(context).found }
+                .collectAsState(initial = emptyList())
+            AnimatedVisibility(
+                nearby.isNotEmpty(),
+                enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                exit = shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+                    Text("On your network", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    nearby.forEachIndexed { i, server ->
+                        val shown = ServerAddress.display(server.url.toString())
+                        SegmentedListItem(
+                            selected = address == shown,
+                            onClick = { address = shown; check = Check.Idle; approval = null },
+                            shapes = ListItemDefaults.segmentedShapes(i, nearby.size),
+                            supportingContent = { Text(shown, style = androidx.compose.material3.LocalTextStyle.current.copy(textDirection = androidx.compose.ui.text.style.TextDirection.Ltr)) },
+                            trailingContent = { if (address == shown) Icon(Icons.Rounded.CheckCircle, "Chosen") },
+                        ) { Text("${server.name} · Trackside") }
+                    }
+                }
+            }
+        }
         OutlinedTextField(
             value = address,
             onValueChange = { address = it; check = Check.Idle; approval = null },

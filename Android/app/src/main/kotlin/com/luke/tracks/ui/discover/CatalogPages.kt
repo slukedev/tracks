@@ -155,7 +155,7 @@ fun CatalogArtistPage(name: String, state: Remote<ArtistCatalog?>, links: Artist
                     contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = bottomClearance),
                 ) {
                     val actions = buildList {
-                        links.libraryId?.let { id -> add(PageAction("Your music", Icons.Rounded.LibraryMusic) { navigator.open(LibraryArtistRoute(id)) }) }
+                        links.libraryId?.let { id -> add(PageAction("Library", Icons.Rounded.LibraryMusic) { navigator.open(LibraryArtistRoute(id)) }) }
                         links.historyIdentity?.let { id -> add(PageAction("Your history", Icons.Rounded.History) { navigator.open(ArtistRoute(id, name)) }) }
                         if (sources.lidarr) add(PageAction("Follow", Icons.Rounded.PersonAdd) {
                             scope.launch { tell(context, snackbar, scope, discovery.followArtist(name).orEmpty()) }
@@ -331,7 +331,7 @@ private fun AlbumHero(page: AlbumCatalog, ownership: Ownership, ownedCount: Int,
         )
         AnimatedVisibility(ownership != Ownership.MISSING) {
             Text(
-                if (ownership == Ownership.OWNED) "In your music" else "$ownedCount of ${page.songs.size} in your music",
+                if (ownership == Ownership.OWNED) "In your library" else "$ownedCount of ${page.songs.size} in your library",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 4.dp),

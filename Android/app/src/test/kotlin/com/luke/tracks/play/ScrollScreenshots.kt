@@ -53,9 +53,10 @@ class ScrollScreenshots(dark: Boolean) : ScreenshotTest(dark) {
 
     @Test fun play() = shell(Tab.Play, "scroll-play", 2)
     @Test fun summary() = shell(Tab.Summary, "scroll-summary", 2)
-    @Test fun charts() = shell(Tab.Charts, "scroll-charts", 2)
+    @Test fun charts() = shell(Tab.History, "scroll-charts", 2, route = { com.luke.tracks.ui.navigation.ChartsRoute })
     @Test fun history() = shell(Tab.History, "scroll-history", 2)
     @Test fun library() = shell(Tab.Library, "scroll-library", 2)
+    @Test fun search() = shell(Tab.Search, "scroll-search", 0)
 
     private fun topArtist() = kotlinx.coroutines.runBlocking {
         graph.engine.read { artistChart(com.luke.tracks.engine.Engine.allTime, null, uniffi.tracks_engine.SourceFilter.ALL, 1u).rows.first().artist }

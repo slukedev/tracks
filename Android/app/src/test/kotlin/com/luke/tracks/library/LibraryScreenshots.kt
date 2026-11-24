@@ -31,7 +31,10 @@ import com.luke.tracks.library.trackside.TracksidePairResult
 import com.luke.tracks.net.CertificateNeedsTrust
 import com.luke.tracks.net.PinKey
 import okhttp3.HttpUrl
-import com.luke.tracks.ui.library.servers.ServersPageContent
+import com.luke.tracks.sources.FakeSources
+import com.luke.tracks.sources.Source
+import com.luke.tracks.sources.SourceId
+import com.luke.tracks.sources.SourceSelection
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.Navigator
 import org.junit.Test
@@ -77,28 +80,37 @@ class LibraryScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         CompositionLocalProvider(LocalNavigator provides Navigator()) { content() }
     }
 
-    private fun library(name: String, tab: LibraryTab, snapshot: LibrarySnapshot = FakeLibrary.index.snapshot, query: String? = null) =
-        snap(name) {
-            Frame {
-                LibraryContent(
-                    snapshot = snapshot,
-                    index = { FakeLibrary.index },
-                    servers = FakeLibrary.servers,
-                    currentMediaId = FakeLibrary.index.snapshot.songs[2].mediaId,
-                    onAllowAccess = {},
-                    initialTab = tab,
-                    initialQuery = query,
-                )
-            }
+    private fun library(
+        name: String,
+        tab: LibraryTab,
+        snapshot: LibrarySnapshot = FakeLibrary.index.snapshot,
+        sources: List<Source> = listOf(FakeSources.device),
+        selection: SourceSelection = SourceSelection.All,
+    ) = snap(name) {
+        Frame {
+            LibraryContent(
+                snapshot = snapshot,
+                index = { FakeLibrary.index },
+                sources = sources,
+                selection = selection,
+                onSelect = {},
+                sourceOf = { SourceId.ofMediaId(it) },
+                currentMediaId = FakeLibrary.index.snapshot.songs[2].mediaId,
+                initialTab = tab,
+            )
         }
+    }
 
     @Test fun albums() = library("library-albums", LibraryTab.Albums)
     @Test fun songs() = library("library-songs", LibraryTab.Songs)
     @Test fun artists() = library("library-artists", LibraryTab.Artists)
-    @Test fun servers() = library("library-servers", LibraryTab.Servers)
-    @Test fun search() = library("library-search", LibraryTab.Albums, query = FakeLibrary.index.snapshot.artists.first().name.take(4))
-    @Test fun noPermission() = library("library-permission", LibraryTab.Albums, LibrarySnapshot(hasPermission = false))
-    @Test fun noMusic() = library("library-empty", LibraryTab.Songs, LibrarySnapshot(hasPermission = true))
+    @Test fun withSources() = library("library-sources", LibraryTab.Albums, sources = listOf(FakeSources.device, FakeSources.home, FakeSources.spotify))
+    @Test fun filtered() = library(
+        "library-filtered", LibraryTab.Albums,
+        sources = listOf(FakeSources.device, FakeSources.home),
+        selection = SourceSelection.Only(FakeSources.home.id),
+    )
+    @Test fun noSources() = library("library-empty", LibraryTab.Albums, LibrarySnapshot(hasPermission = false), sources = emptyList())
     @Test fun loading() = library("library-loading", LibraryTab.Albums, LibrarySnapshot(isLoading = true))
 
     @Test fun album() = snap("library-album") {
@@ -113,10 +125,6 @@ class LibraryScreenshots(dark: Boolean) : ScreenshotTest(dark) {
             val artist = FakeLibrary.index.snapshot.artists.maxBy { it.albums.size }
             LibraryArtistPage(artist, FakeLibrary.index.songsBy(artist), null)
         }
-    }
-
-    @Test fun serversPage() = snap("servers-page") {
-        Frame { ServersPageContent(FakeLibrary.servers, onSync = {}) }
     }
 
     @Test fun serverEditor() = snap("server-editor") {

@@ -1,0 +1,223 @@
+package com.luke.tracks.sources
+
+import uniffi.tracks_engine.PlaySource
+
+/**
+ * Where a song can come from, as the iPhone's `SourceID` names it: files on this device, a
+ * server by its id, or Spotify. Apple Music never plays on Android but can arrive in a Play
+ * From order synced from an iPhone, so it's kept; anything newer is kept as it was stored.
+ */
+sealed interface SourceId {
+    /** The stored form, the same on every platform: "device", "server:<id>", "spotify". */
+    val raw: String
+
+    data object Device : SourceId {
+        override val raw = "device"
+    }
+
+    data class Server(val id: String) : SourceId {
+        override val raw get() = SERVER_PREFIX + id
+    }
+
+    data object Spotify : SourceId {
+        override val raw = "spotify"
+    }
+
+    data object AppleMusic : SourceId {
+        override val raw = "appleMusic"
+    }
+
+    data class Unknown(val stored: String) : SourceId {
+        override val raw get() = stored
+    }
+
+    /** How a play from this source is kept in the history: the engine's [PlaySource]. */
+    val playSource: PlaySource
+        get() = when (this) {
+            Device, is Server -> PlaySource.YourMusic
+            Spotify -> PlaySource.Spotify
+            AppleMusic -> PlaySource.AppleMusic
+            is Unknown -> PlaySource.Unknown(stored)
+        }
+
+    companion object {
+        private const val SERVER_PREFIX = "server:"
+
+        fun parse(raw: String): SourceId = when {
+            raw == Device.raw -> Device
+            raw == Spotify.raw -> Spotify
+            raw == AppleMusic.raw -> AppleMusic
+            raw.startsWith(SERVER_PREFIX) && raw.length > SERVER_PREFIX.length -> Server(raw.removePrefix(SERVER_PREFIX))
+            else -> Unknown(raw)
+        }
+
+        /**
+         * The source of one of the library's own media ids: the phone's files ("local:", and
+         * the sample library's "sample:") or a server's ("subsonic:<server>:<song>"). Null for
+         * ids another source owns; ask the registry for those.
+         */
+        fun ofMediaId(mediaId: String): SourceId? = when {
+            mediaId.startsWith("local:") || mediaId.startsWith("sample:") -> Device
+            mediaId.startsWith("subsonic:") -> mediaId.removePrefix("subsonic:").substringBefore(':', "").takeIf { it.isNotEmpty() }?.let(::Server)
+            mediaId.startsWith("spotify:") -> Spotify
+            else -> null
+        }
+    }
+}
+
+/** What kind of place a source is, for its glyph and its words. */
+enum class SourceKind { Device, Server, Spotify }
+
+/**
+ * Where a source stands, worst first, as one word for its row. Only [needsAction] ones are
+ * tinted, since only they ask for something.
+ */
+sealed interface SourceStatus {
+    /** Signed out, or the server no longer knows this phone. */
+    data object SignIn : SourceStatus
+
+    data object CheckCertificate : SourceStatus
+
+    data class Offline(val reason: String? = null) : SourceStatus
+
+    /** Getting its songs; [fraction] when the source can tell how far along. */
+    data class Syncing(val fraction: Float? = null) : SourceStatus
+
+    /** Reached through an address away from home. */
+    data object Away : SourceStatus
+
+    data object Connected : SourceStatus
+
+    /** The phone's music files, with access allowed. */
+    data class Songs(val count: Int) : SourceStatus
+
+    /** Access to the phone's music is off. */
+    data object Off : SourceStatus
+
+    val needsAction: Boolean get() = this is SignIn || this is CheckCertificate || this is Offline
+
+    /** Whether songs from it can play now. */
+    val canPlay: Boolean get() = this is Connected || this is Away || this is Songs || this is Syncing
+}
+
+/** A source as the Sources page lists it. */
+data class Source(
+    val id: SourceId,
+    val name: String,
+    val kind: SourceKind,
+    val status: SourceStatus,
+    /** How many of its songs are in the library, where it's known. */
+    val songCount: Int? = null,
+    /** The address it was added with, for a server. */
+    val address: String? = null,
+)
+
+/**
+ * What Play, Library and Tracks Radio draw from: every source, or one. A filter only, never
+ * what's queued.
+ */
+sealed interface SourceSelection {
+    val raw: String
+
+    data object All : SourceSelection {
+        override val raw = "all"
+    }
+
+    data class Only(val source: SourceId) : SourceSelection {
+        override val raw get() = source.raw
+    }
+
+    fun includes(source: SourceId?): Boolean = this is All || (this is Only && this.source == source)
+
+    /** One source only while it's still there among two or more; otherwise all. */
+    fun effective(among: List<SourceId>): SourceSelection = when (this) {
+        All -> All
+        is Only -> if (source in among && among.size > 1) this else All
+    }
+
+    companion object {
+        fun parse(raw: String?): SourceSelection =
+            if (raw.isNullOrEmpty() || raw == All.raw) All else Only(SourceId.parse(raw))
+    }
+}
+
+/** A place a copy of a song can play from, in the order Play From ranks them. */
+sealed interface PlayFromPlace {
+    val raw: String
+
+    /** A server's song kept on this device. Android has no downloads yet; kept for synced orders. */
+    data object Downloads : PlayFromPlace {
+        override val raw = "downloads"
+    }
+
+    data class From(val source: SourceId) : PlayFromPlace {
+        override val raw get() = source.raw
+    }
+
+    companion object {
+        fun parse(raw: String): PlayFromPlace = if (raw == Downloads.raw) Downloads else From(SourceId.parse(raw))
+    }
+}
+
+/**
+ * Which copy plays when a song is in several sources: the first that can play, in this
+ * order. The same stored form and rules as the iPhone's `PlayFromOrder`, so an order can
+ * travel between them: places this phone doesn't have are kept and skipped.
+ */
+data class PlayFromOrder(val places: List<PlayFromPlace>) {
+    val raw: String get() = places.joinToString("\n") { it.raw }
+
+    /**
+     * The full order for the sources here: the chosen order, with anything it doesn't name
+     * placed after what comes before it by default, and sources no longer here left out.
+     */
+    fun arranged(servers: List<String>, spotify: Boolean): List<PlayFromPlace> {
+        val defaults = defaultOrder(servers, spotify)
+        val current = defaults.toSet()
+        val arranged = places.filter { it in current }.distinct().toMutableList()
+        defaults.forEachIndexed { offset, place ->
+            if (place in arranged) return@forEachIndexed
+            val before = defaults.subList(0, offset).lastOrNull { it in arranged }
+            val index = before?.let { arranged.indexOf(it) + 1 } ?: 0
+            arranged.add(index, place)
+        }
+        return arranged
+    }
+
+    /** This order with [new] as arranged here, keeping places this phone doesn't have where they were. */
+    fun replacing(new: List<PlayFromPlace>, servers: List<String>, spotify: Boolean): PlayFromOrder {
+        val here = defaultOrder(servers, spotify).toSet()
+        return PlayFromOrder((new + places.filter { it !in here }).distinct())
+    }
+
+    /** Copies best first; copies from the same place keep their order. */
+    fun <T> ranked(copies: List<T>, spotify: Boolean, place: (T) -> PlayFromPlace): List<T> {
+        val servers = copies.mapNotNull { ((place(it) as? PlayFromPlace.From)?.source as? SourceId.Server)?.id }.distinct()
+        val order = arranged(servers, spotify)
+        val rank = order.withIndex().associate { (i, p) -> p to i }
+        return copies.withIndex()
+            .sortedWith(compareBy({ rank[place(it.value)] ?: order.size }, { it.index }))
+            .map { it.value }
+    }
+
+    companion object {
+        val Standard = PlayFromOrder(emptyList())
+
+        fun parse(raw: String?): PlayFromOrder =
+            PlayFromOrder(raw.orEmpty().split('\n').filter { it.isNotBlank() }.map(PlayFromPlace::parse).distinct())
+
+        /** Local first: free, offline and more often lossless; then servers as added; then Spotify. */
+        fun defaultOrder(servers: List<String>, spotify: Boolean): List<PlayFromPlace> =
+            listOf<PlayFromPlace>(PlayFromPlace.From(SourceId.Device)) +
+                servers.map { PlayFromPlace.From(SourceId.Server(it)) } +
+                if (spotify) listOf(PlayFromPlace.From(SourceId.Spotify)) else emptyList()
+    }
+}
+
+/**
+ * Songs the player passed over because their source couldn't play them, for the one quiet
+ * message: "Skipped 3 songs", and why when there's a single reason ("Home is offline").
+ */
+data class SkippedSongs(val count: Int, val reason: String? = null) {
+    val message: String get() = if (count == 1) "Skipped 1 song" else "Skipped $count songs"
+}

@@ -27,6 +27,7 @@ robolectric = "4.18"
 roborazzi = "1.79.0"
 junit = "4.13.2"
 coroutines = "1.10.2"
+codeScanner = "16.1.0"
 
 [libraries]
 androidx-core = { module = "androidx.core:core-ktx", version.ref = "core" }
@@ -71,6 +72,8 @@ graphics-shapes = { module = "androidx.graphics:graphics-shapes", version.ref = 
 palette = { module = "androidx.palette:palette-ktx", version.ref = "palette" }
 splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "splashscreen" }
 browser = { module = "androidx.browser:browser", version.ref = "browser" }
+code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "codeScanner" }
+room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
 junit = { module = "junit:junit", version.ref = "junit" }
 coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver3", version.ref = "okhttp" }

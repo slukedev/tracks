@@ -27,6 +27,26 @@ interface PlayDao {
     @Query("SELECT * FROM plays WHERE id = :id")
     suspend fun byId(id: String): PlayEntity?
 
+    @Query("SELECT * FROM plays WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<String>): List<PlayEntity>
+
+    /** Plays the cloud doesn't have as they are here, after the one at ([afterAt], [afterId]). */
+    @Query(
+        "SELECT * FROM plays WHERE cloudPending > 0 AND (playedAt > :afterAt OR (playedAt = :afterAt AND id > :afterId)) " +
+            "ORDER BY playedAt, id LIMIT :limit"
+    )
+    suspend fun cloudPending(afterAt: Long, afterId: String, limit: Int): List<PlayEntity>
+
+    @Query("SELECT COUNT(*) FROM plays WHERE cloudPending > 0")
+    fun cloudPendingCount(): Flow<Int>
+
+    /** In step with the cloud, unless it changed again since [pending] was sent. */
+    @Query("UPDATE plays SET cloudPending = 0, cloudVersion = :version WHERE id = :id AND cloudPending = :pending")
+    suspend fun settle(id: String, pending: Int, version: Long?)
+
+    @Query("UPDATE plays SET cloudPending = cloudPending + 1")
+    suspend fun markAllCloudPending()
+
     @Query("SELECT COUNT(*) FROM plays")
     fun countFlow(): Flow<Int>
 
@@ -43,20 +63,22 @@ interface PlayDao {
     @Query("SELECT * FROM plays ORDER BY playedAt DESC LIMIT 1")
     suspend fun last(): PlayEntity?
 
-    /** Plays still owed to Last.fm, oldest first. */
+    /** Plays still owed to Last.fm, oldest first. Spotify's only when [spotify]: it scrobbles them itself. */
     @Query(
         "SELECT * FROM plays WHERE scrobbledAt IS NULL AND scrobbleError IS NULL " +
-            "AND kind != 'LastFm' AND playedAt >= :since ORDER BY playedAt LIMIT :limit"
+            "AND kind != 'LastFm' AND recordedBy IS NULL AND playedAt >= :since " +
+            "AND (source != 'Spotify' OR :spotify) ORDER BY playedAt LIMIT :limit"
     )
-    suspend fun owedScrobbles(since: Long, limit: Int): List<PlayEntity>
+    suspend fun owedScrobbles(since: Long, limit: Int, spotify: Boolean = false): List<PlayEntity>
 
     @Query(
         "SELECT COUNT(*) FROM plays WHERE scrobbledAt IS NULL AND scrobbleError IS NULL " +
-            "AND kind != 'LastFm' AND playedAt >= :since"
+            "AND kind != 'LastFm' AND recordedBy IS NULL AND playedAt >= :since " +
+            "AND (source != 'Spotify' OR :spotify)"
     )
-    fun owedScrobbleCount(since: Long): Flow<Int>
+    fun owedScrobbleCount(since: Long, spotify: Boolean = false): Flow<Int>
 
-    @Query("UPDATE plays SET scrobbledAt = :at, scrobbleError = NULL WHERE id IN (:ids)")
+    @Query("UPDATE plays SET scrobbledAt = :at, scrobbleError = NULL, cloudPending = cloudPending + 1 WHERE id IN (:ids)")
     suspend fun markScrobbled(ids: List<String>, at: Long)
 
     @Query("UPDATE plays SET scrobbleError = :error, scrobbleAttempts = scrobbleAttempts + 1 WHERE id = :id")

@@ -104,13 +104,13 @@ fun LazyListScope.catalogSearchItems(state: Remote<NotYours>, edge: Dp, onRetry:
             }
         }
         Remote.Failed -> item(key = "catalog-failed") {
-            CatalogProblem("Couldn't search beyond your music", onRetry, wide.padding(horizontal = edge).animateItem())
+            CatalogProblem("Can't search right now.", onRetry, wide.padding(horizontal = edge).animateItem())
         }
         is Remote.Loaded -> {
             val r = state.value.results
             if (state.value.isEmpty) return
             item(key = "catalog-header", contentType = "header") {
-                GroupHeading("Not in your music", wide.padding(horizontal = edge).padding(top = 20.dp).animateItem())
+                GroupHeading("Not in your library", wide.padding(horizontal = edge).padding(top = 20.dp).animateItem())
             }
             if (r.artists.isNotEmpty()) {
                 item(key = "catalog-artists-h", contentType = "subheader") { SubHeading("Artists", wide.padding(horizontal = edge).animateItem()) }
@@ -219,7 +219,7 @@ fun MoreFromArtist(name: String, modifier: Modifier = Modifier, edge: Dp = 16.dp
                     val missing = page.songs.filter { discovery.owned(it) == null }.distinctBy { it.identity }.take(5)
                     if (missing.isNotEmpty()) {
                         Text(
-                            "Songs not in your music",
+                            "Songs not in your library",
                             style = MaterialTheme.typography.titleSmallEmphasized,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = edge, top = 16.dp, bottom = 4.dp),

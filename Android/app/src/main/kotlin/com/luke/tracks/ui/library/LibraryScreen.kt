@@ -1,6 +1,24 @@
 package com.luke.tracks.ui.library
 
-import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import com.luke.tracks.sources.Source
+import com.luke.tracks.sources.SourceId
+import com.luke.tracks.sources.SourceSelection
+import com.luke.tracks.ui.navigation.SettingsPageRoute
+import com.luke.tracks.ui.sources.SourceFilterChip
+import com.luke.tracks.ui.sources.rememberSources
+import com.luke.tracks.ui.sources.sourceList
+import com.luke.tracks.ui.sources.sourceSelection
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -26,6 +44,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -95,7 +115,6 @@ import com.luke.tracks.ui.discover.Remote
 import com.luke.tracks.ui.discover.catalogSearchItems
 import com.luke.tracks.ui.discover.rememberCatalogSearch
 import androidx.compose.runtime.mutableIntStateOf
-import com.luke.tracks.ui.library.servers.ServerList
 import com.luke.tracks.ui.library.servers.rememberServerEditing
 import com.luke.tracks.ui.navigation.LibraryAlbumRoute
 import com.luke.tracks.ui.navigation.LibraryArtistRoute
@@ -107,40 +126,45 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class LibraryTab(val label: String, val icon: ImageVector) {
-    Songs("Songs", Icons.Rounded.MusicNote),
-    Albums("Albums", Icons.Rounded.Album),
     Artists("Artists", Icons.Rounded.Person),
-    Servers("Servers", Icons.Rounded.Dns),
+    Albums("Albums", Icons.Rounded.Album),
+    Songs("Songs", Icons.Rounded.MusicNote),
 }
 
-/** The Your Music tab. */
+/** The Library tab: every source's music as one library, filtered to one source when chosen. */
 @Composable
 fun LibraryScreen() {
     val context = LocalContext.current
     val graph = context.graph
     val library = graph.library as? CombinedLibrary
     val snapshot by graph.library.snapshot.collectAsStateWithLifecycle()
-    val servers by remember(library) { library?.servers?.entries ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList()) }.collectAsStateWithLifecycle()
     val current by remember { graph.player.state.map { it.current?.mediaId } }.collectAsStateWithLifecycle(null)
+    val sources by sourceList()
+    val selection by sourceSelection()
+    val registry = rememberSources()
     val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
 
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        haptics.performHapticFeedback(if (granted) HapticFeedbackType.Confirm else HapticFeedbackType.Reject)
-        scope.launch { library?.device?.refresh() }
-    }
     // Back from the system's settings with access newly allowed.
     LifecycleResumeEffect(snapshot.hasPermission) {
         if (!snapshot.hasPermission) scope.launch { library?.device?.refresh() }
         onPauseOrDispose { }
     }
 
+    // Spotify's saved albums, playlists and liked songs come from Spotify itself.
+    val spotify = com.luke.tracks.spotify.Spotify.integration
+    if (spotify != null && selection == SourceSelection.Only(SourceId.Spotify)) {
+        spotify.Library(onBack = { registry.select(SourceSelection.All) })
+        return
+    }
+
     LibraryContent(
         snapshot = snapshot,
-        index = { library?.index?.value ?: LibraryIndex.Empty },
-        servers = servers,
+        index = { library?.index?.value ?: (graph.library.index.value) },
+        sources = sources,
+        selection = selection,
+        onSelect = registry::select,
+        sourceOf = registry::sourceOf,
         currentMediaId = current,
-        onAllowAccess = { permission.launch(musicPermission) },
     )
 }
 
@@ -149,21 +173,18 @@ fun LibraryScreen() {
 fun LibraryContent(
     snapshot: LibrarySnapshot,
     index: () -> LibraryIndex,
-    servers: List<ServerEntry>,
+    sources: List<Source>,
+    selection: SourceSelection,
+    onSelect: (SourceSelection) -> Unit,
+    sourceOf: (String) -> SourceId?,
     currentMediaId: String?,
-    onAllowAccess: () -> Unit,
     initialTab: LibraryTab = LibraryTab.Albums,
-    initialQuery: String? = null,
 ) {
     val navigator = LocalNavigator.current
     val haptics = LocalHapticFeedback.current
     var tab by rememberSaveable { mutableStateOf(initialTab) }
-    var searching by rememberSaveable { mutableStateOf(initialQuery != null) }
-    var query by rememberSaveable { mutableStateOf(initialQuery.orEmpty()) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val editing = rememberServerEditing()
-
-    BackHandler(enabled = searching) { searching = false; query = "" }
+    val shown = remember(snapshot, selection) { snapshot.only(selection, sourceOf) }
 
     WithLibraryActions {
         Scaffold(
@@ -171,102 +192,100 @@ fun LibraryContent(
             contentWindowInsets = WindowInsets(0),
             containerColor = MaterialTheme.colorScheme.surface,
             topBar = {
-                if (searching) {
-                    SearchTopBar(query, onQueryChange = { query = it }, onClose = { searching = false; query = "" })
-                } else {
-                    LargeFlexibleTopAppBar(
-                        title = { Text("Your Music") },
-                        actions = {
-                            IconButton(onClick = { searching = true }) { Icon(Icons.Rounded.Search, contentDescription = "Search your music") }
-                            IconButton(onClick = { navigator.open(SettingsRoute) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
-                        },
-                        scrollBehavior = scrollBehavior,
-                    )
-                }
+                LargeFlexibleTopAppBar(
+                    title = { Text("Library") },
+                    actions = {
+                        IconButton(onClick = { navigator.open(SettingsRoute) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
+                    },
+                    scrollBehavior = scrollBehavior,
+                )
             },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
-                if (searching) {
-                    SearchResults(query, index, currentMediaId)
-                    return@Column
-                }
-                LibraryTabs(tab, onSelect = {
-                    if (it != tab) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                    tab = it
-                })
-                val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
-                val fade = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
-                AnimatedContent(
-                    targetState = tab,
-                    transitionSpec = {
-                        val forward = targetState.ordinal > initialState.ordinal
-                        (slideInHorizontally(spatial) { if (forward) it / 6 else -it / 6 } + fadeIn(fade)) togetherWith
-                            (slideOutHorizontally(spatial) { if (forward) -it / 6 else it / 6 } + fadeOut(fade))
-                    },
-                    label = "tab",
-                    modifier = Modifier.fillMaxSize(),
-                ) { shown ->
-                    when {
-                        shown == LibraryTab.Servers -> ServerList(
-                            entries = servers,
-                            onAdd = { editing.add() },
-                            onEdit = { editing.edit(it) },
-                            onRemove = { editing.remove(it) },
-                            onTrust = { editing.trust(it) },
-                            contentPadding = PaddingValues(bottom = MiniPlayerClearance),
-                        )
-                        snapshot.songs.isEmpty() && snapshot.isLoading -> Loading()
-                        snapshot.songs.isEmpty() && !snapshot.hasPermission -> PermissionState(onAllowAccess, onAddServer = { tab = LibraryTab.Servers; editing.add() })
-                        snapshot.songs.isEmpty() -> NoMusicState(onAddServer = { tab = LibraryTab.Servers; editing.add() })
-                        else -> Column {
-                            if (!snapshot.hasPermission) AccessBanner(onAllowAccess)
-                            when (shown) {
-                                LibraryTab.Songs -> SongsTab(snapshot.songs, currentMediaId)
-                                LibraryTab.Albums -> AlbumsTab(snapshot.albums)
-                                LibraryTab.Artists -> ArtistsTab(snapshot.artists, index)
-                                LibraryTab.Servers -> Unit
+                when {
+                    snapshot.songs.isEmpty() && snapshot.isLoading -> Loading()
+                    sources.isEmpty() && snapshot.songs.isEmpty() -> EmptyState(
+                        icon = Icons.Rounded.LibraryMusic,
+                        title = "No music yet",
+                    ) {
+                        Button(
+                            onClick = { navigator.open(SettingsPageRoute("sources/add")) },
+                            modifier = Modifier.heightIn(min = 56.dp),
+                            contentPadding = PaddingValues(horizontal = 28.dp),
+                        ) {
+                            Icon(Icons.Rounded.Add, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Add source", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                    else -> {
+                        LibraryChips(tab, onSelect = {
+                            if (it != tab) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            tab = it
+                        }, sources = sources, selection = selection, onSource = onSelect)
+                        val fade = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+                        Crossfade(targetState = selection to tab, animationSpec = fade, label = "library", modifier = Modifier.fillMaxSize()) { (chosen, showing) ->
+                            if (shown.songs.isEmpty()) {
+                                val name = (chosen as? SourceSelection.Only)?.let { only -> sources.firstOrNull { it.id == only.source }?.name }
+                                Message(Icons.Rounded.MusicNote, if (name != null) "Nothing from $name yet" else "No music yet", null)
+                                return@Crossfade
+                            }
+                            when (showing) {
+                                LibraryTab.Songs -> SongsTab(shown.songs, currentMediaId)
+                                LibraryTab.Albums -> AlbumsTab(shown.albums)
+                                LibraryTab.Artists -> ArtistsTab(shown.artists, index)
                             }
                         }
                     }
                 }
             }
         }
-        editing.Sheets()
     }
 }
 
-/** Songs, Albums, Artists, Servers: a connected button group, the selected one filled. */
+/** The library narrowed to one source's songs, with albums and artists that have some. */
+fun LibrarySnapshot.only(selection: SourceSelection, sourceOf: (String) -> SourceId?): LibrarySnapshot {
+    if (selection is SourceSelection.All) return this
+    val keep = { song: PlayableSong -> selection.includes(sourceOf(song.mediaId)) }
+    val albums = albums.mapNotNull { album -> album.songs.filter(keep).takeIf { it.isNotEmpty() }?.let { album.copy(songs = it) } }
+    val kept = albums.map { it.id }.toSet()
+    val artists = artists.mapNotNull { artist ->
+        val theirs = artist.albums.filter { it.id in kept }.map { album -> albums.first { it.id == album.id } }
+        if (theirs.isEmpty()) null else artist.copy(albums = theirs, songCount = theirs.sumOf { it.songs.size })
+    }
+    return copy(songs = songs.filter(keep), albums = albums, artists = artists)
+}
+
+/**
+ * The source filter, then Artists, Albums and Songs as single-select chips. Scrolls sideways
+ * when it doesn't fit (a long source name, the largest text).
+ */
 @Composable
-private fun LibraryTabs(selected: LibraryTab, onSelect: (LibraryTab) -> Unit) {
+private fun LibraryChips(
+    selected: LibraryTab,
+    onSelect: (LibraryTab) -> Unit,
+    sources: List<Source>,
+    selection: SourceSelection,
+    onSource: (SourceSelection) -> Unit,
+) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        LibraryTab.entries.forEachIndexed { i, item ->
-            val checked = item == selected
-            ToggleButton(
-                checked = checked,
-                onCheckedChange = { onSelect(item) },
-                shapes = when (i) {
-                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                    LibraryTab.entries.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                },
-                colors = ToggleButtonDefaults.colors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-                contentPadding = PaddingValues(horizontal = 8.dp),
-                modifier = Modifier.weight(1f).height(48.dp),
-            ) {
-                AnimatedVisibility(visible = checked) {
-                    Row {
-                        Icon(item.icon, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                    }
-                }
-                Text(item.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-            }
+        if (sources.size >= 2) SourceFilterChip(sources, selection, onSource)
+        LibraryTab.entries.forEach { item ->
+            val on = item == selected
+            FilterChip(
+                selected = on,
+                onClick = { onSelect(item) },
+                label = { Text(item.label) },
+                leadingIcon = if (on) ({ Icon(Icons.Rounded.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }) else null,
+                modifier = Modifier.semantics { role = Role.RadioButton },
+            )
         }
     }
 }
@@ -275,7 +294,7 @@ private fun LibraryTabs(selected: LibraryTab, onSelect: (LibraryTab) -> Unit) {
 private fun SongsTab(songs: List<PlayableSong>, currentMediaId: String?) {
     val player = LocalContext.current.graph.player
     val actions = LocalLibraryActions.current
-    val origin = remember { QueueOrigin("Your Music", QueueOrigin.Kind.Library) }
+    val origin = remember { QueueOrigin("Library", QueueOrigin.Kind.Library) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = MiniPlayerClearance)) {
         item(key = "play") {
             PlayShuffleButtons(
@@ -332,95 +351,78 @@ private fun ArtistsTab(artists: List<LibraryArtist>, index: () -> LibraryIndex) 
     }
 }
 
-@Composable
-private fun SearchTopBar(query: String, onQueryChange: (String) -> Unit, onClose: () -> Unit) {
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    Box(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-            SearchBarDefaults.InputField(
-                query = query,
-                onQueryChange = onQueryChange,
-                onSearch = {},
-                expanded = false,
-                onExpandedChange = {},
-                placeholder = { Text("Songs, albums and artists") },
-                leadingIcon = {
-                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
-                },
-                trailingIcon = {
-                    if (query.isNotEmpty()) IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, contentDescription = "Clear") }
-                },
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            )
-        }
+/** What a search found in your library. */
+data class LibraryFound(val songs: List<PlayableSong>, val albums: List<LibraryAlbum>, val artists: List<LibraryArtist>) {
+    val isEmpty: Boolean get() = songs.isEmpty() && albums.isEmpty() && artists.isEmpty()
+
+    companion object {
+        val None = LibraryFound(emptyList(), emptyList(), emptyList())
     }
 }
 
-private data class Found(val songs: List<PlayableSong>, val albums: List<LibraryAlbum>, val artists: List<LibraryArtist>)
-
+/** Your library's songs, albums and artists for [query], off the main thread, kept to [keep]'s songs. */
 @Composable
-private fun SearchResults(query: String, index: () -> LibraryIndex, currentMediaId: String?) {
-    val navigator = LocalNavigator.current
-    val actions = LocalLibraryActions.current
-    val player = LocalContext.current.graph.player
-    val found by produceState(Found(emptyList(), emptyList(), emptyList()), query) {
-        value = withContext(Dispatchers.Default) {
+fun rememberLibraryFound(query: String, index: () -> LibraryIndex, keep: (PlayableSong) -> Boolean = { true }): LibraryFound {
+    val found by produceState(LibraryFound.None, query, keep) {
+        value = if (query.isBlank()) LibraryFound.None else withContext(Dispatchers.Default) {
             val lookups = index()
-            Found(lookups.search(query), lookups.searchAlbums(query), lookups.searchArtists(query, 5))
+            val albums = lookups.searchAlbums(query).filter { album -> album.songs.any(keep) }
+            val artists = lookups.searchArtists(query, 5).filter { artist -> artist.albums.any { album -> album.songs.any(keep) } }
+            LibraryFound(lookups.search(query).filter(keep), albums, artists)
         }
     }
-    var retry by remember { mutableIntStateOf(0) }
-    val catalog = rememberCatalogSearch(query, retry)
-    if (query.isBlank()) {
-        Message(Icons.Rounded.Search, "Search for music", "Yours first, then everything else.")
-        return
-    }
-    val nothingHere = found.songs.isEmpty() && found.albums.isEmpty() && found.artists.isEmpty()
-    if (nothingHere && (catalog is Remote.Idle || (catalog is Remote.Loaded && catalog.value.isEmpty))) {
-        Message(Icons.Rounded.Search, "Nothing matches “$query”", "Try fewer words, or another spelling.")
-        return
-    }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = MiniPlayerClearance)) {
-        if (!nothingHere) item(key = "yours-h") {
-            com.luke.tracks.ui.discover.GroupHeading("In your music", Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp))
+    return found
+}
+
+/** A search's library results as list items: artists, albums, then songs that play from here. */
+fun LazyListScope.libraryFoundItems(
+    found: LibraryFound,
+    query: String,
+    index: () -> LibraryIndex,
+    currentMediaId: String?,
+    edge: Dp = 0.dp,
+    rowModifier: Modifier = Modifier,
+) {
+    if (found.artists.isNotEmpty()) {
+        item(key = "lib-artists-h") { SectionHeader("Artists", Modifier.padding(horizontal = edge)) }
+        items(found.artists, key = { "lib-artist-" + it.id }) { artist ->
+            val navigator = LocalNavigator.current
+            val actions = LocalLibraryActions.current
+            ArtistRow(
+                artist, onClick = { navigator.open(LibraryArtistRoute(artist.id)) },
+                onLongClick = { actions.open(LibraryTarget.Artist(artist, index().songsBy(artist))) },
+                modifier = Modifier.animateItem().then(rowModifier),
+            )
         }
-        if (found.artists.isNotEmpty()) {
-            item(key = "artists-h") { SectionHeader("Artists") }
-            items(found.artists, key = { "artist-" + it.id }) { artist ->
-                ArtistRow(
-                    artist, onClick = { navigator.open(LibraryArtistRoute(artist.id)) },
-                    onLongClick = { actions.open(LibraryTarget.Artist(artist, index().songsBy(artist))) },
-                    modifier = Modifier.animateItem(),
-                )
-            }
-        }
-        if (found.albums.isNotEmpty()) {
-            item(key = "albums-h") { SectionHeader("Albums") }
-            item(key = "albums") {
-                LazyRow(contentPadding = PaddingValues(horizontal = 10.dp)) {
-                    items(found.albums, key = { it.id }) { album ->
-                        AlbumCell(
-                            album, onClick = { navigator.open(LibraryAlbumRoute(album.id)) },
-                            onLongClick = { actions.open(LibraryTarget.Album(album)) },
-                            modifier = Modifier.width(148.dp).animateItem(),
-                        )
-                    }
+    }
+    if (found.albums.isNotEmpty()) {
+        item(key = "lib-albums-h") { SectionHeader("Albums", Modifier.padding(horizontal = edge)) }
+        item(key = "lib-albums") {
+            val navigator = LocalNavigator.current
+            val actions = LocalLibraryActions.current
+            LazyRow(rowModifier, contentPadding = PaddingValues(horizontal = 10.dp)) {
+                items(found.albums, key = { it.id }) { album ->
+                    AlbumCell(
+                        album, onClick = { navigator.open(LibraryAlbumRoute(album.id)) },
+                        onLongClick = { actions.open(LibraryTarget.Album(album)) },
+                        modifier = Modifier.width(148.dp).animateItem(),
+                    )
                 }
             }
         }
-        if (found.songs.isNotEmpty()) {
-            item(key = "songs-h") { SectionHeader("Songs") }
-            items(found.songs, key = { "song-" + it.mediaId }) { song ->
-                SongRow(
-                    song, isCurrent = song.mediaId == currentMediaId,
-                    onClick = { player.play(found.songs, found.songs.indexOf(song), QueueOrigin(query, QueueOrigin.Kind.Search)) },
-                    onMore = { actions.open(LibraryTarget.Song(song)) },
-                    modifier = Modifier.animateItem(),
-                )
-            }
+    }
+    if (found.songs.isNotEmpty()) {
+        item(key = "lib-songs-h") { SectionHeader("Songs", Modifier.padding(horizontal = edge)) }
+        items(found.songs, key = { "lib-song-" + it.mediaId }) { song ->
+            val actions = LocalLibraryActions.current
+            val player = LocalContext.current.graph.player
+            SongRow(
+                song, isCurrent = song.mediaId == currentMediaId,
+                onClick = { player.play(found.songs, found.songs.indexOf(song), QueueOrigin(query, QueueOrigin.Kind.Search)) },
+                onMore = { actions.open(LibraryTarget.Song(song)) },
+                modifier = Modifier.animateItem().then(rowModifier),
+            )
         }
-        catalogSearchItems(catalog, edge = 20.dp, onRetry = { retry++ })
     }
 }
 
@@ -436,7 +438,7 @@ private fun Loading() {
 fun EmptyState(
     icon: ImageVector,
     title: String,
-    body: String,
+    body: String? = null,
     modifier: Modifier = Modifier,
     actions: @Composable () -> Unit = {},
 ) {
@@ -452,15 +454,17 @@ fun EmptyState(
         }
         Spacer(Modifier.height(28.dp))
         Text(title, style = MaterialTheme.typography.headlineSmallEmphasized, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(8.dp))
-        Text(body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        if (body != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        }
         Spacer(Modifier.height(28.dp))
         actions()
     }
 }
 
 @Composable
-private fun Message(icon: ImageVector, title: String, body: String) {
+private fun Message(icon: ImageVector, title: String, body: String?) {
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 64.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -468,56 +472,10 @@ private fun Message(icon: ImageVector, title: String, body: String) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(16.dp))
         Text(title, style = MaterialTheme.typography.titleMediumEmphasized, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(4.dp))
-        Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-    }
-}
-
-@Composable
-private fun PermissionState(onAllow: () -> Unit, onAddServer: () -> Unit) {
-    EmptyState(
-        icon = Icons.Rounded.LibraryMusic,
-        title = "Play the music on your phone",
-        body = "Allow access to music files to play them in Tracks.",
-    ) {
-        Button(onClick = onAllow, modifier = Modifier.height(56.dp), contentPadding = PaddingValues(horizontal = 28.dp)) {
-            Text("Allow access", style = MaterialTheme.typography.titleMedium)
-        }
-        Spacer(Modifier.height(8.dp))
-        TextButton(onClick = onAddServer) { Text("Or add a music server") }
-    }
-}
-
-@Composable
-private fun NoMusicState(onAddServer: () -> Unit) {
-    EmptyState(
-        icon = Icons.Rounded.MusicNote,
-        title = "No music here yet",
-        body = "Music files on this phone show up here. You can also add a music server.",
-    ) {
-        OutlinedButton(onClick = onAddServer, modifier = Modifier.height(56.dp), contentPadding = PaddingValues(horizontal = 28.dp)) {
-            Icon(Icons.Rounded.Dns, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("Add a server", style = MaterialTheme.typography.titleMedium)
+        if (body != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
     }
 }
 
-@Composable
-private fun AccessBanner(onAllow: () -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        shape = MaterialTheme.shapes.large,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-    ) {
-        Row(Modifier.padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "See the music on this phone too",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onAllow) { Text("Allow") }
-        }
-    }
-}

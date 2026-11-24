@@ -7,7 +7,8 @@ import android.provider.Settings
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudDownload
-import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Sync
 import com.luke.tracks.discover.discovery
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
@@ -57,12 +58,19 @@ fun SettingsScreen() {
     val scope = rememberCoroutineScope()
     fun open(page: String) = navigator.open(SettingsPageRoute(page))
 
+    val sources by com.luke.tracks.ui.sources.sourceList()
     SettingsScaffold(title = "Settings", showBack = navigator.backStack.size > 1) {
+        group(key = "sources") {
+            link(
+                "Sources",
+                summary = com.luke.tracks.ui.sources.summary(sources),
+                icon = Icons.Rounded.LibraryMusic,
+                tone = if (sources.any { it.status.needsAction }) Tone.Error else Tone.Primary,
+            ) { open("sources") }
+            link("Sync", summary = syncSummary(graph), icon = Icons.Rounded.Sync, tone = Tone.Secondary) { open("sync") }
+        }
         group("Listening") {
             link("Last.fm", summary = lastFmSummary(lastFm, settings), icon = Icons.Rounded.GraphicEq, tone = Tone.Error) { open("lastfm") }
-            link("Your Music servers", summary = "Navidrome and other Subsonic servers", icon = Icons.Rounded.Dns, tone = Tone.Secondary) {
-                open("servers")
-            }
             link("Get music", summary = getMusicSummary(graph), icon = Icons.Rounded.CloudDownload, tone = Tone.Tertiary) {
                 open("getmusic")
             }
@@ -75,7 +83,7 @@ fun SettingsScreen() {
             link(
                 "Hear less of",
                 summary = when (val n = settings.hiddenSongs.size) {
-                    0 -> "Songs you ask to hear less of"
+                    0 -> "None"
                     1 -> "1 song"
                     else -> "$n songs"
                 },
@@ -85,7 +93,7 @@ fun SettingsScreen() {
         }
         group("Look and feel") {
             link("Appearance", summary = appearanceSummary(settings), icon = Icons.Rounded.Palette, tone = Tone.Primary) { open("appearance") }
-            link("App language", summary = "Follows your phone unless you pick one", icon = Icons.Rounded.Language, tone = Tone.Tertiary) {
+            link("App language", summary = "Phone language", icon = Icons.Rounded.Language, tone = Tone.Tertiary) {
                 openAppLanguage(context)
             }
         }
@@ -93,11 +101,11 @@ fun SettingsScreen() {
             toggle(
                 "Sample data",
                 checked = graph.sampleData,
-                summary = if (graph.sampleData) "On. Your own history is kept separately." else "Invented listening history for trying Tracks",
+                summary = if (graph.sampleData) "Your own history is kept apart" else null,
                 icon = Icons.Rounded.Science,
                 tone = Tone.Tertiary,
             ) { confirmSample = it }
-            link("Privacy", summary = "What Tracks keeps and where", icon = Icons.Rounded.Shield, tone = Tone.Secondary) { open("privacy") }
+            link("Privacy", icon = Icons.Rounded.Shield, tone = Tone.Secondary) { open("privacy") }
             link("About Tracks", summary = "Version ${BuildConfig.VERSION_NAME}", icon = Icons.Rounded.Info, tone = Tone.Neutral) { open("about") }
         }
     }
@@ -125,6 +133,19 @@ fun SettingsScreen() {
             },
             dismissButton = { TextButton(onClick = { confirmSample = null }) { Text("Cancel") } },
         )
+    }
+}
+
+/** Off, or where the history syncs and whether it needs a hand. */
+@Composable
+private fun syncSummary(graph: com.luke.tracks.AppGraph): String {
+    val sync = remember(graph) { com.luke.tracks.sync.CloudSync.of(graph) }
+    val status by remember(sync) { sync?.status ?: kotlinx.coroutines.flow.MutableStateFlow(com.luke.tracks.sync.SyncStatus()) }.collectAsStateWithLifecycle()
+    val sources by com.luke.tracks.ui.sources.sourceList()
+    return when {
+        status.serverId == null -> "Off"
+        status.problem != null -> "Needs attention"
+        else -> sources.firstOrNull { (it.id as? com.luke.tracks.sources.SourceId.Server)?.id == status.serverId }?.name ?: "On"
     }
 }
 

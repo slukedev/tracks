@@ -123,12 +123,23 @@ fun PlayScreen() {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val current = feed
+    val registry = com.luke.tracks.ui.sources.rememberSources()
+    val selection by com.luke.tracks.ui.sources.sourceSelection()
+    val current = remember(feed, selection) {
+        if (selection is com.luke.tracks.sources.SourceSelection.All) feed
+        else feed?.only { selection.includes(registry.sourceOf(it.mediaId)) }
+    }
+    val sourceCount = com.luke.tracks.ui.sources.sourceList().value.size
+    // A server that's down keeps out of the way: its shelves hide until it answers again.
+    val shownServers = servers.filter { server ->
+        val id = com.luke.tracks.sources.SourceId.Server(server.id)
+        selection.includes(id) && registry.source(id)?.status?.canPlay != false
+    }
     // Picks are made again when the artists you play change, not for every song played.
     val taste = remember(current?.topArtists) { current?.topArtists.orEmpty().take(8).map { it.identity }.toSet() }
 
     val unplayable: () -> Unit = {
-        scope.launch { snackbar.showSnackbar("None of these songs are in your music on this phone yet") }
+        scope.launch { snackbar.showSnackbar("None of these songs are in your library yet") }
     }
     val openMix: (Mix) -> Unit = { navigator.open(MixRoute(it.id)) }
 
@@ -138,14 +149,11 @@ fun PlayScreen() {
         snackbarHost = { SnackbarHost(snackbar, Modifier.padding(bottom = MiniPlayerClearance - 16.dp)) },
         topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text(greeting(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(greeting(hourOf(com.luke.tracks.ui.components.LocalClock.current())), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 subtitle = current?.mixes?.rightNow?.kind?.let { kind ->
                     { Text((kind as? uniffi.tracks_engine.MixKind.RightNow)?.let { it.part.moment(it.isWeekend) } ?: "") }
                 },
                 actions = {
-                    IconButton(onClick = { navigator.open(SearchRoute) }) {
-                        Icon(Icons.Rounded.Search, contentDescription = "Search")
-                    }
                     IconButton(onClick = { navigator.open(SettingsRoute) }) {
                         Icon(Icons.Rounded.Settings, contentDescription = "Settings")
                     }
@@ -166,8 +174,9 @@ fun PlayScreen() {
                     contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = MiniPlayerClearance + 16.dp),
                     verticalArrangement = Arrangement.spacedBy(32.dp),
                 ) {
-                    // A server that can't be reached says so first, since it's why its shelves are gone.
-                    item(key = "problems", contentType = "problems") { ServerProblems() }
+                    if (sourceCount >= 2) item(key = "source", contentType = "source") {
+                        com.luke.tracks.ui.sources.SourceFilterChip(Modifier.padding(horizontal = 16.dp))
+                    }
                     val crate = crateItems(current, settings?.showTracksRadio != false)
                     if (crate.isNotEmpty()) item(key = "crate", contentType = "crate") {
                         Crate(
@@ -189,7 +198,7 @@ fun PlayScreen() {
                         return@LazyColumn
                     }
                     if (!current.hasHistory) item(key = "empty") { EmptyPlay(Modifier.animateItem()) }
-                    servers.forEach { server ->
+                    shownServers.forEach { server ->
                         item(key = "suggested-${server.id}", contentType = "server-songs") {
                             ServerForYouShelf(server, ForYouShelf.SUGGESTED, taste, Modifier.animateItem())
                         }
@@ -206,7 +215,7 @@ fun PlayScreen() {
                     if (current.waiting.isNotEmpty()) {
                         item(key = "waiting", contentType = "shelf") { WaitingToBeHeard(current.waiting, actions, Modifier.animateItem()) }
                     }
-                    servers.forEach { server ->
+                    shownServers.forEach { server ->
                         item(key = "picks-${server.id}", contentType = "server-songs") {
                             ServerForYouShelf(server, ForYouShelf.PICKS, taste, Modifier.animateItem())
                         }
@@ -214,37 +223,11 @@ fun PlayScreen() {
                             ServerAlbumShelves(server, Modifier.animateItem())
                         }
                     }
-                    if (servers.isNotEmpty() && (exploring.isNotEmpty() || canExploreMore)) {
+                    if (shownServers.isNotEmpty() && (exploring.isNotEmpty() || canExploreMore)) {
                         item(key = "keep-exploring", contentType = "explore") {
                             KeepExploring(exploring, goesOn = canExploreMore, onEnd = { picks.exploreMore() }, Modifier.animateItem())
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-/** Each server that can't be reached, with what's wrong and Try again. */
-@Composable
-private fun ServerProblems() {
-    val context = LocalContext.current
-    val library = context.graph.library as? CombinedLibrary
-    val entries by (library?.servers?.entries ?: remember { MutableStateFlow(emptyList<ServerEntry>()) }).collectAsState()
-    val scope = rememberCoroutineScope()
-    val failing = entries.filter { it.status is ServerStatus.Failed }
-    if (failing.isEmpty()) return
-    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        failing.forEach { entry ->
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.CloudOff, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Can't reach ${entry.server.name}", style = MaterialTheme.typography.titleSmallEmphasized)
-                        Text((entry.status as ServerStatus.Failed).message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    TextButton(onClick = { scope.launch { library?.servers?.sync(entry.server) } }) { Text("Try again") }
                 }
             }
         }
@@ -481,6 +464,8 @@ private fun initials(name: String): String =
         .take(2).joinToString("") { it.first().uppercase() }
 
 /** "Good evening", by the hour. */
+fun hourOf(ms: Long): Int = Calendar.getInstance().apply { timeInMillis = ms }.get(Calendar.HOUR_OF_DAY)
+
 fun greeting(hour: Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)): String = when (hour) {
     in 5..11 -> "Good morning"
     in 12..16 -> "Good afternoon"

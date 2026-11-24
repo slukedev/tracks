@@ -27,7 +27,7 @@ sealed class TracksideError(message: String) : Exception(message) {
     data object SyncReset : TracksideError("The server started its library over.")
     class RateLimited(val retryAfterSeconds: Long?) : TracksideError("The server is busy. Try again in a moment.")
     class Unavailable(val code: String, val retryAfterSeconds: Long?) : TracksideError("The server can't play that right now. Try again in a moment.")
-    class Server(val status: Int, val code: String, detail: String) : TracksideError(detail.ifBlank { "The server had a problem." })
+    class Server(val status: Int, val code: String, detail: String, val field: String? = null) : TracksideError(detail.ifBlank { "The server had a problem." })
     /** Not an answer Tracks can read: not Trackside, most likely. */
     data object NotTrackside : TracksideError("That address doesn't look like a Trackside server.")
     class Http(val status: Int) : TracksideError("The server answered with an error.")
@@ -127,6 +127,24 @@ class TracksideClient(
     suspend fun random(count: Int = 40): List<TracksideSong> =
         get("songs/random", TracksideSongList.serializer(), mapOf("count" to "$count")).songs
 
+    // MARK: Shelves
+
+    /** Songs like the ones you play that you haven't lately: the server's picks for you. */
+    suspend fun picks(count: Int = 40, timeZone: String = java.time.ZoneId.systemDefault().id): TracksideSuggestedSongs =
+        get("me/picks", TracksideSuggestedSongs.serializer(), mapOf("count" to "$count", "tz" to timeZone))
+
+    /** One of Tracks' mixes, made by the server from your listens there: "onRepeat", "rediscover" and the rest. */
+    suspend fun mix(id: String, timeZone: String = java.time.ZoneId.systemDefault().id): List<TracksideSong> =
+        get("me/mixes/$id", TracksideSongList.serializer(), mapOf("tz" to timeZone)).songs
+
+    /** Songs by the artists you play and ones like them that you've never played. */
+    suspend fun getMore(count: Int = 24): TracksideSuggestedSongs =
+        get("me/get-more", TracksideSuggestedSongs.serializer(), mapOf("count" to "$count"))
+
+    /** The most played songs on the server. */
+    suspend fun mostPlayed(count: Int = 50): List<TracksideSong> =
+        get("songs/top", TracksideSongList.serializer(), mapOf("count" to "$count")).songs
+
     /** The library only: songs the server doesn't have are never in it. */
     suspend fun searchLibrary(query: String, types: List<String>, limit: Int = 20, cursor: String? = null): TracksideSearchResults =
         get("search", TracksideSearchResults.serializer(), listOfNotNull("q" to query, "types" to types.joinToString(","), "limit" to "$limit", cursor?.let { "cursor" to it }).toMap())
@@ -151,6 +169,45 @@ class TracksideClient(
 
     suspend fun unstar(songId: String) = perform("me/stars/song/$songId", "DELETE")
 
+    // MARK: Live, listens and Trackside Cloud
+
+    /** What the server offers, asked once per connection. */
+    @Volatile private var capabilities: TracksideCapabilities? = null
+
+    suspend fun capabilities(): TracksideCapabilities =
+        capabilities ?: decode(call { base -> request(base, "capabilities") }, TracksideCapabilities.serializer()).also { capabilities = it }
+
+    /** The profile to stream on cellular: the server's suggestion, or AAC at 256 kbps. */
+    suspend fun cellularProfile(): String =
+        runCatching { capabilities().media?.suggestedCellularProfile }.getOrNull()?.takeIf { it.isNotBlank() } ?: "aac-256"
+
+    /** The live event stream's request, to the proven address with the key. */
+    suspend fun eventsRequest(lastEventId: String?): Request {
+        val base = endpoints.provenBaseUrl()
+        return request(base, "events", authorization = bearer).newBuilder()
+            .header("Accept", "text/event-stream")
+            .apply { lastEventId?.let { header("Last-Event-ID", it) } }
+            .build()
+    }
+
+    suspend fun sendListens(listens: List<TracksideListen>, clientTime: Instant = now()): List<TracksideListenResult> =
+        send("listens", "POST", TracksideJson.encodeToString(TracksideListens.serializer(), TracksideListens(clientTime.toString(), listens)), TracksideListenResults.serializer()).results
+
+    /** "playing", "paused" or "stopped". */
+    suspend fun nowPlaying(songId: String, positionMs: Long, state: String) =
+        perform("now-playing", "POST", TracksideJson.encodeToString(TracksideNowPlaying.serializer(), TracksideNowPlaying(songId, positionMs, state)))
+
+    /** A Trackside Cloud request with a body in [CloudJson]; any answer but 2xx throws. */
+    suspend fun <T> cloud(path: String, method: String, body: String?, serializer: KSerializer<T>, query: Map<String, String> = emptyMap()): T {
+        val answer = call { base -> request(base, "cloud/$path", query, method = method, body = body, authorization = bearer) }
+        check(answer)
+        return try {
+            CloudJson.decodeFromString(serializer, answer.body)
+        } catch (_: Exception) {
+            throw TracksideError.NotTrackside
+        }
+    }
+
     // MARK: Requests
 
     private suspend fun <T> get(path: String, serializer: KSerializer<T>, query: Map<String, String> = emptyMap()): T =
@@ -172,6 +229,12 @@ class TracksideClient(
         val base = endpoints.provenBaseUrl()
         val answer = exchange(build(base))
         if (base.isHttps || !isHttpsRequired(answer)) return answer
+        // The https addresses the refusal names come first; each still proves itself before use.
+        val named = httpsUrls(answer).mapNotNull { stored ->
+            stored.url.toHttpUrlOrNull()?.takeIf { it.isHttps }?.let { Endpoint(it, kind(stored.kind, it)) }
+        }
+        val known = endpoints.candidates.map { it.url }.toSet()
+        if (named.any { it.url !in known }) endpoints.update(named.filter { it.url !in known } + endpoints.candidates)
         val secure = endpoints.requireHttps()?.takeIf { it.isHttps } ?: throw TracksideError.HttpsRequired
         return exchange(build(secure))
     }
@@ -244,6 +307,9 @@ class TracksideClient(
         /** The profile for a bit rate: null for the original. */
         fun profile(bitRate: Int?): String? = bitRate?.let { if (it >= 256) "aac-256" else "aac-128" }
 
+        /** A profile's bit rate from its name ("aac-256" is 256), or null for one without, such as "flac". */
+        fun bitRate(profile: String): Int? = profile.substringAfterLast('-', "").toIntOrNull()
+
         const val PROBE_TIMEOUT_MS = 2_000L
 
         private fun requireSafe(base: HttpUrl) {
@@ -284,6 +350,17 @@ class TracksideClient(
             return base.newBuilder().encodedPath(full).encodedQuery(query).build()
         }
 
+        /** The https addresses an `https_required` refusal names, if any. */
+        fun httpsUrls(answer: TracksideAnswer): List<TracksideServerUrl> =
+            runCatching { TracksideJson.decodeFromString(TracksideErrorEnvelope.serializer(), answer.body).error.details?.httpsUrls }.getOrNull().orEmpty()
+
+        private fun kind(kind: String, url: HttpUrl) = when (kind) {
+            "lan" -> Endpoint.Kind.Lan
+            "tailnet" -> Endpoint.Kind.Tailnet
+            "public" -> Endpoint.Kind.Public
+            else -> Endpoint.guess(url).kind
+        }
+
         fun isHttpsRequired(answer: TracksideAnswer) = answer.status == 403 &&
             runCatching { TracksideJson.decodeFromString(TracksideErrorEnvelope.serializer(), answer.body).error.code == "https_required" }.getOrDefault(false)
 
@@ -314,7 +391,7 @@ class TracksideClient(
                 "sync_reset" -> TracksideError.SyncReset
                 "rate_limited" -> TracksideError.RateLimited(retryAfter)
                 "library_unavailable", "transcoder_busy", "unavailable" -> TracksideError.Unavailable(body.code, retryAfter)
-                else -> TracksideError.Server(answer.status, body.code, body.message.orEmpty())
+                else -> TracksideError.Server(answer.status, body.code, body.message.orEmpty(), body.details?.field)
             }
         }
     }

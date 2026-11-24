@@ -97,6 +97,8 @@ class ServerLibrary(
     private val transport: SubsonicTransport = OkHttpTransport(),
     private val tracksideTransport: TracksideTransport = OkHttpTracksideTransport(),
     private val network: NetworkWatcher? = NetworkWatcher(context),
+    /** This install's device id, the one Trackside Cloud knows it by too. */
+    private val deviceId: suspend () -> String = { legacyDeviceId(context) },
 ) {
     private val cacheDir = File(context.filesDir, "servers")
     private val songs = MutableStateFlow<Map<String, List<SubsonicSong>>>(emptyMap())
@@ -221,7 +223,7 @@ class ServerLibrary(
         val client = connection.trackside ?: throw IOException("Not a server Tracks can play from.")
         if (fresh) {
             client.renewMediaToken()
-            connection.decisions.remove(link.id)
+            connection.decisions.keys.removeAll { it.startsWith("${link.id}|") }
         } else {
             client.freshMediaToken()
         }
@@ -230,9 +232,13 @@ class ServerLibrary(
             ServerLinks.Kind.Cover -> client.artworkUrl(link.id, link.size)
             ServerLinks.Kind.Stream -> {
                 val now = System.currentTimeMillis()
-                val reference = connection.decisions[link.id]?.takeIf { now - it.second < DECISION_KEEP_MS }?.first
-                    ?: client.decide(TracksidePlaybackRequest.exoPlayer(link.id, null, network?.kind?.wire ?: NetworkKind.Unknown.wire)).url
-                        .also { connection.decisions[link.id] = it to now }
+                val kind = network?.kind ?: NetworkKind.Unknown
+                // On cellular, the server's cellular profile; elsewhere, the original where it plays.
+                val profile = if (kind == NetworkKind.Cellular) client.cellularProfile() else null
+                val key = "${link.id}|${kind.wire}"
+                val reference = connection.decisions[key]?.takeIf { now - it.second < DECISION_KEEP_MS }?.first
+                    ?: client.decide(TracksidePlaybackRequest.exoPlayer(link.id, profile?.let(TracksideClient::bitRate), kind.wire, profile)).url
+                        .also { connection.decisions[key] = it to now }
                 client.mediaUrl(reference) ?: throw TracksideError.NotTrackside
             }
         }
@@ -270,6 +276,12 @@ class ServerLibrary(
     // MARK: Asking
 
     /** A client for [server], or null when its secret can't be opened. */
+    /** A Trackside server's client, once the saved servers are read; null for any other. */
+    suspend fun tracksideClient(serverId: String): TracksideClient? {
+        loading.first { !it }
+        return connections[serverId]?.trackside
+    }
+
     fun client(server: SubsonicServer): MusicServerClient? =
         connections[server.id]?.takeIf { it.server == server }?.client ?: makeConnection(server)?.client
 
@@ -448,9 +460,8 @@ class ServerLibrary(
         else -> Endpoint.guess(url).kind
     }
 
-    private fun deviceInfo(): TracksideDeviceInfo {
-        val prefs = context.getSharedPreferences("trackside", Context.MODE_PRIVATE)
-        val id = prefs.getString("deviceId", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("deviceId", it).apply() }
+    private suspend fun deviceInfo(): TracksideDeviceInfo {
+        val id = deviceId()
         val name = runCatching { android.provider.Settings.Global.getString(context.contentResolver, android.provider.Settings.Global.DEVICE_NAME) }.getOrNull()
             ?.takeIf { it.isNotBlank() } ?: Build.MODEL
         val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
@@ -606,6 +617,11 @@ class ServerLibrary(
         private val songList = ListSerializer(SubsonicSong.serializer())
         private val serverList = ListSerializer(SubsonicServer.serializer())
         private val cacheJson = Json { ignoreUnknownKeys = true; explicitNulls = false }
+
+        private fun legacyDeviceId(context: Context): String {
+            val prefs = context.getSharedPreferences("trackside", Context.MODE_PRIVATE)
+            return prefs.getString("deviceId", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("deviceId", it).apply() }
+        }
 
         fun parse(raw: String): List<SubsonicServer> =
             runCatching { cacheJson.decodeFromString(serverList, raw) }.getOrDefault(emptyList())

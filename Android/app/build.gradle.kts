@@ -8,6 +8,14 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
+/**
+ * Which engine and code the app is built with. "play" is the store build. "sideload" adds
+ * Spotify, which plays through librespot against Spotify's terms and so never goes to a store:
+ * build it with -Ptracks.sideload=true after Engine/build-android.sh --sideload.
+ */
+val sideload = providers.gradleProperty("tracks.sideload").map { it.toBoolean() }.getOrElse(false)
+val variant = if (sideload) "sideload" else "play"
+
 val secrets = Properties().apply {
     val file = rootProject.file("secrets.properties")
     if (file.exists()) file.inputStream().use(::load)
@@ -51,6 +59,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "LASTFM_API_KEY", "\"${secrets.getProperty("lastfm.apiKey", "")}\"")
         buildConfigField("String", "LASTFM_SECRET", "\"${secrets.getProperty("lastfm.secret", "")}\"")
+        buildConfigField("boolean", "SPOTIFY", sideload.toString())
+        if (sideload) versionNameSuffix = "-sideload"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
@@ -83,7 +93,13 @@ android {
 
     sourceSets {
         getByName("main") {
-            kotlin.directories += "engine-bindings"
+            kotlin.directories += "engine-bindings/$variant/kotlin"
+            kotlin.directories += "src/$variant/kotlin"
+            jniLibs.directories += "engine-bindings/$variant/jniLibs"
+            res.directories += "src/$variant/res"
+        }
+        getByName("test") {
+            kotlin.directories += "src/test${variant.replaceFirstChar(Char::uppercase)}/kotlin"
         }
     }
 
@@ -155,6 +171,7 @@ dependencies {
     implementation(libs.palette)
     implementation(libs.splashscreen)
     implementation(libs.browser)
+    implementation(libs.code.scanner)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 
@@ -163,6 +180,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.room.testing)
     testImplementation(libs.okhttp.tls)
     testImplementation(libs.robolectric)
     testImplementation(libs.roborazzi)
@@ -180,7 +198,19 @@ tasks.withType<Test>().configureEach {
     val os = System.getProperty("os.name").lowercase()
     val arch = System.getProperty("os.arch").let { if (it == "amd64" || it == "x86_64") "x86-64" else "aarch64" }
     val dir = (if (os.contains("mac")) "darwin-" else "linux-") + arch
-    systemProperty("jna.library.path", file("src/test/resources/$dir").absolutePath)
+    systemProperty("jna.library.path", file("engine-bindings/$variant/host/$dir").absolutePath)
+}
+
+// Says how to build the engine when this variant's is missing, rather than failing on
+// unresolved references.
+val engineBindings = file("engine-bindings/$variant/kotlin")
+val engineCommand = if (sideload) "Engine/build-android.sh --sideload" else "Engine/build-android.sh"
+tasks.named("preBuild").configure {
+    val bindings = engineBindings
+    val command = engineCommand
+    doFirst {
+        if (!bindings.exists()) throw GradleException("Tracks: the engine for this variant isn't built. Run $command first.")
+    }
 }
 
 // Says which key a release is signed with whenever one is built, so a debug-signed release

@@ -46,6 +46,7 @@ class MainActivity : ComponentActivity() {
                 animate = true,
             ) {
                 com.luke.tracks.ui.onboarding.OnboardingGate { AppShell(remember { navigator }) }
+                com.luke.tracks.ui.library.servers.PairingLinkPrompt()
             }
         }
     }
@@ -55,17 +56,26 @@ class MainActivity : ComponentActivity() {
         handle(intent)
     }
 
-    /** Deep links and shortcuts: tracks://radio, tracks://search, tracks://summary. */
+    /**
+     * Deep links and shortcuts: tracks://radio, search, library, summary, history, charts
+     * (History in Charts mode), nowplaying, mix/<id>, sources and settings/<page>.
+     */
     private fun handle(intent: Intent?) {
         val data = intent?.data ?: return
+        if (com.luke.tracks.library.trackside.PairingLinks.offer(data.toString())) {
+            navigator.open(com.luke.tracks.ui.navigation.SettingsPageRoute("servers"))
+            return
+        }
         if (data.scheme != "tracks") return
         com.luke.tracks.system.Shortcuts.reportUsed(this, data)
         when (data.host) {
             "radio" -> graph.player.startRadio().also { navigator.nowPlayingOpen = true }
             "search" -> navigator.open(SearchRoute)
+            "library" -> navigator.select(Tab.Library)
             "summary" -> navigator.select(Tab.Summary)
-            "charts" -> navigator.select(Tab.Charts)
-            "history" -> navigator.select(Tab.History)
+            "charts" -> navigator.open(com.luke.tracks.ui.navigation.ChartsRoute)
+            "history" -> navigator.open(com.luke.tracks.ui.navigation.HistoryRoute)
+            "sources" -> navigator.open(com.luke.tracks.ui.navigation.SettingsPageRoute("sources"))
             "nowplaying" -> navigator.nowPlayingOpen = true
             "mix" -> data.lastPathSegment?.let { navigator.open(com.luke.tracks.ui.navigation.MixRoute(it)) }
             "settings" -> navigator.open(

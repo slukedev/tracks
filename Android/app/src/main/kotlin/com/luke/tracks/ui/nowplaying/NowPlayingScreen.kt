@@ -58,6 +58,14 @@ import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material.icons.rounded.ThumbUpOffAlt
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.foundation.layout.navigationBarsPadding
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.playback.RadioState
 import com.luke.tracks.ui.navigation.LocalNavigator
@@ -194,36 +202,123 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
             }
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
     ) {
-        Column(
+        BoxWithConstraints(
             Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 24.dp)
                 .graphicsLayer { translationY = dragDown * 0.5f },
-            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            TopRow(state, song, actions, onClose, radio, player, tuneRadio)
-            Spacer(Modifier.weight(0.6f))
-            Cover(state, song, player)
-            Spacer(Modifier.weight(0.6f))
-            TitleBlock(state, song, actions, radio?.reason(song))
-            Spacer(Modifier.height(16.dp))
-            WavySeekBar(
-                position = player.position,
-                durationMs = state.lengthMs ?: 0,
-                isPlaying = state.isPlaying,
-                onSeek = player::seekTo,
-                modifier = Modifier.widthIn(max = 560.dp),
-            )
-            Spacer(Modifier.height(12.dp))
-            Transport(state, player, isStation = radio != null)
-            Spacer(Modifier.weight(0.4f))
-            BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) })
-            Spacer(Modifier.height(8.dp))
+            val controls: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
+                TitleBlock(state, song, actions, radio?.reason(song))
+                Spacer(Modifier.height(16.dp))
+                WavySeekBar(
+                    position = player.position,
+                    durationMs = state.lengthMs ?: 0,
+                    isPlaying = state.isPlaying,
+                    onSeek = player::seekTo,
+                    modifier = Modifier.widthIn(max = 560.dp),
+                )
+                SourceBadge(song, onGoToAlbum = { onClose(); it() })
+                Spacer(Modifier.height(12.dp))
+                Transport(state, player, isStation = radio != null)
+            }
+            // Wide and short (a tablet, a phone on its side, a foldable open): cover beside the controls.
+            if (maxWidth > maxHeight && maxWidth >= 600.dp) {
+                Column(Modifier.fillMaxSize()) {
+                    TopRow(state, song, actions, onClose, radio, player, tuneRadio)
+                    Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f).fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                            Box(Modifier.aspectRatio(1f, matchHeightConstraintsFirst = true)) { Cover(state, song, player) }
+                        }
+                        Spacer(Modifier.width(32.dp))
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            controls()
+                            Spacer(Modifier.height(16.dp))
+                            BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) })
+                        }
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    TopRow(state, song, actions, onClose, radio, player, tuneRadio)
+                    Spacer(Modifier.weight(0.6f))
+                    Cover(state, song, player)
+                    Spacer(Modifier.weight(0.6f))
+                    controls()
+                    Spacer(Modifier.weight(0.4f))
+                    BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) })
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
         }
+        SkipMessages()
     }
 
     if (queueOpen) QueueSheet(state, player, onDismiss = { queueOpen = false }, onTuneRadio = tuneRadio)
+}
+
+/** The player's one quiet line when it skips songs it couldn't play, while Now Playing is open. */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.SkipMessages() {
+    val registry = com.luke.tracks.ui.sources.rememberSources()
+    val host = remember { SnackbarHostState() }
+    LaunchedEffect(registry) {
+        registry.skips.collect { skipped ->
+            host.currentSnackbarData?.dismiss()
+            host.showSnackbar(listOfNotNull(skipped.message, skipped.reason).joinToString("\n"))
+        }
+    }
+    SnackbarHost(host, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
+}
+
+/**
+ * Where this song is playing from, under the seek bar: there with two or more sources, and
+ * always for Spotify. A tap offers the album. The mark and name fade as songs change.
+ */
+@Composable
+private fun SourceBadge(song: PlayableSong, onGoToAlbum: (() -> Unit) -> Unit) {
+    val registry = com.luke.tracks.ui.sources.rememberSources()
+    val sources by com.luke.tracks.ui.sources.sourceList()
+    val source = sources.firstOrNull { it.id == registry.sourceOf(song.mediaId) } ?: return
+    if (sources.size < 2 && source.kind != com.luke.tracks.sources.SourceKind.Spotify) return
+    val index = com.luke.tracks.ui.play.components.rememberLibraryIndex()
+    val navigator = LocalNavigator.current
+    val album = index.albumIdOf(song)
+    var menu by remember { mutableStateOf(false) }
+    val fade = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    Box {
+        Row(
+            Modifier
+                .heightIn(min = 48.dp)
+                .clip(MaterialTheme.shapes.large)
+                .clickable(enabled = album != null, onClickLabel = "More") { menu = true }
+                .padding(horizontal = 12.dp)
+                .semantics(mergeDescendants = true) { contentDescription = "Playing from ${source.name}" },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            com.luke.tracks.ui.sources.SourceMark(source, size = 18.dp)
+            Spacer(Modifier.width(8.dp))
+            AnimatedContent(source.name, transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) }, label = "source") { name ->
+                Text(
+                    name,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 220.dp),
+                )
+            }
+        }
+        DropdownMenu(menu, { menu = false }, shape = MaterialTheme.shapes.large) {
+            if (album != null) {
+                MenuItem(Icons.Rounded.Album, "Go to album") {
+                    menu = false
+                    onGoToAlbum { navigator.open(com.luke.tracks.ui.navigation.LibraryAlbumRoute(album)) }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -244,16 +339,12 @@ private fun TopRow(
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             state.origin?.let { origin ->
                 Text(
-                    "PLAYING FROM",
-                    style = MaterialTheme.typography.labelSmallEmphasized,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
                     origin.title,
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
+                    modifier = Modifier.semantics { contentDescription = "Playing from ${origin.title}" },
                 )
             }
         }

@@ -44,6 +44,10 @@ If you run your own Trackside server, you can choose it instead of iCloud under 
 
 Tracks talks to your server only over https, or over plain HTTP to addresses on your home network or Tailscale, and only after the server has proven, with your device's key, that it is your server. Moving from iCloud to Trackside Cloud leaves what iCloud holds where it is; moving back leaves your server's copy where it is. Removing the server from your Trackside account or deleting its data removes that copy.
 
+On Android, where there's no iCloud, Sync is Off or Trackside Cloud. Android also syncs the songs you like and its own appearance and Tracks Radio settings, so your other Android devices match. When you play a song from a Trackside server, Tracks tells that server about the play (kept on your device until the server has it) and what's playing now, as Trackside's own dashboard shows it.
+
+Scanning a Trackside pairing code on Android uses Google Play services' code scanner, which reads the code on your device and gives Tracks only the text in it; Tracks never gets camera access. Like any app's use of it, Google Play services may send Google its own diagnostics about the scanner, never the image. To find Trackside servers on your home network, Tracks listens for them on that network and contacts nothing else.
+
 ## Apple Music
 
 With your permission, Tracks uses Apple's MusicKit to:

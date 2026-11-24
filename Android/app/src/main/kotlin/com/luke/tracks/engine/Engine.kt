@@ -91,6 +91,7 @@ fun PlayEntity.toEnginePlay(): Play = Play(
     source = when (source) {
         PlaySourceValue.Streaming -> PlaySource.AppleMusic
         PlaySourceValue.YourMusic -> PlaySource.YourMusic
+        PlaySourceValue.Spotify -> PlaySource.Spotify
     },
     stationName = stationName,
 )

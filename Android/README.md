@@ -1,7 +1,8 @@
 # Tracks for Android
 
 Tracks on Android: Kotlin, Jetpack Compose and Material 3 Expressive, on the same Rust engine
-as the iPhone and Mac apps. It plays your own music and Subsonic servers with Media3, keeps
+as the iPhone and Mac apps. It plays music from your sources (files on the phone, Trackside and Subsonic servers, and
+Spotify in sideload builds) with Media3, keeps
 every song you play in it, and turns that history into Summary, Charts, History and mixes.
 It can import your Last.fm history and scrobbles to Last.fm.
 
@@ -27,8 +28,13 @@ cd Android
 ```
 
 Run `Engine/build-android.sh` once after cloning and after any change in `Engine/`. It writes
-`app/src/main/jniLibs/`, `app/engine-bindings/` and a host copy of the engine under
-`app/src/test/resources/`, all gitignored.
+the engine for each ABI, its Kotlin bindings and a host copy for JVM tests under
+`app/engine-bindings/<variant>/`, gitignored.
+
+There are two variants. **play** is the default and the only one for a store. **sideload** adds
+Spotify (see `docs/platforms/android.md`); build its engine with `Engine/build-android.sh
+--sideload` (or `--both`), then pass `-Ptracks.sideload=true` to any Gradle task, for example
+`./gradlew -Ptracks.sideload=true :app:assembleRelease`. Its version name ends in `-sideload`.
 
 Release builds are signed with the Play upload key when `secrets.properties` (or the
 `TRACKS_UPLOAD_*` environment variables, for CI) names one; see `secrets.example.properties`.
@@ -49,7 +55,8 @@ and shared secret. Without them the app says Last.fm isn't set up in this build.
 Unit tests cover scrobbling, the Subsonic and Trackside clients (against the server's wire
 fixtures in `app/src/test/resources/trackside/`, copied from tracks-companion like
 `TracksCore`'s), address selection, certificate pinning over real TLS, playback rules and more.
-Screenshot tests render every screen in light and dark with Robolectric, against the real
+Screenshot tests render every screen in light and dark with Robolectric (plus the largest
+font scale, right to left and a tablet for Sources and the shell), against the real
 engine and invented sample history, into `app/build/screenshots/`. See
 `app/src/test/kotlin/com/luke/tracks/Screenshots.kt`.
 
@@ -60,6 +67,7 @@ engine and invented sample history, into `app/build/screenshots/`. See
 | `engine` | The Rust engine, called off the main thread. |
 | `data` | Room (the history's source of truth), settings, periods, sample data. |
 | `library` | Device files, Subsonic and Trackside servers (`library/trackside`), merged. |
+| `sources` | The sources registry: each source's name and status, the source filter, the Play From order, and the player's skipped-songs messages. Spotify registers into it. |
 | `net` | The app's HTTP rules: one OkHttp setup, cleartext only nearby, certificate pins, endpoint racing, retries, credential-free media links, log redaction. |
 | `playback` | Media3 service, Android Auto browse tree, player controller, Tracks Radio. |
 | `lastfm` | Connecting, scrobbling and importing, through the engine's Last.fm client. |

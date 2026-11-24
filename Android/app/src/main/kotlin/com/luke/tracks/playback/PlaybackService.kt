@@ -14,7 +14,6 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -40,6 +39,9 @@ import com.luke.tracks.graph
 import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.net.Http
 import com.luke.tracks.net.Logs
+import com.luke.tracks.spotify.Spotify
+import com.luke.tracks.spotify.SpotifyUris
+import com.luke.tracks.spotify.spotifyProblem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -106,6 +108,9 @@ class PlaybackService : MediaLibraryService() {
     /** Files on the phone, and server songs signed only as each request goes out ([com.luke.tracks.net.ServerLinks]). */
     private val dataSources by lazy { DefaultDataSource.Factory(this, OkHttpDataSource.Factory(Http.media)) }
 
+    /** The above, plus Spotify's decoded audio in builds that have it. */
+    private val songSources by lazy { SourceDataSource.Factory(dataSources) { Spotify.integration?.audio } }
+
     override fun onCreate() {
         super.onCreate()
         memory = QueueMemory(this)
@@ -118,9 +123,9 @@ class PlaybackService : MediaLibraryService() {
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setMediaSourceFactory(
-                DefaultMediaSourceFactory(dataSources)
+                DefaultMediaSourceFactory(songSources)
                     // A dropped connection resumes from where the song broke off, a few times over.
-                    .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(LOAD_RETRIES)),
+                    .setLoadErrorHandlingPolicy(SourceLoadErrorPolicy(LOAD_RETRIES)),
             )
             .build()
         player = FreshShufflePlayer(exo)
@@ -224,7 +229,16 @@ class PlaybackService : MediaLibraryService() {
         val title = player.currentMediaItem?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "that song"
         failuresInARow++
         val moveOn = player.hasNextMediaItem() && failuresInARow < player.mediaItemCount
-        say(if (moveOn) "Couldn't play $title. Playing the next song." else "Couldn't play $title.")
+        val spotify = error.spotifyProblem()
+        when {
+            spotify == null -> say(if (moveOn) "Couldn't play $title. Playing the next song." else "Couldn't play $title.")
+            // Said once for a run of songs that fail for the same account-wide reason.
+            spotify.accountWide -> {
+                if (failuresInARow == 1) say(spotify.message)
+                Spotify.integration?.playbackFailed(spotify)
+            }
+            else -> say(spotify.message)
+        }
         if (!moveOn) return
         player.seekToNextMediaItem()
         player.prepare()
@@ -304,7 +318,7 @@ class PlaybackService : MediaLibraryService() {
             durationMs = ListenCounter.knownLength(song.durationMs) ?: ListenCounter.knownLength(exo.duration),
             listenedMs = count.listenedMs,
             kind = PlayKindValue.OnDemand,
-            source = PlaySourceValue.YourMusic,
+            source = if (SpotifyUris.isSpotify(song.mediaId)) PlaySourceValue.Spotify else PlaySourceValue.YourMusic,
             appPackage = packageName,
             appName = "Tracks",
             stationName = if (isRadio() && graph.radio.state.value.picks.containsKey(item.mediaId)) "Tracks Radio" else null,

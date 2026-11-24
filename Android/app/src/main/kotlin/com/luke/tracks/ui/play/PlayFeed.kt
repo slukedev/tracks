@@ -48,6 +48,13 @@ data class PlayFeed(
         (listOfNotNull(mixes.rightNow) + mixes.otherTimes + mixes.mixes).firstOrNull { it.id == id }
 
     fun playable(mix: Mix): List<PlayableSong> = mix.songs.mapNotNull { playable[it.identity] }
+
+    /** The feed kept to songs that pass [keep]: one source's, when Play is filtered. */
+    fun only(keep: (PlayableSong) -> Boolean): PlayFeed = copy(
+        playable = playable.filterValues(keep),
+        recentlyPlayed = recentlyPlayed.mapNotNull { album -> album.songs.filter(keep).takeIf { it.isNotEmpty() }?.let { album.copy(songs = it) } },
+        waiting = waiting.filter(keep),
+    )
 }
 
 private const val DAY = 86_400_000L
@@ -63,9 +70,10 @@ fun rememberPlayFeed(): State<PlayFeed?> {
     val settings by graph.settings.settings.collectAsStateWithLifecycle(null)
     val library by graph.library.snapshot.collectAsStateWithLifecycle()
     val hidden = settings?.hiddenSongs
+    val clock = com.luke.tracks.ui.components.LocalClock.current
     return produceState<PlayFeed?>(null, revision, hidden, library) {
         if (hidden == null) return@produceState
-        value = runCatching { loadFeed(graph, hidden) }.getOrNull() ?: value
+        value = runCatching { loadFeed(graph, hidden, clock()) }.getOrNull() ?: value
     }
 }
 

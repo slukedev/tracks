@@ -126,8 +126,33 @@ data class TracksideCapabilities(
     val version: String? = null,
     @SerialName("setup_required") val setupRequired: Boolean? = null,
     val auth: Auth? = null,
+    val media: Media? = null,
+    val features: Features? = null,
+    val cloud: Cloud? = null,
 ) {
     val isTrackside: Boolean get() = product == "trackside"
+
+    /** Whether the server keeps Trackside Cloud for its users. */
+    val offersCloud: Boolean get() = features?.cloud == true || cloud != null
+
+    @Serializable
+    data class Media(
+        val hls: Boolean? = null,
+        val transcoding: Boolean? = null,
+        val profiles: List<String>? = null,
+        @SerialName("suggested_cellular_profile") val suggestedCellularProfile: String? = null,
+    )
+
+    @Serializable
+    data class Features(val cloud: Boolean? = null, val events: Boolean? = null)
+
+    @Serializable
+    data class Cloud(
+        val entities: List<String> = emptyList(),
+        val epoch: String? = null,
+        @SerialName("max_batch") val maxBatch: Int? = null,
+        @SerialName("max_page") val maxPage: Int? = null,
+    )
 
     @Serializable
     data class Auth(
@@ -259,6 +284,14 @@ data class TracksideArtistPage(
 @Serializable
 internal data class TracksideSongList(val songs: List<TracksideSong> = emptyList())
 
+/** A song Last.fm suggests that this server doesn't have. */
+@Serializable
+data class TracksideSuggestion(val title: String, val artist: String)
+
+/** Songs the server picked from what you play, and ones it suggests that it doesn't have. */
+@Serializable
+data class TracksideSuggestedSongs(val songs: List<TracksideSong> = emptyList(), val external: List<TracksideSuggestion>? = null)
+
 @Serializable
 internal data class TracksideAlbumList(val albums: List<TracksideAlbum> = emptyList(), @SerialName("next_cursor") val nextCursor: String? = null)
 
@@ -315,7 +348,7 @@ data class TracksidePlaybackRequest(
          * What ExoPlayer plays as it is. No HLS: a whole file streams with range requests,
          * so a dropped connection resumes where it broke off.
          */
-        fun exoPlayer(songId: String, maxBitRate: Int?, network: String) = TracksidePlaybackRequest(
+        fun exoPlayer(songId: String, maxBitRate: Int?, network: String, profile: String? = TracksideClient.profile(maxBitRate)) = TracksidePlaybackRequest(
             songId = songId,
             network = network,
             client = Client(
@@ -330,7 +363,7 @@ data class TracksidePlaybackRequest(
                 ),
                 hls = false,
                 maxBitrateKbps = maxBitRate,
-                preferredProfile = TracksideClient.profile(maxBitRate),
+                preferredProfile = profile,
                 allowOriginalFallback = true,
             ),
         )
@@ -349,6 +382,40 @@ data class TracksidePlaybackDecision(
 @Serializable
 internal data class TracksideStarRequest(val at: String)
 
+/** A play to tell the server about, idempotent by [clientListenId]: the play's own id. */
+@Serializable
+data class TracksideListen(
+    @SerialName("client_listen_id") val clientListenId: String,
+    @SerialName("song_id") val songId: String? = null,
+    @SerialName("started_at") val startedAt: String,
+    @SerialName("played_ms") val playedMs: Long? = null,
+    val title: String,
+    val artist: String,
+    val album: String? = null,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+)
+
+@Serializable
+internal data class TracksideListens(@SerialName("client_time") val clientTime: String, val listens: List<TracksideListen>)
+
+@Serializable
+data class TracksideListenResult(
+    @SerialName("client_listen_id") val clientListenId: String,
+    /** "accepted", "duplicate" or "rejected". */
+    val status: String,
+    val reason: String? = null,
+)
+
+@Serializable
+internal data class TracksideListenResults(val results: List<TracksideListenResult> = emptyList())
+
+@Serializable
+internal data class TracksideNowPlaying(
+    @SerialName("song_id") val songId: String,
+    @SerialName("position_ms") val positionMs: Long,
+    val state: String,
+)
+
 /** The body of every refusal: `{"error": {"code": ..., "message": ...}}`. */
 @Serializable
 internal data class TracksideErrorEnvelope(val error: Body) {
@@ -356,5 +423,11 @@ internal data class TracksideErrorEnvelope(val error: Body) {
     data class Body(val code: String, val message: String? = null, val details: Details? = null)
 
     @Serializable
-    data class Details(val reason: String? = null, @SerialName("resets_at") val resetsAt: String? = null)
+    data class Details(
+        val reason: String? = null,
+        @SerialName("resets_at") val resetsAt: String? = null,
+        val field: String? = null,
+        /** With `https_required`: the server's https addresses, to try before any it listed earlier. */
+        @SerialName("https_urls") val httpsUrls: List<TracksideServerUrl>? = null,
+    )
 }

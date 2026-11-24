@@ -284,7 +284,7 @@ fun AvailabilityAccessory(song: CatalogSong, availability: Availability, canFetc
     ) { state ->
         Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
             when (state) {
-                Accessory.Owned -> Icon(Icons.Rounded.CheckCircle, "In your music", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Accessory.Owned -> Icon(Icons.Rounded.CheckCircle, "In your library", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                 Accessory.Get -> FilledTonalIconButton(
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -457,7 +457,7 @@ fun albumCaption(album: CatalogAlbum, ownership: Ownership, ownedSongs: Int, sho
         CatalogAlbumKind.ALBUM -> null
     }
     return when (ownership) {
-        Ownership.OWNED -> "In your music"
+        Ownership.OWNED -> "In your library"
         Ownership.PARTLY_OWNED -> album.trackCount?.let { "$ownedSongs of $it songs" } ?: "Some songs"
         Ownership.MISSING -> listOfNotNull(if (showArtist) album.artistName else null, kind, album.year?.toString()).joinToString(" · ")
     }
@@ -511,8 +511,8 @@ fun CatalogAlbumCell(album: CatalogAlbum, modifier: Modifier = Modifier, showArt
 @Composable
 fun OwnershipBadge(ownership: Ownership, modifier: Modifier = Modifier) {
     val (icon, label) = when (ownership) {
-        Ownership.OWNED -> Icons.Rounded.CheckCircle to "In your music"
-        else -> Icons.Rounded.Contrast to "Some of it is in your music"
+        Ownership.OWNED -> Icons.Rounded.CheckCircle to "In your library"
+        else -> Icons.Rounded.Contrast to "Some of it is in your library"
     }
     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = modifier.size(28.dp)) {
         Box(contentAlignment = Alignment.Center) {

@@ -22,6 +22,11 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ## Decisions
 
+- 2026-11-24: Sources replace "Your Music". A source is where a song comes from: On This
+  Device, each server by its own name, and Spotify in builds that have it. They live in one
+  registry (`sources/`), are managed in Settings > Sources, and filter Play and Library once
+  there are two or more. The tabs are Play, Library, Summary, History and Search, with Charts
+  as History's second mode. Plays stay in History when a source is removed.
 - 2026-11-24: Cleartext is the app's decision, not the network security config's. The config
   can't name private address ranges, so it permits cleartext and `net/Http.kt`'s
   `CleartextGuard` refuses plain http to anything but a nearby address (the iPhone's and
@@ -53,8 +58,9 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Material You dynamic color from the wallpaper (Android 12 and later), or Tracks' own
   colors; a choice for colors from the cover playing is in the settings model.
 - Themed (monochrome) app icon and a splash screen.
-- Adaptive navigation (navigation bar, rail or drawer by window size) with five places:
-  Play, Summary, Charts, History, Your Music.
+- Adaptive navigation with five places: Play, Library, Summary, History (Plays or Charts)
+  and Search. The short bar on phones, the collapsed rail on mid-size windows and unfolded
+  foldables, the expanded rail with labels on tablets.
 - Navigation 3 routes for artist, album, song, mix, search, Settings and its pages, and
   library albums and artists, with predictive back and back to Play from another tab's root.
 - Edge-to-edge layout.
@@ -81,7 +87,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ### System integration
 
-- Deep links: `tracks://radio`, `tracks://search`, `tracks://summary`.
+- Deep links: `tracks://radio`, `search`, `library`, `summary`, `history`, `charts` (History in
+  Charts mode), `nowplaying`, `mix/<id>`, `sources` and `settings/<page>`.
 - Static launcher shortcuts: Tracks Radio (bound to the `actions.intent.PLAY` capability),
   Search, Summary.
 - `MEDIA_PLAY_FROM_SEARCH` intent filter for "Play X on Tracks" from Assistant and other apps
@@ -134,9 +141,11 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ### Charts
 
+- History's second mode, switched with Plays and Charts in the bar.
 - Songs, artists and albums by period with up, down, new and same badges, a No. 1 card and up
   to 100 rows.
-- Filter by All, Streaming and Your music.
+- Filter by the kind of source the plays came from (files and servers, Spotify, streaming
+  imports), offered only when there are plays of two kinds.
 - Play and Shuffle when the songs are in your library.
 
 ### History list and detail pages
@@ -150,8 +159,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ### Search
 
-- Results as you type across artists, songs and albums, with recent searches.
-- Your Music search across device files and servers.
+- Its own tab: results as you type, with recent searches. Everything, Library or History,
+  and with two or more sources, one source's songs only.
 - Search beyond your music: the iTunes catalog (no account, the phone's own storefront) under
   your own results, as "Not in your music": artists, albums (marked when you have some or all
   of them) and songs, each with a 30 second preview, open in another app, its catalog artist
@@ -217,6 +226,10 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - Colors from the cover, artwork that breathes while playing and rests when paused.
 - Swipe the artwork to skip; pull down to close.
+- With two or more sources, where the song plays from under the seek bar (always for
+  Spotify); Up next marks each row's source when the queue mixes them, and dims songs whose
+  source can't play them now. When the player skips songs it couldn't play, one quiet
+  snackbar says how many and why.
 - "Playing from", tappable artist, play count and a ring that fills until the song is kept.
 - Wavy seek bar that goes flat when paused.
 - Shuffle and repeat, expressive button group transport.
@@ -226,8 +239,18 @@ See [README.md](README.md) for the legend and how to keep this current.
   from the cover (or in the app's colors, from Settings, Appearance), with the song's progress filling the play button's edge: tap or swipe up
   to expand, swipe to skip, press and hold (or TalkBack's Show queue action) for the queue.
 
-### Your Music
+### Sources and Library
 
+- Settings > Sources: every source with one status word (Connected, Offline, Sign in, Check
+  certificate, Syncing, a song count), Add source (a container transform from the button;
+  On This Device asks for music access, Server opens the server form, Spotify its own page),
+  the Play From order to drag once there are two or more, and remove with a confirmation that
+  counts what goes and says plays stay. Each source has a page: a server's status, name,
+  addresses (home network, Tailscale, internet), Check connection and Remove. On a tablet the
+  page sits beside the list.
+- Library filtered to Spotify shows Spotify's own saved albums, playlists and liked songs.
+- Library: one library across sources, with the source filter and Artists, Albums and Songs
+  as chips. "No music yet" with Add source when there's nothing.
 - Device files through MediaStore, with permission handling and change watching. *(untested
   on a device)*
 - Subsonic-compatible servers (Navidrome and others): add, edit, test and remove. Passwords
@@ -257,7 +280,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   fingerprint, and a pinned address that later shows a different certificate is refused until
   you confirm again (Settings, Servers shows it). Trackside's own announced fingerprints are
   pinned as on iPhone. Only system CAs are trusted in release builds.
-- Songs, Albums, Artists and Servers, with album and artist pages.
+- Artists, Albums and Songs, with album and artist pages.
 - Sample music in sample-data mode, so the whole app plays.
 
 ### Playback and system
@@ -284,6 +307,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Connect through a Custom Tab, with the session key sealed by an Android Keystore key.
 - Scrobbles in batches of 50 with WorkManager, settled by Last.fm's answer, with backoff.
 - Now playing updates.
+- Spotify's plays aren't scrobbled unless Scrobble Spotify is on (Last.fm settings, sideload
+  builds only), since Spotify scrobbles them itself.
 - Import from Last.fm, skipping plays already kept. The row says what it does before you tap
   it and shows progress; there is no confirmation dialog.
 - A notification when the session is revoked.
@@ -296,9 +321,10 @@ See [README.md](README.md) for the legend and how to keep this current.
   a custom color instead: the wallpaper's own colors or twelve presets, in Tonal, Vibrant,
   Exact or Muted style, plus pure black for dark mode. Colors follow Android's contrast
   setting and cross-fade when changed.
-- Settings in Android 16's grouped style: Last.fm, servers, appearance, Tracks Radio, Hear less of, privacy, about, licenses,
-  app language and sample data.
-- Onboarding: welcome, permissions, Last.fm, and try with sample data.
+- Settings in Android 16's grouped style: Sources and Sync first, then Last.fm, appearance,
+  Tracks Radio, Hear less of, privacy, about, licenses, app language and sample data.
+- Onboarding: welcome, Add music (On This Device, a server, Spotify where built), Last.fm,
+  and try with sample data.
 - Material 3 Expressive's short navigation bar on phones (a wide rail on larger screens). It
   slides away while you scroll down and returns when you scroll up; the mini player follows,
   and pages leave only the room they need at the bottom.
@@ -396,8 +422,8 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - Driving: Tracks Radio for the road, from Activity Recognition or an Android Auto
   connection.
 - Shake to Play.
-- Quick Switch has no equivalent need (one source), but switching between device files and a
-  server that isn't answering would be.
+- Play From is stored and ordered in the UI; the player still plays the copy the library
+  finds first.
 
 ### Now Playing
 
@@ -431,18 +457,15 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - Playlists and smart playlists.
 - Lidarr's Wanted and Coming Soon lists, and adding an artist picked from Lidarr's own search.
 - Tell the server about plays (Subsonic `scrobble`).
-- Trackside: live events (SSE), the listen outbox and now playing, scanning a pairing QR code
-  with the camera, opening `trackside://pair` links from outside the app, finding servers on
-  the network (Bonjour `_trackside._tcp`), lyrics, playlists, and the cellular stream profile.
+- Trackside: lyrics and playlists. Showing servers found on the network in Add Server and a
+  Scan Code button there (`NearbyServers.found`, `rememberPairingScanner`) are ready for the
+  form to use.
 
 ### Sync and backup
 
-- Sync between Android devices. Auto Backup restores to a new phone but doesn't keep two
-  devices in step. Options: Google Drive's app data folder, or a sync built on the engine's
-  idempotent writes.
-- Sync with an iPhone or Mac. Nothing crosses today: Apple history is in CloudKit. This needs
-  a design (a shared export format through Last.fm, a file, or a server) and is the biggest
-  cross-platform gap.
+- Sync without a Trackside server (Google Drive's app data folder). With one, see Sync below.
+- Sessions, stations, playlists and playlist entries in Trackside Cloud: Android has no
+  radio sessions or playlists yet, so it doesn't sync them.
 
 ### Devices and sharing
 
@@ -482,3 +505,96 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
   playlist, Play Back, Merge with Apple Music, Explicit Songs, Offline Mode for Apple Music,
   Motif import, Handoff, CarPlay (Android Auto instead), the menu bar extra and the Mac's
   windows.
+
+## Spotify (sideload builds only)
+
+Spotify plays inside Tracks through the engine's `spotify` feature, on librespot. It is opt-in
+and never in a store build: Spotify's terms forbid unofficial clients and the audio is
+decrypted on the phone. Build it with `Engine/build-android.sh --sideload` and
+`-Ptracks.sideload=true` (see [Android/README.md](../../Android/README.md)); that sets
+`BuildConfig.SPOTIFY`, links the engine built with Spotify, and compiles `app/src/sideload/`.
+The play variant compiles `app/src/play/`, whose `SpotifyFlavor` returns nothing, against an
+engine without Spotify, so none of it ships there. A sideload build has the same application
+id, so it replaces a store install (and its history) rather than sitting beside it.
+
+- **Premium only.** Sign-in checks the account; without Premium nothing is kept and the page
+  says `Spotify Premium is needed to play here.`
+- **Sign-in** (Settings, Sources, Spotify): the engine's `SpotifyLogin` listens on
+  `http://127.0.0.1:<free port>/login`, the only redirect librespot's client ID accepts, while
+  Spotify's page is open in a Custom Tab. Coming back with the tab closed and no redirect
+  within 1.5 s is a cancel and says nothing. The opaque credentials blob is sealed with a
+  Keystore AES-GCM key (`KeystoreSecretBox("tracks.spotify")`) in the `spotify` preferences;
+  Sign Out deletes it. The OAuth tokens are never kept.
+- **Audio key refusal.** Since November 2026 Spotify refuses audio keys to librespot-style
+  clients for accounts it hasn't seen on one before
+  ([librespot#1649](https://github.com/librespot-org/librespot/issues/1649)); there is no fix.
+  Sign-in tries one saved song's key: when refused, the account stays for browsing and the page
+  shows `Spotify can't play this account in Tracks.` with Remove and Try Again, and the Sources
+  row asks to sign in.
+- **Playback** goes through the same Media3 ExoPlayer as everything else.
+  `playback/PcmWavDataSource` presents the engine's `SpotifyStream` (44.1 kHz stereo float) as a
+  16-bit WAV, so focus, the notification, Android Auto, speed and gapless joins work unchanged.
+  WavExtractor seeks by byte offset; the source maps it to a frame, seeks the engine to the
+  millisecond at or before it, and drops or pads the difference. A song that decodes short is
+  padded with silence to the length it promised. ExoPlayer opens the next song about 50 s
+  ahead, which is the prefetch. Account-wide errors (Premium, refused, signed out) aren't
+  retried and are said once; network errors are retried like any stream.
+- Plays are kept with source Spotify (`PlaySourceValue.Spotify`, the engine's
+  `PlaySource.Spotify`).
+- **Browsing:** saved albums, playlists, liked songs and search (`ui/spotify/`), with Spotify's
+  mark on every row, uncropped covers with 4dp and 8dp corners, and Open in Spotify on album
+  and playlist pages. No editorial or Home. Quality uses Spotify's names (Normal, High, Very
+  High, for 96, 160 and 320 kbps) separately for Wi-Fi and cellular.
+- librespot and psst are credited in Settings, About, Licenses.
+- *(Untested on a device and with a real account.)* Checked with fakes and Robolectric only:
+  the WAV framing, seeking sums, error words and the variant gating.
+
+## Sync (Trackside Cloud)
+
+2026-11-24. Settings, Sync is Off or Trackside Cloud on one of your Trackside servers (no
+iCloud on Android). The page (`ui/settings/SyncPage.kt`) shows the server, when it last
+synced or what went wrong, and what the server holds for you (`GET /cloud/usage`).
+*(untested against a real server; built against its wire fixtures)*
+
+- **Protocol** (`library/trackside/CloudWire.kt`, `TracksideCloud.kt`), per tracks-companion
+  docs/api.md section 19: snake_case envelopes, kebab-case entity paths, `POST
+  /cloud/{entity}:batch`, opaque `<epoch>.<seq>` cursors sent back verbatim, settings by
+  `PATCH /cloud/settings` with a cleared value as an explicit `null`.
+- **Engine** (`sync/CloudSyncEngine.kt`), the Apple apps' order: `PUT /cloud/devices/{id}`
+  (with predecessors) before anything is pushed, push what changed here, then pull. Batches
+  of at most 1000 items or 7 MiB, halved on `413`; per-item results: accepted and duplicate
+  settle the item, conflict takes the server's copy (a play keeps the server's core and what
+  was filled in here, and sends that again if the server lacks it), rejected drops it,
+  `deleted` removes the play here too. `device_mismatch` (per item or on registering) stops
+  sync with "Pair it again"; `quota_exceeded` stops it with nothing lost. A cursor is kept
+  only after its page is in Room and the engine. `410 sync_reset` (the server restored a
+  backup) pulls a full snapshot keeping everything here, then pushes all of it again.
+- **What syncs**: plays (Room's id is the cloud's playID; another device's plays are never
+  scrobbled here: `recordedBy` is set and the scrobble queue skips them), play deletions as
+  tombstones, likes (by song identity, `{"loved"}`, an unlike as `false`), forgotten songs,
+  blocked artists and excluded stations (kept and round-tripped; forgotten songs keep Last.fm
+  imports out), and settings: `scrobblesToLastFM` plus Android's own `android*` keys for
+  appearance, Tracks Radio and Hear Less Of. Servers, keys and Last.fm stay on the phone.
+- **Local changes**: plays carry a change counter (`cloudPending`) that a push clears only
+  if nothing changed since it was sent; settings and likes are compared with the cloud's
+  last copy. Turning sync on, or choosing another server, marks everything to go up first,
+  and settings and likes go as seeds dated 1970, so another device's choice stands.
+- **When**: at app start (foreground pull), 10 s after anything changes, on the server's
+  `cloud` event, and every 4 hours with WorkManager on any network, backing off
+  exponentially while the server can't be reached.
+- **Ids**: the device id is a random UUID sealed with a Keystore key (`sync/DeviceIdentity.kt`)
+  and is also the `client_device_id` sent when signing in and pairing. A phone restored from
+  a backup gets a new id and names the old one (read from the backed-up history database)
+  as its predecessor. Last.fm imports get the id an iPhone derives for the same scrobble:
+  UUIDv5 in namespace 8F6B1D3C-2A47-5E90-B1C8-4D2E7F9A0B36 of
+  `playedAtMs␟lastFM␟appleMusic␟songIdentity` (`data/PlayIds.kt`). Room version 2
+  (`Migration1To2`) adds the sync columns and tables and renames older `lastfm-…` ids.
+- **Trackside alongside**: live events (`TracksideEvents`, SSE while the app is in the
+  foreground, reconnecting from 1 s to a minute with jitter, `Retry-After` honoured; each
+  reconnect asks `/server/urls` with `If-None-Match`, syncs the library and pulls the cloud),
+  the listen outbox (`ListenOutbox`, in Room, sent with the play's id by WorkManager and kept
+  until the server answers), now playing (`POST /now-playing` on play, pause and stop), the
+  cellular profile (the server's `suggested_cellular_profile` on cellular), `https_required`
+  trying the https addresses the refusal lists first, `trackside://pair` links (asked before
+  pairing), QR pairing with Google's code scanner (no camera permission), and finding servers
+  on the network with NSD (`_trackside._tcp`, TXT `id`, `v`, `tls`, `path`).

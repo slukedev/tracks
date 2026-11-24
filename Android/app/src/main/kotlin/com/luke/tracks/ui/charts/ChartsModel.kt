@@ -11,11 +11,15 @@ import java.time.ZonedDateTime
 
 enum class ChartKind(val label: String) { Songs("Songs"), Artists("Artists"), Albums("Albums") }
 
-/** Which plays count: everything, streaming apps, or your own music. */
+/**
+ * Which plays count, by the kind of source each was kept with: everything, your files and
+ * servers, Spotify, or streaming apps (Apple Music on an iPhone, and Last.fm imports here).
+ */
 enum class SourceChoice(val label: String, val filter: SourceFilter) {
-    All("All", SourceFilter.ALL),
+    All("All sources", SourceFilter.ALL),
+    YourMusic("Files and servers", SourceFilter.YOUR_MUSIC),
+    Spotify("Spotify", SourceFilter.SPOTIFY),
     Streaming("Streaming", SourceFilter.APPLE_MUSIC),
-    YourMusic("Your music", SourceFilter.YOUR_MUSIC),
 }
 
 /** One line of a chart. */

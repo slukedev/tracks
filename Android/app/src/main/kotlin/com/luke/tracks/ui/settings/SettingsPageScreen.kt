@@ -1,17 +1,26 @@
 package com.luke.tracks.ui.settings
 
 import androidx.compose.runtime.Composable
-import com.luke.tracks.ui.library.servers.ServersSettingsPage
 
 /**
- * A page inside Settings, by name: lastfm, servers, appearance, radio, hidden, privacy, about,
- * licenses.
+ * A page inside Settings, by name: sources, source/<id>, lastfm, appearance, radio, hidden,
+ * privacy, about, licenses. "servers" is the old name for Sources, kept for links.
  */
 @Composable
 fun SettingsPageScreen(page: String) {
+    when {
+        page.startsWith("source/") -> com.luke.tracks.ui.sources.SourceDetailPage(page.removePrefix("source/"))
+        else -> NamedPage(page)
+    }
+}
+
+@Composable
+private fun NamedPage(page: String) {
     when (page) {
+        "sources", "servers" -> com.luke.tracks.ui.sources.SourcesSettingsPage()
+        "sources/add" -> com.luke.tracks.ui.sources.SourcesSettingsPage(adding = true)
+        "sync" -> SyncPage()
         "lastfm" -> LastFmPage()
-        "servers" -> ServersSettingsPage()
         "getmusic" -> com.luke.tracks.ui.library.servers.GetMusicSettingsPage()
         "lidarr" -> com.luke.tracks.ui.library.servers.LidarrSettingsPage()
         "appearance" -> AppearancePage()

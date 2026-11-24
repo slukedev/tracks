@@ -1,5 +1,6 @@
 package com.luke.tracks.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -10,7 +11,7 @@ import androidx.room.PrimaryKey
  */
 @Entity(
     tableName = "plays",
-    indices = [Index("playedAt"), Index("scrobbledAt")],
+    indices = [Index("playedAt"), Index("scrobbledAt"), Index("cloudPending")],
 )
 data class PlayEntity(
     @PrimaryKey val id: String,
@@ -35,13 +36,21 @@ data class PlayEntity(
     val scrobbledAt: Long? = null,
     val scrobbleError: String? = null,
     val scrobbleAttempts: Int = 0,
+    /** The device that recorded it, as Trackside Cloud names devices; null for this phone. */
+    val recordedBy: String? = null,
+    /** The version Trackside Cloud last stored it at, or null when it never has. */
+    val cloudVersion: Long? = null,
+    /** Counts changes not yet in the cloud; 0 once it's in step. */
+    @ColumnInfo(defaultValue = "1") val cloudPending: Int = 1,
+    /** The fields as the cloud last sent them, so ones this app doesn't keep go back unchanged. */
+    val cloudFields: String? = null,
 )
 
 /** The raw values match the engine's and the Swift app's. */
 enum class PlayKindValue { Radio, OnDemand, Imported, LastFm }
 
 /**
- * Where a play came from. The engine knows two sources: streaming (Apple Music on iPhone,
- * Last.fm imports on Android) and your own music.
+ * Where a play came from: streaming (Apple Music on iPhone, Last.fm imports on Android), your
+ * own music, or Spotify (sideload builds).
  */
-enum class PlaySourceValue { Streaming, YourMusic }
+enum class PlaySourceValue { Streaming, YourMusic, Spotify }

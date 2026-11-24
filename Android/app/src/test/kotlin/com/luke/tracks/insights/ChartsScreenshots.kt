@@ -24,6 +24,25 @@ class ChartsScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         }
     }
 
+    /** History in Charts mode, as the tab shows it, with the Plays and Charts switch in the bar. */
+    @Test
+    fun historyCharts() {
+        withSampleHistory()
+        runBlocking { loadCharts(graph.engine, ChartKind.Songs, PeriodKind.Week, 0, SourceChoice.All) }
+        val navigator = Navigator().apply { historyMode = com.luke.tracks.ui.navigation.HistoryMode.Charts }
+        snap("history-charts", settleMs = 6000) {
+            CompositionLocalProvider(LocalNavigator provides navigator) { com.luke.tracks.ui.history.HistoryTab() }
+        }
+    }
+
+    @Test
+    fun historyPlays() {
+        withSampleHistory()
+        snap("history-plays", settleMs = 4000) {
+            CompositionLocalProvider(LocalNavigator provides Navigator()) { com.luke.tracks.ui.history.HistoryTab() }
+        }
+    }
+
     /** The whole chart, all hundred rows' worth of page. */
     @Test
     @Config(qualifiers = "w412dp-h5200dp-xxhdpi")

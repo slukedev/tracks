@@ -15,6 +15,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,7 +38,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -73,19 +79,19 @@ import com.luke.tracks.lastfm.LastFm
 import com.luke.tracks.lastfm.lastFm
 
 /** The steps of the first run. */
-enum class OnboardingStep { Welcome, Permissions, LastFm, Ready }
+enum class OnboardingStep { Welcome, AddMusic, LastFm, Ready }
 
 /** Each step's shape: the one shape on screen morphs from each to the next. */
 private fun OnboardingStep.shape(done: Boolean): RoundedPolygon = when (this) {
     OnboardingStep.Welcome -> MaterialShapes.Cookie9Sided
-    OnboardingStep.Permissions -> MaterialShapes.Clover4Leaf
+    OnboardingStep.AddMusic -> MaterialShapes.Clover4Leaf
     OnboardingStep.LastFm -> if (done) MaterialShapes.Sunny else MaterialShapes.SoftBurst
     OnboardingStep.Ready -> MaterialShapes.Flower
 }
 
 private fun OnboardingStep.accent(which: Int): RoundedPolygon = when (this) {
     OnboardingStep.Welcome -> if (which == 0) MaterialShapes.Sunny else MaterialShapes.Circle
-    OnboardingStep.Permissions -> if (which == 0) MaterialShapes.Diamond else MaterialShapes.Cookie4Sided
+    OnboardingStep.AddMusic -> if (which == 0) MaterialShapes.Diamond else MaterialShapes.Cookie4Sided
     OnboardingStep.LastFm -> if (which == 0) MaterialShapes.Burst else MaterialShapes.Gem
     OnboardingStep.Ready -> if (which == 0) MaterialShapes.Heart else MaterialShapes.Sunny
 }
@@ -120,6 +126,10 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
         music = ok
         haptics.performHapticFeedback(if (ok) HapticFeedbackType.Confirm else HapticFeedbackType.Reject)
     }
+    val editing = com.luke.tracks.ui.library.servers.rememberServerEditing()
+    val sources by com.luke.tracks.ui.sources.sourceList()
+    val registry = com.luke.tracks.ui.sources.rememberSources()
+    val providers by registry.registered.collectAsStateWithLifecycle()
     val lastFm by graph.lastFm.connection.collectAsStateWithLifecycle()
     LifecycleResumeEffect(lastFm) {
         if (lastFm is LastFm.Connection.Waiting) graph.lastFm.checkNow()
@@ -133,15 +143,17 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
     }
 
     val done = step == OnboardingStep.LastFm && lastFm is LastFm.Connection.Connected
+    var spotifyOpen by remember { mutableStateOf(false) }
     val scheme = MaterialTheme.colorScheme
     val shapeColor = when (step) {
         OnboardingStep.Welcome, OnboardingStep.Ready -> scheme.primaryContainer
-        OnboardingStep.Permissions -> scheme.secondaryContainer
+        OnboardingStep.AddMusic -> scheme.secondaryContainer
         OnboardingStep.LastFm -> if (done) scheme.primaryContainer else scheme.tertiaryContainer
     }
     val motion = MaterialTheme.motionScheme
 
-    Box(Modifier.fillMaxSize().background(scheme.surface)) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(scheme.surface)) {
+        val wordsRoom = maxHeight * 0.62f
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 24.dp)) {
             // Where you are, and the way out.
             Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -187,7 +199,8 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
                         (slideOutHorizontally(motion.fastSpatialSpec<IntOffset>()) { -dir * it / 4 } + fadeOut(motion.fastEffectsSpec()))
                 },
                 label = "step",
-                modifier = Modifier.fillMaxWidth(),
+                // At the largest text the words scroll rather than squeeze the art away.
+                modifier = Modifier.fillMaxWidth().heightIn(max = wordsRoom).verticalScroll(rememberScrollState()),
             ) { s ->
                 key(s) {
                     StepContent(
@@ -195,9 +208,18 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
                         notifications = notifications,
                         music = music,
                         lastFm = lastFm,
-                        onAskNotifications = { askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) },
                         onAskMusic = { askMusic.launch(Manifest.permission.READ_MEDIA_AUDIO) },
-                        onConnectLastFm = { graph.lastFm.connect(context) },
+                        servers = sources.count { it.kind == com.luke.tracks.sources.SourceKind.Server },
+                        onAddServer = { editing.add() },
+                        spotify = providers.firstOrNull { it.kind == com.luke.tracks.sources.SourceKind.Spotify }?.let { provider ->
+                            SpotifyRow(sources.any { it.kind == com.luke.tracks.sources.SourceKind.Spotify }, provider.iconRes, provider.addSubtitle)
+                        },
+                        onAddSpotify = { spotifyOpen = true },
+                        onConnectLastFm = {
+                            // Last.fm is the one thing that may need to say something later: a sign-in that ran out.
+                            if (!notifications) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            graph.lastFm.connect(context)
+                        },
                         onCheckLastFm = { graph.lastFm.checkNow() },
                         onNext = ::next,
                         onDone = onDone,
@@ -206,7 +228,20 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
             }
         }
     }
+    editing.Sheets()
+    if (spotifyOpen) {
+        val spotifyProvider = providers.firstOrNull { it.kind == com.luke.tracks.sources.SourceKind.Spotify }
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { spotifyOpen = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(Modifier.fillMaxSize()) { spotifyProvider?.Page(null, onDone = { spotifyOpen = false }) }
+        }
+    }
 }
+
+/** Spotify's row in Add music, in builds that have it. */
+private data class SpotifyRow(val added: Boolean, val iconRes: Int?, val subtitle: String?)
 
 private fun granted(context: android.content.Context, permission: String) =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
@@ -235,12 +270,12 @@ private fun Mark(step: OnboardingStep, done: Boolean) {
         done -> Icon(Icons.Rounded.Check, contentDescription = null, tint = scheme.onPrimaryContainer, modifier = Modifier.size(88.dp))
         else -> Icon(
             when (step) {
-                OnboardingStep.Permissions -> Icons.Rounded.Notifications
+                OnboardingStep.AddMusic -> Icons.Rounded.LibraryMusic
                 else -> Icons.Rounded.GraphicEq
             },
             contentDescription = null,
             tint = when (step) {
-                OnboardingStep.Permissions -> scheme.onSecondaryContainer
+                OnboardingStep.AddMusic -> scheme.onSecondaryContainer
                 else -> scheme.onTertiaryContainer
             },
             modifier = Modifier.size(84.dp),
@@ -254,8 +289,11 @@ private fun StepContent(
     notifications: Boolean,
     music: Boolean,
     lastFm: LastFm.Connection,
-    onAskNotifications: () -> Unit,
     onAskMusic: () -> Unit,
+    servers: Int,
+    onAddServer: () -> Unit,
+    spotify: SpotifyRow?,
+    onAddSpotify: () -> Unit,
     onConnectLastFm: () -> Unit,
     onCheckLastFm: () -> Unit,
     onNext: () -> Unit,
@@ -264,19 +302,19 @@ private fun StepContent(
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         when (step) {
             OnboardingStep.Welcome -> {
-                Words(
-                    0,
-                    "Welcome to Tracks",
-                    "Play music from this phone or your servers, and Tracks keeps a history of it for charts, mixes and Tracks Radio. You can also import your Last.fm history.",
-                )
+                Words(0, "Welcome to Tracks", "Play your music and keep a record of every song.")
                 Actions(2, primary = "Get started", onPrimary = onNext)
             }
-            OnboardingStep.Permissions -> {
-                Words(0, "Permissions", "Both are optional. You can change them later in Android's settings.")
-                Permission(1, Icons.Rounded.Notifications, "Notifications", "Playback controls, and a message if Last.fm needs you to sign in again.", notifications, onAskNotifications)
+            OnboardingStep.AddMusic -> {
+                Words(0, "Add music", null)
+                Permission(1, Icons.Rounded.PhoneAndroid, "On This Device", music, onAskMusic)
                 Spacer(Modifier.height(8.dp))
-                Permission(2, Icons.Rounded.LibraryMusic, "Music on this phone", "Play the music files on this phone in Tracks.", music, onAskMusic)
-                Actions(3, primary = "Continue", onPrimary = onNext)
+                Permission(2, Icons.Rounded.Dns, "Server", servers > 0, onAddServer, subtitle = if (servers > 1) "$servers added" else null)
+                if (spotify != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Permission(3, Icons.Rounded.GraphicEq, "Spotify", spotify.added, onAddSpotify, subtitle = spotify.subtitle, iconRes = spotify.iconRes)
+                }
+                Actions(4, primary = "Continue", onPrimary = onNext)
             }
             OnboardingStep.LastFm -> when (lastFm) {
                 LastFm.Connection.NotConfigured -> {
@@ -284,7 +322,7 @@ private fun StepContent(
                     Actions(2, primary = "Continue", onPrimary = onNext)
                 }
                 is LastFm.Connection.Connected -> {
-                    Words(0, "Scrobbling as ${lastFm.username}", "Songs you play in Tracks are scrobbled to your profile. You can import your Last.fm history in Settings.")
+                    Words(0, "Scrobbling as ${lastFm.username}", null)
                     Actions(2, primary = "Continue", onPrimary = onNext)
                 }
                 LastFm.Connection.Waiting -> {
@@ -301,17 +339,13 @@ private fun StepContent(
                         0,
                         "Scrobble to Last.fm",
                         if (lastFm is LastFm.Connection.Failed) lastFm.message
-                        else "Optional. Songs you play in Tracks are scrobbled to your profile. You sign in on Last.fm's site, so Tracks never sees your password.",
+                        else "You sign in on Last.fm's site, so Tracks never sees your password.",
                     )
                     Actions(2, primary = "Connect Last.fm", onPrimary = onConnectLastFm, secondary = "Skip", onSecondary = onNext)
                 }
             }
             OnboardingStep.Ready -> {
-                Words(
-                    0,
-                    "Ready",
-                    "Play something from your music. A song is added to your history once it has played for half its length or four minutes. You can import your Last.fm history in Settings.",
-                )
+                Words(0, "Ready", "A song joins your history once it plays for half its length or four minutes.")
                 Actions(2, primary = "Done", onPrimary = { onDone(false) }, secondary = "Try it with sample data", onSecondary = { onDone(true) })
             }
         }
@@ -319,7 +353,7 @@ private fun StepContent(
 }
 
 @Composable
-private fun Words(index: Int, title: String, body: String) {
+private fun Words(index: Int, title: String, body: String?) {
     Column(Modifier.staggered(index), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             title,
@@ -327,41 +361,55 @@ private fun Words(index: Int, title: String, body: String) {
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            body,
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.widthIn(max = 480.dp),
-        )
+        if (body != null) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                body,
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.widthIn(max = 480.dp),
+            )
+        }
     }
 }
 
 @Composable
-private fun Permission(index: Int, icon: ImageVector, title: String, body: String, allowed: Boolean, onAllow: () -> Unit) {
+private fun Permission(
+    index: Int,
+    icon: ImageVector,
+    title: String,
+    allowed: Boolean,
+    onAllow: () -> Unit,
+    subtitle: String? = null,
+    iconRes: Int? = null,
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = RoundedCornerShape(20.dp),
         modifier = Modifier.staggered(index).padding(top = if (index == 1) 20.dp else 0.dp).fillMaxWidth(),
     ) {
         Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(22.dp))
+            if (iconRes != null) {
+                com.luke.tracks.ui.sources.SourceGlyph(com.luke.tracks.sources.SourceKind.Spotify, iconRes = iconRes)
+            } else {
+                Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(22.dp))
+                }
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall)
-                Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.width(8.dp))
             AnimatedContent(allowed, label = "allowed") { yes ->
                 if (yes) {
                     Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Check, contentDescription = "Allowed", tint = MaterialTheme.colorScheme.onPrimary)
+                        Icon(Icons.Rounded.Check, contentDescription = "Added", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 } else {
-                    FilledTonalButton(onClick = onAllow) { Text("Allow") }
+                    FilledTonalButton(onClick = onAllow, modifier = Modifier.semantics { contentDescription = "Add $title" }) { Text("Add") }
                 }
             }
         }

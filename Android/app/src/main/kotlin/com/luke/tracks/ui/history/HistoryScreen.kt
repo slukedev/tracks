@@ -119,13 +119,13 @@ fun withDays(pages: Flow<PagingData<PlayEntity>>): Flow<PagingData<HistoryItem>>
  * and hold to delete it, with Undo.
  */
 @Composable
-fun HistoryScreen() {
+fun HistoryScreen(modeSwitch: @Composable () -> Unit = {}) {
     val graph = rememberGraph()
     val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     var filter by rememberSaveable { mutableStateOf(HistoryFilter.All) }
     val count by graph.history.count.collectAsStateWithLifecycle(initialValue = -1)
     val pages = remember(filter) { withDays(graph.history.paged(filter.kind)).cachedIn(scope) }
@@ -154,12 +154,7 @@ fun HistoryScreen() {
             contentWindowInsets = WindowInsets(0),
             snackbarHost = { SnackbarHost(snackbar, Modifier.padding(bottom = BottomRoom)) },
             topBar = {
-                LargeFlexibleTopAppBar(
-                    title = { Text("History") },
-                    subtitle = if (count > 0) ({ Text(if (count == 1) "1 play kept" else "${Format.number(count.toLong())} plays kept") }) else null,
-                    actions = { IconButton(onClick = { navigator.open(SearchRoute) }) { Icon(Icons.Rounded.Search, "Search") } },
-                    scrollBehavior = scroll,
-                )
+                HistoryBar(modeSwitch, scroll)
             },
         ) { inner ->
             if (count == 0) {
@@ -167,7 +162,6 @@ fun HistoryScreen() {
                     EmptyState(
                         icon = Icons.Rounded.History,
                         title = "No plays yet",
-                        message = "Songs you play in Tracks show up here. You can also import your Last.fm history.",
                         action = "Import from Last.fm",
                         onAction = { navigator.open(SettingsPageRoute("lastfm")) },
                     )
