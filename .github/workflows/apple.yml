@@ -1,0 +1,145 @@
+name: Apple
+
+# Builds the iOS and macOS apps unsigned, runs the TracksCore tests (what `./build.sh ci`
+# runs), and captures iPhone screenshots on sample data. Needs the Xcode 27 image, since the
+# apps target iOS 27 and macOS 27.
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: Which jobs to run
+        type: choice
+        options: [all, build, screenshots]
+        default: all
+      shots:
+        description: 'Screens to capture, as "name: launch arguments" separated by ";" (empty for the default set)'
+        type: string
+        default: ''
+      simulator:
+        description: iPhone simulator name (empty for the newest Pro Max)
+        type: string
+        default: ''
+      xcode:
+        description: Xcode version, such as 27.2 (empty for the newest installed)
+        type: string
+        default: ''
+  push:
+    branches: ['feat/**', 'ci/**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: apple-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+  HOMEBREW_NO_INSTALL_CLEANUP: '1'
+  CARGO_TERM_COLOR: never
+
+jobs:
+  build:
+    name: Build and test
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs != 'screenshots'
+    runs-on: xcode-27
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        env:
+          XCODE: ${{ inputs.xcode }}
+        run: Tools/ci/select-xcode.sh "$XCODE"
+
+      - name: Cache Rust
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Engine/target
+          key: engine-${{ runner.os }}-${{ hashFiles('Engine/rust-toolchain.toml', 'Engine/Cargo.lock') }}-${{ hashFiles('Engine/crates/**') }}
+          restore-keys: |
+            engine-${{ runner.os }}-${{ hashFiles('Engine/rust-toolchain.toml', 'Engine/Cargo.lock') }}-
+            engine-${{ runner.os }}-
+
+      - name: Install XcodeGen
+        run: command -v xcodegen >/dev/null || brew install xcodegen
+
+      - name: Build TracksEngine
+        run: Engine/build-apple.sh
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Tests and unsigned builds (./build.sh ci)
+        run: ./build.sh ci
+
+  screenshots:
+    name: iPhone screenshots
+    if: github.event_name != 'workflow_dispatch' || inputs.jobs != 'build'
+    runs-on: xcode-27
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        env:
+          XCODE: ${{ inputs.xcode }}
+        run: Tools/ci/select-xcode.sh "$XCODE"
+
+      - name: Cache Rust
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Engine/target
+          key: engine-${{ runner.os }}-${{ hashFiles('Engine/rust-toolchain.toml', 'Engine/Cargo.lock') }}-${{ hashFiles('Engine/crates/**') }}
+          restore-keys: |
+            engine-${{ runner.os }}-${{ hashFiles('Engine/rust-toolchain.toml', 'Engine/Cargo.lock') }}-
+            engine-${{ runner.os }}-
+
+      - name: Install XcodeGen
+        run: command -v xcodegen >/dev/null || brew install xcodegen
+
+      - name: Build TracksEngine
+        run: Engine/build-apple.sh
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Boot simulator early
+        env:
+          IPHONE_SIMULATOR: ${{ inputs.simulator }}
+        run: |
+          name="${IPHONE_SIMULATOR:-iPhone 18 Pro Max}"
+          udid="$(xcrun simctl list devices available | grep -F "$name (" | tail -1 | grep -oE '[0-9A-F-]{36}' || true)"
+          [ -z "$udid" ] || xcrun simctl boot "$udid" || true
+
+      - name: Build iOS app (Debug, simulator)
+        run: |
+          set -o pipefail
+          xcodebuild -project Tracks.xcodeproj -scheme "Tracks (iOS)" -configuration Debug \
+            -destination "generic/platform=iOS Simulator" -derivedDataPath build/DerivedData \
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 \
+            | xcbeautify --renderer github-actions || { echo "::error::iOS Debug build failed"; exit 1; }
+
+      - name: Capture screenshots
+        env:
+          IPHONE_SIMULATOR: ${{ inputs.simulator }}
+          SHOTS: ${{ inputs.shots }}
+        run: Tools/ci/ios-screenshots.sh build/DerivedData/Build/Products/Debug-iphonesimulator/Tracks.app build/ios-screenshots "$SHOTS"
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-screenshots
+          path: build/ios-screenshots/*.png
+          if-no-files-found: error
+          retention-days: 14
