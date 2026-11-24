@@ -28,6 +28,8 @@ final class SpotifyPlayerEngine: PlayerEngine {
     var onRemoteNext: (() -> Void)?
     var onRemotePrevious: (() -> Void)?
     var onAutoSkip: (() -> Void)?
+    /// The last song played through to its end. See ``LocalPlayerEngine/onRanOut``.
+    var onRanOut: (() -> Void)?
 
     private(set) var status: PlayerStatus = .stopped
     private(set) var isShuffled = false
@@ -663,6 +665,7 @@ final class SpotifyPlayerEngine: PlayerEngine {
         output.pause()
         load(startPlaying: false)
         ranOut = true
+        onRanOut?()
     }
 
     private func updateStatus() {

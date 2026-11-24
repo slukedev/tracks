@@ -94,9 +94,14 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Source filter under Play's and Library's title, once a second source exists: All Sources,
   each source by its real name (Apple Music, Spotify, On This iPhone, each server's name),
   Manage Sources…. Past six sources, servers fold into a Servers submenu. Choosing never
-  touches the queue (`AppModel.chooseSources`). All Sources still shows one player's Play
-  page: the one already on while it has a source (`followSources`). A saved Spotify filter
-  stays while Spotify is still opening its saved account, which waits for the first unlock.
+  touches the queue (`AppModel.chooseSources`). With All Sources and more than one player,
+  Play is one page built from every source (`PlayPage`): Apple Music's page leads, with your
+  own music's shelves (Waiting to Be Heard, From Your Downloads, each server's picks and
+  shelves) and Spotify's playlists and albums in their sections, one Recently Played taking
+  each source in turn, and the crate, mixes, moods and genres made once from the history.
+  Without Apple Music, or offline, your own music's page leads, with Spotify's shelves. A
+  saved Spotify filter stays while Spotify is still opening its saved account, which waits
+  for the first unlock.
 - Settings › Sources, the first row in Settings: the worst problem (Sign In, 1 Offline) or
   the source's name or count. Status words: Sign In, Offline, Syncing 42% (a Trackside
   server's first sync, counted from its libraries' song counts), Away (reached at an address
@@ -107,9 +112,21 @@ See [README.md](README.md) for the legend and how to keep this current.
   several sources. Default On This iPhone, Downloads, servers, Apple Music, Spotify. Applied
   where Tracks picks among a song's copies by name (`YourMusic.track(for:)`), and with All
   Sources to every request: a mix, a chart or a search result plays through the player of
-  its best copy (`AppModel.routedSource`, `PlayerModel.routeEngine`). Albums, playlists and
-  stations from Apple Music, and your own songs, always go to their own player. The order
-  and its resolver are `PlayFromOrder` in TracksCore.
+  its best copy (`AppModel.routedSource`, `PlayerModel.routeEngine`). When a request's
+  songs have their best copies in more than one source, they play as one queue across
+  sources (`MixedQueueEngine`, `MixedQueue.swift`): songs in a row from one source go to its
+  player together, so they stay gapless, and where the source changes the player that
+  finished lets go of Now Playing, the remote controls and capture before the next takes
+  them (a clean cut, no crossfade). Play Next and Play Later from another source join the
+  queue playing, which is handed over without stopping the song on. Tracks Radio and moods
+  pick from every source. Apple Music finds a song known only by name in its catalog
+  (`MusicKitPlayerEngine.lookUp`, 25 at a time at most). Stations from Apple Music always
+  play on its own player. The order and its resolver are `PlayFromOrder` in TracksCore.
+- Album pages end their facts line with the glyphs of every source that has the album (your
+  files and servers from its songs; Apple Music's catalog and your Spotify albums looked up
+  once per album, `AlbumElsewhere`), read as "Available from…". A song whose own copy can't
+  play now plays from another source's, with that source's glyph on its row. Artist pages
+  add a shelf for each other source with their albums (`ArtistElsewhere`).
 - Shortcuts' Choose Source and a Focus filter set the source filter (`ChooseSourceIntent`,
   `SourceFocusFilter`).
 - Offline with downloads or files: one capsule at the foot of Play and Library, Play Downloads.
@@ -161,9 +178,18 @@ See [README.md](README.md) for the legend and how to keep this current.
   between songs.
 - The back of the sleeve: tap the cover for your history with the song.
 - Up Next: reorder, remove, jump; Tracks Radio shows just the next song. A song that can't
-  play now (its server out of reach) is dimmed with an exclamation mark.
+  play now (its server out of reach, Spotify signed out or offline) is dimmed with an
+  exclamation mark, reads "Unavailable" and has a Remove action. In a queue across sources,
+  each row carries its source's glyph.
+- Thirty seconds before a song ends, the songs straight after it are checked: one that
+  can't play gets another source's copy where there is one, and otherwise is left out with
+  "Skipped 2 songs / Home is offline". When nothing ahead can play, the music stops at the
+  end of the song with "Nothing in Up Next can play right now." and Play Downloads where
+  there are any (`PlayerModel.checkAhead`).
 - Source badge under the scrubber beside the quality badge, with two or more sources and
-  always for Spotify; its menu plays the song from another source (`SourceBadge`). The mini
+  always for Spotify; its menu plays the song from each other copy that can play, by its
+  source's name and glyph, from where it had got to, keeping Up Next, and Go to Album
+  (`SourceBadge`, `PlayerModel.playFrom`). The mini
   player shows Spotify's mark after the artist, and CarPlay's Up Next rows carry it.
 - Songs left out of a queue because they can't play: "Skipped 3 songs / Home is offline" in a
   capsule above the mini player for 3 seconds, swipe down to dismiss.
@@ -347,7 +373,8 @@ contain none of it and refuse an engine built with it. Spotify Premium is requir
 ### Widgets, controls, Siri and system integration
 
 - Widgets: Listening (small, medium, and Lock Screen rectangular, circular and inline), Top
-  Songs (small, medium), Last Played (small), Today (medium, large).
+  Songs (small, medium), Last Played (small), Today (medium, large). Plays from Spotify carry
+  its mark beside the artist (`SpotifyWidgetMark`, tinted in accented and clear modes).
 - Controls for Control Center, the Lock Screen and the Action button: Play in Tracks
   (configurable mix or mood) and Identify Song.
 - Siri: "Play music in Tracks" starts Tracks Radio; "Play my mix", "Play something new", mixes

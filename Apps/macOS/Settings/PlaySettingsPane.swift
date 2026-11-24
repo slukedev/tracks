@@ -41,7 +41,8 @@ struct PlaySettingsPane: View {
         }
     }
     #endif
-    private var isYourMusic: Bool { model.musicSource == .yourMusic }
+    /// Files or a server are among the sources: their downloads come into Tracks Radio.
+    private var hasOwnMusic: Bool { model.playerSources.contains(.yourMusic) }
 
     var body: some View {
         let status = PlaySettingsWords.status(PlaySettingsWords.Standing(model: model, music: music))
@@ -58,13 +59,10 @@ struct PlaySettingsPane: View {
             NowPlayingBackdropSection()
             contentSection
             BlockedArtistsSection()
-            if !isYourMusic {
-                // Files and servers have their own Listen Now, without these sections.
-                layoutSection
-            }
+            layoutSection
             PlaySettingsMixes()
         }
-        .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: model.musicSource)
+        .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: model.playerSources)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: isRadioOn)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: radioDownloadsFirst)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: radioFollowsTime)
@@ -154,7 +152,7 @@ struct PlaySettingsPane: View {
                         Button("Customize…") { showsRadioDay = true }
                     }
                 }
-                if isYourMusic {
+                if hasOwnMusic {
                     SettingsSwitch("Downloaded Songs First", isOn: $radioDownloadsFirst)
                     if radioDownloadsFirst {
                         SettingsSwitch(

@@ -21,7 +21,8 @@ extension PlaySettingsWords.Standing {
             offlineSongs: offlineSongs,
             songs: music.index.tracks.count,
             servers: servers.servers.count,
-            troubledServer: troubled
+            troubledServer: troubled,
+            mixes: model.mixesSources
         )
     }
 }

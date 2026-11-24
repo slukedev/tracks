@@ -59,6 +59,7 @@ struct ServerAlbumTile: View {
 
 /// Keep Exploring for your servers: songs you've never played, for as long as you scroll.
 struct ServerExploring: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(YourMusic.self) private var music
     @Environment(PlayFeed.self) private var feed
     @Environment(PlayerModel.self) private var player
@@ -100,7 +101,7 @@ struct ServerExploring: View {
             }
         }
         .padding(.horizontal, Design.Margin.page)
-        .animation(.snappy, value: songs.count)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: songs.count)
         // Again after each lot, while the end's still in view, as each server's budget allows.
         .task(id: "\(isEndInView).\(songs.count)") {
             guard isEndInView else { return }

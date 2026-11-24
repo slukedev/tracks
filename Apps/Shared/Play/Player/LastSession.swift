@@ -32,6 +32,8 @@ nonisolated struct LastSession: Codable, Sendable {
 
     /// Whether the songs are from your own music, which only its player can play.
     var isYourMusic: Bool { tracks.first?.local != nil }
+    /// Songs from your own music and from elsewhere, in one queue.
+    var isMixed: Bool { tracks.contains { $0.local != nil } && tracks.contains { $0.local == nil } }
 }
 
 extension PlayContext.Kind {

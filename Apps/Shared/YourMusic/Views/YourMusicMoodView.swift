@@ -5,6 +5,7 @@ import TracksCore
 /// ones your server finds like them, or look through them, yours and new woven together. Asks
 /// nothing of Apple Music.
 struct YourMusicMoodView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let mood: Mood
     @Environment(AppModel.self) private var model
     @Environment(YourMusic.self) private var music
@@ -33,7 +34,7 @@ struct YourMusicMoodView: View {
                 }
             }
             .padding(.bottom, 24)
-            .animation(.snappy, value: songs.count)
+            .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: songs.count)
         }
         .tint(mood.style.ink)
         .heroTitle(mood.title)
@@ -147,7 +148,7 @@ struct YourMusicMoodView: View {
                 }
                 if songs.count > 10 {
                     Button {
-                        withAnimation(.snappy) { showsAll.toggle() }
+                        withAnimation(Design.Motion.reduced(Design.Motion.panel, reduceMotion: reduceMotion)) { showsAll.toggle() }
                     } label: {
                         Text(showsAll ? "Show Less" : "Show More")
                             .font(.subheadline.weight(.semibold))

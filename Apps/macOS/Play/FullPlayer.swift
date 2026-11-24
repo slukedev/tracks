@@ -37,6 +37,13 @@ struct FullPlayer: View {
             if let track = player.current {
                 content(track)
                     .environment(\.colorScheme, ink(.trailing).colorScheme)
+                    .environment(\.nowPlayingNavigate, { destination in
+                        close()
+                        switch destination {
+                        case .play(let route): openPlayRoute(route)
+                        case .stats(let route): openPlayRoute(.stats(route))
+                        }
+                    })
                     .foregroundStyle(.primary)
                     // What's on lights in the type's colour, as on the iPhone's.
                     .tint(.primary)

@@ -60,6 +60,9 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     var onRemotePrevious: (() -> Void)?
     /// Called as a song that couldn't play is skipped, so the skip isn't taken for yours.
     var onAutoSkip: (() -> Void)?
+    /// The last song played through to its end, for a queue across sources to carry on in
+    /// another player.
+    var onRanOut: (() -> Void)?
     /// The queue ran out: the last song ended, or Next went past it. A song added now plays,
     /// rather than waiting behind a song that's over.
     private var ranOut = false
@@ -645,6 +648,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             player.pause()
             loadItems(startPlaying: false)
             ranOut = true
+            onRanOut?()
             return
         }
         // The next song couldn't be queued behind this one, as it couldn't be reached then, or

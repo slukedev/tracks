@@ -208,7 +208,7 @@ struct SpotifyTile: View {
 }
 
 /// A tile at the shelf's size, which grows with the text size up to a point.
-private struct SpotifyShelfTile: View {
+struct SpotifyShelfTile: View {
     let title: String
     let subtitle: String
     let artwork: String?
@@ -237,16 +237,12 @@ struct SpotifyLoadFailure: View {
 /// your albums. No Spotify browsing beyond your own library, by design.
 struct SpotifyPlayScreen: View {
     @Environment(AppModel.self) private var model
-    @Environment(PlayerModel.self) private var player
-    @State private var playlists: [SpotifyPlaylist]?
-    @State private var albums: [SpotifyAlbum]?
-    @State private var failed = false
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: Design.Margin.section) {
                 if let service = model.spotifyService, service.isConnected {
-                    content
+                    SpotifyPlayShelves(showsEmpty: true)
                 } else {
                     signedOut
                 }
@@ -264,48 +260,6 @@ struct SpotifyPlayScreen: View {
         .headerUnderBar()
         #endif
         .spotifyDestinations()
-        .task(id: model.spotifyService?.isConnected) { await load(refresh: false) }
-        .refreshable { await load(refresh: true) }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        let recent = recentlyPlayed
-        if !recent.isEmpty {
-            Shelf(title: String(localized: "Recently Played"), items: recent) { song in
-                Button {
-                    let index = recent.firstIndex { $0.id == song.id } ?? 0
-                    player.play(.history(recent.map(\.value), startingAt: index), from: .songs(String(localized: "Recently Played")))
-                } label: {
-                    SpotifyShelfTile(title: song.value.title, subtitle: song.value.artistName, artwork: song.value.artworkURL)
-                }
-                .buttonStyle(.pressable)
-            }
-        }
-        if let playlists, !playlists.isEmpty {
-            Shelf(title: String(localized: "Playlists"), items: playlists.prefix(20).map { Identified($0, id: $0.uri) }) { item in
-                NavigationLink(value: SpotifyRoute.playlist(item.value.uri)) {
-                    SpotifyShelfTile(title: item.value.name, subtitle: item.value.owner ?? "", artwork: item.value.artworkUrl)
-                }
-                .buttonStyle(.pressable)
-            }
-        }
-        if let albums, !albums.isEmpty {
-            Shelf(title: String(localized: "Albums"), items: albums.prefix(20).map { Identified($0, id: $0.uri) }) { item in
-                NavigationLink(value: SpotifyRoute.album(item.value.uri)) {
-                    SpotifyShelfTile(title: item.value.title, subtitle: item.value.artistLine, artwork: item.value.artworkUrl)
-                }
-                .buttonStyle(.pressable)
-            }
-        }
-        if failed, playlists == nil, albums == nil {
-            SpotifyLoadFailure { Task { await load(refresh: true) } }
-        } else if playlists == nil || albums == nil {
-            LoadingRows(count: 4)
-                .padding(.horizontal, Design.Margin.page)
-        } else if recent.isEmpty, playlists?.isEmpty == true, albums?.isEmpty == true {
-            CollectionMessage(text: String(localized: "Nothing from Spotify yet"), systemImage: nil) { EmptyView() }
-        }
     }
 
     private var signedOut: some View {
@@ -314,23 +268,78 @@ struct SpotifyPlayScreen: View {
                 Button {
                     service.signIn()
                 } label: {
-                    if service.phase == .signingIn {
-                        Text("Signing In…")
-                    } else {
-                        Text("Sign In with Spotify")
-                    }
+                    Text(service.phase == .signingIn ? "Signing In…" : "Sign In with Spotify")
+                        .contentTransition(.opacity)
                 }
                 .disabled(service.phase == .signingIn || service.phase == .checking)
             }
         }
         .padding(.vertical, Design.Margin.section)
     }
+}
+
+/// Spotify's shelves on Play: your latest Spotify plays, your playlists and your albums. On
+/// its own page, and among the others' with every source on, where Recently Played is shared.
+struct SpotifyPlayShelves: View {
+    /// Recently Played as a shelf of its own. Off where it joins the page's shared one.
+    var showsRecent = true
+    /// Says so when there's nothing, on Spotify's own page. Elsewhere it's left out.
+    var showsEmpty = false
+    @Environment(AppModel.self) private var model
+    @Environment(PlayerModel.self) private var player
+    @State private var playlists: [SpotifyPlaylist]?
+    @State private var albums: [SpotifyAlbum]?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if model.spotifyService?.isConnected == true {
+                content
+            }
+        }
+        .task(id: model.spotifyService?.isConnected) { await load(refresh: false) }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        let recent = showsRecent ? SpotifyPlayShelves.recentlyPlayed(in: model.library.history) : []
+        if !recent.isEmpty {
+            Shelf(title: String(localized: "Recently Played"), items: recent) { song in
+                SpotifySongTile(song: song.value, queue: recent.map(\.value), context: .songs(String(localized: "Recently Played")))
+            }
+        }
+        if let playlists, !playlists.isEmpty {
+            Shelf(title: String(localized: "Spotify Playlists"), items: playlists.prefix(20).map { Identified($0, id: $0.uri) }) { item in
+                NavigationLink(value: SpotifyRoute.playlist(item.value.uri)) {
+                    SpotifyShelfTile(title: item.value.name, subtitle: item.value.owner ?? "", artwork: item.value.artworkUrl)
+                }
+                .buttonStyle(.pressable)
+            }
+        }
+        if let albums, !albums.isEmpty {
+            Shelf(title: String(localized: "Spotify Albums"), items: albums.prefix(20).map { Identified($0, id: $0.uri) }) { item in
+                NavigationLink(value: SpotifyRoute.album(item.value.uri)) {
+                    SpotifyShelfTile(title: item.value.title, subtitle: item.value.artistLine, artwork: item.value.artworkUrl)
+                }
+                .buttonStyle(.pressable)
+            }
+        }
+        if failed, playlists == nil, albums == nil {
+            if showsEmpty {
+                SpotifyLoadFailure { Task { await load(refresh: true) } }
+            }
+        } else if playlists == nil || albums == nil {
+            PlaceholderShelf(title: String(localized: "Spotify Playlists"))
+        } else if showsEmpty, recent.isEmpty, playlists?.isEmpty == true, albums?.isEmpty == true {
+            CollectionMessage(text: String(localized: "Nothing from Spotify yet"), systemImage: nil) { EmptyView() }
+        }
+    }
 
     /// Your latest Spotify plays from Tracks’ own history, a song once each.
-    private var recentlyPlayed: [Identified<HistorySong>] {
+    static func recentlyPlayed(in history: ListeningHistory) -> [Identified<HistorySong>] {
         var seen = Set<String>()
         var songs: [Identified<HistorySong>] = []
-        for capture in model.library.history.captures.reversed() where capture.source == .spotify {
+        for capture in history.captures.reversed() where capture.source == .spotify {
             guard seen.insert(capture.songIdentity).inserted else { continue }
             songs.append(Identified(HistorySong(songID: "", title: capture.title, artistName: capture.artistName, albumTitle: capture.albumTitle, artworkURL: capture.artworkURL), id: capture.songIdentity))
             if songs.count == 20 { break }
@@ -353,8 +362,26 @@ struct SpotifyPlayScreen: View {
     }
 }
 
+/// A song you played from Spotify, on a shelf: plays the shelf from it.
+struct SpotifySongTile: View {
+    let song: HistorySong
+    let queue: [HistorySong]
+    let context: PlayContext
+    @Environment(PlayerModel.self) private var player
+
+    var body: some View {
+        Button {
+            let index = queue.firstIndex(of: song) ?? 0
+            player.play(.history(queue, startingAt: index), from: context)
+        } label: {
+            SpotifyShelfTile(title: song.title, subtitle: song.artistName, artwork: song.artworkURL)
+        }
+        .buttonStyle(.pressable)
+    }
+}
+
 /// Something without an identity of its own, for a `ForEach`.
-private struct Identified<Value>: Identifiable {
+struct Identified<Value>: Identifiable {
     let value: Value
     let id: String
 

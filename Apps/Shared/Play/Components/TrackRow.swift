@@ -51,12 +51,15 @@ struct TrackRow: View {
     var detail: String?
     /// The song's artist, where the subtitle names them, so each name in it opens their page.
     var artist: String?
+    /// Where the song plays from, where that differs from the rest of the list.
+    var source: SourceID?
 
     @Environment(PlayerModel.self) private var player
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.pageTone) private var pageTone
     @ScaledMetric(relativeTo: .body) private var coverSide: CGFloat = Self.cover
     @ScaledMetric(relativeTo: .body) private var numberWidth: CGFloat = 28
+    @ScaledMetric(relativeTo: .footnote) private var glyphSide: CGFloat = 14
 
     // Mac rows are denser than a finger's: Music's covers there are about 40 points, and the
     // row needs no 44 point target.
@@ -100,6 +103,12 @@ struct TrackRow: View {
             // Separators start at the title, as in Music, not under the cover or number.
             .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
             Spacer(minLength: 8)
+            if let source {
+                SourceGlyph(source: source)
+                    .font(.footnote)
+                    .frame(width: glyphSide, height: glyphSide)
+                    .foregroundStyle(ink.secondary)
+            }
             if let localTrack {
                 DownloadStateIcon(track: localTrack)
             }

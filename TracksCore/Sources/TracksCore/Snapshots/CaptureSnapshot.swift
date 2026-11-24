@@ -15,6 +15,8 @@ public struct CaptureSnapshot: Sendable, Identifiable, Hashable {
     public let capturedAt: Date
     public let isInPlaylist: Bool
     public let playedBackAt: Date?
+    /// Where it played from, so a widget can credit Spotify.
+    public let source: PlaySource
 
     public init(
         id: String,
@@ -26,7 +28,8 @@ public struct CaptureSnapshot: Sendable, Identifiable, Hashable {
         kind: CaptureKind,
         capturedAt: Date,
         isInPlaylist: Bool = false,
-        playedBackAt: Date? = nil
+        playedBackAt: Date? = nil,
+        source: PlaySource = .appleMusic
     ) {
         self.id = id
         self.songID = songID
@@ -38,6 +41,7 @@ public struct CaptureSnapshot: Sendable, Identifiable, Hashable {
         self.capturedAt = capturedAt
         self.isInPlaylist = isInPlaylist
         self.playedBackAt = playedBackAt
+        self.source = source
     }
 }
 
@@ -53,7 +57,8 @@ public extension Capture {
             kind: kind,
             capturedAt: capturedAt,
             isInPlaylist: addedToPlaylistAt != nil,
-            playedBackAt: playedBackAt
+            playedBackAt: playedBackAt,
+            source: source
         )
     }
 }

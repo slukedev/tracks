@@ -21,6 +21,8 @@ struct YourMusicScreen: View {
     /// A server whose password needs typing again.
     @State private var signingIn: SubsonicServer?
     @State private var shelves = Shelves()
+    /// With every source on, Spotify's shelves join these: Apple Music isn't here to lead.
+    var mergesSpotify = false
 
     enum ImportMode { case files, folder }
 
@@ -113,11 +115,14 @@ struct YourMusicScreen: View {
         }
         // The shelves made from your music, worked out when what they're made from changes
         // rather than on every redraw.
-        .task(id: ShelvesKey(songs: music.shown.tracks.count, history: feed.builtRevision, downloads: music.downloads.items.count, mixes: feed.mixes.mixes.count)) {
-            let made = await makeShelves()
+        .task(id: Shelves.Key(music: music, feed: feed)) {
+            let made = await Shelves.make(music: music, feed: feed, player: player)
             guard !Task.isCancelled else { return }
             shelves = made
         }
+        #if SPOTIFY
+        .spotifyDestinations()
+        #endif
         // Get More's picks, found once something can fetch, and ranked again as your servers
         // find songs and what's yours changes.
         .task(id: GetMoreKey(
@@ -146,7 +151,7 @@ struct YourMusicScreen: View {
         }
     }
 
-    private struct GetMoreKey: Equatable {
+    struct GetMoreKey: Equatable {
         let canGet: Bool
         let artists: [String]
         let finds: Int
@@ -179,17 +184,27 @@ struct YourMusicScreen: View {
         /// The artists you play most lately who are in your music.
         var artists: [(artist: LocalArtist, plays: Int)] = []
     }
+}
 
-    private struct ShelvesKey: Equatable {
+extension YourMusicScreen.Shelves {
+    /// What the shelves are made from: a change to any of it makes them again.
+    nonisolated struct Key: Equatable {
         let songs: Int
         /// The history read again: new plays.
         let history: Int?
         let downloads: Int
         let mixes: Int
+
+        @MainActor init(music: YourMusic, feed: PlayFeed) {
+            songs = music.shown.tracks.count
+            history = feed.builtRevision
+            downloads = music.downloads.items.count
+            mixes = feed.mixes.mixes.count
+        }
     }
 
     /// Takes what the shelves are made from on the main actor, and makes them off it.
-    private func makeShelves() async -> Shelves {
+    @MainActor static func make(music: YourMusic, feed: PlayFeed, player: PlayerModel) async -> Self {
         let artists = feed.favoriteArtists.compactMap { favorite in
             music.shown.artist(id: favorite.id).map { (artist: $0, plays: favorite.plays) }
         }
@@ -204,7 +219,7 @@ struct YourMusicScreen: View {
             default: return true
             }
         } : [])
-        var made = await Self.shelves(
+        var made = await YourMusicScreen.shelves(
             index: music.shown,
             facts: feed.facts,
             playable: PlayableSnapshot(downloaded: Set(music.downloads.items.keys), reachableServers: reachable),
@@ -215,7 +230,9 @@ struct YourMusicScreen: View {
         made.artists = artists
         return made
     }
+}
 
+extension YourMusicScreen {
     /// Whether songs can play, as ``YourMusic/isPlayable(_:)`` says, for work off the main actor.
     nonisolated struct PlayableSnapshot: Sendable {
         let downloaded: Set<String>
@@ -230,7 +247,7 @@ struct YourMusicScreen: View {
     }
 
     @concurrent
-    private nonisolated static func shelves(
+    fileprivate nonisolated static func shelves(
         index: LocalLibraryIndex,
         facts: [String: SongFacts],
         playable: PlayableSnapshot,
@@ -280,10 +297,7 @@ struct YourMusicScreen: View {
     /// own. A server that can't be reached says so first, since it's why its shelves are gone.
     @ViewBuilder
     private var content: some View {
-        ForEach(music.servers.servers.filter { ServerProblem(music.servers.status[$0.id]) != nil }) { server in
-            ServerProblemCard(server: server, signIn: { signingIn = server })
-                .padding(.horizontal, Design.Margin.page)
-        }
+        ServerProblemCards { signingIn = $0 }
         let sections = layout.visible.filter { $0.isOffered(for: .yourMusic) }
         ForEach(sections) { section in
             self.section(section)
@@ -382,9 +396,78 @@ struct YourMusicScreen: View {
             ForEach(servers) { server in
                 ServerShelves(server: server)
             }
+            #if SPOTIFY
+            if mergesSpotify {
+                SpotifyPlayShelves()
+            }
+            #endif
         case .suggestedArtists, .radio:
             // Apple Music's own: your music has neither.
             EmptyView()
+        }
+    }
+}
+
+/// Your own music's part of a section of Play with every source on: what Apple Music's part
+/// doesn't already offer. The crate, mixes, moods and genres are made once, from the history,
+/// and play each song from its best copy.
+struct OwnMusicMergedSection: View {
+    let section: PlaySection
+    let shelves: YourMusicScreen.Shelves
+    @Environment(YourMusic.self) private var music
+    @AppStorage(SuggestionMode.storageKey) private var suggestionMode = SuggestionMode.everything
+
+    var body: some View {
+        let servers = music.servers.onlineServers
+        switch section {
+        case .suggestedSongs:
+            if suggestionMode != .off {
+                ForEach(servers) { server in
+                    ServerForYouSection(server: server, shelf: .suggested, includesRadio: false)
+                }
+            }
+        case .newReleases:
+            if !shelves.unplayed.isEmpty {
+                Shelf(title: String(localized: "Waiting to Be Heard"), items: shelves.unplayed) { track in
+                    LocalTrackTile(track: track, queue: shelves.unplayed, context: .songs(String(localized: "Waiting to Be Heard")))
+                }
+            }
+        case .charts:
+            if !shelves.downloaded.isEmpty {
+                Shelf(title: String(localized: "From Your Downloads"), items: shelves.downloaded) {
+                    HStack(spacing: Design.Spacing.large) {
+                        ShuffleDownloadsButton()
+                            .labelStyle(.iconOnly)
+                        NavigationLink(String(localized: "Manage"), value: PlayRoute.yourMusic(.downloads))
+                    }
+                } tile: { track in
+                    LocalTrackTile(track: track, queue: shelves.downloaded, context: .songs(String(localized: "From Your Downloads")))
+                }
+            }
+        case .appleMusic:
+            if suggestionMode != .off {
+                ForEach(servers) { server in
+                    ServerForYouSection(server: server, shelf: .picks)
+                }
+            }
+            ForEach(servers) { server in
+                ServerShelves(server: server)
+            }
+        case .forYou, .suggestedArtists, .recentlyPlayed, .yourArtists, .mixes, .moods, .genres, .radio, .library:
+            EmptyView()
+        }
+    }
+}
+
+/// A card for each server that can't be reached, at the top of Play: why its shelves are gone.
+struct ServerProblemCards: View {
+    let signIn: (SubsonicServer) -> Void
+    @Environment(YourMusic.self) private var music
+
+    var body: some View {
+        ForEach(music.servers.servers.filter { ServerProblem(music.servers.status[$0.id]) != nil }) { server in
+            ServerProblemCard(server: server, signIn: { signIn(server) })
+                .padding(.horizontal, Design.Margin.page)
         }
     }
 }

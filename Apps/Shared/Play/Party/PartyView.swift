@@ -141,11 +141,6 @@ struct PartyView: View {
                     .buttonStyle(.glass)
             }
         }
-        Label("Apple Music's party playlists show here when Music Source is set to Apple Music.", systemImage: "info.circle")
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, PlayMetrics.margin)
     }
 
     // MARK: Actions and loading

@@ -243,7 +243,7 @@ enum PlayerProblem: Error, Equatable {
         case .nothingToPlay: String(localized: "Couldn't Find These Songs")
         case .onlyExplicit: String(localized: "Only Explicit Versions")
         case .explicitSong: String(localized: "Explicit Song")
-        case .notInYourMusic: String(localized: "Not in Your Library")
+        case .notInYourMusic: String(localized: "Can't Play These Songs")
         case .needsAppleMusic: String(localized: "This Is Apple Music")
         case .blockedArtist(let name): String(localized: "You Blocked \(name)")
         case .failed(_, let title): title ?? String(localized: "Couldn't Play")
@@ -265,9 +265,9 @@ enum PlayerProblem: Error, Equatable {
         case .explicitSong:
             String(localized: "Turn on Explicit Songs in Settings to play it.")
         case .notInYourMusic:
-            String(localized: "These songs aren't in your music, or their server can't be reached. Download songs to play them anywhere.")
+            String(localized: "They may have been removed, or their server can't be reached. Downloaded songs play anywhere.")
         case .needsAppleMusic:
-            String(localized: "Tracks is playing your own music. Switch Music Source to Apple Music in Settings to play this.")
+            String(localized: "Choose Apple Music as the source to play it.")
         case .blockedArtist:
             String(localized: "Tracks doesn't play or suggest artists you've blocked. Unblock them to play this.")
         case .failed(let detail, _):

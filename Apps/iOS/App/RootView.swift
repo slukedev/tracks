@@ -230,19 +230,8 @@ struct RootView: View {
         case .play:
             @Bindable var navigator = navigator
             NavigationStack(path: $navigator.path) {
-                Group {
-                    switch model.musicSource {
-                    case .yourMusic: YourMusicScreen()
-                    case .appleMusic: AppleMusicPlayScreen()
-                    case .spotify:
-                        #if SPOTIFY
-                        SpotifyPlayScreen()
-                        #else
-                        AppleMusicPlayScreen()
-                        #endif
-                    }
-                }
-                .sourceFilter()
+                PlayPage()
+                    .sourceFilter()
                 .playDestinations()
                 .tracksDestinations()
             }

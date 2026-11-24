@@ -64,10 +64,11 @@ struct LibraryScreen: View {
         return ranked.filter(present.contains)
     }
 
+    /// Your own music by where it is: "On This iPhone", "Home", "On This iPhone and Home".
     private func name(of player: MusicSource) -> String {
         guard player == .yourMusic else { return player.name }
         let own = model.sourceEntries.filter { $0.canPlay && ($0.id == .device || $0.id.isServer) }
-        return own.count == 1 ? own[0].name : player.name
+        return own.isEmpty ? player.name : own.map(\.name).formatted(.list(type: .and))
     }
 
     @ViewBuilder

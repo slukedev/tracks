@@ -83,7 +83,12 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Source filter in the toolbar of Listen Now and every Library page, once a second source
   exists: All Sources, each source by its real name (Apple Music, Spotify, On This Mac, each
   server's name), Manage Sources… (opens the Sources pane). Never touches the queue. The
-  sidebar keeps its shape; its Library group follows the filter's player.
+  sidebar keeps its shape; its Library group follows the filter's player. With All Sources
+  and more than one player, Listen Now is one page built from every source, one queue plays
+  songs from several sources, album pages show the glyphs of every source that has them and
+  artist pages a shelf per other source, as on iPhone (see the iPhone page, Tabs and
+  sources). Up Next's rows carry their source's glyph in a mixed queue and dim when they
+  can't play.
 - Sources pane in Settings (after General): Apple Music access, Spotify in builds with the
   `SPOTIFY` flag, On This Mac, servers, and Play From (drag to reorder; synced).
 - Spotify (Debug builds with the `SPOTIFY` flag only; see the iPhone page): sign in, one

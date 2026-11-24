@@ -225,19 +225,70 @@ extension AppModel {
     }
 }
 
-/// A source's icon: its symbol, or Spotify's own mark, never recoloured.
+/// A source's icon: its symbol, or Spotify's own mark, in its colours or, on a page coloured
+/// from a cover, in black or white. Read by the source's name.
 struct SourceGlyph: View {
     let source: SourceID
+    @Environment(\.pageTone) private var tone
+    @Environment(YourMusic.self) private var music: YourMusic?
 
     var body: some View {
-        if case .spotify = source {
-            Image("SpotifyIcon")
-                .resizable()
-                .scaledToFit()
-                .accessibilityLabel("Spotify")
-        } else {
-            Image(systemName: SourceWords.symbol(for: source))
+        Group {
+            if case .spotify = source {
+                if let tone {
+                    Image("SpotifyIconMono")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundStyle(tone.isDark ? Color.white : Color.black)
+                } else {
+                    Image("SpotifyIcon")
+                        .resizable()
+                        .scaledToFit()
+                }
+            } else {
+                Image(systemName: SourceWords.symbol(for: source))
+            }
         }
+        .accessibilityLabel(Text(verbatim: name))
+    }
+
+    private var name: String {
+        switch source {
+        case .device, .server: music?.name(of: source) ?? SourceWords.fallbackName(for: source)
+        default: SourceWords.fallbackName(for: source)
+        }
+    }
+}
+
+/// The sources a collection is in, after its facts: up to three glyphs, then how many more.
+/// Read as "Available from Apple Music, Home and Spotify".
+struct SourceGlyphRow: View {
+    let sources: [SourceID]
+    @Environment(AppModel.self) private var model
+    @ScaledMetric(relativeTo: .footnote) private var side: CGFloat = 12
+
+    var body: some View {
+        HStack(spacing: Design.Spacing.xSmall) {
+            ForEach(sources.prefix(3), id: \.self) { source in
+                SourceGlyph(source: source)
+                    .frame(width: side, height: side)
+            }
+            if sources.count > 3 {
+                Text(verbatim: "+\(sources.count - 3)")
+                    .monospacedDigit()
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Available from \(names)"))
+    }
+
+    private var names: String {
+        let entries = model.sourceEntries
+        return sources.map { source in
+            entries.first { $0.id == source }?.name ?? SourceWords.fallbackName(for: source)
+        }
+        .formatted(.list(type: .and))
     }
 }
 

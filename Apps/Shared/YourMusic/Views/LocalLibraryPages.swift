@@ -73,6 +73,7 @@ struct LocalArtistPage: View {
                         LocalAlbumShelfTile(album: album, showsYear: true)
                     }
                 }
+                ArtistElsewhere(name: artist.name, page: .yourMusic)
                 ArtistGetSection(artist: artist.name, gets: gets)
                 if !appearsOn.isEmpty {
                     Shelf(title: String(localized: "Appears On"), items: appearsOn) { album in

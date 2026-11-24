@@ -29,7 +29,10 @@ struct PlaySettingsPage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var layout: PlayLayout { PlayLayout(stored: storedLayout) }
-    private var isYourMusic: Bool { model.musicSource == .yourMusic }
+    /// Files or a server are among the sources: their downloads come into Tracks Radio.
+    private var hasOwnMusic: Bool { model.playerSources.contains(.yourMusic) }
+    /// Apple Music is a source, or nothing is yet: its Offline Mode and crossfades apply.
+    private var hasAppleMusic: Bool { model.playerSources.isEmpty || model.playerSources.contains(.appleMusic) }
 
     var body: some View {
         let status = PlaySettingsWords.status(standing)
@@ -41,7 +44,7 @@ struct PlaySettingsPage: View {
                 if music.hasMusic {
                     yourMusicSections
                 }
-                if !isYourMusic {
+                if hasAppleMusic {
                     offlineSection
                 }
                 radioSection
@@ -54,11 +57,11 @@ struct PlaySettingsPage: View {
                 devicesSection
                 contentSection
                 BlockedArtistsSection()
-                if !isYourMusic {
-                    // Files and servers play gaplessly, with no crossfade, and have their own Play page.
+                if hasAppleMusic {
+                    // Files and servers play gaplessly; crossfades are Apple Music's.
                     transitionSection
-                    layoutSection
                 }
+                layoutSection
                 PlaySettingsMixes()
                     .id(DebugScroll.mixes)
             }
@@ -74,7 +77,7 @@ struct PlaySettingsPage: View {
         // Menus truncate their value beside a long label at the largest sizes; a pushed list
         // shows every option in full.
         .modifier(AccessiblePickers())
-        .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: model.musicSource)
+        .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: model.playerSources)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: transition)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: isRadioOn)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: radioDownloadsFirst)
@@ -162,7 +165,7 @@ struct PlaySettingsPage: View {
                 } label: {
                     LabeledContent("Tune Tracks Radio", value: RadioTuning(stored: storedTuning).shortSummary)
                 }
-                if isYourMusic {
+                if hasOwnMusic {
                     Toggle("Downloaded Songs First", isOn: $radioDownloadsFirst)
                     if radioDownloadsFirst {
                         Toggle("Delete After Playing", isOn: $radioDeletesAfterPlaying)
@@ -172,7 +175,7 @@ struct PlaySettingsPage: View {
         } header: {
             Text("Tracks Radio")
         } footer: {
-            if isRadioOn, isYourMusic, radioDownloadsFirst,
+            if isRadioOn, hasOwnMusic, radioDownloadsFirst,
                let footer = PlaySettingsWords.deleteAfterPlayingFooter(radioDeletesAfterPlaying) {
                 Text(footer)
                     .contentTransition(.opacity)

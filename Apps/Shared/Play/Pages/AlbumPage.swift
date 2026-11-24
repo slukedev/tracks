@@ -22,6 +22,8 @@ struct AlbumPage: View {
     @AppStorage(DownloadChoice.isOnKey) private var downloadIsOn = false
     /// Added from this page, so its circle turns to a check.
     @State private var isAdded = false
+    /// The other sources that have it, with every source on.
+    @State private var elsewhere: [SourceID] = []
 
     var body: some View {
         let album = loaded ?? album
@@ -49,7 +51,8 @@ struct AlbumPage: View {
                             number: track.trackNumber ?? index + 1,
                             isExplicit: track.contentRating == .explicit,
                             isCurrent: isCurrent(track),
-                            artist: track.artistName
+                            artist: track.artistName,
+                            source: otherSource(of: track)
                         )
                     }
                     .trackMenu { songMenu(track) }
@@ -80,6 +83,7 @@ struct AlbumPage: View {
             CollectionToolbar(share: album.url) { moreItems(album) }
         }
         .task(id: album.id) { await loadOnce() }
+        .task(id: "\(album.id).\(model.mixesSources)") { await findElsewhere(album) }
         #else
         CollectionMacLayout {
             header(album, context: context)
@@ -88,6 +92,7 @@ struct AlbumPage: View {
         }
         .navigationTitle(CollectionKind.of(album).title)
         .task(id: album.id) { await loadOnce() }
+        .task(id: "\(album.id).\(model.mixesSources)") { await findElsewhere(album) }
         .task(id: "\(tracks.count).\(music.availabilityGeneration).\(model.musicSource == .yourMusic)") {
             await checkAvailability(album)
         }
@@ -102,6 +107,7 @@ struct AlbumPage: View {
             subtitle: album.artistName,
             onSubtitle: album.artists?.first.map { artist in { openPlayRoute(.artist(artist)) } },
             facts: factsLine(album, kind: kind),
+            sources: elsewhere.isEmpty ? [] : [.appleMusic] + elsewhere,
             tintCover: cover(album),
             canPlay: !(hasLoaded && tracks.isEmpty),
             download: .album(album),
@@ -413,9 +419,28 @@ struct AlbumPage: View {
     }
     #endif
 
-    /// The album, or with your own music, the songs of it you have.
+    /// The sources of yours and Spotify that have it too, with every source on.
+    private func findElsewhere(_ album: Album) async {
+        guard model.mixesSources else {
+            elsewhere = []
+            return
+        }
+        let own = model.ownSources(ofAlbum: album.title, by: album.artistName)
+        let others = await AlbumElsewhere.sources(title: album.title, artist: album.artistName, model: model, besides: .appleMusic)
+        elsewhere = own + others.filter { !own.contains($0) }
+    }
+
+    /// Where a song plays from, on its row, when that isn't Apple Music.
+    private func otherSource(of track: Track) -> SourceID? {
+        guard !elsewhere.isEmpty, case .song(let song) = track else { return nil }
+        let history = HistorySong(songID: song.id.rawValue, title: song.title, artistName: song.artistName, albumTitle: song.albumTitle)
+        return model.otherSource(of: history, catalog: song, besides: .appleMusic)
+    }
+
+    /// The album, or with your own music, the songs of it you have. With every source on,
+    /// each song plays from its best copy.
     private func playAlbum(_ album: Album, context: PlayContext, shuffled: Bool) {
-        if model.musicSource == .yourMusic {
+        if model.musicSource == .yourMusic || model.mixesSources && !elsewhere.isEmpty {
             let (songs, _) = PlaylistPage.songs(in: tracks)
             player.play(.songs(songs), from: context, shuffled: shuffled)
         } else {

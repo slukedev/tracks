@@ -112,6 +112,23 @@ final class AppModel {
     @ObservationIgnored private let appleMusicEngine: any PlayerEngine
     @ObservationIgnored private var yourMusicEngine: (any PlayerEngine)?
     @ObservationIgnored private var hasPreparedYourMusic = false
+    @ObservationIgnored private var mixedEngineStorage: MixedQueueEngine?
+
+    /// The queue across sources, made when a queue first mixes them. See `MixedQueue.swift`.
+    var mixedEngine: MixedQueueEngine {
+        if let mixedEngineStorage { return mixedEngineStorage }
+        let engine = MixedQueueEngine(
+            engineFor: { [weak self] source in self?.engine(for: source) ?? DemoPlayerEngine { [] } },
+            resolve: { [weak self] request in
+                guard let self else { throw PlayerProblem.nothingToPlay }
+                return try await self.resolveForMixing(request)
+            },
+            canPlayAnywhere: { [weak self] song in self?.canPlayAnywhere(song) ?? false },
+            reasonUnavailable: { [weak self] source, items in self?.reasonUnavailable(source, items) }
+        )
+        mixedEngineStorage = engine
+        return engine
+    }
 
     /// A page for the main window to open, asked for from outside it (the menu bar's
     /// Your Stats). The window pushes it and clears it.
@@ -226,6 +243,18 @@ final class AppModel {
             player.routeEngine = { [weak self] request, choosingCopy in
                 self?.routedSource(for: request, choosingCopy: choosingCopy).map { self?.engine(for: $0) } ?? nil
             }
+            player.mixing = { [weak self] request in self?.mixedEngineIfNeeded(for: request) }
+            player.requestSources = { [weak self] request in self?.sources(of: request) ?? [] }
+            player.mixedEngine = { [weak self] in
+                guard let self, self.mixesSources else { return nil }
+                return self.mixedEngine
+            }
+            player.availability = { [weak self] track, source in self?.unavailability(of: track, from: source) }
+            player.otherCopy = { [weak self] item in self?.otherCopy(of: item) }
+            player.downloads = (
+                available: { [weak self] in self?.hasDownloadsToPlay ?? false },
+                play: { [weak self] in self?.playDownloads() }
+            )
         }
         player.restartMood = { [weak self] title, first in
             guard let self, let mood = Mood.allCases.first(where: { $0.title == title }) else { return }
@@ -687,11 +716,11 @@ final class AppModel {
     }
 
     /// Apple Music's ids: a catalog id is digits, a library one starts "i.".
-    private static func isCatalogID(_ id: String) -> Bool {
+    static func isCatalogID(_ id: String) -> Bool {
         !id.isEmpty && (id.allSatisfy(\.isNumber) || id.hasPrefix("i."))
     }
 
-    private func engine(for source: MusicSource) -> any PlayerEngine {
+    func engine(for source: MusicSource) -> any PlayerEngine {
         switch source {
         case .appleMusic:
             return appleMusicEngine

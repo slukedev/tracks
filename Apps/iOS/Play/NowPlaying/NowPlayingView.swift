@@ -42,6 +42,7 @@ struct NowPlayingView: View {
                     // no longer fits beside the cover and the controls.
                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     .environment(\.openRadioTuner, OpenRadioTunerAction { showsTuner = true })
+                    .environment(\.nowPlayingNavigate, navigate)
             }
         }
         // Lit from the cover, wherever the layout puts it.

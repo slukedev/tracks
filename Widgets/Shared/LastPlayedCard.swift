@@ -1,4 +1,6 @@
 import SwiftUI
+import WidgetKit
+import TracksCore
 
 /// One song with its cover. The Last Played widget, and the leading half of the Today widget
 /// when Up Next is on.
@@ -14,7 +16,7 @@ struct LastPlayedCard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Last played: \(capture.title) by \(capture.artistName)")
+        .accessibilityLabel(capture.source == .spotify ? Text("Last played: \(capture.title) by \(capture.artistName), Spotify") : Text("Last played: \(capture.title) by \(capture.artistName)"))
     }
 
     private func card(showsArtwork: Bool, titleLines: Int) -> some View {
@@ -28,10 +30,15 @@ struct LastPlayedCard: View {
                 Text(capture.title)
                     .font(.headline)
                     .lineLimit(titleLines)
-                Text(capture.artistName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if capture.source == .spotify {
+                        SpotifyWidgetMark(size: 11)
+                    }
+                    Text(capture.artistName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             // Redacted on a locked device when that's asked for. The redaction keeps the
             // text's frame, so `ViewThatFits` picks the same card either way.

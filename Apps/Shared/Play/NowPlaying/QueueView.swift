@@ -59,16 +59,16 @@ struct QueueView: View {
 
             let (queued, picks) = UpNextParts.split(player)
             if player.context?.isStation == true {
-                note("A station picks as it goes, so there's nothing queued. Skip to hear the next song.")
+                note("Stations pick as they play.")
             } else if player.upNext.isEmpty {
                 if player.isLive || player.isAutoplaying {
                     note("Picking the next song…")
                 } else if autoplay, player.repeatMode == .off {
-                    note("Autoplay will play songs like these once this one ends.")
+                    note("Autoplay plays songs like these next.")
                 } else if autoplay {
-                    note("Autoplay is waiting while Repeat is on.")
+                    note("Autoplay waits while Repeat is on.")
                 } else {
-                    note("Nothing's queued after this song. Use Play Next on any song to add it here, or turn on Autoplay to keep playing songs like these.")
+                    note("Nothing Queued")
                 }
             } else {
                 // Long-press to move and swipe to remove, as in Music, rather than edit mode's
@@ -162,7 +162,9 @@ struct QueueView: View {
     }
 
     private func row(_ upcoming: PlayerTrack, at index: Int, isLast: Bool) -> some View {
-        let isUnavailable = upcoming.local.map { !music.isPlayable($0) } ?? false
+        let isUnavailable = player.isUnavailable(upcoming) || upcoming.local.map { !music.isPlayable($0) } ?? false
+        // Named only where the queue mixes sources, and always for Spotify.
+        let named = player.sourceID(of: upcoming).flatMap { $0 == .spotify || player.queueMixesSources ? $0 : nil }
         return Button {
             player.jump(toUpNext: index)
         } label: {
@@ -181,6 +183,12 @@ struct QueueView: View {
                     }
                 }
                 Spacer(minLength: 0)
+                if let named, !isUnavailable {
+                    SourceGlyph(source: named)
+                        .font(.caption)
+                        .frame(width: 14, height: 14)
+                        .foregroundStyle(.white.opacity(0.6))
+                }
                 if isUnavailable {
                     Image(systemName: "exclamationmark.circle")
                         .foregroundStyle(.white.opacity(0.8))
@@ -196,6 +204,7 @@ struct QueueView: View {
         }
         .buttonStyle(.plain)
         .accessibilityValue(isUnavailable ? Text("Unavailable") : Text(verbatim: ""))
+        .accessibilityAction(named: "Remove") { player.removeUpNext(at: IndexSet(integer: index)) }
         #if os(iOS)
         .sharePlayMark(upcoming)
         #endif

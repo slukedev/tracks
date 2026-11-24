@@ -106,14 +106,14 @@ struct UpNextList: View {
 
             Section {
                 if player.context?.isStation == true {
-                    note("A station picks as it goes, so nothing is queued. Skip to hear the next song.")
+                    note("Stations pick as they play.")
                 } else if player.upNext.isEmpty {
                     if player.isLive || player.isAutoplaying {
                         note("Picking the next song…")
                     } else if autoplay, player.repeatMode == .off {
-                        note("Autoplay will play songs like these once this one ends.")
+                        note("Autoplay plays songs like these next.")
                     } else {
-                        note("Nothing is queued after this song. Choose Play Next on any song to add it here.")
+                        note("Nothing Queued")
                     }
                 } else {
                     ForEach(queued, id: \.track.id) { entry in
@@ -342,8 +342,12 @@ private struct UpNextRow: View {
     let track: PlayerTrack
     let isGettingReady: Bool
     @Environment(PlayerModel.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let isUnavailable = player.isUnavailable(track)
+        // Named only where the queue mixes sources, and always for Spotify.
+        let named = player.sourceID(of: track).flatMap { $0 == .spotify || player.queueMixesSources ? $0 : nil }
         HStack(spacing: 10) {
             CoverImage(cover: track.cover, size: 32)
             VStack(alignment: .leading, spacing: 1) {
@@ -357,16 +361,30 @@ private struct UpNextRow: View {
                 }
             }
             Spacer(minLength: 0)
-            if let local = track.local {
-                DownloadStateIcon(track: local)
-            } else if let duration = track.duration {
-                Text(Scrubber.format(duration))
-                    .font(.subheadline)
-                    .monospacedDigit()
+            if isUnavailable {
+                Image(systemName: "exclamationmark.circle")
                     .foregroundStyle(.secondary)
+                    .help("Can't play right now")
+            } else {
+                if let named {
+                    SourceGlyph(source: named)
+                        .frame(width: 12, height: 12)
+                        .foregroundStyle(.secondary)
+                }
+                if let local = track.local {
+                    DownloadStateIcon(track: local)
+                } else if let duration = track.duration {
+                    Text(Scrubber.format(duration))
+                        .font(.subheadline)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
             }
         }
+        .opacity(isUnavailable ? 0.4 : 1)
+        .animation(Design.Motion.reduced(Design.Motion.fade, reduceMotion: reduceMotion), value: isUnavailable)
         .accessibilityElement(children: .combine)
+        .accessibilityValue(isUnavailable ? Text("Unavailable") : Text(verbatim: ""))
         .accessibilityHint("Double-click to play now")
     }
 }

@@ -190,25 +190,10 @@ struct LibrarySearchResults: View {
     }
 }
 
-/// Listen Now: the Play tab's page, for the music Play is on.
+/// Listen Now: Play's page, as the source filter has it.
 struct ListenNowPage: View {
-    @Environment(AppModel.self) private var model
-
     var body: some View {
-        Group {
-            switch model.musicSource {
-            case .yourMusic:
-                YourMusicScreen()
-            case .appleMusic:
-                PlayScreen()
-            case .spotify:
-                #if SPOTIFY
-                SpotifyPlayScreen()
-                #else
-                PlayScreen()
-                #endif
-            }
-        }
-        .sourceFilter()
+        PlayPage()
+            .sourceFilter()
     }
 }
