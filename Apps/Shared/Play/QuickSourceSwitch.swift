@@ -50,7 +50,7 @@ private struct QuickSourceSwitch: ViewModifier {
                             .buttonStyle(.plain)
                             .menuIndicator(.hidden)
                             .fixedSize()
-                            // Where a window's subtitle starts.
+                            // Where a window's title starts.
                             .padding(.leading, 16)
                             .accessibilityLabel("Music Source")
                             .accessibilityValue(model.musicSource.name)
@@ -256,20 +256,22 @@ struct SwitchMusicSourceIntent: AppIntent {
 }
 
 #if os(macOS)
-/// The source in the Mac's title bar, where a window's subtitle sits, with a chevron saying it
+/// The source in the Mac's title bar, where a window's title sits, with a chevron saying it
 /// opens a menu.
 private struct MacSourceLabel: View {
     let source: MusicSource
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             Text(source.name)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
             Image(systemName: "chevron.down")
-                .font(.caption2.weight(.semibold))
-                .imageScale(.small)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
         }
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
+        // Opaque, not the bar's vibrant label colours, which let the page's glow tint the words.
         .contentShape(.rect)
     }
 }
