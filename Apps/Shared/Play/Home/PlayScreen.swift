@@ -22,13 +22,6 @@ struct PlayScreen: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: Design.Margin.section) {
-                    #if os(macOS)
-                    Text("Listen Now")
-                        .font(.pageTitle)
-                        .accessibilityAddTraits(.isHeader)
-                        .padding(.horizontal, Design.Margin.page)
-                    #endif
-
                     // Access and subscription come first whatever the layout: nothing else
                     // on the page can play until they're sorted.
                     if let blocker {
@@ -63,7 +56,7 @@ struct PlayScreen: View {
             }
         }
         #if os(macOS)
-        // The title is in the page, and its glow meets the top edge until it scrolls under the bar.
+        // No title: the sidebar names the page, and the crate's glow meets the top edge.
         .headerUnderBar()
         #else
         // On the Mac, Settings is the app menu's and Your Devices the window's.

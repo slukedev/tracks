@@ -40,8 +40,28 @@ private struct QuickSourceSwitch: ViewModifier {
     func body(content: Content) -> some View {
         if isOn, QuickSwitch.isAvailable(music) {
             content
+                #if os(macOS)
+                // Listen Now has no title of its own for a title menu to hang on, so the
+                // source sits where the title would and opens the menu itself.
+                .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        Menu { picker } label: { MacSourceLabel(source: model.musicSource) }
+                            .menuStyle(.button)
+                            .buttonStyle(.plain)
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            // Where a window's subtitle starts.
+                            .padding(.leading, 16)
+                            .accessibilityLabel("Music Source")
+                            .accessibilityValue(model.musicSource.name)
+                            .accessibilityHint("Switches between Apple Music and your music")
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                }
+                #else
                 .navigationSubtitle(model.musicSource.name)
                 .toolbarTitleMenu { picker }
+                #endif
                 #if os(iOS)
                 // At the top of the page the title is large, and the system gives a large
                 // title no menu: the source under it opens the same one, so switching is a tap
@@ -234,3 +254,23 @@ struct SwitchMusicSourceIntent: AppIntent {
         return .result(dialog: "Switched to \(target.name).")
     }
 }
+
+#if os(macOS)
+/// The source in the Mac's title bar, where a window's subtitle sits, with a chevron saying it
+/// opens a menu.
+private struct MacSourceLabel: View {
+    let source: MusicSource
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(source.name)
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.semibold))
+                .imageScale(.small)
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .contentShape(.rect)
+    }
+}
+#endif

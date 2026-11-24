@@ -122,11 +122,27 @@ extension View {
 #if os(macOS)
 extension View {
     /// A page whose header runs up under the Mac's title bar. The page's title lives in its
-    /// content, so the window's is empty. The bar draws no band of its own: macOS 27's scroll
-    /// edge effect softens the content under it once it scrolls there.
+    /// content, so the window's is empty. At the top the bar draws no band of its own, so the
+    /// header's colour meets the window's edge clean; once the page scrolls under it, the
+    /// bar's material comes back and the scroll edge effect softens what's beneath.
     func headerUnderBar() -> some View {
-        navigationTitle("")
+        modifier(HeaderUnderBar())
+    }
+}
+
+private struct HeaderUnderBar: ViewModifier {
+    @State private var isScrolled = false
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle("")
+            .toolbarBackgroundVisibility(isScrolled ? .automatic : .hidden, for: .windowToolbar)
             .scrollEdgeEffectStyle(.soft, for: .top)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top > 8
+            } action: { _, scrolled in
+                isScrolled = scrolled
+            }
     }
 }
 #endif
