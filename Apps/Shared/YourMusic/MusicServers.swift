@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import OSLog
+import Synchronization
 import TracksCore
 #if os(iOS)
 import UIKit
@@ -28,7 +29,20 @@ final class MusicServers {
     }
 
     private(set) var servers: [SubsonicServer] = []
-    private(set) var status: [String: Status] = [:]
+    private(set) var status: [String: Status] = [:] {
+        didSet { noteOffline(was: oldValue) }
+    }
+    /// When each server out of reach stopped answering, for its page's "Offline since".
+    private(set) var offlineSince: [String: Date] = [:]
+    /// How far each server's first sync has got, where the server says how many songs it has.
+    private(set) var syncProgress: [String: SyncProgress] = [:]
+
+    struct SyncProgress: Equatable {
+        let done: Int
+        let total: Int
+
+        var fraction: Double { min(1, Double(done) / Double(max(total, 1))) }
+    }
     /// Every song on each server, as of its last sync.
     private(set) var catalogs: [String: [LocalTrack]] = [:] {
         didSet { catalogRevision &+= 1 }
@@ -66,6 +80,8 @@ final class MusicServers {
     @ObservationIgnored var onKeptArrived: (([LocalTrack]) -> Void)?
     /// Called with a server's id once it's removed.
     @ObservationIgnored var onRemoved: ((String) -> Void)?
+    /// What Trackside Cloud syncs beyond the history: the playlists. Set by the app.
+    @ObservationIgnored var cloudStores: () -> [any CloudEntityStore] = { [] }
     /// One sync at a time for each server, tied to the server as it was when it started.
     @ObservationIgnored private let syncs = ServerSyncs()
     /// For each Subsonic server asked for songs, what watches for them to arrive.
@@ -196,11 +212,38 @@ final class MusicServers {
         }
     }
 
+    private func noteOffline(was old: [String: Status]) {
+        for (id, now) in status where now != old[id] {
+            switch now {
+            case .offline, .failed:
+                if offlineSince[id] == nil { offlineSince[id] = .now }
+            case .online:
+                offlineSince[id] = nil
+            case .connecting, .wrongPassword:
+                break
+            }
+        }
+        for id in offlineSince.keys where status[id] == nil { offlineSince[id] = nil }
+    }
+
     /// Whether a server is being reached from away from home: at an address that isn't on
     /// the local network.
     func isAway(_ serverID: String) -> Bool {
-        let base = trackside[serverID]?.endpoints.baseURL ?? subsonic[serverID]?.baseURL
-        return base.map { !NearbyAddress.isNearby($0) } ?? false
+        guard let base = address(of: serverID) else { return false }
+        return !NearbyAddress.isNearby(base) || TracksideServerURL.Kind(guessingFrom: base) == .tailnet
+    }
+
+    /// The address requests go to now.
+    func address(of serverID: String) -> URL? {
+        trackside[serverID]?.endpoints.baseURL ?? subsonic[serverID]?.baseURL
+    }
+
+    /// Gives a server the name it goes by in Tracks.
+    func rename(_ serverID: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, var server = server(serverID), server.name != trimmed else { return }
+        server.name = trimmed
+        store(server)
     }
 
     /// The server's client, whichever kind it is.
@@ -554,8 +597,8 @@ final class MusicServers {
         }
         cloudSync?.stop()
         guard let store = try? TracksStore.shared() else { return }
-        let device = TracksideDeviceIdentity.current
-        let sync = TracksideCloudSync(serverID: serverID, client: connection.client, store: store, deviceName: device.name, platform: device.platform)
+        let device = TracksideDeviceInfo.thisDevice
+        let sync = TracksideCloudSync(serverID: serverID, client: connection.client, store: store, deviceName: device.name, platform: device.platform, extraStores: cloudStores())
         cloudSync = sync
         sync.syncSoon(after: .zero)
     }
@@ -628,13 +671,22 @@ final class MusicServers {
     private func performTracksideSync(_ serverID: String, isCurrent: @escaping @MainActor () -> Bool) async {
         guard let client = trackside[serverID]?.client else { return }
         syncing.insert(serverID)
-        defer { syncing.remove(serverID) }
+        defer {
+            syncing.remove(serverID)
+            syncProgress[serverID] = nil
+        }
+        let counted = CountedSyncSource(client) { [weak self] done, total in
+            Task { @MainActor in
+                guard let self, self.syncing.contains(serverID) else { return }
+                self.syncProgress[serverID] = SyncProgress(done: done, total: total)
+            }
+        }
         guard let synced = try? await Self.runSync(
             serverID: serverID,
             tracks: catalogs[serverID] ?? [],
             artists: artists[serverID] ?? [:],
             cursorFile: Self.cursorURL(serverID),
-            client: client
+            source: counted
         ), isCurrent(), trackside[serverID] != nil
         else { return }
         lastSynced[serverID] = .now
@@ -654,9 +706,9 @@ final class MusicServers {
     /// Brings the mirror up to date off the main actor: a big library takes a moment to file
     /// by id and back.
     @concurrent
-    nonisolated private static func runSync(serverID: String, tracks: [LocalTrack], artists: [String: ServerArtistRef], cursorFile: URL, client: TracksideClient) async throws -> SyncedMirror {
+    nonisolated private static func runSync(serverID: String, tracks: [LocalTrack], artists: [String: ServerArtistRef], cursorFile: URL, source: some TracksideSyncSource) async throws -> SyncedMirror {
         let before = TracksideMirror(serverID: serverID, tracks: tracks, artists: artists, cursor: TracksideCursorFile.load(from: cursorFile))
-        let after = try await TracksideSync.run(before, from: client)
+        let after = try await TracksideSync.run(before, from: source)
         return SyncedMirror(
             tracks: after.songs != before.songs ? after.tracks : nil,
             artists: after.artists != before.artists ? after.artists : nil,
@@ -764,7 +816,21 @@ final class MusicServers {
         lifecycle.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { [weak self] _ in
             Task { @MainActor in self?.setForeground(false) }
         })
+        // Passwords that couldn't be read before the first unlock can be now.
+        lifecycle.append(center.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in await self?.reopenLocked() }
+        })
         #endif
+    }
+
+    private func reopenLocked() async {
+        let locked = lockedKeychain
+        guard !locked.isEmpty else { return }
+        await withTaskGroup(of: Void.self) { group in
+            for id in locked where servers.contains(where: { $0.id == id }) {
+                group.addTask { await self.connect(id) }
+            }
+        }
     }
 
     private func setForeground(_ isForeground: Bool) {
@@ -1374,20 +1440,10 @@ final class TracksideConnection {
     }
 }
 
-/// This device, as it introduces itself to a Trackside server when it's paired.
-enum TracksideDeviceIdentity {
-    private static let key = "tracksideClientDeviceID"
-
-    /// The same for as long as Tracks is installed, so pairing again replaces this device's
-    /// key on the server rather than adding another device.
-    static var clientDeviceID: String {
-        if let saved = UserDefaults.standard.string(forKey: key) { return saved }
-        let made = UUID().uuidString
-        UserDefaults.standard.set(made, forKey: key)
-        return made
-    }
-
-    static var current: TracksideDeviceInfo {
+extension TracksideDeviceInfo {
+    /// This device, as it introduces itself to a Trackside server: its name and platform,
+    /// under the app's one device id, the same one Trackside Cloud knows it by.
+    static var thisDevice: TracksideDeviceInfo {
         #if os(iOS)
         let name = UIDevice.current.name
         let platform = "ios"
@@ -1396,7 +1452,7 @@ enum TracksideDeviceIdentity {
         let platform = "macos"
         #endif
         return TracksideDeviceInfo(
-            clientDeviceID: clientDeviceID,
+            clientDeviceID: DeviceIdentity.current,
             name: name,
             platform: platform,
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -1416,4 +1472,54 @@ struct ServerSearchPage {
 /// Why a server couldn't be asked for a song, in words to show.
 struct SongRequestProblem: Error {
     let reason: String
+}
+
+/// A Trackside server's sync pages, counted on the way through: a snapshot names how many
+/// songs each library holds before the songs come, so a first sync can say how far it's got.
+nonisolated private final class CountedSyncSource: TracksideSyncSource {
+    private let base: TracksideClient
+    private let counts = Mutex((songs: 0, total: 0))
+    private let report: @Sendable (Int, Int) -> Void
+
+    init(_ base: TracksideClient, report: @escaping @Sendable (Int, Int) -> Void) {
+        self.base = base
+        self.report = report
+    }
+
+    func sync(cursor: String?, limit: Int) async throws -> TracksideSyncPage {
+        let page = try await base.sync(cursor: cursor, limit: limit)
+        guard page.mode == .snapshot else { return page }
+        let (songs, total) = counts.withLock { counts in
+            counts.total += (page.libraries ?? []).compactMap(\.songCount).reduce(0, +)
+            counts.songs += page.songs?.count ?? 0
+            return (counts.songs, counts.total)
+        }
+        if total > 0 { report(songs, total) }
+        return page
+    }
+}
+
+extension TracksideServerURL.Kind {
+    /// What an address typed by hand most likely is: Tailscale's own names and addresses,
+    /// the home network, or the internet.
+    init(guessingFrom url: URL) {
+        let host = url.host(percentEncoded: false)?.lowercased() ?? ""
+        let octets = host.split(separator: ".").compactMap { UInt8($0) }
+        if host.hasSuffix(".ts.net") || (octets.count == 4 && octets[0] == 100 && (64...127).contains(octets[1])) {
+            self = .tailnet
+        } else if NearbyAddress.isNearby(url) {
+            self = .lan
+        } else {
+            self = .public
+        }
+    }
+
+    /// The route's name, as a server's Addresses list shows it.
+    var routeName: String {
+        switch self {
+        case .lan: String(localized: "Home Network")
+        case .tailnet: String(localized: "Tailscale")
+        case .public, .unknown: String(localized: "Internet")
+        }
+    }
 }

@@ -51,11 +51,31 @@ final class CloudSyncSettings {
         (wantsSync ? backend : nil) != CloudSync.backendThisRun
     }
 
-    /// The root row's value, whichever backend.
+    /// The root row's value, whichever backend: how far a restore has got while history is
+    /// still arriving, otherwise the state in a word.
     var summary: String {
+        if wantsSync, !changesNextLaunch, let percent = Self.percent(restoring: Onboarding.shared.restore) {
+            return String(localized: "Syncing \(percent)")
+        }
         guard wantsSync, case .tracksideCloud = backend else { return status.short }
         if changesNextLaunch { return String(localized: "On") }
         return tracksideCloud()?.state.short ?? TracksideCloudSync.State.waiting.short
+    }
+
+    /// "42%" while a restore is under way and its size is known.
+    static func percent(restoring restore: HistoryRestore) -> String? {
+        guard restore.isUnderWay, let fraction = restore.fraction else { return nil }
+        return fraction.formatted(.percent.precision(.fractionLength(0)))
+    }
+
+    /// The root row's tone: a failure or something to do shows in orange.
+    var summaryAsksForAction: Bool {
+        guard wantsSync, !changesNextLaunch else { return false }
+        if case .tracksideCloud = backend {
+            if case .failed = tracksideCloud()?.state { return true }
+            return false
+        }
+        return status.tone != .plain
     }
 
     private var account: CloudSyncStatus.Account?

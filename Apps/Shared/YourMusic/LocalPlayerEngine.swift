@@ -51,6 +51,8 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     private var awaitingArrival: String?
     /// A moment's message for the person, shown by the player.
     var onNotice: ((String) -> Void)?
+    /// Songs left out because they can't play now, with why when they share one reason.
+    var onSkipped: ((_ count: Int, _ reason: String?) -> Void)?
     /// Next and Previous from the lock screen, CarPlay, the steering wheel or headphones. Set
     /// by the player, which does what its own buttons do: waits for a live mix's next pick,
     /// and doesn't take going back for a skip. Unset, the engine skips by itself.
@@ -285,8 +287,17 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     private func keepPlayable(_ tracks: [(offset: Int, track: LocalTrack)], start: Int) throws -> ([LocalTrack], Int) {
         let playable = tracks.filter { music.isPlayable($0.track) }
         guard !playable.isEmpty else { throw PlayerProblem.notInYourMusic }
+        let skipped = tracks.filter { !music.isPlayable($0.track) }.map(\.track)
+        if !skipped.isEmpty { onSkipped?(skipped.count, skipReason(skipped)) }
         let first = playable.firstIndex { $0.offset >= start } ?? 0
         return (playable.map(\.track), first)
+    }
+
+    /// "Home is offline", when every song left out is on one server out of reach.
+    private func skipReason(_ tracks: [LocalTrack]) -> String? {
+        let servers = Set(tracks.map(\.serverID))
+        guard servers.count == 1, let id = servers.first ?? nil, let server = music.servers.server(id) else { return nil }
+        return String(localized: "\(server.name) is offline")
     }
 
     func pause() {

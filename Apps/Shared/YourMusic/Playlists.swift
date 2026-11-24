@@ -16,6 +16,8 @@ final class Playlists {
     /// Songs being added to a playlist from a menu anywhere: the sheet to choose one shows while
     /// they're here.
     var picking: PlaylistPick?
+    /// Called after any change made here, for Trackside Cloud to send it on.
+    @ObservationIgnored var onChange: (() -> Void)?
 
     /// Playlists not to merge with Apple Music again, by Tracks id or Apple Music id: ones you
     /// stopped merging, or deleted on one side.
@@ -121,7 +123,20 @@ final class Playlists {
 
     private static var recordURL: URL { LibraryFolders.index.appending(path: "playlists.json") }
 
+    /// Takes in what Trackside Cloud brought, as it is: no change here is noted, and
+    /// nothing is sent back.
+    func takeFromCloud(_ playlists: [TracksPlaylist]) {
+        guard playlists != all else { return }
+        all = playlists
+        write()
+    }
+
     private func save() {
+        onChange?()
+        write()
+    }
+
+    private func write() {
         guard !isDemo else { return }
         record.keep(all)
         Task.detached(priority: .utility) { [record] in record.flush() }

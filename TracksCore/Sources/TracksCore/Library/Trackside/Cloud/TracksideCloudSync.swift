@@ -34,7 +34,9 @@ public final class TracksideCloudSync {
     @ObservationIgnored private var runAgain = false
     @ObservationIgnored private var saves: (any NSObjectProtocol)?
 
-    public init(serverID: String, client: TracksideClient, store: TracksStore, deviceName: String?, platform: String?) {
+    /// - Parameter extraStores: what the app keeps beyond the history, such as its playlists
+    ///   and their entries, synced after the history in ``CloudSyncEngine/order``.
+    public init(serverID: String, client: TracksideClient, store: TracksStore, deviceName: String?, platform: String?, extraStores: [any CloudEntityStore] = []) {
         self.serverID = serverID
         self.store = store
         self.deviceName = deviceName
@@ -45,7 +47,7 @@ public final class TracksideCloudSync {
         let hidden: [any CloudEntityStore] = [CloudForgottenSongsStore(), CloudBlockedArtistsStore(), CloudExcludedStationsStore()]
         engine = CloudSyncEngine(
             api: api,
-            stores: store.cloudStores + hidden,
+            stores: store.cloudStores + hidden + extraStores,
             deviceID: DeviceIdentity.current,
             folder: folder
         )

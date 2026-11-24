@@ -44,6 +44,14 @@ public enum PlayID {
         uuidV5(namespace: namespace, name: key).uuidString.lowercased()
     }
 
+    /// A scrobble brought in from Last.fm, the same id on every device and platform, so the
+    /// same scrobble imported anywhere is one play. Android's `PlayIds.lastFm` makes the same.
+    public static func lastFM(playedAt: Date, title: String, artistName: String) -> String {
+        let seconds = Int64(playedAt.timeIntervalSince1970.rounded(.down))
+        let key = "\(seconds * 1000)\u{1F}lastFM\u{1F}appleMusic\u{1F}\(SongIdentity.key(title: title, artistName: artistName))"
+        return derived(fromKey: key)
+    }
+
     /// Ids for rows that have none, the same on every device for the same rows. Exact copies
     /// are put in an order every device agrees on (`precedes`) before they're numbered.
     public static func backfill<Row>(_ rows: [Row], key: (Row) -> String, precedes: (Row, Row) -> Bool) -> [(row: Row, id: String)] {

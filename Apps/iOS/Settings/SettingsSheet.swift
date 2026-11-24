@@ -36,11 +36,11 @@ struct SettingsSheet: View {
                     DevicesRow()
                     if let cloud {
                         NavigationLink(value: SettingsPage.iCloud) {
-                            SettingsRowLabel(title: "iCloud", systemImage: "icloud.fill", tint: .blue, value: cloud.status.short)
+                            SyncRowLabel(value: cloud.summary, asksForAction: cloud.summaryAsksForAction)
                         }
                     } else if model.isDemoLaunch {
                         NavigationLink(value: SettingsPage.iCloud) {
-                            SettingsRowLabel(title: "iCloud", systemImage: "icloud.fill", tint: .blue, value: CloudSyncStatus.unavailable.short)
+                            SyncRowLabel(value: CloudSyncStatus.unavailable.short, asksForAction: false)
                         }
                     }
                 } header: {
@@ -64,6 +64,8 @@ struct SettingsSheet: View {
             // Sample data has no real store to sync; its row says so instead.
             guard cloud == nil, let store = model.store, !model.isDemoLaunch else { return }
             let settings = CloudSyncSettings(store: store, monitor: model.syncMonitor)
+            let servers = model.yourMusic.servers
+            settings.tracksideCloud = { [weak servers] in servers?.cloudSync }
             cloud = settings
             await settings.refresh()
         }
@@ -105,6 +107,26 @@ enum SettingsPage: String, Hashable, CaseIterable {
         case .louderAtSpeed: [.play, self]
         case .appleMusic: [.sources, self]
         default: [self]
+        }
+    }
+}
+
+/// Sync's row: where it stands in a word, or how far history has got while it arrives.
+private struct SyncRowLabel: View {
+    let value: String
+    let asksForAction: Bool
+
+    var body: some View {
+        LabeledContent {
+            Text(value)
+                .foregroundStyle(asksForAction ? AnyShapeStyle(.ink(.orange)) : AnyShapeStyle(.secondary))
+                .contentTransition(.numericText())
+        } label: {
+            Label {
+                Text("Sync")
+            } icon: {
+                SettingsIconTile(systemImage: "arrow.triangle.2.circlepath", color: .blue)
+            }
         }
     }
 }

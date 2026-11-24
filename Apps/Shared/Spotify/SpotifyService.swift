@@ -4,6 +4,8 @@ import Security
 import os
 #if canImport(UIKit)
 import UIKit
+#else
+import AppKit
 #endif
 import TracksCore
 import TracksEngine
@@ -65,6 +67,8 @@ final class SpotifyService: SpotifySource {
     // MARK: SpotifySource
 
     var isConnected: Bool { phase == .connected && account != nil }
+
+    var isChecking: Bool { phase == .checking }
 
     var needsSignIn: Bool {
         guard wasAdded else { return false }
@@ -223,7 +227,22 @@ final class SpotifyService: SpotifySource {
     /// The account saved on this device, opened at launch. Away from a network it's kept
     /// and connects when first used.
     private func restore() {
-        guard case .found(let credentials) = SpotifyKeychain.read() else { return }
+        let credentials: Data
+        switch SpotifyKeychain.read() {
+        case .found(let found):
+            credentials = found
+            stopWaitingForUnlock()
+        case .unavailable:
+            // Before the first unlock the Keychain can't be read: still signed in, checked
+            // again once it can be.
+            phase = .checking
+            waitForUnlock()
+            return
+        case .missing:
+            stopWaitingForUnlock()
+            if phase == .checking { phase = .signedOut }
+            return
+        }
         phase = .checking
         Task {
             let config = Self.config
@@ -252,9 +271,37 @@ final class SpotifyService: SpotifySource {
         }
     }
 
+    @ObservationIgnored private var unlockObserver: (any NSObjectProtocol)?
+
+    /// Reads the saved account again once this device's protected data can be read.
+    private func waitForUnlock() {
+        guard unlockObserver == nil else { return }
+        #if canImport(UIKit)
+        let center = NotificationCenter.default
+        let name = UIApplication.protectedDataDidBecomeAvailableNotification
+        #else
+        let center = NSWorkspace.shared.notificationCenter
+        let name = NSWorkspace.sessionDidBecomeActiveNotification
+        #endif
+        unlockObserver = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.restore() }
+        }
+    }
+
+    private func stopWaitingForUnlock() {
+        guard let unlockObserver else { return }
+        #if canImport(UIKit)
+        NotificationCenter.default.removeObserver(unlockObserver)
+        #else
+        NSWorkspace.shared.notificationCenter.removeObserver(unlockObserver)
+        #endif
+        self.unlockObserver = nil
+    }
+
     /// Signs out, forgets the sign-in and everything seen from Spotify. Plays stay in
     /// History.
     func signOut() {
+        stopWaitingForUnlock()
         waitingLogin?.cancel()
         waitingLogin = nil
         webSignIn?.dismiss()

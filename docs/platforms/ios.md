@@ -87,20 +87,29 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Tabs: Play, Library, Summary, History, and Search at the bar's end. Open To puts Play and
   Library first, or Summary and History first.
 - Library tab: Playlists, Artists, Albums, Songs and Recently Added for the source filter's
-  player; No Music Yet with Add Source when nothing is added.
+  player. With All Sources and more than one player, each library under its name, your own
+  music first; one device or one server chosen narrows Library and Your Music's Play to its
+  songs (`YourMusic.scope`, `shown`), with "Nothing from Home yet" when it has none. No Music
+  Yet with Add Source when nothing is added.
 - Source filter under Play's and Library's title, once a second source exists: All Sources,
   each source by its real name (Apple Music, Spotify, On This iPhone, each server's name),
   Manage Sources…. Past six sources, servers fold into a Servers submenu. Choosing never
   touches the queue (`AppModel.chooseSources`). All Sources still shows one player's Play
-  page: the one already on while it has a source (`followSources`).
+  page: the one already on while it has a source (`followSources`). A saved Spotify filter
+  stays while Spotify is still opening its saved account, which waits for the first unlock.
 - Settings › Sources, the first row in Settings: the worst problem (Sign In, 1 Offline) or
-  the source's name or count. Each source has its page: Apple Music, On This iPhone (Import
+  the source's name or count. Status words: Sign In, Offline, Syncing 42% (a Trackside
+  server's first sync, counted from its libraries' song counts), Away (reached at an address
+  off the home network or over Tailscale), Connected. Each source has its page: Apple Music, On This iPhone (Import
   Songs…, Add Folder…), each server's page. Add Source… offers Apple Music, On This iPhone and
   Server (the server form); Spotify only in builds with the `SPOTIFY` flag (see Spotify).
 - Play From (Settings › Sources, Edit to reorder, synced): which copy plays when a song is in
   several sources. Default On This iPhone, Downloads, servers, Apple Music, Spotify. Applied
-  where Tracks picks among a song's copies by name (`YourMusic.track(for:)`); the order and
-  its resolver are `PlayFromOrder` in TracksCore.
+  where Tracks picks among a song's copies by name (`YourMusic.track(for:)`), and with All
+  Sources to every request: a mix, a chart or a search result plays through the player of
+  its best copy (`AppModel.routedSource`, `PlayerModel.routeEngine`). Albums, playlists and
+  stations from Apple Music, and your own songs, always go to their own player. The order
+  and its resolver are `PlayFromOrder` in TracksCore.
 - Shortcuts' Choose Source and a Focus filter set the source filter (`ChooseSourceIntent`,
   `SourceFocusFilter`).
 - Offline with downloads or files: one capsule at the foot of Play and Library, Play Downloads.
@@ -151,7 +160,14 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Backgrounds: Full Cover, the artwork, Living Colour, Pulse; with crossfade, slide or bloom
   between songs.
 - The back of the sleeve: tap the cover for your history with the song.
-- Up Next: reorder, remove, jump; Tracks Radio shows just the next song.
+- Up Next: reorder, remove, jump; Tracks Radio shows just the next song. A song that can't
+  play now (its server out of reach) is dimmed with an exclamation mark.
+- Source badge under the scrubber beside the quality badge, with two or more sources and
+  always for Spotify; its menu plays the song from another source (`SourceBadge`). The mini
+  player shows Spotify's mark after the artist, and CarPlay's Up Next rows carry it.
+- Songs left out of a queue because they can't play: "Skipped 3 songs / Home is offline" in a
+  capsule above the mini player for 3 seconds, swipe down to dismiss.
+- Full Cover shows Spotify's covers as Living Cover, so they're never cropped.
 - Sleep timer, AirPlay, system volume slider.
 - Favorite star; hold it to add to a playlist.
 - Audio quality badge (Lossless, Hi-Res, Dolby Atmos) with bit depth and sample rate.
@@ -167,7 +183,13 @@ See [README.md](README.md) for the legend and how to keep this current.
   anywhere, or drop them into On My iPhone › Tracks › Music.
 - Tags, covers and folder names are read.
 - Subsonic-compatible servers (Navidrome, Gonic, Airsonic, Ampache, LMS), streamed; passwords
-  in the Keychain.
+  in the Keychain. Add Server offers Password or API Key when the server lists OpenSubsonic's
+  `apiKeyAuthentication` (no username then), and Other Addresses, raced with the first.
+- A server's page: a status line (Connected at home, Connected away from home, Offline since
+  9:41 AM, Syncing 1,204 of 48,000 songs, This iPhone was signed out), Name, Addresses with
+  each route (Home Network, Tailscale, Internet) and the one in use, Tell Server About Plays,
+  Check Connection, Sync Now, and Remove… ("Your plays stay in History. 312 downloads are
+  deleted.").
 - A Subsonic server that finds songs you don't own: play them and get them. Tracks learns a
   server finds songs from its own search answers, and remembers it. A Trackside server says
   whether it gets songs for you in its `/me`, so it's never guessed.
@@ -260,6 +282,11 @@ contain none of it and refuse an engine built with it. Spotify Premium is requir
 - Imports your Last.fm history from Settings, without asking first; Sync Now adds what you've
   scrobbled since, from any app. Progress shows in the row, and it picks up where it stopped.
 - Scrobble queue with retries; scrobbling can be paused.
+- Spotify plays aren't scrobbled unless Scrobble Spotify is on (Last.fm settings, and Scrobble
+  to Last.fm on Spotify's page; `scrobblesSpotifyToLastFM`, synced, off by default): Spotify
+  sends its own. Held plays show as left to Spotify.
+- Imported scrobbles get the same id on every device and on Android: a UUIDv5 of
+  `playedAtMs␟lastFM␟appleMusic␟songIdentity` (`PlayID.lastFM`).
 
 ### Sync and backup
 
@@ -279,13 +306,19 @@ contain none of it and refuse an engine built with it. Spotify Premium is requir
 - Every play has a lasting id (`Capture.playID`, schema V3): new plays get a UUID when they
   start, older ones a UUIDv5 of their history-index key (`PlayID`), so every device gives a
   synced row the same id. It's the history index's id, the server listen id and the cloud id.
-- Not yet: playlists and likes over Trackside Cloud, and Nearby Devices pairing without iCloud
-  (on Trackside Cloud, Nearby Devices works only with devices that also share iCloud).
+- Playlists over Trackside Cloud (`PlaylistCloud`, passed to `TracksideCloudSync` as extra
+  stores): each playlist an item, each song in one an entry with a fractional order key
+  (`FractionalKey`), so adds and moves on two devices both survive. Entries whose songs aren't
+  here yet wait, unseen, and are never sent back as deleted. Settings › Sync's row says
+  Syncing 42% while a restore is under way.
+- Not yet: likes over Trackside Cloud, and Nearby Devices pairing without iCloud (on Trackside
+  Cloud, Nearby Devices works only with devices that also share iCloud).
 - Every setting is listed once in `SettingsRegistry` (TracksCore's `core`, the app's
   `AppSettingsRegistry.swift`), as synced or kept on the device; renamed keys carry over through
   `formerKeys`, and a demo launch's changes are undone on the next real launch.
-- A welcome the first time Tracks opens on the device, with Apple Music, Last.fm, Server
-  and the iCloud restore's progress (`Apps/Shared/Onboarding`).
+- A welcome the first time Tracks opens on the device: Add Music (Apple Music, Spotify in
+  builds with it, On This iPhone, Server, each with Add), Last.fm, and the iCloud restore's
+  progress (`Apps/Shared/Onboarding`).
 - Sync can be turned off; Settings › Sync shows what syncs and where it stands.
 
 ### Devices, Play On and SharePlay

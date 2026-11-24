@@ -672,7 +672,8 @@ public final class TracksStore {
                 albumTitle: scrobble.albumTitle,
                 artworkURL: scrobble.artworkURL,
                 kind: .lastFM,
-                capturedAt: scrobble.playedAt
+                capturedAt: scrobble.playedAt,
+                playID: PlayID.lastFM(playedAt: scrobble.playedAt, title: scrobble.title, artistName: scrobble.artistName)
             )
             // Already on Last.fm. When it got there isn't in the response; when it played is
             // the closest, and it keeps the row out of the scrobble queue on every device.

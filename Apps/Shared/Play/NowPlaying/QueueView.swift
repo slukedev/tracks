@@ -9,6 +9,7 @@ struct QueueView: View {
     @State private var toggles = 0
     @Environment(PlayerModel.self) private var player
     @Environment(YourMusic.self) private var music
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PlayPreferences.autoplayKey) private var autoplay = true
     @AppStorage(PlayPreferences.radioTuningKey) private var storedTuning = ""
     @Environment(\.openRadioTuner) private var openRadioTuner
@@ -161,7 +162,8 @@ struct QueueView: View {
     }
 
     private func row(_ upcoming: PlayerTrack, at index: Int, isLast: Bool) -> some View {
-        Button {
+        let isUnavailable = upcoming.local.map { !music.isPlayable($0) } ?? false
+        return Button {
             player.jump(toUpNext: index)
         } label: {
             HStack(spacing: 12) {
@@ -179,14 +181,21 @@ struct QueueView: View {
                     }
                 }
                 Spacer(minLength: 0)
-                if let local = upcoming.local {
+                if isUnavailable {
+                    Image(systemName: "exclamationmark.circle")
+                        .foregroundStyle(.white.opacity(0.8))
+                        .accessibilityHidden(true)
+                } else if let local = upcoming.local {
                     DownloadStateIcon(track: local)
                         .tint(.white)
                 }
             }
+            .opacity(isUnavailable ? 0.4 : 1)
+            .animation(Design.Motion.reduced(Design.Motion.fade, reduceMotion: reduceMotion), value: isUnavailable)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityValue(isUnavailable ? Text("Unavailable") : Text(verbatim: ""))
         #if os(iOS)
         .sharePlayMark(upcoming)
         #endif

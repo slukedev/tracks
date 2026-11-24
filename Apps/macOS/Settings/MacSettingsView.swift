@@ -43,7 +43,7 @@ struct MacSettingsView: View {
             }
             // Sample data has no real store to sync; its pane says so instead.
             if cloud != nil || model.isDemoLaunch {
-                Tab("iCloud", systemImage: "icloud", value: .iCloud) {
+                Tab("Sync", systemImage: "arrow.triangle.2.circlepath", value: .iCloud) {
                     if let cloud {
                         CloudSyncPage(sync: cloud)
                     } else {
@@ -62,7 +62,10 @@ struct MacSettingsView: View {
         .environment(model)
         .onAppear {
             if cloud == nil, let store = model.store, !model.isDemoLaunch {
-                cloud = CloudSyncSettings(store: store, monitor: model.syncMonitor)
+                let settings = CloudSyncSettings(store: store, monitor: model.syncMonitor)
+                let servers = model.yourMusic.servers
+                settings.tracksideCloud = { [weak servers] in servers?.cloudSync }
+                cloud = settings
             }
             // A pane that isn't there this run falls back to General.
             if pane == .iCloud, cloud == nil, !model.isDemoLaunch { pane = .general }

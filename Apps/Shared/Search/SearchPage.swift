@@ -26,6 +26,7 @@ struct SearchPage: View {
             .toolbar(removing: .title)
             .toolbar {
                 ToolbarItem(placement: .navigation) { scopePicker }
+                ToolbarItem(placement: .primaryAction) { SearchSourceMenu() }
                 ToolbarItem(placement: .primaryAction) {
                     identifyButton
                         .popover(isPresented: $session.isIdentifying, arrowEdge: .bottom) {
@@ -52,6 +53,7 @@ struct SearchPage: View {
             .modifier(SearchBehaviour(isFieldFocused: $isFieldFocused, isShowing: $isShowing, takeFocus: takeFocusIfAsked))
             .tabRoot("Search") {
                 ToolbarItem(placement: .primaryAction) { identifyButton }
+                ToolbarItem(placement: .primaryAction) { SearchSourceMenu() }
             }
             .onChange(of: isSearching) { _, searching in
                 // Cancel leaves Search as it opens, rather than on the last results.
@@ -195,3 +197,36 @@ private struct SearchBehaviour: ViewModifier {
         .dynamicTypeSize(.accessibility5)
 }
 #endif
+
+/// Which sources search draws from: all of them, or one, as Play and Library do. Shown once
+/// there's more than one.
+private struct SearchSourceMenu: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let entries = model.sourceEntries.filter(\.canPlay)
+        if entries.count > 1 {
+            let selection = model.effectiveSourceSelection
+            Menu {
+                Picker("Source", selection: Binding(get: { model.effectiveSourceSelection }, set: { model.chooseSources($0) })) {
+                    Text("All Sources").tag(SourceSelection.all)
+                    Section {
+                        ForEach(entries) { entry in
+                            Label {
+                                Text(verbatim: entry.name)
+                            } icon: {
+                                SourceGlyph(source: entry.id)
+                            }
+                            .tag(SourceSelection.only(entry.id))
+                        }
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Image(systemName: selection == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+            }
+            .accessibilityLabel("Source")
+            .accessibilityValue(Text(verbatim: entries.first { selection == .only($0.id) }?.name ?? String(localized: "All Sources")))
+        }
+    }
+}

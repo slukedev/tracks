@@ -28,8 +28,12 @@ struct YourMusicScreen: View {
         ScrollView {
             // Lazy, so shelves below the fold are made, and ask their servers, as they come.
             LazyVStack(alignment: .leading, spacing: Design.Margin.section) {
-                if !music.index.isEmpty {
+                if !music.shown.isEmpty {
                     content
+                } else if let scope = music.scope, !music.index.isEmpty {
+                    CollectionMessage(text: String(localized: "Nothing from \(music.name(of: scope)) yet"), systemImage: nil) {
+                        EmptyView()
+                    }
                 } else if !music.servers.syncing.isEmpty || (!music.hasScanned && music.servers.servers.isEmpty) {
                     // Reading the files, or a server's first sync.
                     VStack(alignment: .leading, spacing: Design.Spacing.small) {
@@ -109,7 +113,7 @@ struct YourMusicScreen: View {
         }
         // The shelves made from your music, worked out when what they're made from changes
         // rather than on every redraw.
-        .task(id: ShelvesKey(songs: music.index.tracks.count, history: feed.builtRevision, downloads: music.downloads.items.count, mixes: feed.mixes.mixes.count)) {
+        .task(id: ShelvesKey(songs: music.shown.tracks.count, history: feed.builtRevision, downloads: music.downloads.items.count, mixes: feed.mixes.mixes.count)) {
             let made = await makeShelves()
             guard !Task.isCancelled else { return }
             shelves = made
@@ -120,7 +124,7 @@ struct YourMusicScreen: View {
             canGet: music.getMore.canGet,
             artists: feed.favoriteArtists.map(\.id),
             finds: music.discover.forYou.values.reduce(0) { $0 + $1.songs.count + $1.suggested.count },
-            library: music.indexRevision
+            library: music.shownRevision
         )) {
             guard music.getMore.canGet else { return }
             await music.getMore.loadSuggestions(taste: feed.favoriteArtists.map { GetMoreRanking.Taste(name: $0.name, plays: $0.plays) })
@@ -138,7 +142,7 @@ struct YourMusicScreen: View {
             }
             #endif
             Divider()
-            Button("Connect a Server", systemImage: "server.rack") { addsServer = true }
+            Button("Add Server", systemImage: "server.rack") { addsServer = true }
         }
     }
 
@@ -187,7 +191,7 @@ struct YourMusicScreen: View {
     /// Takes what the shelves are made from on the main actor, and makes them off it.
     private func makeShelves() async -> Shelves {
         let artists = feed.favoriteArtists.compactMap { favorite in
-            music.index.artist(id: favorite.id).map { (artist: $0, plays: favorite.plays) }
+            music.shown.artist(id: favorite.id).map { (artist: $0, plays: favorite.plays) }
         }
         let mixes = feed.mixes.mixes.filter { mix in
             mix.songs.lazy.filter { music.track(for: HistorySong($0)) != nil }.prefix(5).count >= 5
@@ -201,7 +205,7 @@ struct YourMusicScreen: View {
             }
         } : [])
         var made = await Self.shelves(
-            index: music.index,
+            index: music.shown,
             facts: feed.facts,
             playable: PlayableSnapshot(downloaded: Set(music.downloads.items.keys), reachableServers: reachable),
             blocked: player.signals.blocked,
@@ -260,7 +264,7 @@ struct YourMusicScreen: View {
 
     /// Tracks Radio plays from your music, and from what your servers find for you.
     private var hasRadio: Bool {
-        isRadioOn && (!music.index.isEmpty || !music.servers.onlineServers.isEmpty)
+        isRadioOn && (!music.shown.isEmpty || !music.servers.onlineServers.isEmpty)
     }
 
     /// The crate leads, as on Apple Music's Play: Tracks Radio, this hour's mix, the rest of
@@ -536,12 +540,12 @@ struct LibraryList: View {
                 }
                 rows
             }
-            let recent = Array(music.index.recentlyAdded.prefix(Self.recentCount))
+            let recent = Array(music.shown.recentlyAdded.prefix(Self.recentCount))
             if !recent.isEmpty {
                 VStack(alignment: .leading, spacing: Design.Margin.header) {
                     ShelfHeader(
                         title: String(localized: "Recently Added"),
-                        route: music.index.albums.count > recent.count ? .yourMusic(.recentlyAdded) : nil
+                        route: music.shown.albums.count > recent.count ? .yourMusic(.recentlyAdded) : nil
                     )
                     LibraryGrid(margin: 0) {
                         ForEach(recent) { album in
@@ -646,7 +650,7 @@ private struct YourMusicWelcome: View {
                 }
                 .buttonStyle(.glassProminent)
                 Button(action: addServer) {
-                    Label("Connect a Server", systemImage: "server.rack").frame(maxWidth: Self.buttonWidth)
+                    Label("Add Server", systemImage: "server.rack").frame(maxWidth: Self.buttonWidth)
                 }
                 .buttonStyle(.glass)
                 Button(action: importFolder) {

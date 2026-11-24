@@ -10,11 +10,37 @@ import TracksCore
 final class YourMusic {
     /// Everything: files, and every song on your servers.
     private(set) var index = LocalLibraryIndex.empty {
-        didSet { indexRevision &+= 1 }
+        didSet {
+            indexRevision &+= 1
+            playlistCloud?.libraryChanged()
+            if scope == nil {
+                shown = index
+                shownFor = (indexRevision, nil)
+            } else {
+                Task { await reshow() }
+            }
+        }
     }
     /// Bumped with each new ``index``, for pages that sort it off the main actor to know
     /// when to again.
     private(set) var indexRevision = 0
+    /// What Play and Library show: ``index``, or one source's songs while the filter names
+    /// this device or one server. Playing still finds songs in the whole ``index``.
+    private(set) var shown = LocalLibraryIndex.empty {
+        didSet { shownRevision &+= 1 }
+    }
+    /// Bumped with each new ``shown``, as ``indexRevision`` is with the index.
+    private(set) var shownRevision = 0
+    /// The source the filter names, when it's this device or a server. Set by the app.
+    var scope: SourceID? {
+        didSet {
+            guard scope != oldValue else { return }
+            Task { await reshow() }
+        }
+    }
+    @ObservationIgnored private var shownFor: (revision: Int, scope: SourceID?)?
+    /// Your playlists as Trackside Cloud syncs them.
+    @ObservationIgnored private var playlistCloud: PlaylistCloud?
     private(set) var isScanning = false
     /// True once the files have been read at least once, so "none" can be told from "not yet".
     private(set) var hasScanned = false
@@ -76,6 +102,12 @@ final class YourMusic {
         servers.onStatusChange = { [weak self] in self?.forgetUnavailable() }
         servers.onKeptArrived = { [weak self] in self?.keptArrived($0) }
         servers.onRemoved = { [weak self] in self?.getMore.forget(serverID: $0) }
+        if !isDemo {
+            let cloud = PlaylistCloud(music: self)
+            playlistCloud = cloud
+            servers.cloudStores = { cloud.stores }
+            playlists.onChange = { [weak servers] in servers?.cloudSync?.syncSoon(after: .seconds(10)) }
+        }
         downloads.onDownloaded = { [weak self] in self?.onReady?($0.identity) }
         downloads.onAsked = { [weak self] in self?.downloadsAsked($0) }
         #if DEBUG
@@ -785,6 +817,40 @@ final class YourMusic {
         let known = Set(serverTracks.map(\.id))
         let orphans = downloaded.filter { !known.contains($0.id) }
         return LocalLibraryIndex(tracks: files + serverTracks + orphans)
+    }
+
+    /// A source of your own music by name: this device, or the server's.
+    func name(of source: SourceID) -> String {
+        if case .server(let id) = source, let server = servers.server(id) { return server.name }
+        return MusicSource.deviceName
+    }
+
+    /// Makes ``shown`` from the index for the scope there is now.
+    private func reshow() async {
+        let revision = indexRevision
+        let scope = scope
+        if let shownFor, shownFor.revision == revision, shownFor.scope == scope { return }
+        guard let scope else {
+            shown = index
+            shownFor = (revision, nil)
+            return
+        }
+        let narrowed = await Self.narrow(index.tracks, to: scope)
+        // The index or the scope moved on meanwhile: the newer call shows that.
+        guard revision == indexRevision, scope == self.scope else { return }
+        shown = narrowed
+        shownFor = (revision, scope)
+    }
+
+    @concurrent
+    nonisolated private static func narrow(_ tracks: [LocalTrack], to scope: SourceID) async -> LocalLibraryIndex {
+        LocalLibraryIndex(tracks: tracks.filter { track in
+            switch scope {
+            case .device: !track.isFromServer
+            case .server(let id): track.serverID == id
+            case .appleMusic, .spotify, .unknown: true
+            }
+        })
     }
 
     @concurrent

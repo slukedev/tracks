@@ -88,6 +88,12 @@ final class PlayerModel {
     /// Sample data: the engine only pretends, and songs play without catalog ids.
     let isDemo: Bool
 
+    /// The player a request plays through when it isn't the one in use: an album from
+    /// Apple Music, your own songs, or with every source on, the first copy in Play From
+    /// order. Set by the app; nil keeps every request on the player in use. Asked with
+    /// `choosingCopy` false, it moves only what the player in use can't play at all.
+    @ObservationIgnored var routeEngine: ((_ request: PlayRequest, _ choosingCopy: Bool) -> (any PlayerEngine)?)?
+
     init(engine: any PlayerEngine, isDemo: Bool = false, signalsStore: SignalsStore = SignalsStore()) {
         self.engine = engine
         self.isDemo = isDemo
@@ -115,6 +121,7 @@ final class PlayerModel {
         #endif
         guard let local = engine as? LocalPlayerEngine else { return }
         local.onNotice = { [weak self] in self?.confirm($0) }
+        local.onSkipped = { [weak self] count, reason in self?.noteSkipped(count, reason: reason) }
         local.onRemoteNext = { [weak self] in self?.skipToNext() }
         local.onRemotePrevious = { [weak self] in self?.skipToPrevious() }
         local.onAutoSkip = { [weak self] in self?.isAutoSkipping = true }
@@ -203,6 +210,10 @@ final class PlayerModel {
     /// and Shortcuts, which mustn't finish before the music does start.
     func start(_ request: PlayRequest, from context: PlayContext, shuffled: Bool = false) async {
         takeOverIfSwitched()
+        // A live mix has set itself up for the player in use, and picks only what it plays.
+        if context.kind != .endless, let routed = routeEngine?(request, true), routed !== engine {
+            use(routed)
+        }
         intendsToPlay = true
         settleIntent()
         problem = nil
@@ -255,8 +266,10 @@ final class PlayerModel {
     /// Play Next and Play Later. Starts playing if nothing is queued, and replaces a station,
     /// which has no queue to add to: songs added to it would be kept as radio.
     func enqueue(_ request: PlayRequest, next: Bool, title: String) {
-        // Songs from the source switched to can't join the other's queue: they play instead.
-        guard hasQueue, context?.isStation != true, nextEngine == nil else {
+        // Songs from the source switched to, or that play through another player, can't join
+        // this one's queue: they play instead.
+        let isElsewhere = routeEngine?(request, false).map { $0 !== engine } ?? false
+        guard hasQueue, context?.isStation != true, nextEngine == nil, !isElsewhere else {
             play(request, from: .songs(title))
             return
         }
@@ -714,6 +727,47 @@ final class PlayerModel {
                 report(error, couldnt: String(localized: "Couldn't Add to Playlist"))
             }
         }
+    }
+
+    /// Songs left out of the queue because they can't play now, said quietly for a moment.
+    struct SkipNotice: Equatable {
+        let id = UUID()
+        let count: Int
+        let reason: String?
+
+        var title: String {
+            count == 1 ? String(localized: "Skipped 1 song") : String(localized: "Skipped \(count) songs")
+        }
+    }
+
+    private(set) var skipNotice: SkipNotice?
+    @ObservationIgnored private var skipNoticeTask: Task<Void, Never>?
+
+    func noteSkipped(_ count: Int, reason: String?) {
+        guard count > 0 else { return }
+        skipNotice = SkipNotice(count: count, reason: reason)
+        skipNoticeTask?.cancel()
+        skipNoticeTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            skipNotice = nil
+        }
+    }
+
+    func dismissSkipNotice() {
+        skipNoticeTask?.cancel()
+        skipNotice = nil
+    }
+
+    /// Where the song on is playing from: Apple Music, Spotify, this device or a server.
+    var playingSource: SourceID? {
+        guard let current else { return nil }
+        #if SPOTIFY
+        if engine is SpotifyPlayerEngine { return .spotify }
+        #endif
+        if let local = current.local { return local.serverID.map(SourceID.server) ?? .device }
+        if engine is MusicKitPlayerEngine { return .appleMusic }
+        return nil
     }
 
     /// A short confirmation, shown over everything for a moment, like Music's.

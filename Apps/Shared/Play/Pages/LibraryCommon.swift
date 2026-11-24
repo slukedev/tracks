@@ -548,7 +548,7 @@ struct LibraryEmptyYourMusic: View {
         } actions: {
             Button("Import Songs", systemImage: "music.note") { importsFiles = true }
                 .buttonStyle(.glassProminent)
-            Button("Connect a Server", systemImage: "server.rack") { addsServer = true }
+            Button("Add Server", systemImage: "server.rack") { addsServer = true }
                 .buttonStyle(.glass)
         }
         .libraryStatePlacement()

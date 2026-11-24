@@ -5,6 +5,8 @@ import TracksCore
 /// Spotify's page in Settings ▸ Sources: signing in, the account and its quality, and signing
 /// out. Pushed as a page on iPhone; on the Mac, sections in the Sources pane's form.
 struct SpotifyAccountPage: View {
+    @AppStorage(CaptureSettings.scrobblesSpotifyKey, store: CaptureSettings.sharedDefaults)
+    private var scrobblesSpotify = false
     let service: SpotifyService
     @State private var confirmsSignOut = false
     @Environment(\.colorScheme) private var colorScheme
@@ -105,6 +107,9 @@ struct SpotifyAccountPage: View {
         Section("Quality") {
             qualityPicker("Wi-Fi", selection: Binding(get: { service.wiFiQuality }, set: { service.wiFiQuality = $0 }))
             qualityPicker("Cellular", selection: Binding(get: { service.cellularQuality }, set: { service.cellularQuality = $0 }))
+        }
+        Section {
+            Toggle("Scrobble to Last.fm", isOn: $scrobblesSpotify)
         }
         Section {
             Button("Sign Out…", role: .destructive) { confirmsSignOut = true }

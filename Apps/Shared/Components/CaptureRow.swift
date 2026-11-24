@@ -135,6 +135,8 @@ struct CaptureRow: View {
         if showsScrobbleState {
             if capture.scrobbledAt != nil {
                 parts.append(String(localized: "Scrobbled"))
+            } else if capture.lastScrobbleError == ScrobblePolicy.spotifyReason {
+                parts.append(String(localized: "Left to Spotify to scrobble"))
             } else if capture.isHeldFromScrobbling {
                 parts.append(String(localized: "Not long enough for Last.fm to count"))
             } else {

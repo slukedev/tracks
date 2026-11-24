@@ -115,6 +115,9 @@ public struct CloudPlaysStore: CloudEntityStore {
             deviceID: incoming.recordedByDeviceID ?? deviceID ?? "",
             playID: id
         )
+        // The cloud's id exactly as it came, whatever its form, so this row and the server's
+        // stay one item.
+        capture.playID = id
         // Kept as it came, so a source this build doesn't know stays what it was.
         capture.sourceRawValue = incoming.source
         // The play's own value for the kind, even one this build reads as radio.

@@ -109,6 +109,15 @@ public final class ScrobbleService {
             store.saveMainContext()
             guard let owed = await owedRows(), !owed.isEmpty else { break }
 
+            // Spotify sends its own plays, unless Scrobble Spotify is on: held, quietly.
+            if !settings.scrobblesSpotify {
+                let spotify = owed.filter(\.isFromSpotify).map(\.id)
+                if !spotify.isEmpty {
+                    guard await change(spotify, { $0.holdFromScrobbling(reason: ScrobblePolicy.spotifyReason) }) else { return sent }
+                    continue
+                }
+            }
+
             let unsendable = owed.filter { !$0.isSendable }
             if !unsendable.isEmpty {
                 guard await giveUp(unsendable.map(\.id), reason: Self.unsendableReason) else { return sent }
@@ -465,6 +474,7 @@ public final class ScrobbleService {
         let artistName: String
         let albumTitle: String?
         let capturedAt: Date
+        let isFromSpotify: Bool
 
         init(_ capture: Capture) {
             id = capture.persistentModelID
@@ -474,6 +484,7 @@ public final class ScrobbleService {
             artistName = capture.artistName
             albumTitle = capture.albumTitle
             capturedAt = capture.capturedAt
+            if case .spotify = capture.source { isFromSpotify = true } else { isFromSpotify = false }
         }
 
         var scrobble: Scrobble {

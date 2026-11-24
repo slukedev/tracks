@@ -10,6 +10,9 @@ protocol SpotifySource: AnyObject {
     var isConnected: Bool { get }
     /// Signed out, refused or expired: its row asks to sign in.
     var needsSignIn: Bool { get }
+    /// Opening the account saved on this device, which can take until the device is first
+    /// unlocked: a Spotify filter chosen before stays chosen meanwhile.
+    var isChecking: Bool { get }
     /// The account's display name, never its email.
     var accountName: String? { get }
     var engine: any PlayerEngine { get }
@@ -21,8 +24,11 @@ protocol SpotifySource: AnyObject {
 enum SourceStatus: Hashable {
     case signIn
     case offline
-    case syncing
+    /// With how far it's got, where that's known.
+    case syncing(Double?)
     case connecting
+    /// Reached at an address away from the home network.
+    case away
     case connected
     case libraryOnly
     case off
@@ -32,8 +38,10 @@ enum SourceStatus: Hashable {
         switch self {
         case .signIn: String(localized: "Sign In")
         case .offline: String(localized: "Offline")
-        case .syncing: String(localized: "Syncing")
+        case .syncing(let fraction?): String(localized: "Syncing \(fraction.formatted(.percent.precision(.fractionLength(0))))")
+        case .syncing(nil): String(localized: "Syncing")
         case .connecting: String(localized: "Connecting")
+        case .away: String(localized: "Away")
         case .connected: String(localized: "Connected")
         case .libraryOnly: String(localized: "Library Only")
         case .off: String(localized: "Off")
@@ -123,11 +131,11 @@ extension AppModel {
             }
         }
         // Listed once signed in, or once signed in before and now asking to be again.
-        if let spotify, spotify.isConnected || spotify.needsSignIn {
+        if let spotify, spotify.isConnected || spotify.needsSignIn || spotify.isChecking {
             entries.append(SourceEntry(
                 id: .spotify,
                 name: String(localized: "Spotify"),
-                status: spotify.needsSignIn ? .signIn : .connected,
+                status: spotify.needsSignIn ? .signIn : spotify.isChecking ? .connecting : .connected,
                 canPlay: spotify.isConnected
             ))
         }
@@ -143,11 +151,14 @@ extension AppModel {
     }
 
     private func status(of server: SubsonicServer, in servers: MusicServers) -> SourceStatus {
-        if servers.syncing.contains(server.id) { return .syncing }
         switch servers.status[server.id] {
-        case .some(.online): return .connected
         case .some(.wrongPassword): return .signIn
         case .some(.offline), .some(.failed): return .offline
+        default: break
+        }
+        if servers.syncing.contains(server.id) { return .syncing(servers.syncProgress[server.id]?.fraction) }
+        switch servers.status[server.id] {
+        case .some(.online): return servers.isAway(server.id) ? .away : .connected
         default: return .connecting
         }
     }
@@ -182,6 +193,13 @@ extension AppModel {
     /// already on while it still has a source. Waits for the device's own songs to be read,
     /// so a launch never moves away from them before they're found.
     func followSources() {
+        yourMusic.scope = yourMusicScope
+        // Spotify is still opening the account saved here: a Spotify filter or player chosen
+        // before stays as it was, rather than moving away and forgetting the choice.
+        if let spotify, spotify.isChecking,
+           sourceSelection == .only(.spotify) || musicSource == .spotify {
+            return
+        }
         let target: MusicSource
         switch effectiveSourceSelection {
         case .only(let source):
@@ -192,6 +210,18 @@ extension AppModel {
             target = players[0]
         }
         switchSource(to: target)
+    }
+}
+
+extension AppModel {
+    /// What Play and Library show of your own music: one source's songs while the filter
+    /// names this device or a server, otherwise all of them.
+    var yourMusicScope: SourceID? {
+        guard case .only(let source) = effectiveSourceSelection else { return nil }
+        switch source {
+        case .device, .server: return source
+        case .appleMusic, .spotify, .unknown: return nil
+        }
     }
 }
 

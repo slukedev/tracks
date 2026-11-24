@@ -109,7 +109,10 @@ See [README.md](README.md) for the legend and how to keep this current.
   only that (⌥⌘P). Opt-in: asked the first time, then Settings › Play › Now Playing › Hear the
   Music; the song's preview groove when it's off or macOS refuses. Code in `Apps/macOS/Audio/`.
 - Backgrounds: Full Cover, artwork, Living Colour, Pulse.
-- Play count and keep ring, sleep timer, favorite star, audio quality badge.
+- Play count and keep ring, sleep timer, favorite star, audio quality badge, and beside it
+  the source badge (two or more sources, always for Spotify) whose menu plays the song from
+  another source. Full Cover shows Spotify's covers as Living Cover. Songs that can't play
+  are dimmed in Up Next, and a queue that left some out says "Skipped 3 songs".
 - Pick Up Where You Left Off.
 - Gapless albums for your own music.
 - The song and controls in the Dock and the system's Now Playing; media keys.
@@ -138,9 +141,10 @@ See [README.md](README.md) for the legend and how to keep this current.
   cross plain HTTP to anything else. ATS allows only local networking plus those suffixes.
 - Subsonic: every request is signed with a fresh salt. Cover addresses carry no credentials
   at all (they're cache keys, and reach Now Playing); `ArtworkImages` signs each one as it's
-  fetched through `ServerMediaSigning`. Leave the username blank and enter an OpenSubsonic API
-  key as the password to sign in with the key, where the server offers `apiKeyAuthentication`.
-- A Subsonic server can have several addresses (home, Tailscale, public). They're raced
+  fetched through `ServerMediaSigning`. Add Server offers Password or API Key where the server
+  lists OpenSubsonic's `apiKeyAuthentication`; a key is kept with no username.
+- A Subsonic server can have several addresses (home, Tailscale, public), typed under Other
+  Addresses in Add Server or its edit sheet. They're raced
   without credentials (`SubsonicEndpoints`, `AddressRace`), the nearby one wins within 300 ms
   of the first answer, and the race runs again when the network changes or two requests in a
   row fail. Reads retry with backoff (3 tries); scrobbles and stars are sent once.
@@ -159,11 +163,14 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - Connect a Last.fm account (Connect… in a browser), key in the Keychain.
 - Scrobbles every kept song, radio included; Now Playing updates.
-- Import Last.fm history and Sync Now.
+- Import Last.fm history and Sync Now. Imported scrobbles get the same id as on iPhone and
+  Android (`PlayID.lastFM`).
+- Spotify plays are scrobbled only with Scrobble Spotify on (Last.fm pane, in builds with
+  Spotify); off by default, since Spotify sends its own.
 
 ### Sync and backup
 
-- Sync goes to iCloud or to Trackside Cloud on one of your Trackside servers (the iCloud pane, Sync
+- Sync goes to iCloud or to Trackside Cloud on one of your Trackside servers (the Sync pane, Sync
   With; `CloudSync.backend`). The choice applies the next time Tracks opens.
 - iCloud: history through your private iCloud database (CloudKit); settings and removed songs
   through the iCloud key-value store.
@@ -179,14 +186,17 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Every play has a lasting id (`Capture.playID`, schema V3): new plays get a UUID when they
   start, older ones a UUIDv5 of their history-index key (`PlayID`), so every device gives a
   synced row the same id. It's the history index's id, the server listen id and the cloud id.
-- Not yet: playlists and likes over Trackside Cloud, and Nearby Devices pairing without iCloud
-  (on Trackside Cloud, Nearby Devices works only with devices that also share iCloud).
+- Playlists over Trackside Cloud (`PlaylistCloud`): playlists and entries as items, each entry
+  with a fractional order key, so concurrent adds and moves all survive.
+- Not yet: likes over Trackside Cloud, and Nearby Devices pairing without iCloud (on Trackside
+  Cloud, Nearby Devices works only with devices that also share iCloud).
 - Every setting is listed once in `SettingsRegistry` (TracksCore's `core`, the app's
   `AppSettingsRegistry.swift`), as synced or kept on the device; renamed keys carry over through
   `formerKeys`, and a demo launch's changes are undone on the next real launch.
-- A welcome the first time Tracks opens on the device, with Apple Music, Last.fm, Server
-  and the iCloud restore's progress (`Apps/Shared/Onboarding`).
-- Sync can be turned off; the iCloud pane shows what syncs and where it stands.
+- A welcome the first time Tracks opens on the device: Apple Music, Spotify (in builds with
+  it), On This Mac and Server, each with Add; Last.fm; and the iCloud restore's progress
+  (`Apps/Shared/Onboarding`).
+- Sync can be turned off; the Sync pane shows what syncs and where it stands.
 
 ### Devices, Play On and SharePlay
 

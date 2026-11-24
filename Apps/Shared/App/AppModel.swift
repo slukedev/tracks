@@ -222,6 +222,11 @@ final class AppModel {
         player.makeTracksRadio = TracksRadioSource.make(library: library, discovery: discovery, yourMusic: yourMusic, player: player)
         player.radioDownloads = yourMusic
         player.makeAutoplay = AutoplaySource.make(library: library, yourMusic: yourMusic, player: player)
+        if !isDemoLaunch {
+            player.routeEngine = { [weak self] request, choosingCopy in
+                self?.routedSource(for: request, choosingCopy: choosingCopy).map { self?.engine(for: $0) } ?? nil
+            }
+        }
         player.restartMood = { [weak self] title, first in
             guard let self, let mood = Mood.allCases.first(where: { $0.title == title }) else { return }
             await MoodPlayback.start(mood, model: self, startingWith: first)
@@ -643,6 +648,49 @@ final class AppModel {
         return url
     }
 
+    /// The player a request belongs to: Apple Music's albums, playlists and stations, your
+    /// own songs. With every source on and `choosingCopy`, songs that could come from more
+    /// than one source go to the first copy in Play From order that can play now. Nil leaves
+    /// it to the player in use.
+    func routedSource(for request: PlayRequest, choosingCopy: Bool) -> MusicSource? {
+        switch request {
+        case .local:
+            return .yourMusic
+        case .album, .playlist, .station:
+            return musicAuthorization == .authorized ? .appleMusic : nil
+        case .demoStation:
+            return nil
+        case .songs(let songs, let start):
+            guard choosingCopy, effectiveSourceSelection == .all, let song = songs.indices.contains(start) ? songs[start] : songs.first else { return nil }
+            return bestCopy(of: HistorySong(songID: song.id.rawValue, title: song.title, artistName: song.artistName, albumTitle: song.albumTitle))
+        case .history(let songs, let start):
+            guard choosingCopy, effectiveSourceSelection == .all, let song = songs.indices.contains(start) ? songs[start] : songs.first else { return nil }
+            return bestCopy(of: song)
+        }
+    }
+
+    /// Where a song plays from with every source on: the first copy in Play From order that
+    /// can play now, or nil when no other source has it.
+    private func bestCopy(of song: HistorySong) -> MusicSource? {
+        var copies: [(place: PlayFromPlace, source: MusicSource)] = []
+        if let local = yourMusic.track(for: song) {
+            copies.append((yourMusic.playFromPlace(of: local), .yourMusic))
+        }
+        if Self.isCatalogID(song.songID), musicAuthorization == .authorized, !playFeed.cannotPlayCatalog {
+            copies.append((.source(.appleMusic), .appleMusic))
+        }
+        if spotify?.isConnected == true, yourMusic.network.isOnline {
+            copies.append((.source(.spotify), .spotify))
+        }
+        guard copies.count > 1 || copies.first?.source != musicSource else { return nil }
+        return PlayFromOrder.current.choose(copies, place: \.place, canPlay: { _ in true })?.source
+    }
+
+    /// Apple Music's ids: a catalog id is digits, a library one starts "i.".
+    private static func isCatalogID(_ id: String) -> Bool {
+        !id.isEmpty && (id.allSatisfy(\.isNumber) || id.hasPrefix("i."))
+    }
+
     private func engine(for source: MusicSource) -> any PlayerEngine {
         switch source {
         case .appleMusic:
@@ -661,6 +709,7 @@ final class AppModel {
     /// Reads the Music folder and reaches the servers, once per launch, when Your Music is in
     /// use. Reading again on each return to the app is the window's job.
     func prepareYourMusic() {
+        yourMusic.scope = yourMusicScope
         guard !hasPreparedYourMusic else { return }
         #if DEBUG
         if isDemoLaunch {
