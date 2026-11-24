@@ -42,11 +42,7 @@ impl From<tracks_store::PlayRow> for HistoryPlay {
             played_at_ms: row.played_at,
             listen_ms: row.listen_ms,
             kind: kind_of(row.kind),
-            source: if row.source == 1 {
-                PlaySource::YourMusic
-            } else {
-                PlaySource::AppleMusic
-            },
+            source: row.source.into(),
         }
     }
 }
@@ -200,8 +196,7 @@ impl HistoryIndex {
             })
             .collect();
         let excluded: FxHashSet<String> = excluded.into_iter().collect();
-        let out =
-            tracks_mixes::build_mixes(&plays, &excluded, now_ms, &self.store.time_zone());
+        let out = tracks_mixes::build_mixes(&plays, &excluded, now_ms, &self.store.time_zone());
         Ok(MixSet {
             right_now: out.right_now.map(Into::into),
             other_times: out.other_times.into_iter().map(Into::into).collect(),

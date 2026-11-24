@@ -35,10 +35,20 @@ const YOURS: usize = 3;
 /// accented.
 ///
 /// `played` is the artists you play, most first.
-pub fn seeds(picked: &[String], played: &[String], library: &[String], limit: usize, rotation: u64) -> Vec<String> {
+pub fn seeds(
+    picked: &[String],
+    played: &[String],
+    library: &[String],
+    limit: usize,
+    rotation: u64,
+) -> Vec<String> {
     let played = unique(played.iter());
     let picked = unique(picked.iter());
-    let picked_places = if picked.is_empty() { 0 } else { limit.saturating_sub(played.len()).max(1) };
+    let picked_places = if picked.is_empty() {
+        0
+    } else {
+        limit.saturating_sub(played.len()).max(1)
+    };
     let mut rest: Vec<String> = played.iter().skip(3).take(10).cloned().collect();
     SeededRandom::new(rotation).shuffle(&mut rest);
     let mut ordered = unique(
@@ -138,8 +148,13 @@ pub struct ArtistStart {
 /// From a search for `artist`, which songs to keep and which to go on from.
 pub fn artist_start(artist: &str, found: &[FoundSong]) -> ArtistStart {
     let key = folded(artist);
-    let all: Vec<usize> = (0..found.len()).filter(|&i| folded(&found[i].artist) == key).collect();
-    let start = all.first().copied().or(if found.is_empty() { None } else { Some(0) });
+    let all: Vec<usize> = (0..found.len())
+        .filter(|&i| folded(&found[i].artist) == key)
+        .collect();
+    let start = all
+        .first()
+        .copied()
+        .or(if found.is_empty() { None } else { Some(0) });
     ArtistStart {
         theirs: all.into_iter().take(OWN_SONGS).collect(),
         start,
@@ -224,8 +239,16 @@ impl ForYou {
             .chain(&self.waiting_others)
             .map(|s| s.identity.clone())
             .collect();
-        let candidates: Vec<&Candidate> = found.iter().filter(|c| !c.heard && seen.insert(c.song.identity.clone())).collect();
-        let yours: Vec<FoundSong> = yours.iter().filter(|s| seen.insert(s.identity.clone())).take(YOURS).cloned().collect();
+        let candidates: Vec<&Candidate> = found
+            .iter()
+            .filter(|c| !c.heard && seen.insert(c.song.identity.clone()))
+            .collect();
+        let yours: Vec<FoundSong> = yours
+            .iter()
+            .filter(|s| seen.insert(s.identity.clone()))
+            .take(YOURS)
+            .cloned()
+            .collect();
 
         for candidate in candidates.iter().filter(|c| !c.known_artist) {
             let key = folded(&candidate.song.artist);
@@ -248,7 +271,12 @@ impl ForYou {
             }
         }
         self.waiting_picks.extend(blend(&owned, &new, 1.0 / 3.0));
-        self.waiting_others.extend(fresh_order(&discovered, |s| folded(&s.artist), |_| false, order));
+        self.waiting_others.extend(fresh_order(
+            &discovered,
+            |s| folded(&s.artist),
+            |_| false,
+            order,
+        ));
     }
 
     /// Takes up to `want` songs waiting for `shelf`, for the host to check their covers and
@@ -315,7 +343,12 @@ mod tests {
     }
 
     fn found(title: &str, artist: &str, known: bool) -> Candidate {
-        Candidate { song: song(title, artist), heard: false, known_artist: known, owned: false }
+        Candidate {
+            song: song(title, artist),
+            heard: false,
+            known_artist: known,
+            owned: false,
+        }
     }
 
     #[test]
@@ -324,12 +357,23 @@ mod tests {
         let picked = names(&["Massive Attack", "Bjork"]);
         let library = names(&["Air", "radiohead"]);
         let seeds = seeds(&picked, &played, &library, 5, 0);
-        assert_eq!(seeds[..3], names(&["Radiohead", "Björk", "Portishead"]), "your top three lead");
-        assert_eq!(seeds[3], "Massive Attack", "a picked artist keeps one place");
+        assert_eq!(
+            seeds[..3],
+            names(&["Radiohead", "Björk", "Portishead"]),
+            "your top three lead"
+        );
+        assert_eq!(
+            seeds[3], "Massive Attack",
+            "a picked artist keeps one place"
+        );
         assert_eq!(seeds.len(), 5);
 
         let empty = self::seeds(&picked, &[], &library, 5, 0);
-        assert_eq!(empty, names(&["Massive Attack", "Bjork", "Air", "radiohead"]), "picks, then the library, each once");
+        assert_eq!(
+            empty,
+            names(&["Massive Attack", "Bjork", "Air", "radiohead"]),
+            "picks, then the library, each once"
+        );
         assert_eq!(self::seeds(&[], &[], &[], 5, 0), Vec::<String>::new());
     }
 
@@ -346,7 +390,10 @@ mod tests {
     fn blending_puts_one_of_yours_among_every_two_new() {
         let owned = [1, 2, 3];
         let new = [10, 20, 30, 40, 50, 60];
-        assert_eq!(blend(&owned, &new, 1.0 / 3.0), [1, 10, 20, 2, 30, 40, 3, 50, 60]);
+        assert_eq!(
+            blend(&owned, &new, 1.0 / 3.0),
+            [1, 10, 20, 2, 30, 40, 3, 50, 60]
+        );
         assert_eq!(blend(&[] as &[i32], &new, 0.3), new);
     }
 
@@ -355,7 +402,11 @@ mod tests {
         let mut feed = ForYou::start(&names(&["Radiohead", "radiohead", "Blur"]), &[], 0);
         assert_eq!(feed.from, names(&["Radiohead", "radiohead", "Blur"]));
         assert_eq!(feed.next_artist().as_deref(), Some("Radiohead"));
-        assert_eq!(feed.next_artist().as_deref(), Some("Blur"), "the same artist cased differently isn't asked twice");
+        assert_eq!(
+            feed.next_artist().as_deref(),
+            Some("Blur"),
+            "the same artist cased differently isn't asked twice"
+        );
         assert_eq!(feed.next_artist(), None);
         assert!(!feed.can_go_on());
     }
@@ -376,18 +427,38 @@ mod tests {
             found("Teardrop", "Massive Attack", false),
             found("Glory Box", "Portishead", false),
         ];
-        feed.add(&list, &[song("Lucky", "Radiohead"), song("Let Down", "Radiohead")], 7);
+        feed.add(
+            &list,
+            &[song("Lucky", "Radiohead"), song("Let Down", "Radiohead")],
+            7,
+        );
         let titles = |list: &[FoundSong]| list.iter().map(|s| s.title.clone()).collect::<Vec<_>>();
-        assert_eq!(titles(&feed.waiting_picks), ["Lucky", "Let Down", "Airbag"], "yours first, woven with new");
-        assert_eq!(feed.waiting_others.len(), 2, "heard songs and repeats are left out");
-        assert_eq!(feed.queue, names(&["Massive Attack", "Portishead"]), "new artists are queued, once");
+        assert_eq!(
+            titles(&feed.waiting_picks),
+            ["Lucky", "Let Down", "Airbag"],
+            "yours first, woven with new"
+        );
+        assert_eq!(
+            feed.waiting_others.len(),
+            2,
+            "heard songs and repeats are left out"
+        );
+        assert_eq!(
+            feed.queue,
+            names(&["Massive Attack", "Portishead"]),
+            "new artists are queued, once"
+        );
 
         let shown = feed.take_waiting(Shelf::Suggested, 1);
         feed.place(Shelf::Suggested, shown);
         assert_eq!(feed.suggested.len(), 1);
         assert_eq!(feed.waiting(Shelf::Suggested), 1);
         feed.add(&[found("Glory Box", "Portishead", false)], &[], 7);
-        assert_eq!(feed.waiting(Shelf::Suggested) + feed.suggested.len(), 2, "a song shown already isn't found again");
+        assert_eq!(
+            feed.waiting(Shelf::Suggested) + feed.suggested.len(),
+            2,
+            "a song shown already isn't found again"
+        );
     }
 
     #[test]
@@ -405,10 +476,32 @@ mod tests {
 
     #[test]
     fn an_artists_own_songs_come_first_and_the_first_leads_on() {
-        let list = [song("Teardrop", "Massive Attack"), song("Creep", "Radiohead"), song("Lucky", "radiohead")];
-        assert_eq!(artist_start("Radiohead", &list), ArtistStart { theirs: vec![1, 2], start: Some(1) });
-        assert_eq!(artist_start("Blur", &list), ArtistStart { theirs: vec![], start: Some(0) });
-        assert_eq!(artist_start("Blur", &[]), ArtistStart { theirs: vec![], start: None });
+        let list = [
+            song("Teardrop", "Massive Attack"),
+            song("Creep", "Radiohead"),
+            song("Lucky", "radiohead"),
+        ];
+        assert_eq!(
+            artist_start("Radiohead", &list),
+            ArtistStart {
+                theirs: vec![1, 2],
+                start: Some(1)
+            }
+        );
+        assert_eq!(
+            artist_start("Blur", &list),
+            ArtistStart {
+                theirs: vec![],
+                start: Some(0)
+            }
+        );
+        assert_eq!(
+            artist_start("Blur", &[]),
+            ArtistStart {
+                theirs: vec![],
+                start: None
+            }
+        );
     }
 
     #[test]

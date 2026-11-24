@@ -56,7 +56,12 @@ impl Ownership {
 /// Owned ones go, as do repeats of a key. The rest are scored by how much you play their
 /// artist and how high they came in that artist's list, then spread out so the same artist
 /// doesn't come twice in a row and no artist takes more than `per_artist` places.
-pub fn rank(seeds: &[Seed], candidates: &[Candidate], per_artist: usize, limit: usize) -> Vec<usize> {
+pub fn rank(
+    seeds: &[Seed],
+    candidates: &[Candidate],
+    per_artist: usize,
+    limit: usize,
+) -> Vec<usize> {
     let weights = seed_weights(seeds);
     let mut seen = HashSet::new();
     let mut scored: Vec<(usize, f64, String)> = Vec::new();
@@ -136,18 +141,31 @@ mod tests {
 
     #[test]
     fn owned_and_repeats_never_come_back() {
-        let seeds = [Seed { artist: "Radiohead".into(), weight: 10.0 }];
+        let seeds = [Seed {
+            artist: "Radiohead".into(),
+            weight: 10.0,
+        }];
         let mut owned = candidate("a", "Radiohead", 0);
         owned.owned = true;
-        let list = [owned, candidate("b", "Radiohead", 1), candidate("b", "Radiohead", 2)];
+        let list = [
+            owned,
+            candidate("b", "Radiohead", 1),
+            candidate("b", "Radiohead", 2),
+        ];
         assert_eq!(rank(&seeds, &list, 5, 10), vec![1]);
     }
 
     #[test]
     fn artists_are_spread_and_capped() {
         let seeds = [
-            Seed { artist: "Radiohead".into(), weight: 400.0 },
-            Seed { artist: "Björk".into(), weight: 25.0 },
+            Seed {
+                artist: "Radiohead".into(),
+                weight: 400.0,
+            },
+            Seed {
+                artist: "Björk".into(),
+                weight: 25.0,
+            },
         ];
         let list = [
             candidate("r1", "Radiohead", 0),
@@ -161,8 +179,14 @@ mod tests {
 
     #[test]
     fn a_collaboration_counts_for_its_lead() {
-        let seeds = [Seed { artist: "Drake".into(), weight: 9.0 }];
-        let list = [candidate("x", "Nobody", 0), candidate("d", "Drake & 21 Savage", 3)];
+        let seeds = [Seed {
+            artist: "Drake".into(),
+            weight: 9.0,
+        }];
+        let list = [
+            candidate("x", "Nobody", 0),
+            candidate("d", "Drake & 21 Savage", 3),
+        ];
         assert_eq!(rank(&seeds, &list, 3, 1), vec![1]);
     }
 

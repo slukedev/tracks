@@ -1,6 +1,8 @@
 //! Reading plays back out, one row each, for hosts that build from the history (mixes, a
 //! station) or show it as a feed.
 
+use tracks_model::PlaySource;
+
 use crate::{Result, Store};
 
 /// One play as the index holds it, with its song's display fields as that play spelled them.
@@ -16,8 +18,7 @@ pub struct PlayRow {
     pub artwork_url: Option<String>,
     /// The raw [`tracks_model::PlayKind`].
     pub kind: u8,
-    /// The raw [`tracks_model::PlaySource`].
-    pub source: u8,
+    pub source: PlaySource,
     pub listen_ms: i64,
 }
 
@@ -26,7 +27,7 @@ fn blank_to_none(value: String) -> Option<String> {
 }
 
 const PLAY_SELECT: &str = "SELECT p.played_at, s.identity, sp.title, sp.artist, sp.album, sp.catalog_id, \
-     sp.song_key, sp.artwork_url, p.kind, p.source, p.listen_ms \
+     sp.song_key, sp.artwork_url, p.kind, p.source, p.listen_ms, p.source_name \
      FROM plays p JOIN songs s ON s.id = p.song_id JOIN spelled sp ON sp.id = p.spelled_id";
 
 fn play_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PlayRow> {
@@ -40,7 +41,7 @@ fn play_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PlayRow> {
         song_key: row.get(6)?,
         artwork_url: blank_to_none(row.get(7)?),
         kind: row.get(8)?,
-        source: row.get(9)?,
+        source: PlaySource::from_code(row.get(9)?, row.get::<_, Option<String>>(11)?.as_deref()),
         listen_ms: row.get(10)?,
     })
 }
@@ -98,15 +99,28 @@ mod tests {
     fn plays_read_back_in_order() {
         let store = Store::open_in_memory().expect("store");
         store
-            .upsert(&[play("1", "One", 1_000), play("2", "Two", 2_000), play("3", "Three", 3_000)], None)
+            .upsert(
+                &[
+                    play("1", "One", 1_000),
+                    play("2", "Two", 2_000),
+                    play("3", "Three", 3_000),
+                ],
+                None,
+            )
             .expect("write");
         let all = store.plays_since(None).expect("read");
-        assert_eq!(all.iter().map(|p| p.title.as_str()).collect::<Vec<_>>(), ["One", "Two", "Three"]);
+        assert_eq!(
+            all.iter().map(|p| p.title.as_str()).collect::<Vec<_>>(),
+            ["One", "Two", "Three"]
+        );
         assert_eq!(all[0].album_title.as_deref(), Some("Album"));
         assert_eq!(all[0].artwork_url, None);
 
         let recent = store.recent_plays(None, 2).expect("read");
-        assert_eq!(recent.iter().map(|p| p.title.as_str()).collect::<Vec<_>>(), ["Three", "Two"]);
+        assert_eq!(
+            recent.iter().map(|p| p.title.as_str()).collect::<Vec<_>>(),
+            ["Three", "Two"]
+        );
         let older = store.recent_plays(Some(2_000), 10).expect("read");
         assert_eq!(older.len(), 1);
         assert_eq!(store.plays_since(Some(2_000)).expect("read").len(), 2);

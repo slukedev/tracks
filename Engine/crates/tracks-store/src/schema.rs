@@ -109,7 +109,8 @@ macro_rules! schema_sql {
         -- Times are Unix milliseconds. Clustered by time, so a period is one contiguous read
         -- of the file and the table is its own time index. `ext_key` is a stable hash of the
         -- host's id for the play, which makes every write idempotent and breaks ties between
-        -- plays at the same moment the same way however they arrived.
+        -- plays at the same moment the same way however they arrived. Migration 3 adds
+        -- `source_name`, the stored value of a source this build doesn't know.
         CREATE TABLE plays (
             played_at  INTEGER NOT NULL,
             ext_key    INTEGER NOT NULL,
@@ -142,6 +143,9 @@ pub fn migrations() -> Migrations<'static> {
              DROP TABLE IF EXISTS meta;",
             schema_sql!()
         )),
+        // 3: the stored value of a source this build doesn't know (code 255), so it reads back
+        // unchanged. Known sources keep their codes and leave it empty, so nothing is rebuilt.
+        M::up("ALTER TABLE plays ADD COLUMN source_name TEXT;"),
     ])
 }
 
@@ -150,5 +154,25 @@ mod tests {
     #[test]
     fn migrations_are_valid() {
         assert!(super::migrations().validate().is_ok());
+    }
+
+    #[test]
+    fn plays_written_before_source_names_keep_their_source() {
+        let mut conn = rusqlite::Connection::open_in_memory().expect("open");
+        let migrations = super::migrations();
+        migrations.to_version(&mut conn, 2).expect("old layout");
+        conn.execute(
+            "INSERT INTO plays (played_at, ext_key, song_id, kind, source, spelled_id, digest, listen_ms)
+             VALUES (1, 1, 1, 1, 1, 1, 1, 1)",
+            [],
+        )
+        .expect("old play");
+        migrations.to_latest(&mut conn).expect("migrate");
+        let (source, name): (u8, Option<String>) = conn
+            .query_row("SELECT source, source_name FROM plays", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("read");
+        assert_eq!((source, name), (1, None));
     }
 }

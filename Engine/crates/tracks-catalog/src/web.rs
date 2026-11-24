@@ -101,7 +101,10 @@ mod tests {
 
     #[test]
     fn escapes_everything_a_name_can_hold() {
-        assert_eq!(query_escape("Florence + the Machine"), "Florence%20%2B%20the%20Machine");
+        assert_eq!(
+            query_escape("Florence + the Machine"),
+            "Florence%20%2B%20the%20Machine"
+        );
         assert_eq!(query_escape("AC/DC & Björk"), "AC%2FDC%20%26%20Bj%C3%B6rk");
         assert_eq!(query_escape("a-b_c.d~e"), "a-b_c.d~e");
     }

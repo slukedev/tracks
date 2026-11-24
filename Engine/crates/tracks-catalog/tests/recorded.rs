@@ -17,12 +17,23 @@ fn itunes_songs_carry_previews_and_large_covers() {
     let found = parse_catalog(&fixture("itunes_song")).expect("readable");
     assert_eq!(found.songs.len(), 3);
     let song = &found.songs[0];
-    assert_eq!((song.title.as_str(), song.artist_name.as_str()), ("Let Down", "Radiohead"));
+    assert_eq!(
+        (song.title.as_str(), song.artist_name.as_str()),
+        ("Let Down", "Radiohead")
+    );
     assert_eq!(song.album_title.as_deref(), Some("OK Computer"));
     assert_eq!(song.year, Some(1997));
     assert_eq!(song.track_number, Some(5));
-    assert!(song.preview_url.as_deref().is_some_and(|u| u.contains("AudioPreview")));
-    assert!(song.artwork_url.as_deref().is_some_and(|u| u.ends_with("/600x600bb.jpg")));
+    assert!(
+        song.preview_url
+            .as_deref()
+            .is_some_and(|u| u.contains("AudioPreview"))
+    );
+    assert!(
+        song.artwork_url
+            .as_deref()
+            .is_some_and(|u| u.ends_with("/600x600bb.jpg"))
+    );
     assert_eq!(song.identity(), "let down\u{1F}radiohead");
 }
 
@@ -32,7 +43,15 @@ fn itunes_lookups_lead_with_what_was_looked_up() {
     assert_eq!(albums.artists.len(), 1);
     assert_eq!(albums.artists[0].name, "Radiohead");
     let titles: Vec<&str> = albums.albums.iter().map(|a| a.title.as_str()).collect();
-    assert_eq!(titles, ["A Moon Shaped Pool", "OK Computer", "In Rainbows", "The Bends"]);
+    assert_eq!(
+        titles,
+        [
+            "A Moon Shaped Pool",
+            "OK Computer",
+            "In Rainbows",
+            "The Bends"
+        ]
+    );
 
     let tracks = parse_catalog(&fixture("itunes_album_tracks")).expect("readable");
     assert_eq!(tracks.albums.len(), 1);
@@ -41,18 +60,32 @@ fn itunes_lookups_lead_with_what_was_looked_up() {
     assert_eq!(tracks.songs[1].title, "Paranoid Android");
 
     let songs = parse_catalog(&fixture("itunes_artist_songs")).expect("readable");
-    let ep = songs.songs.iter().find(|s| s.album_title.as_deref() == Some("Creep - EP"));
+    let ep = songs
+        .songs
+        .iter()
+        .find(|s| s.album_title.as_deref() == Some("Creep - EP"));
     assert!(ep.is_some(), "song albums keep the catalog's name");
 }
 
 #[test]
 fn itunes_artists_and_failures() {
     let found = parse_catalog(&fixture("itunes_artist")).expect("readable");
-    assert_eq!(found.artists.iter().map(|a| a.id).collect::<Vec<_>>(), [657_515, 39_753_073]);
+    assert_eq!(
+        found.artists.iter().map(|a| a.id).collect::<Vec<_>>(),
+        [657_515, 39_753_073]
+    );
     assert_eq!(found.albums.first().map(|a| a.kind), None);
-    assert_eq!(parse_catalog(&Response::new(503, "")), Err(CatalogError::Http { status: 503 }));
-    assert_eq!(parse_catalog(&Response::new(200, "<html>")), Err(CatalogError::WrongService));
-    let album = parse_catalog(&fixture("itunes_album")).expect("readable").albums;
+    assert_eq!(
+        parse_catalog(&Response::new(503, "")),
+        Err(CatalogError::Http { status: 503 })
+    );
+    assert_eq!(
+        parse_catalog(&Response::new(200, "<html>")),
+        Err(CatalogError::WrongService)
+    );
+    let album = parse_catalog(&fixture("itunes_album"))
+        .expect("readable")
+        .albums;
     assert_eq!(album[0].kind, AlbumKind::Album);
 }
 
@@ -60,16 +93,25 @@ fn itunes_artists_and_failures() {
 fn lidarr_requests_carry_the_key_in_a_header() {
     let api = Lidarr::new(" http://nas:8686/ ", "secret");
     let request = api.look_up_artists("Wet Leg");
-    assert_eq!(request.url, "http://nas:8686/api/v1/artist/lookup?term=Wet%20Leg");
+    assert_eq!(
+        request.url,
+        "http://nas:8686/api/v1/artist/lookup?term=Wet%20Leg"
+    );
     assert_eq!(request.header("x-api-key"), Some("secret"));
     assert!(!request.url.contains("secret"));
     assert!(!format!("{api:?}").contains("secret"));
 
     let monitor = api.set_monitored(&[12, 13], true);
     assert_eq!(monitor.method, Method::Put);
-    assert_eq!(String::from_utf8(monitor.body).expect("utf8"), r#"{"albumIds":[12,13],"monitored":true}"#);
+    assert_eq!(
+        String::from_utf8(monitor.body).expect("utf8"),
+        r#"{"albumIds":[12,13],"monitored":true}"#
+    );
     let search = api.search_albums(&[12]);
-    assert_eq!(String::from_utf8(search.body).expect("utf8"), r#"{"name":"AlbumSearch","albumIds":[12]}"#);
+    assert_eq!(
+        String::from_utf8(search.body).expect("utf8"),
+        r#"{"name":"AlbumSearch","albumIds":[12]}"#
+    );
 }
 
 #[test]
@@ -77,7 +119,10 @@ fn lidarr_adds_an_artist_as_ios_does() {
     let api = Lidarr::new("https://lidarr.example.com", "k");
     let found = lidarr::parse_artists(&fixture("lidarr_lookup")).expect("readable");
     let index = lookup_match("Wet Leg", &found).expect("an exact name");
-    assert_eq!(found[index].foreign_artist_id, "1b2a4c51-3b1e-4c1d-9f6f-2d8a5c2f0e11");
+    assert_eq!(
+        found[index].foreign_artist_id,
+        "1b2a4c51-3b1e-4c1d-9f6f-2d8a5c2f0e11"
+    );
     assert_eq!(found[index].id, None, "a search result isn't followed yet");
     let options = AddOptions {
         quality_profile_id: 2,
@@ -97,12 +142,28 @@ fn lidarr_adds_an_artist_as_ios_does() {
 
 #[test]
 fn lidarr_reads_its_collection() {
-    assert_eq!(lidarr::parse_status(&fixture("lidarr_status")).expect("status").version, "2.9.6.4552");
-    assert_eq!(lidarr::parse_profiles(&fixture("lidarr_profiles")).expect("profiles").len(), 2);
-    assert_eq!(lidarr::parse_root_folders(&fixture("lidarr_rootfolders")).expect("folders")[0].path, "/music");
+    assert_eq!(
+        lidarr::parse_status(&fixture("lidarr_status"))
+            .expect("status")
+            .version,
+        "2.9.6.4552"
+    );
+    assert_eq!(
+        lidarr::parse_profiles(&fixture("lidarr_profiles"))
+            .expect("profiles")
+            .len(),
+        2
+    );
+    assert_eq!(
+        lidarr::parse_root_folders(&fixture("lidarr_rootfolders")).expect("folders")[0].path,
+        "/music"
+    );
 
     let artists = lidarr::parse_artists(&fixture("lidarr_artists")).expect("artists");
-    assert_eq!(followed_artist("Radiohead feat. Thom Yorke", &artists), Some(0));
+    assert_eq!(
+        followed_artist("Radiohead feat. Thom Yorke", &artists),
+        Some(0)
+    );
     assert_eq!(followed_artist("Bjork", &artists), Some(1));
     assert!(artists[0].picture_url.is_some());
 
@@ -113,9 +174,20 @@ fn lidarr_reads_its_collection() {
     assert_eq!(albums[0].artist_name.as_deref(), Some("Radiohead"));
 
     let tracks = lidarr::parse_tracks(&fixture("lidarr_tracks")).expect("tracks");
-    assert_eq!(song_state("Let Down", &albums, &tracks), SongState::Collected { album: "OK Computer".into() });
-    assert_eq!(song_state("Everything In Its Right Place", &albums, &tracks), SongState::Wanted);
-    assert_eq!(song_state("Packt Like Sardines in a Crushd Tin Box", &albums, &tracks), SongState::Missing);
+    assert_eq!(
+        song_state("Let Down", &albums, &tracks),
+        SongState::Collected {
+            album: "OK Computer".into()
+        }
+    );
+    assert_eq!(
+        song_state("Everything In Its Right Place", &albums, &tracks),
+        SongState::Wanted
+    );
+    assert_eq!(
+        song_state("Packt Like Sardines in a Crushd Tin Box", &albums, &tracks),
+        SongState::Missing
+    );
     assert_eq!(song_state("Creep", &albums, &tracks), SongState::Missing);
 }
 
@@ -133,9 +205,17 @@ fn lidarr_queue_and_refusals() {
     let refused = Response::new(400, problem.body);
     assert_eq!(
         lidarr::check(&refused),
-        Err(CatalogError::Rejected("This artist has already been added.".into()))
+        Err(CatalogError::Rejected(
+            "This artist has already been added.".into()
+        ))
     );
-    assert_eq!(lidarr::parse_status(&Response::new(401, "")), Err(CatalogError::WrongKey));
-    assert_eq!(lidarr::parse_status(&Response::new(200, "<html>")), Err(CatalogError::WrongService));
+    assert_eq!(
+        lidarr::parse_status(&Response::new(401, "")),
+        Err(CatalogError::WrongKey)
+    );
+    assert_eq!(
+        lidarr::parse_status(&Response::new(200, "<html>")),
+        Err(CatalogError::WrongService)
+    );
     assert!(CatalogError::Http { status: 503 }.is_retryable());
 }

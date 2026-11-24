@@ -90,7 +90,11 @@ impl Itunes {
     fn lookup(&self, id: u64, entity: &str, limit: Option<u32>) -> Request {
         let id = id.to_string();
         let limit = limit.map(|l| clamp(l).to_string());
-        let mut pairs = vec![("id", id.as_str()), ("entity", entity), ("country", self.country.as_str())];
+        let mut pairs = vec![
+            ("id", id.as_str()),
+            ("entity", entity),
+            ("country", self.country.as_str()),
+        ];
         if let Some(limit) = &limit {
             pairs.push(("limit", limit));
         }
@@ -319,7 +323,9 @@ impl Item {
 }
 
 fn non_empty(text: Option<&str>) -> Option<String> {
-    text.map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned)
+    text.map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
 }
 
 fn split_kind(name: &str) -> (String, AlbumKind) {
@@ -346,7 +352,9 @@ mod tests {
     fn builds_search_and_lookups() {
         let itunes = Itunes::new("gb");
         assert_eq!(
-            itunes.search(" Florence + the Machine ", SearchKind::Artist, 500).url,
+            itunes
+                .search(" Florence + the Machine ", SearchKind::Artist, 500)
+                .url,
             "https://itunes.apple.com/search?term=Florence%20%2B%20the%20Machine&country=gb&media=music&entity=musicArtist&limit=200"
         );
         assert_eq!(
@@ -365,13 +373,22 @@ mod tests {
             larger_artwork("https://is1-ssl.mzstatic.com/image/thumb/a/b.png/100x100bb.jpg"),
             "https://is1-ssl.mzstatic.com/image/thumb/a/b.png/600x600bb.jpg"
         );
-        assert_eq!(larger_artwork("https://example.com/cover.jpg"), "https://example.com/cover.jpg");
+        assert_eq!(
+            larger_artwork("https://example.com/cover.jpg"),
+            "https://example.com/cover.jpg"
+        );
     }
 
     #[test]
     fn singles_and_eps_lose_their_suffix() {
-        assert_eq!(split_kind("Creep - EP"), ("Creep".to_owned(), AlbumKind::Ep));
-        assert_eq!(split_kind("Lift - Single"), ("Lift".to_owned(), AlbumKind::Single));
+        assert_eq!(
+            split_kind("Creep - EP"),
+            ("Creep".to_owned(), AlbumKind::Ep)
+        );
+        assert_eq!(
+            split_kind("Lift - Single"),
+            ("Lift".to_owned(), AlbumKind::Single)
+        );
         assert_eq!(split_kind("Kid A"), ("Kid A".to_owned(), AlbumKind::Album));
     }
 }

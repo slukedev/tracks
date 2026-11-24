@@ -74,7 +74,10 @@ pub(crate) fn play_digest(play: &PlayInput) -> i64 {
     feed(play.album_title.as_deref().unwrap_or("\0").as_bytes());
     feed(play.artwork_url.as_deref().unwrap_or("\0").as_bytes());
     feed(&play.played_at.to_le_bytes());
-    feed(&[play.kind as u8, play.source as u8]);
+    feed(&[play.kind as u8, play.source.code()]);
+    if let PlaySource::Unknown(stored) = &play.source {
+        feed(stored.as_bytes());
+    }
     feed(play.station_name.as_deref().unwrap_or("\0").as_bytes());
     hash as i64
 }
@@ -401,12 +404,16 @@ impl<'conn> Writer<'conn> {
         let station_id = self.station_id(play.station_name.as_deref())?;
         let spelled = self.spelled(play)?;
         let kind = play.kind as u8;
-        let source = play.source as u8;
+        let source = play.source.code();
+        let source_name = match &play.source {
+            PlaySource::Unknown(stored) => Some(stored.as_str()),
+            _ => None,
+        };
 
         self.tx.execute(
-            "INSERT INTO plays (ext_key, song_id, album_id, played_at, kind, source, station_id, spelled_id, digest, listen_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![key, song_id, album_id, play.played_at, kind, source, station_id, spelled, digest, TYPICAL_MS],
+            "INSERT INTO plays (ext_key, song_id, album_id, played_at, kind, source, source_name, station_id, spelled_id, digest, listen_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![key, song_id, album_id, play.played_at, kind, source, source_name, station_id, spelled, digest, TYPICAL_MS],
         )?;
         self.count_spellings(spelled, 1)?;
         self.touched.insert((song_id, album_id));
@@ -904,5 +911,37 @@ mod tests {
         assert_eq!(estimate_ms(0, 1, Some((0, 1))), 0);
         assert_eq!(estimate_ms(0, 1, Some((0, 2))), TYPICAL_MS);
         assert_eq!(estimate_ms(0, 1, None), TYPICAL_MS);
+    }
+
+    fn digest_of(source: PlaySource) -> i64 {
+        play_digest(&PlayInput {
+            ext_id: "x".into(),
+            catalog_id: "1440857781".into(),
+            song_key: "k".into(),
+            title: "Song".into(),
+            artist_name: "Artist".into(),
+            album_title: Some("Album".into()),
+            artwork_url: None,
+            played_at: 1_700_000_000_000,
+            kind: PlayKind::OnDemand,
+            source,
+            station_name: None,
+        })
+    }
+
+    // Digests written by earlier builds must still match, or every launch would rewrite
+    // every play.
+    #[test]
+    fn digests_of_existing_sources_are_unchanged() {
+        assert_eq!(digest_of(PlaySource::AppleMusic), 851_021_064_269_332_010);
+        assert_eq!(digest_of(PlaySource::YourMusic), -8_286_430_697_998_271_109);
+    }
+
+    #[test]
+    fn unknown_sources_with_different_values_differ() {
+        assert_ne!(
+            digest_of(PlaySource::Unknown("vinyl".into())),
+            digest_of(PlaySource::Unknown("tape".into()))
+        );
     }
 }

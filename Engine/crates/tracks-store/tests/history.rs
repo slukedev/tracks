@@ -419,3 +419,117 @@ fn edge_inputs_never_panic() {
         vec![]
     );
 }
+
+fn from(
+    mut play: tracks_store::PlayInput,
+    source: tracks_model::PlaySource,
+) -> tracks_store::PlayInput {
+    play.source = source;
+    play
+}
+
+#[test]
+fn spotify_plays_count_in_every_chart_and_have_their_own_filter() {
+    use tracks_model::PlaySource;
+    let store = store_with(&[
+        play("1", "Halo", "Beyoncé", 0),
+        from(
+            play("2", "Halo", "Beyoncé", 10 * MINUTE),
+            PlaySource::Spotify,
+        ),
+        from(play("3", "Glow", "Mara", 20 * MINUTE), PlaySource::Spotify),
+        from(
+            play("4", "Ember", "Mara", 30 * MINUTE),
+            PlaySource::YourMusic,
+        ),
+    ]);
+    let plays = |filter| {
+        store
+            .totals(Period::between(0, DAY), filter)
+            .expect("totals")
+            .plays
+    };
+    assert_eq!(
+        [
+            plays(SourceFilter::All),
+            plays(SourceFilter::AppleMusic),
+            plays(SourceFilter::YourMusic),
+            plays(SourceFilter::Spotify),
+        ],
+        [4, 1, 1, 2]
+    );
+    let chart = store
+        .artist_chart(Period::ALL_TIME, None, SourceFilter::All, 10)
+        .expect("chart");
+    assert_eq!(chart.rows.iter().map(|r| r.item.plays).sum::<u64>(), 4);
+}
+
+#[test]
+fn unknown_sources_count_in_all_but_in_no_named_source() {
+    use tracks_model::PlaySource;
+    let store = store_with(&[
+        from(
+            play("1", "Halo", "Beyoncé", 0),
+            PlaySource::Unknown("vinyl".into()),
+        ),
+        play("2", "Glow", "Mara", HOUR),
+    ]);
+    let plays = |filter| {
+        store
+            .totals(Period::between(0, DAY), filter)
+            .expect("totals")
+            .plays
+    };
+    assert_eq!(plays(SourceFilter::All), 2);
+    assert_eq!(
+        plays(SourceFilter::AppleMusic)
+            + plays(SourceFilter::YourMusic)
+            + plays(SourceFilter::Spotify),
+        1
+    );
+}
+
+#[test]
+fn every_source_reads_back_exactly_as_written() {
+    use tracks_model::PlaySource;
+    let sources = [
+        PlaySource::AppleMusic,
+        PlaySource::YourMusic,
+        PlaySource::Spotify,
+        PlaySource::Unknown("vinyl".into()),
+    ];
+    let plays: Vec<_> = sources
+        .iter()
+        .enumerate()
+        .map(|(i, source)| {
+            from(
+                play(&i.to_string(), "Halo", "Beyoncé", i as i64 * HOUR),
+                source.clone(),
+            )
+        })
+        .collect();
+    let store = store_with(&plays);
+    let read: Vec<PlaySource> = store
+        .plays_since(None)
+        .expect("plays")
+        .into_iter()
+        .map(|row| row.source)
+        .collect();
+    assert_eq!(read, sources);
+}
+
+#[test]
+fn changing_only_the_source_updates_the_play() {
+    use tracks_model::PlaySource;
+    let store = store_with(&[play("1", "Halo", "Beyoncé", 0)]);
+    let report = store
+        .sync(
+            &[from(
+                play("1", "Halo", "Beyoncé", 0),
+                PlaySource::Unknown("vinyl".into()),
+            )],
+            None,
+        )
+        .expect("sync");
+    assert_eq!(report.updated, 1);
+}

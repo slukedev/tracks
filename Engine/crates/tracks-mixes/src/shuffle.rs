@@ -81,13 +81,7 @@ fn spread<T>(items: Vec<(T, String)>, previous: &[String]) -> Vec<(T, String)> {
     }
     let mut remaining = items;
     let mut placed = Vec::with_capacity(remaining.len());
-    let mut recent: Vec<String> = previous
-        .iter()
-        .rev()
-        .take(window)
-        .rev()
-        .cloned()
-        .collect();
+    let mut recent: Vec<String> = previous.iter().rev().take(window).rev().cloned().collect();
     while !remaining.is_empty() {
         let most_left = left.values().copied().max().unwrap_or(0);
         let may_crowd = most_left * (window + 1) > remaining.len();
@@ -170,14 +164,22 @@ mod tests {
 
     #[test]
     fn recently_heard_go_last() {
-        let items: Vec<(u32, &str)> = (0..12).map(|i| (i, ["a", "b", "c"][i as usize % 3])).collect();
+        let items: Vec<(u32, &str)> = (0..12)
+            .map(|i| (i, ["a", "b", "c"][i as usize % 3]))
+            .collect();
         let order = fresh_order(&items, |i| i.1.to_owned(), |i| i.0 < 3, 9);
         assert!(order[9..].iter().all(|i| i.0 < 3));
     }
 
     #[test]
     fn daily_seed_is_stable() {
-        assert_eq!(daily_seed(2026, 11, 14, "onRepeat"), daily_seed(2026, 11, 14, "onRepeat"));
-        assert_ne!(daily_seed(2026, 11, 14, "onRepeat"), daily_seed(2026, 11, 15, "onRepeat"));
+        assert_eq!(
+            daily_seed(2026, 11, 14, "onRepeat"),
+            daily_seed(2026, 11, 14, "onRepeat")
+        );
+        assert_ne!(
+            daily_seed(2026, 11, 14, "onRepeat"),
+            daily_seed(2026, 11, 15, "onRepeat")
+        );
     }
 }

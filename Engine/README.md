@@ -16,12 +16,15 @@ same everywhere.
 | `tracks-mixes` | The Play tab's mixes, the artist-spread shuffle, what a music server finds for you, and Tracks Radio over Your Music. Sans-IO. |
 | `tracks-demo` | The invented sample library (artists, albums, songs, collaborations) and a seeded, believable listening history over it, the same on every platform. Pure, no I/O. |
 | `tracks-library` | Your own music against what you could get: whether an album is owned, partly owned or missing and which songs are missing (matching names loosely enough that Apple Music's, Last.fm's and a server's agree), Get More's ranking from the artists you play and ones like them, and the rules for when a server finds songs it doesn't have and whether to get something from it or from Lidarr. Pure, no I/O. |
-| `tracks-ffi` | The surface the apps see, generated with [UniFFI](https://mozilla.github.io/uniffi-rs/) (Swift today, Kotlin for Android later). |
+| `tracks-spotify` | Spotify on [librespot](https://github.com/librespot-org/librespot): sign-in, a session that reconnects with backoff, metadata, the saved library and search, and decoded audio the host renders. Built only with `tracks-ffi`'s `spotify` feature. |
+| `tracks-ffi` | The surface the apps see, generated with [UniFFI](https://mozilla.github.io/uniffi-rs/) (Swift and Kotlin). |
 | `uniffi-bindgen` | The bindings generator. |
 
 Dependencies are deliberately few and mature: `rusqlite` (bundled SQLite), `rusqlite_migration`,
 `jiff` (time zones), `unicode-normalization`, `caseless`, `md-5`, `serde_json`, `rustc-hash`,
-`thiserror`, `uniffi`.
+`thiserror`, `uniffi`. The `spotify` feature adds librespot 0.8 and what it brings: Tokio,
+hyper with rustls and bundled web roots (no OpenSSL), and symphonia for decoding. No audio
+backend is built; the apps render the PCM themselves.
 
 ## Decisions
 
@@ -45,6 +48,15 @@ Dependencies are deliberately few and mature: `rusqlite` (bundled SQLite), `rusq
   keeping a TLS stack out of the binary.
 - **Synchronous, thread-safe API.** One writer and up to three reader connections over WAL, so
   reads never wait for an import. Hosts call it off their main thread.
+- **Sources stay as stored.** A play's source is Apple Music, Your Music, Spotify, or a value
+  from a newer build, which is kept as it was (`PlaySource::Unknown`) so it syncs back unchanged
+  and counts only under All. Nothing stored means Apple Music. Apple Music and Your Music keep
+  their index codes (0 and 1), so existing files and digests are untouched.
+- **Spotify is the exception to native networking.** librespot speaks Spotify's own protocol,
+  so it brings its own TLS and runs on one Tokio runtime owned by `tracks-spotify`. Every call
+  is still synchronous and time-limited. Sign-in is OAuth with PKCE in the system browser; only
+  librespot's reusable credentials are handed to the host for the Keychain or Keystore, never
+  the OAuth tokens. See Spotify below.
 
 ## Speed
 
@@ -78,12 +90,46 @@ after cloning and after any change in `Engine/`. Both outputs are gitignored.
 ```bash
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --features tracks-ffi/spotify -- -D warnings
 ```
+
+The build scripts leave Spotify out. To include it, build `tracks-ffi` with `--features spotify`
+and generate the bindings from that library. On Apple platforms the library then also needs
+`Security.framework` (rustls reads the system roots for proxies).
 
 `tests/consistency.rs` in `tracks-store` is a property test: random adds, edits, removals and
 syncs, read between each, must always end exactly where a rebuild from the final history does.
 `HistoryEngineParityTests` in TracksCore checks the engine's charts against the Swift
 calculator row for row.
+
+## Spotify
+
+`tracks-spotify` signs in with librespot's client ID, whose redirect is
+`http://127.0.0.1:<port>/login`; `SpotifyLogin.wait_for_redirect` listens there while the
+system browser is open. `SpotifyAccount` keeps one session per account, reconnecting with
+backoff when it drops, and reads metadata over Spotify's own protocol and the saved library and
+search over the Web API (a 429 with a short Retry-After is waited out, a long one returned as
+`RateLimited`). `SpotifyStream` decodes a song to interleaved `f32` at 44.1 kHz stereo for
+`AVAudioSourceNode` or Media3; reads block while audio downloads, so hosts pull from a feeder
+thread.
+
+Since November 2026 Spotify refuses audio keys to clients like this for accounts it hasn't seen
+on one before ([librespot#1649](https://github.com/librespot-org/librespot/issues/1649)), and
+there is no fix. Opening a stream then fails with `AudioKeyRefused`; sign-in, browsing and the
+library keep working. Using librespot is against Spotify's terms, so the feature is off by
+default and not for store builds.
+
+Two workarounds live here until librespot updates: `patches/sysinfo` stands in for sysinfo
+0.36, which librespot-core 0.8 needs only for the OS version and which does not build for iOS
+against current libc (the host passes the OS version in `SpotifyConfig`), and `vergen` is
+pinned to 9.0.6 in `Cargo.lock` because 9.1 breaks librespot-core's build script.
+
+## Credits
+
+Spotify support is built on [librespot](https://github.com/librespot-org/librespot) (MIT,
+Paul Lietar and contributors). Its shape, a pull-based player without an output device, follows
+[psst](https://github.com/jpochyla/psst) (MIT, Jan Pochyla and contributors). Both licenses are
+in `licenses/`.
 
 ## Status
 

@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::hash::BuildHasher;
 
 use jiff::tz::TimeZone;
-use jiff::{Timestamp, ToSpan, Zoned};
+use jiff::{Timestamp, ToSpan, ZonedDateTime};
 use rustc_hash::FxHashMap;
 
 use crate::shuffle::{daily_seed, fresh_order};
@@ -143,7 +143,10 @@ struct Aggregate {
 
 impl Aggregate {
     fn first_heard(&self) -> i64 {
-        self.dates.first().copied().unwrap_or(self.song.last_heard_ms)
+        self.dates
+            .first()
+            .copied()
+            .unwrap_or(self.song.last_heard_ms)
     }
 }
 
@@ -151,14 +154,14 @@ struct Context<'a> {
     songs: &'a [Aggregate],
     first_play_ms: i64,
     now_ms: i64,
-    now: Zoned,
+    now: ZonedDateTime,
 }
 
 fn slot(part: DayPart, is_weekend: bool) -> u8 {
     part as u8 * 2 + u8::from(is_weekend)
 }
 
-fn is_weekend(zoned: &Zoned) -> bool {
+fn is_weekend(zoned: &ZonedDateTime) -> bool {
     matches!(
         zoned.weekday(),
         jiff::civil::Weekday::Saturday | jiff::civil::Weekday::Sunday
@@ -169,10 +172,10 @@ fn decay(age_ms: i64, half_life_days: f64) -> f64 {
     0.5f64.powf((age_ms.max(0) as f64) / (half_life_days * DAY_MS))
 }
 
-fn zoned(ms: i64, zone: &TimeZone) -> Zoned {
+fn zoned(ms: i64, zone: &TimeZone) -> ZonedDateTime {
     Timestamp::from_millisecond(ms)
         .unwrap_or(Timestamp::UNIX_EPOCH)
-        .to_zoned(zone.clone())
+        .to_zoned_datetime(zone.clone())
 }
 
 /// Builds every mix from `plays` (any order), leaving out songs in `excluded`.
@@ -528,16 +531,29 @@ mod tests {
         let mut plays = Vec::new();
         for i in 0..8 {
             for d in 0..3 {
-                plays.push(play(&format!("Song {i}"), &format!("Artist {}", i % 4), 1.0 + f64::from(d)));
+                plays.push(play(
+                    &format!("Song {i}"),
+                    &format!("Artist {}", i % 4),
+                    1.0 + f64::from(d),
+                ));
             }
         }
         let out = build(&plays);
-        let mix = out.mixes.iter().find(|m| m.kind == MixKind::OnRepeat).expect("on repeat");
+        let mix = out
+            .mixes
+            .iter()
+            .find(|m| m.kind == MixKind::OnRepeat)
+            .expect("on repeat");
         assert_eq!(mix.songs.len(), 8);
         assert_eq!(mix.play_count, 24);
 
         let few: Vec<MixPlay> = plays.into_iter().take(10).collect();
-        assert!(!build(&few).mixes.iter().any(|m| m.kind == MixKind::OnRepeat));
+        assert!(
+            !build(&few)
+                .mixes
+                .iter()
+                .any(|m| m.kind == MixKind::OnRepeat)
+        );
     }
 
     #[test]
@@ -545,7 +561,11 @@ mod tests {
         let mut plays = Vec::new();
         for i in 0..7 {
             for d in 0..4 {
-                plays.push(play(&format!("Old {i}"), &format!("A{i}"), 200.0 + f64::from(d)));
+                plays.push(play(
+                    &format!("Old {i}"),
+                    &format!("A{i}"),
+                    200.0 + f64::from(d),
+                ));
             }
         }
         let out = build(&plays);
@@ -558,7 +578,12 @@ mod tests {
                 p
             })
             .collect();
-        assert!(!build(&short).mixes.iter().any(|m| m.kind == MixKind::Rediscover));
+        assert!(
+            !build(&short)
+                .mixes
+                .iter()
+                .any(|m| m.kind == MixKind::Rediscover)
+        );
     }
 
     #[test]
@@ -569,9 +594,15 @@ mod tests {
                 plays.push(play(&format!("Song {i}"), "Artist", 1.0 + f64::from(d)));
             }
         }
-        let excluded: FxHashSet<String> = [tracks_model::song_key("Song 0", "Artist")].into_iter().collect();
+        let excluded: FxHashSet<String> = [tracks_model::song_key("Song 0", "Artist")]
+            .into_iter()
+            .collect();
         let out = build_mixes(&plays, &excluded, NOW, &TimeZone::UTC);
-        assert!(out.mixes.iter().all(|m| m.songs.iter().all(|s| s.title != "Song 0")));
+        assert!(
+            out.mixes
+                .iter()
+                .all(|m| m.songs.iter().all(|s| s.title != "Song 0"))
+        );
     }
 
     #[test]
@@ -584,7 +615,10 @@ mod tests {
         }
         plays.push(play("Radio 0", "R0", 2.0));
         let out = build(&plays);
-        assert!(!out.mixes.iter().any(|m| m.kind == MixKind::RadioFinds), "one was chosen, five left");
+        assert!(
+            !out.mixes.iter().any(|m| m.kind == MixKind::RadioFinds),
+            "one was chosen, five left"
+        );
     }
 
     #[test]
@@ -592,7 +626,11 @@ mod tests {
         let mut plays = Vec::new();
         for i in 0..12 {
             for d in 0..5 {
-                plays.push(play(&format!("Fav {i}"), &format!("A{}", i % 3), 10.0 + f64::from(d)));
+                plays.push(play(
+                    &format!("Fav {i}"),
+                    &format!("A{}", i % 3),
+                    10.0 + f64::from(d),
+                ));
             }
         }
         assert_eq!(build(&plays), build(&plays));
