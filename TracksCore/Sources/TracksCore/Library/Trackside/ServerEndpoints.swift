@@ -121,6 +121,12 @@ public actor ServerEndpoints {
         update(candidates: candidates + more)
     }
 
+    /// Puts addresses the server named ahead of the known ones; one on both lists takes what
+    /// the server just said of it. None is used before it proves itself.
+    public func prefer(_ named: [TracksideServerURL]) {
+        update(candidates: named + candidates)
+    }
+
     /// The server asked for https. Switches to one of its https addresses that proves
     /// itself, without asking anyone for a password again.
     /// - Returns: the address chosen, or nil when the server has no https address that answers.
@@ -203,5 +209,26 @@ public actor ServerEndpoints {
               ping.serverID.caseInsensitiveCompare(serverUUID) == .orderedSame
         else { return false }
         return TracksideEndpointProof.verify(ping.proof, key: proofKey, serverID: ping.serverID, url: candidate.url, nonce: nonce)
+    }
+}
+
+extension TracksideServerURLs {
+    /// The addresses Tracks may send this device's key to, in the server's order, each once:
+    /// https anywhere, plain HTTP only nearby, nothing else.
+    public static func trusted(_ urls: [TracksideServerURL]) -> [TracksideServerURL] {
+        var seen: Set<String> = []
+        return urls.filter { candidate in
+            guard TracksideEndpointProof.allowsCredentials(to: candidate.url),
+                  candidate.url.host(percentEncoded: false)?.isEmpty == false
+            else { return false }
+            let scheme = candidate.url.scheme?.lowercased() ?? ""
+            let key = scheme + "://" + (TracksideEndpointProof.authority(of: candidate.url) ?? "") + candidate.url.path(percentEncoded: true)
+            return seen.insert(key).inserted
+        }
+    }
+
+    /// Whether `urls` differs from what's known, beyond order.
+    public static func differs(_ urls: [TracksideServerURL], from known: [TracksideServerURL]?) -> Bool {
+        Set(trusted(urls)) != Set(known ?? [])
     }
 }

@@ -8,7 +8,7 @@ struct ServerURLsTests {
     static let away = URL(string: "https://music.example.com")!
 
     static let httpsRequired = """
-    {"error": {"code": "https_required", "message": "This server takes credentials over https only.", "details": {"https_urls": ["https://music.example.com"]}}}
+    {"error": {"code": "https_required", "message": "https only", "details": {"https_urls": [{"url": "https://music.example.com", "kind": "public", "tls": true}]}}}
     """
 
     static func endpoints(_ candidates: [TracksideServerURL], current: URL = home) -> ServerEndpoints {
@@ -29,26 +29,25 @@ struct ServerURLsTests {
         #expect(TracksideServerURLs.trusted(urls).map(\.url) == [Self.home, Self.away])
     }
 
-    @Test("the list decodes from the fixture, fingerprints and all")
+    @Test("the list, its event and the https refusal read from the server's fixtures")
     func fixture() throws {
-        let directory = try #require(TracksideFixtures.directory)
-        let data = try Data(contentsOf: directory.appending(path: "server-urls.json"))
-        let list = try TracksideJSON.decoder.decode(TracksideServerURLs.self, from: data)
+        let list = try TracksideJSON.decoder.decode(TracksideServerURLs.self, from: TracksideFixtures.data("server-urls.json"))
         #expect(list.serverID == TracksideTesting.serverUUID)
-        #expect(list.urls.map(\.kind) == [.lan, .tailnet, .public])
-        #expect(list.urls[1].fingerprint != nil)
+        #expect(list.urls.map(\.kind) == [.lan, .lan, .public])
         #expect(TracksideServerURLs.trusted(list.urls).count == 3)
-        let event = try Data(contentsOf: directory.appending(path: "server-urls-event.json"))
-        #expect(TracksideEvent(ServerSentEvent(id: "4", event: "server_urls", data: String(decoding: event, as: UTF8.self))) == .serverURLs(etag: "\"u-7\""))
-        let refusal = try Data(contentsOf: directory.appending(path: "error-https-required.json"))
+        let event = try TracksideFixtures.data("server-urls-event.json")
+        // The event's ETag is the one the list comes with, so a device that has it asks nothing.
+        #expect(TracksideEvent(ServerSentEvent(id: "4", event: "server_urls", data: String(decoding: event, as: UTF8.self))) == .serverURLs(etag: list.etag))
+        #expect(list.etag == "\"a746df40293cc8d2b0f1b1ea782c9d87\"")
+        let refusal = try TracksideFixtures.data("error-https-required.json")
         let response = try #require(HTTPURLResponse(url: Self.home, statusCode: 403, httpVersion: nil, headerFields: nil))
-        #expect(TracksideClient.httpsRequired((refusal, response)) == [Self.away])
+        #expect(TracksideClient.httpsRequired((refusal, response))?.map(\.url) == [Self.away, URL(string: "https://home.tail4a2c.ts.net")!])
         #expect(TracksideClient.error(from: refusal, response: response) == .httpsRequired)
     }
 
     @Test("a conditional ask sends the ETag, and a 304 means nothing changed")
     func conditional() async throws {
-        let list = #"{"server_id": "\#(TracksideTesting.serverUUID)", "urls": [{"url": "https://music.example.com", "kind": "public", "tls": true}]}"#
+        let list = #"{"server_id": "\#(TracksideTesting.serverUUID)", "version": "u-7", "urls": [{"url": "https://music.example.com", "kind": "public", "tls": true}]}"#
         let transport = StubTracksideTransport { request in
             request.value(forHTTPHeaderField: "If-None-Match") == "\"u-7\"" ? (304, "", [:]) : (200, list, ["ETag": "\"u-7\""])
         }
@@ -86,6 +85,27 @@ struct ServerURLsTests {
         #expect(!transport.requests.contains { $0.url?.path().contains("login") == true })
     }
 
+    @Test("without an ETag header, the list's version stands for it")
+    func versionAsETag() async throws {
+        let list = #"{"server_id": "\#(TracksideTesting.serverUUID)", "version": "u-7", "urls": [{"url": "https://music.example.com", "kind": "public", "tls": true}]}"#
+        let client = TracksideTesting.client(StubTracksideTransport(body: list))
+        guard case .changed(_, let etag) = try await client.serverURLs(ifNoneMatch: nil) else {
+            Issue.record("expected a list")
+            return
+        }
+        #expect(etag == "\"u-7\"")
+    }
+
+    @Test("the https addresses a refusal names go first and take what it says of them")
+    func httpsRequiredPrefersNamed() async throws {
+        let cached = TracksideServerURL(url: Self.away, kind: .unknown, tls: true, fingerprint: "old")
+        let endpoints = Self.endpoints([TracksideServerURL(url: Self.home, kind: .lan), cached])
+        await endpoints.prefer([TracksideServerURL(url: Self.away, kind: .public, tls: true)])
+        #expect(await endpoints.candidates.map(\.url) == [Self.away, Self.home])
+        #expect(await endpoints.candidates.first?.kind == .public)
+        #expect(await endpoints.candidates.first?.fingerprint == nil)
+    }
+
     @Test("an https address the refusal names is learned, proven and used")
     func httpsRequiredLearns() async throws {
         let endpoints = Self.endpoints([TracksideServerURL(url: Self.home, kind: .lan)])
@@ -103,6 +123,22 @@ struct ServerURLsTests {
         let body = #"{"error": {"code": "https_required", "message": "https only"}}"#
         let client = TracksideClient(serverID: "home", endpoints: endpoints, apiKey: TracksideTesting.apiKey, mediaToken: nil, transport: StubTracksideTransport(status: 403, body: body))
         await #expect(throws: TracksideError.httpsRequired) { try await client.genres() }
+    }
+
+    @Test("a refusal that clears a cookie falls back to the known https address, never to signing in")
+    func httpsRequiredClearingCookie() async throws {
+        let endpoints = Self.endpoints([TracksideServerURL(url: Self.home, kind: .lan), TracksideServerURL(url: Self.away, kind: .public, tls: true)])
+        let body = #"{"error": {"code": "https_required", "message": "https only"}}"#
+        let transport = StubTracksideTransport { request in
+            request.url?.scheme == "http"
+                ? (403, body, ["Set-Cookie": "trackside_session=; Max-Age=0; Path=/; HttpOnly"])
+                : (200, #"{"genres": []}"#, [:])
+        }
+        let client = TracksideClient(serverID: "home", endpoints: endpoints, apiKey: TracksideTesting.apiKey, mediaToken: nil, transport: transport)
+        #expect(try await client.genres().isEmpty)
+        #expect(endpoints.baseURL == Self.away)
+        #expect(transport.requests.allSatisfy { !$0.httpShouldHandleCookies && $0.value(forHTTPHeaderField: "Cookie") == nil })
+        #expect(transport.requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer \(TracksideTesting.apiKey)" })
     }
 
     @Test("the server's events about addresses and Trackside Cloud read as such")

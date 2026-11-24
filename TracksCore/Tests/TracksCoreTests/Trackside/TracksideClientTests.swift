@@ -120,18 +120,24 @@ struct TracksideClientTests {
         await #expect(throws: URLError.self) { try await TracksideClient.detect(at: T.home, transport: offline) }
     }
 
-    @Test("signing in and pairing send this device, without any key")
+    @Test("signing in and pairing send this device by its Trackside Cloud id, without any key or cookie")
     func signIn() async throws {
-        let device = TracksideDeviceInfo(clientDeviceID: "8C2E", name: "Luke's iPhone", platform: "ios", appVersion: "3.2")
+        let device = TracksideDeviceInfo(clientDeviceID: "pairing-only", name: "Luke's iPhone", platform: "ios", appVersion: "3.2")
         let stub = StubTracksideTransport(status: 201, body: APIExamples.pairResult)
-        let result = try await TracksideClient.claim(at: T.home, code: "Q7RM-4X2K", device: device, transport: stub)
+        let result = try await TracksideClient.claim(at: T.home, code: "Q7RM-4X2K", device: device, appDeviceID: "8C2E", transport: stub)
         #expect(result.apiKey == "tsk_9pQ...")
         let request = try #require(stub.requests.first)
         #expect(request.url?.path() == "/api/v1/pair/claim")
         #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(!request.httpShouldHandleCookies)
         let body = try JSONSerialization.jsonObject(with: try #require(request.httpBody)) as? [String: Any]
         #expect(body?["code"] as? String == "Q7RM-4X2K")
         #expect((body?["device"] as? [String: Any])?["client_device_id"] as? String == "8C2E")
+
+        let login = StubTracksideTransport(status: 201, body: APIExamples.pairResult)
+        _ = try await TracksideClient.login(at: T.home, username: "luke", password: "secret", device: device, appDeviceID: "8C2E", transport: login)
+        let loginBody = try JSONSerialization.jsonObject(with: try #require(login.requests.first?.httpBody)) as? [String: Any]
+        #expect((loginBody?["device"] as? [String: Any])?["client_device_id"] as? String == "8C2E")
 
         let pairing = try TracksideTesting.decode(TracksidePairRequest.self, APIExamples.pairRequest)
         let poll = StubTracksideTransport(body: #"{"state": "pending"}"#)

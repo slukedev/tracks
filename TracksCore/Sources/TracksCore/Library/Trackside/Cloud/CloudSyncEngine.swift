@@ -227,9 +227,13 @@ public actor CloudSyncEngine {
                     }
                 case .conflict:
                     report.conflicts += 1
-                    if let server = result.current {
+                    switch result.current {
+                    case .record(let server):
                         conflicts.append(server)
-                    } else {
+                    case .deletion(let server):
+                        refused.append(server)
+                        current.ledger[item.id] = nil
+                    case nil:
                         current.ledger[item.id] = nil
                     }
                 case .rejected:

@@ -8,7 +8,7 @@ struct CloudWireTests {
     @Test("a page decodes from snake_case, with the cursor kept exactly as sent")
     func page() throws {
         let json = """
-        {"upserts": [{"id": "p1", "version": "3f9a0c1d7e2b4a65.917", "client_modified_at": "2026-11-24T09:30:00.000Z",
+        {"upserts": [{"id": "p1", "version": 917, "client_modified_at": "2026-11-24T09:30:00.000Z",
           "device_id": "D1", "fields": {"title": "Ivy", "artistName": "Mara Solis", "playedAtMs": 1764000000000, "kind": "onDemand",
           "playedMs": 201000, "extra": {"nested": [1, 2.5, true, null]}}}],
          "deletes": [{"id": "p0", "deleted_at": "2026-11-24T09:31:00Z", "merged_into": "p1"}],
@@ -19,6 +19,7 @@ struct CloudWireTests {
         #expect(page.hasMore)
         #expect(page.deletes == [CloudDeletion(id: "p0", deletedAt: CloudJSON.date(from: "2026-11-24T09:31:00Z"), mergedInto: "p1")])
         let record = try #require(page.upserts.first)
+        #expect(record.version == 917)
         #expect(record.deviceID == "D1")
         #expect(record.fields["playedMs"] == .int(201000))
         #expect(record.fields["extra"] == .object(["nested": .array([.int(1), .double(2.5), .bool(true), .null])]))
@@ -38,11 +39,11 @@ struct CloudWireTests {
     @Test("a push sends snake_case envelopes, leaves out what it hasn't got, and marks tombstones")
     func push() throws {
         let at = try #require(CloudJSON.date(from: "2026-11-24T09:30:00.000Z"))
-        let item = CloudPushItem(id: "p1", fields: ["title": .string("Ivy")], clientModifiedAt: at, deviceID: "D1")
+        let item = CloudPushItem(id: "p1", baseVersion: 0, fields: ["title": .string("Ivy")], clientModifiedAt: at, deviceID: "D1")
         let tombstone = CloudPushItem(id: "p0", fields: nil, clientModifiedAt: at, deviceID: "D1", deletedAt: at, mergedInto: "p1")
         let data = try CloudJSON.encoder.encode(CloudPushRequest(items: [item, tombstone]))
         let text = String(decoding: data, as: UTF8.self)
-        #expect(text == #"{"items":[{"client_modified_at":"2026-11-24T09:30:00.000Z","device_id":"D1","fields":{"title":"Ivy"},"id":"p1"},{"client_modified_at":"2026-11-24T09:30:00.000Z","deleted_at":"2026-11-24T09:30:00.000Z","device_id":"D1","id":"p0","merged_into":"p1"}]}"#)
+        #expect(text == #"{"items":[{"base_version":0,"client_modified_at":"2026-11-24T09:30:00.000Z","device_id":"D1","fields":{"title":"Ivy"},"id":"p1"},{"client_modified_at":"2026-11-24T09:30:00.000Z","deleted_at":"2026-11-24T09:30:00.000Z","device_id":"D1","id":"p0","merged_into":"p1"}]}"#)
         #expect(tombstone.isTombstone && !item.isTombstone)
     }
 
@@ -58,10 +59,11 @@ struct CloudWireTests {
 
     @Test("a push answer reads every status, and one it doesn't know as unknown")
     func results() throws {
-        let json = #"{"results": [{"id": "a", "status": "accepted", "version": "e.5"}, {"id": "b", "status": "conflict", "current": {"id": "b", "fields": {"name": "x"}}}, {"id": "c", "status": "rejected", "reason": "device_mismatch"}, {"id": "d", "status": "queued"}]}"#
+        let json = #"{"results": [{"id": "a", "status": "accepted", "version": 5}, {"id": "b", "status": "conflict", "current": {"id": "b", "fields": {"name": "x"}}}, {"id": "c", "status": "rejected", "reason": "device_mismatch"}, {"id": "d", "status": "queued"}]}"#
         let response = try CloudJSON.decoder.decode(CloudPushResponse.self, from: Data(json.utf8))
         #expect(response.results.map(\.status) == [.accepted, .conflict, .rejected, .unknown])
-        #expect(response.results[1].current?.fields["name"] == .string("x"))
+        #expect(response.results[0].version == 5)
+        #expect(response.results[1].current?.record?.fields["name"] == .string("x"))
         #expect(response.results[2].reason == "device_mismatch")
     }
 
@@ -305,6 +307,25 @@ struct CloudSyncEngineTests {
         let report = try await engine.sync()
         #expect(report.rejected == 1)
         #expect(store.names.withLock { $0["a"] } == nil)
+    }
+
+    @Test("a conflict with a tombstone deletes the item here too")
+    func conflictWithTombstone() async throws {
+        struct Tombstoned: CloudSyncAPI {
+            func pull(_ entity: CloudEntity, cursor: CloudCursor?, limit: Int) async throws -> CloudPage {
+                CloudPage(cursor: CloudCursor(rawValue: "e1.1"))
+            }
+
+            func push(_ entity: CloudEntity, items: [CloudPushItem]) async throws -> [CloudPushResult] {
+                items.map { CloudPushResult(id: $0.id, status: .conflict, current: .deletion(CloudDeletion(id: $0.id, version: 9))) }
+            }
+        }
+        let folder = try TemporaryFolder()
+        let store = NameStore(["a": "Arca"])
+        let engine = CloudSyncEngine(api: Tombstoned(), stores: [store], deviceID: "D1", folder: folder.url)
+        let report = try await engine.sync()
+        #expect(report.conflicts == 1)
+        #expect(store.names.withLock { $0.isEmpty })
     }
 
     @Test("changes are found by comparing with the ledger")

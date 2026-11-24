@@ -92,24 +92,26 @@ public struct TracksideClient: Sendable {
     }
 
     /// Signs in with a username and password, making this device one of the user's.
-    public static func login(at base: URL, username: String, password: String, device: TracksideDeviceInfo, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePairResult {
+    /// - Parameter appDeviceID: the id Trackside Cloud knows this device by, sent as the
+    ///   device's `client_device_id` whatever `device` says, so the key made speaks for it.
+    public static func login(at base: URL, username: String, password: String, device: TracksideDeviceInfo, appDeviceID: String = DeviceIdentity.current, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePairResult {
         try requireSafe(base)
-        let body = try TracksideJSON.encoder.encode(TracksideLoginRequest(username: username, password: password, device: device))
+        let body = try TracksideJSON.encoder.encode(TracksideLoginRequest(username: username, password: password, device: device.speaking(for: appDeviceID)))
         return try decode(try await transport.send(try request(base, "auth/login", method: "POST", body: body)))
     }
 
     /// Pairs with a code: the eight characters typed from the dashboard, or the secret in a
     /// QR code's ``PairingPayload``.
-    public static func claim(at base: URL, code: String, device: TracksideDeviceInfo, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePairResult {
+    public static func claim(at base: URL, code: String, device: TracksideDeviceInfo, appDeviceID: String = DeviceIdentity.current, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePairResult {
         try requireSafe(base)
-        let body = try TracksideJSON.encoder.encode(TracksideClaimRequest(code: code, device: device))
+        let body = try TracksideJSON.encoder.encode(TracksideClaimRequest(code: code, device: device.speaking(for: appDeviceID)))
         return try decode(try await transport.send(try request(base, "pair/claim", method: "POST", body: body)))
     }
 
     /// Asks to be paired from the dashboard: someone signed in there enters the code shown.
-    public static func requestPairing(at base: URL, device: TracksideDeviceInfo, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePairRequest {
+    public static func requestPairing(at base: URL, device: TracksideDeviceInfo, appDeviceID: String = DeviceIdentity.current, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksidePairRequest {
         try requireSafe(base)
-        let body = try TracksideJSON.encoder.encode(TracksidePairRequestBody(device: device))
+        let body = try TracksideJSON.encoder.encode(TracksidePairRequestBody(device: device.speaking(for: appDeviceID)))
         return try decode(try await transport.send(try request(base, "pair/requests", method: "POST", body: body)))
     }
 
@@ -152,7 +154,7 @@ public struct TracksideClient: Sendable {
         if response.1.statusCode == 304 { return .unchanged }
         let urls: TracksideServerURLs = try Self.decode(response)
         guard urls.serverID.caseInsensitiveCompare(endpoints.serverUUID) == .orderedSame else { throw TracksideError.notTrackside }
-        return .changed(urls, etag: response.1.value(forHTTPHeaderField: "ETag"))
+        return .changed(urls, etag: response.1.value(forHTTPHeaderField: "ETag") ?? urls.etag)
     }
 
     // MARK: - Browsing
@@ -397,6 +399,9 @@ public struct TracksideClient: Sendable {
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        // Tracks speaks with its key alone. A cookie would be refused over plain HTTP away from
+        // home (`https_required`), and one the server clears must never ask for a password.
+        request.httpShouldHandleCookies = false
         if let body {
             request.httpBody = body
             request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
@@ -464,25 +469,20 @@ public struct TracksideClient: Sendable {
 
     /// Builds a request for the proven address and sends it. When the server answers that it
     /// takes the key only over https, Tracks moves to an https address that proves itself and
-    /// asks there once more, never asking for the password again.
+    /// asks there once more, never asking for the password again: the ones the refusal names
+    /// first, then the ones `/server/urls` last gave.
     func exchange(_ build: (URL) throws -> URLRequest) async throws -> (Data, HTTPURLResponse) {
         let response = try await exchange(try build(try await endpoints.provenBaseURL()))
-        guard let advertised = Self.httpsRequired(response) else { return response }
-        if !advertised.isEmpty {
-            await endpoints.add(advertised.map { TracksideServerURL(url: $0, kind: .public, tls: true) })
-        }
+        guard let named = Self.httpsRequired(response) else { return response }
+        if !named.isEmpty { await endpoints.prefer(named) }
         guard await endpoints.requireHTTPS() != nil else { throw TracksideError.httpsRequired }
         return try await exchange(try build(try await endpoints.provenBaseURL()))
     }
 
     /// The https addresses a `403 https_required` names (possibly none), or nil for any
     /// other answer.
-    static func httpsRequired(_ response: (Data, HTTPURLResponse)) -> [URL]? {
-        guard response.1.statusCode == 403,
-              let body = try? TracksideJSON.decoder.decode(TracksideErrorEnvelope.self, from: response.0).error,
-              body.code == "https_required"
-        else { return nil }
-        return (body.details?.httpsURLs ?? []).compactMap(URL.init(string:)).filter { $0.scheme?.lowercased() == "https" }
+    static func httpsRequired(_ response: (Data, HTTPURLResponse)) -> [TracksideServerURL]? {
+        TracksideErrorEnvelope.httpsRequired(status: response.1.statusCode, body: response.0)
     }
 
     /// Sends a request, and tells the endpoints whether the server could be reached, so a

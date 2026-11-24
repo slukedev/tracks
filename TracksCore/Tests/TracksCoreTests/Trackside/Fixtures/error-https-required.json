@@ -3,10 +3,19 @@
     "code": "https_required",
     "details": {
       "https_urls": [
-        "https://music.example.com"
+        {
+          "kind": "public",
+          "tls": true,
+          "url": "https://music.example.com"
+        },
+        {
+          "kind": "tailnet",
+          "tls": true,
+          "url": "https://home.tail4a2c.ts.net"
+        }
       ]
     },
-    "message": "This server takes credentials over https only.",
-    "request_id": "7a1e4c9b2d3f4e5a8b6c0d1e2f3a4b5c"
+    "message": "Use the server's https address. Passwords and keys aren't accepted over plain HTTP from outside your network.",
+    "request_id": "7a1e4c9b2d8f4a6c9e3b5d7f1a2c4e6b"
   }
 }

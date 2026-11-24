@@ -10,37 +10,25 @@ import Foundation
 public struct TracksideServerURLs: Codable, Sendable, Hashable {
     public var serverID: String
     public var urls: [TracksideServerURL]
-    public var updatedAt: Date?
+    /// Names the list: the same list always has the same version. Its strong ETag.
+    public var version: String?
 
-    public init(serverID: String, urls: [TracksideServerURL], updatedAt: Date? = nil) {
+    public init(serverID: String, urls: [TracksideServerURL], version: String? = nil) {
         self.serverID = serverID
         self.urls = urls
-        self.updatedAt = updatedAt
+        self.version = version
     }
 
     enum CodingKeys: String, CodingKey {
-        case urls
+        case urls, version
         case serverID = "server_id"
-        case updatedAt = "updated_at"
     }
 
-    /// The addresses Tracks may send this device's key to, in the server's order, each once:
-    /// https anywhere, plain HTTP only nearby, nothing else.
-    public static func trusted(_ urls: [TracksideServerURL]) -> [TracksideServerURL] {
-        var seen: Set<String> = []
-        return urls.filter { candidate in
-            guard TracksideEndpointProof.allowsCredentials(to: candidate.url),
-                  candidate.url.host(percentEncoded: false)?.isEmpty == false
-            else { return false }
-            let scheme = candidate.url.scheme?.lowercased() ?? ""
-            let key = scheme + "://" + (TracksideEndpointProof.authority(of: candidate.url) ?? "") + candidate.url.path(percentEncoded: true)
-            return seen.insert(key).inserted
-        }
-    }
+    /// The ETag the server sends with this list.
+    public var etag: String? { version.map(TracksideServerURLs.etag(forVersion:)) }
 
-    /// Whether `urls` differs from what's known, beyond order.
-    public static func differs(_ urls: [TracksideServerURL], from known: [TracksideServerURL]?) -> Bool {
-        Set(trusted(urls)) != Set(known ?? [])
+    static func etag(forVersion version: String) -> String {
+        "\"\(version)\""
     }
 }
 
@@ -52,11 +40,26 @@ public enum TracksideServerURLsAnswer: Sendable, Equatable {
 }
 
 /// The `server_urls` event: the list changed, so a device fetches it again. It carries the
-/// new ETag where the server gives it, so a device that already has that list asks nothing.
+/// new list's version, so a device that already has that list asks nothing.
 public struct TracksideServerURLsEvent: Codable, Sendable, Hashable {
-    public var etag: String?
+    public var version: String?
 
-    public init(etag: String?) {
-        self.etag = etag
+    public init(version: String?) {
+        self.version = version
+    }
+
+    /// The ETag of the list the event announces, to compare with the one kept.
+    public var etag: String? { version.map(TracksideServerURLs.etag(forVersion:)) }
+}
+
+extension TracksideErrorEnvelope {
+    /// The https addresses a `403 https_required` names (possibly none), or nil for any
+    /// other refusal.
+    static func httpsRequired(status: Int, body: Data) -> [TracksideServerURL]? {
+        guard status == 403,
+              let refusal = try? TracksideJSON.decoder.decode(TracksideErrorEnvelope.self, from: body).error,
+              refusal.code == "https_required"
+        else { return nil }
+        return (refusal.details?.httpsURLs ?? []).filter { $0.url.scheme?.lowercased() == "https" }
     }
 }

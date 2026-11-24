@@ -97,13 +97,13 @@ struct EndpointProofTests {
         let far = URL(string: "http://203.0.113.5:4747")!
         let device = TracksideDeviceInfo(clientDeviceID: "A", name: "iPhone", platform: "ios")
         await #expect(throws: TracksideError.insecureAddress) {
-            try await TracksideClient.login(at: far, username: "luke", password: "secret", device: device, transport: stub)
+            try await TracksideClient.login(at: far, username: "luke", password: "secret", device: device, appDeviceID: "A", transport: stub)
         }
         await #expect(throws: TracksideError.insecureAddress) {
-            try await TracksideClient.claim(at: far, code: "Q7RM-4X2K", device: device, transport: stub)
+            try await TracksideClient.claim(at: far, code: "Q7RM-4X2K", device: device, appDeviceID: "A", transport: stub)
         }
         await #expect(throws: TracksideError.insecureAddress) {
-            try await TracksideClient.requestPairing(at: far, device: device, transport: stub)
+            try await TracksideClient.requestPairing(at: far, device: device, appDeviceID: "A", transport: stub)
         }
         #expect(stub.requests.isEmpty)
     }

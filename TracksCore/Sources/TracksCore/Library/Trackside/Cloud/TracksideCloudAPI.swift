@@ -12,7 +12,7 @@ public struct TracksideCloudAPI: CloudSyncAPI, CloudSettingsAPI {
     public func pull(_ entity: CloudEntity, cursor: CloudCursor?, limit: Int) async throws -> CloudPage {
         var query = ["limit": String(limit)]
         query["cursor"] = cursor?.rawValue
-        return try await translating { try await client.get(entity.path, query) }
+        return try await translating(cursor: cursor) { try await client.get(entity.path, query) }
     }
 
     public func push(_ entity: CloudEntity, items: [CloudPushItem]) async throws -> [CloudPushResult] {
@@ -26,27 +26,28 @@ public struct TracksideCloudAPI: CloudSyncAPI, CloudSettingsAPI {
     public func settings(after cursor: CloudCursor?) async throws -> CloudSettingsPage {
         var query: [String: String] = [:]
         query["cursor"] = cursor?.rawValue
-        return try await translating { try await client.get(CloudEntity.settings.path, query) }
+        return try await translating(cursor: cursor) { try await client.get(CloudEntity.settings.path, query) }
     }
 
-    public func patch(_ settings: [String: CloudSetting]) async throws -> [String: CloudSetting] {
-        let answer: CloudSettingsPatch = try await translating {
+    public func patch(_ settings: [String: CloudSetting]) async throws -> [CloudSettingResult] {
+        let answer: CloudSettingResults = try await translating {
             try await client.send(CloudEntity.settings.path, method: "PATCH", body: CloudSettingsPatch(settings: settings))
         }
-        return answer.settings
+        return answer.results
     }
 
     /// Registers this device's id with its key, and the devices it was restored or migrated
     /// from. Predecessors the server doesn't know are dropped rather than holding up sync.
-    public func register(deviceID: String, predecessors: [String], name: String?, platform: String?) async throws {
+    @discardableResult
+    public func register(deviceID: String, predecessors: [String], name: String?, platform: String?) async throws -> CloudDevice {
         let path = "cloud/devices/\(deviceID)"
         do {
-            try await translating {
-                try await client.perform(path, method: "PUT", body: CloudDeviceRegistration(predecessors: predecessors, name: name, platform: platform))
+            return try await translating {
+                try await client.send(path, method: "PUT", body: CloudDeviceRegistration(predecessors: predecessors, name: name, platform: platform))
             }
         } catch TracksideError.server(400, _, _) where !predecessors.isEmpty {
-            try await translating {
-                try await client.perform(path, method: "PUT", body: CloudDeviceRegistration(predecessors: [], name: name, platform: platform))
+            return try await translating {
+                try await client.send(path, method: "PUT", body: CloudDeviceRegistration(predecessors: [], name: name, platform: platform))
             }
         }
     }
@@ -56,10 +57,18 @@ public struct TracksideCloudAPI: CloudSyncAPI, CloudSettingsAPI {
         return list.devices
     }
 
-    /// The server's refusals that mean something to the sync engine, as its errors.
-    private func translating<Value>(_ work: () async throws -> Value) async throws -> Value {
+    public func usage() async throws -> CloudUsage {
+        try await translating { try await client.get("cloud/usage") }
+    }
+
+    /// The server's refusals that mean something to the sync engine, as its errors. A cursor
+    /// the server says it never made, such as one from before cursors carried an epoch,
+    /// starts over like one from before a restore.
+    private func translating<Value>(cursor: CloudCursor? = nil, _ work: () async throws -> Value) async throws -> Value {
         do {
             return try await work()
+        } catch TracksideError.server(400, "bad_request", _) where cursor != nil {
+            throw CloudSyncError.syncReset
         } catch TracksideError.syncReset {
             throw CloudSyncError.syncReset
         } catch TracksideError.server(_, "device_mismatch", _) {

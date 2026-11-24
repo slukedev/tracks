@@ -112,8 +112,8 @@ public enum TracksideEvent: Sendable, Equatable {
     case acquisition(TracksideAcquisition)
     /// This device's key was revoked, and the stream has ended.
     case revoked
-    /// The server's addresses changed: ask `/server/urls` again, unless `etag` is the list's
-    /// already known.
+    /// The server's addresses changed: ask `/server/urls` again, unless `etag` (the new list's
+    /// ETag, made from its `version`) is the one already known.
     case serverURLs(etag: String?)
     /// Something synced through Trackside Cloud changed, such as `plays`: time to pull it.
     case cloud(entity: String?)

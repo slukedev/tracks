@@ -7,9 +7,9 @@ import CoreFoundation
 /// Settings as Trackside Cloud keeps them: `GET /cloud/settings` and `PATCH /cloud/settings`.
 public protocol CloudSettingsAPI: Sendable {
     func settings(after cursor: CloudCursor?) async throws -> CloudSettingsPage
-    /// - Returns: the settings as the server now holds them, which it decides by the same
-    ///   rules as every device.
-    func patch(_ settings: [String: CloudSetting]) async throws -> [String: CloudSetting]
+    /// - Returns: one result per key, with the value that stands after the server decided by
+    ///   the same rules as every device.
+    func patch(_ settings: [String: CloudSetting]) async throws -> [CloudSettingResult]
 }
 
 /// Trackside Cloud in the shape ``SettingsSync`` already mirrors iCloud's key-value store
@@ -110,16 +110,19 @@ public final class TracksideCloudSettings: KeyValueSyncStore, @unchecked Sendabl
         guard let api = connection.withLock({ $0?.api }) else { return }
         let sending = stored.withLock { $0.pending }
         guard !sending.isEmpty else { return }
-        let current = try await api.patch(sending)
+        let results = try await api.patch(sending)
         let changed = stored.withLock { stored -> [String] in
-            for (key, sent) in sending where stored.pending[key] == sent {
+            // Out of space: kept to send again once there's room.
+            let waiting = Set(results.filter { $0.status == .rejected && $0.reason == "quota_exceeded" }.map(\.key))
+            for (key, sent) in sending where stored.pending[key] == sent && !waiting.contains(key) {
                 stored.pending[key] = nil
             }
             var changed: [String] = []
-            for (key, setting) in current {
+            for result in results {
+                guard let setting = result.current else { continue }
                 // The server kept a newer value than the one sent: it comes back down.
-                if let sent = sending[key], sent.value != setting.value { changed.append(key) }
-                stored.settings[key] = setting
+                if let sent = sending[result.key], sent.value != setting.value { changed.append(result.key) }
+                stored.settings[result.key] = setting
             }
             return changed
         }
