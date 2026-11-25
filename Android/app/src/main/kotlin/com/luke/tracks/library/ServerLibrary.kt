@@ -23,6 +23,7 @@ import com.luke.tracks.net.Http
 import com.luke.tracks.net.Logs
 import com.luke.tracks.net.MediaResolver
 import com.luke.tracks.net.Nearby
+import com.luke.tracks.net.PinnedHttp
 import com.luke.tracks.net.NetworkKind
 import com.luke.tracks.net.NetworkWatcher
 import com.luke.tracks.net.PinKey
@@ -52,6 +53,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import uniffi.tracks_engine.songIdentity
 import java.io.File
@@ -70,6 +72,10 @@ sealed interface ServerStatus {
 }
 
 data class ServerEntry(val server: SubsonicServer, val status: ServerStatus)
+
+/** A pairing that would take over a server already here: only its own page may pair it again. */
+class AlreadyPaired(name: String, at: String, offered: String) :
+    Exception("$name is already paired at $at, not $offered. To pair it again, sign in from its page.")
 
 /** What's at an address, asked before signing in, so the form can offer the right way in. */
 sealed interface Inspection {
@@ -94,11 +100,14 @@ class ServerLibrary(
     private val settings: SettingsRepository,
     private val secrets: SecretBox,
     private val scope: CoroutineScope,
-    private val transport: SubsonicTransport = OkHttpTransport(),
-    private val tracksideTransport: TracksideTransport = OkHttpTracksideTransport(),
     private val network: NetworkWatcher? = NetworkWatcher(context),
     /** This install's device id, the one Trackside Cloud knows it by too. */
     private val deviceId: suspend () -> String = { legacyDeviceId(context) },
+    /** How a request reaches a server through the client given; stand-ins in tests. */
+    private val tracksideTransport: (OkHttpClient) -> TracksideTransport = { OkHttpTracksideTransport(it) },
+    private val subsonicTransport: (OkHttpClient, Long?) -> SubsonicTransport = { http, timeout -> OkHttpTransport(http, timeout) },
+    /** Which home network the phone is on ([NetworkWatcher.identity]). */
+    private val networkIdentity: () -> String? = { network?.identity() },
 ) {
     private val cacheDir = File(context.filesDir, "servers")
     private val songs = MutableStateFlow<Map<String, List<SubsonicSong>>>(emptyMap())
@@ -127,6 +136,8 @@ class ServerLibrary(
         val client: MusicServerClient,
         val subsonic: SubsonicClient?,
         val trackside: TracksideClient?,
+        /** Its own clients, the only ones that hold its pinned certificates. */
+        val http: PinnedHttp,
     ) {
         /** Playback decisions by song, briefly, so seeking doesn't ask the server again. */
         val decisions = ConcurrentHashMap<String, Pair<String, Long>>()
@@ -135,15 +146,15 @@ class ServerLibrary(
     private val connections = ConcurrentHashMap<String, Connection>()
     /** Media tokens from signing in, until the server's connection is made. */
     private val mediaTokens = ConcurrentHashMap<String, TracksideMediaToken>()
-    /** Certificates trusted while adding a server, before it's saved. */
+    /** Certificates trusted while adding a server, before it's saved, and the clients that use them. */
     private val provisionalPins = ConcurrentHashMap<PinKey, String>()
+    private val adding = Http.pinned()
 
     fun start() {
         scope.launch {
             settings.settings.map { it.subsonicServers }.distinctUntilChanged().collect { raw ->
                 val servers = parse(raw)
                 mutex.withLock {
-                    publishPins(servers)
                     connect(servers)
                     val cached = withContext(Dispatchers.IO) { servers.associate { it.id to readCache(it.id) } }
                     songs.value = cached.filterValues { it != null }.mapValues { it.value!! }
@@ -159,6 +170,7 @@ class ServerLibrary(
             }
         }
         network?.let { watcher ->
+            watcher.onSwitch { connections.values.forEach { it.endpoints.invalidate() } }
             scope.launch {
                 watcher.changes.collect {
                     connections.values.forEach { it.endpoints.networkChanged() }
@@ -204,21 +216,27 @@ class ServerLibrary(
         val secret = secrets.open(server.secret) ?: return null
         val home = server.url.toHttpUrlOrNull() ?: return null
         val candidates = candidates(server)
+        val http = Http.pinned(pinsOf(server))
+        val here: () -> Any? = { network?.network() }
         if (server.isTrackside) {
             val uuid = server.serverUuid ?: return null
             val key = TracksideProof.Key.Device(server.deviceId.orEmpty(), secret)
-            val probeTransport = OkHttpTracksideTransport(Http.base)
+            val probeTransport = tracksideTransport(http.base)
             val endpoints = ServerEndpoints(candidates, home, scope, probe = { endpoint, timeout ->
                 TracksideClient.proves(endpoint, uuid, key, timeout, probeTransport)
-            })
-            val client = TracksideClient(endpoints, secret, server.deviceId, mediaTokens.remove(server.id), tracksideTransport)
-            return Connection(server, endpoints, TracksideMusicServer(client), null, client)
+            }, network = here)
+            val client = TracksideClient(endpoints, secret, server.deviceId, mediaTokens.remove(server.id), tracksideTransport(http.api), events = http.events)
+            return Connection(server, endpoints, TracksideMusicServer(client), null, client, http)
         }
-        val endpoints = ServerEndpoints(candidates, home, scope, probe = { endpoint, timeout ->
-            SubsonicClient.answers(endpoint.url, OkHttpTransport(Http.base, timeout))
-        })
-        val client = SubsonicClient(server, secret, transport, endpoints = endpoints)
-        return Connection(server, endpoints, client, client, null)
+        val hasHttps = candidates.any { it.url.isHttps }
+        val endpoints = ServerEndpoints(
+            candidates, home, scope,
+            probe = { endpoint, timeout -> SubsonicClient.answers(endpoint.url, subsonicTransport(http.base, timeout)) },
+            network = here,
+            allows = { PlainHttp.allows(it.url, server.auth, hasHttps, server.homeNetworks, networkIdentity) },
+        )
+        val client = SubsonicClient(server, secret, subsonicTransport(http.api, null), endpoints = endpoints)
+        return Connection(server, endpoints, client, client, null, http)
     }
 
     /** A link's real address: signed now, at the address that works now. */
@@ -231,6 +249,7 @@ class ServerLibrary(
                     ServerLinks.Kind.Stream -> client.streamUrl(link.id, base = base)
                     ServerLinks.Kind.Cover -> client.coverArtUrl(link.id, link.size, base)
                 },
+                client = connection.http.base,
             )
         }
         val client = connection.trackside ?: throw IOException("Not a server Tracks can play from.")
@@ -255,7 +274,7 @@ class ServerLibrary(
                 client.mediaUrl(reference) ?: throw TracksideError.NotTrackside
             }
         }
-        return ResolvedMedia(url)
+        return ResolvedMedia(url, client = connection.http.base)
     }
 
     private fun candidates(server: SubsonicServer): List<Endpoint> {
@@ -272,18 +291,24 @@ class ServerLibrary(
         return (listOfNotNull(home) + listed).distinctBy { it.url }
     }
 
-    /** Every server's trusted certificates, for the TLS layer, with any trusted while adding one. */
-    private fun publishPins(servers: List<SubsonicServer>) {
-        val all = HashMap<PinKey, MutableSet<String>>()
-        servers.forEach { server ->
-            server.pins.forEach { (key, fingerprint) -> PinKey.parse(key)?.let { all.getOrPut(it) { mutableSetOf() } += fingerprint } }
-            server.addresses.forEach { address ->
-                val url = address.url.toHttpUrlOrNull()?.takeIf { it.isHttps } ?: return@forEach
-                address.fingerprint?.let { all.getOrPut(PinKey.of(url.host, url.port)) { mutableSetOf() } += it }
-            }
+    /**
+     * One server's certificates, for its own clients alone: the ones you confirmed, and the
+     * ones it announced for its own addresses over a proven connection. An announced one only
+     * lets its client reach that address to ask for the proof, and never stands in for a
+     * certificate the system trusts.
+     */
+    private fun pinsOf(server: SubsonicServer): PinStore {
+        val confirmed = server.pins.mapNotNull { (key, fingerprint) -> PinKey.parse(key)?.let { it to setOf(fingerprint) } }.toMap()
+        val announced = HashMap<PinKey, MutableSet<String>>()
+        server.addresses.forEach { address ->
+            val url = address.url.toHttpUrlOrNull()?.takeIf { it.isHttps } ?: return@forEach
+            address.fingerprint?.let { announced.getOrPut(PinKey.of(url.host, url.port)) { mutableSetOf() } += it }
         }
-        provisionalPins.forEach { (key, fingerprint) -> all.getOrPut(key) { mutableSetOf() } += fingerprint }
-        Http.pins.replaceAll(all)
+        return PinStore().apply { replaceAll(confirmed, announced) }
+    }
+
+    private fun publishAddingPins() {
+        adding.pins.replaceAll(provisionalPins.mapValues { setOf(it.value) })
     }
 
     // MARK: Asking
@@ -311,23 +336,23 @@ class ServerLibrary(
     suspend fun inspect(url: HttpUrl): Inspection {
         if (Nearby.isExposed(url)) return Inspection.Unreachable(TracksideError.InsecureAddress.message!!)
         try {
-            TracksideClient.capabilities(url, OkHttpTracksideTransport(Http.base)).takeIf { it.isTrackside }?.let { return Inspection.Trackside(it) }
+            TracksideClient.capabilities(url, tracksideTransport(adding.base)).takeIf { it.isTrackside }?.let { return Inspection.Trackside(it) }
         } catch (error: Exception) {
-            error.certificateNeedingTrust(url, Http.pins)?.let { return Inspection.NeedsTrust(it) }
+            error.certificateNeedingTrust(url, adding.pins)?.let { return Inspection.NeedsTrust(it) }
         }
-        val probe = OkHttpTransport(Http.base, TracksideClient.PROBE_TIMEOUT_MS * 3)
+        val probe = subsonicTransport(adding.base, TracksideClient.PROBE_TIMEOUT_MS * 3)
         return try {
             if (SubsonicClient.answers(url, probe)) Inspection.Subsonic(SubsonicClient.acceptsApiKey(url, probe))
             else Inspection.Unreachable(SubsonicError.NotSubsonic.message!!)
         } catch (error: Exception) {
-            error.certificateNeedingTrust(url, Http.pins)?.let { Inspection.NeedsTrust(it) } ?: Inspection.Unreachable(SubsonicError.Unreachable(error).message!!)
+            error.certificateNeedingTrust(url, adding.pins)?.let { Inspection.NeedsTrust(it) } ?: Inspection.Unreachable(SubsonicError.Unreachable(error).message!!)
         }
     }
 
     /** Trusts a certificate while adding a server; it's kept with the server once saved. */
     fun trustWhileAdding(refusal: CertificateNeedsTrust) {
         provisionalPins[refusal.key] = refusal.fingerprint
-        publishPins(_entries.value.map { it.server })
+        publishAddingPins()
     }
 
     /** Trusts the certificate a saved server now presents, as you confirmed. */
@@ -342,7 +367,7 @@ class ServerLibrary(
     suspend fun test(url: HttpUrl, username: String, password: String, auth: SubsonicAuth = SubsonicAuth.Password): Result<Unit> = runCatching {
         if (Nearby.isExposed(url)) throw TracksideError.InsecureAddress
         val probe = SubsonicServer("probe", "", ServerAddress.stored(url), username.trim(), auth = auth)
-        SubsonicClient(probe, password, transport).ping()
+        SubsonicClient(probe, password, subsonicTransport(adding.api, null)).ping()
     }.recoverCatching { error -> throw error.certificateNeedingTrust() ?: error }
 
     /**
@@ -358,11 +383,16 @@ class ServerLibrary(
         auth: SubsonicAuth = SubsonicAuth.Password,
         others: List<HttpUrl> = emptyList(),
     ): SubsonicServer {
+        if (auth == SubsonicAuth.ApiKey && !PlainHttp.mayCarryKey(url)) throw SubsonicError.KeyNeedsHttps
         val all = parse(settings.settings.first().subsonicServers)
         val previous = all.firstOrNull { it.id == existingId }
         val addresses = others.filter { it != url && !Nearby.isExposed(it) }.distinct().map { other ->
             StoredAddress(ServerAddress.stored(other), Endpoint.guess(other).kind.name.lowercase())
         }
+        // Added here, so plain http may carry the password's token on this network. Only when it's
+        // added: an edit, or a server added before this, never learns a network on its own.
+        val plain = (listOf(url) + others).any { !it.isHttps && !Nearby.isLoopback(it.host) }
+        val homes = previous?.homeNetworks ?: listOfNotNull(if (plain) networkIdentity() else null)
         val server = SubsonicServer(
             id = previous?.id ?: UUID.randomUUID().toString(),
             name = name.trim().ifEmpty { url.host },
@@ -372,6 +402,7 @@ class ServerLibrary(
             auth = auth,
             addresses = addresses,
             pins = previous?.pins.orEmpty() + pinsFor(listOf(url) + others),
+            homeNetworks = homes,
         )
         return store(server, previous)
     }
@@ -383,41 +414,80 @@ class ServerLibrary(
         data class Approved(val result: TracksidePairResult) : Pairing
     }
 
-    /** Signs in to the Trackside server at [url] and saves it (or replaces [existingId]). */
+    /**
+     * Signs in to the Trackside server at [url] and saves it as a new server, or as
+     * [existingId] when you chose to pair that one again. Never takes over another server
+     * that's already here.
+     */
     suspend fun pair(existingId: String?, name: String, url: HttpUrl, pairing: Pairing): SubsonicServer {
+        val all = parse(settings.settings.first().subsonicServers)
+        val offered = ServerAddress.hostPort(url)
+        if (pairing !is Pairing.Approved) {
+            // Asked first, so a password or code never goes to a server that would take another's place.
+            val id = runCatching { TracksideClient.capabilities(url, tracksideTransport(adding.base)).serverId }.getOrNull()
+            refuseTakeover(all, id, existingId, offered)
+        }
         val device = deviceInfo()
-        val tracksideBase = OkHttpTracksideTransport(Http.api)
+        val transport = tracksideTransport(adding.api)
         val result = when (pairing) {
-            is Pairing.Password -> TracksideClient.login(url, pairing.username.trim(), pairing.password, device, tracksideBase)
-            is Pairing.Code -> TracksideClient.claim(url, pairing.code, device, tracksideBase)
+            is Pairing.Password -> TracksideClient.login(url, pairing.username.trim(), pairing.password, device, transport)
+            is Pairing.Code -> TracksideClient.claim(url, pairing.code, device, transport)
             is Pairing.Approved -> pairing.result
         }
         return saveTrackside(existingId, name, url, result)
     }
 
-    /** Pairs with a scanned or pasted `trackside://pair` link, once one of its addresses proves it made the offer. */
-    suspend fun pair(payload: PairingPayload): SubsonicServer {
+    /**
+     * Pairs with a scanned or pasted `trackside://pair` link, once one of its addresses proves
+     * it made the offer: a new server, or [existingId] when you're pairing that one again from
+     * its page. The link's certificates are trusted only by a client made for this pairing,
+     * and forgotten when it ends; the one at the address that proved itself is kept with the
+     * server.
+     */
+    suspend fun pair(payload: PairingPayload, existingId: String? = null): SubsonicServer {
+        val all = parse(settings.settings.first().subsonicServers)
+        val existing = existingId?.let { id -> all.firstOrNull { it.id == id } }
+        if (existing != null && !existing.serverUuid.equals(payload.serverId, ignoreCase = true)) {
+            throw AlreadyPaired(existing.name, ServerAddress.hostPort(existing.url), payload.urls.firstOrNull()?.url?.let(ServerAddress::hostPort) ?: "this server")
+        }
         val candidates = payload.urls.mapNotNull { stored -> stored.url.toHttpUrlOrNull()?.let { Endpoint(it, kindOf(stored.kind, it)) } }
+        refuseTakeover(all, payload.serverId, existing?.id, candidates.firstOrNull()?.url?.let(ServerAddress::hostPort) ?: "this server")
+        val linkPins = HashMap<PinKey, String>()
         payload.urls.forEach { stored ->
             val url = stored.url.toHttpUrlOrNull()?.takeIf { it.isHttps } ?: return@forEach
-            stored.fingerprint?.let { provisionalPins[PinKey.of(url.host, url.port)] = PinStore.normalize(it) }
+            stored.fingerprint?.let { linkPins[PinKey.of(url.host, url.port)] = PinStore.normalize(it) }
         }
-        publishPins(_entries.value.map { it.server })
-        val probe = OkHttpTracksideTransport(Http.base)
-        val chosen = ServerEndpoints.pick(candidates, 300, TracksideClient.PROBE_TIMEOUT_MS) { endpoint, timeout ->
-            TracksideClient.proves(endpoint, payload.serverId, payload.proofKey, timeout, probe)
-        } ?: throw TracksideError.Unproven
-        val result = TracksideClient.claim(chosen.url, payload.code, deviceInfo(), OkHttpTracksideTransport(Http.api))
-        return saveTrackside(null, payload.name.orEmpty(), chosen.url, result)
+        val pairing = Http.pinned()
+        pairing.pins.replaceAll(emptyMap(), linkPins.mapValues { setOf(it.value) })
+        try {
+            val probe = tracksideTransport(pairing.base)
+            val chosen = ServerEndpoints.pick(candidates, 300, TracksideClient.PROBE_TIMEOUT_MS) { endpoint, timeout ->
+                TracksideClient.proves(endpoint, payload.serverId, payload.proofKey, timeout, probe)
+            } ?: throw TracksideError.Unproven
+            val result = TracksideClient.claim(chosen.url, payload.code, deviceInfo(), tracksideTransport(pairing.api))
+            // The server that answered the claim has to be the one whose offer was proven.
+            if (!result.server.serverId.equals(payload.serverId, ignoreCase = true)) throw TracksideError.Unproven
+            val proven = linkPins[PinKey.of(chosen.url.host, chosen.url.port)]
+            return saveTrackside(existing?.id, payload.name.orEmpty(), chosen.url, result, proven?.let { StoredAddress(chosen.url.toString(), chosen.kind.name.lowercase(), it) })
+        } finally {
+            pairing.pins.replaceAll(emptyMap())
+        }
+    }
+
+    /** Refuses a pairing with [serverId] when another server here already is that server. */
+    private fun refuseTakeover(all: List<SubsonicServer>, serverId: String?, existingId: String?, offered: String) {
+        serverId ?: return
+        val other = all.firstOrNull { it.isTrackside && it.id != existingId && it.serverUuid.equals(serverId, ignoreCase = true) } ?: return
+        throw AlreadyPaired(other.name, ServerAddress.hostPort(other.url), offered)
     }
 
     /** Asks to be approved from the dashboard: show the code it gives, then [awaitApproval]. */
     suspend fun requestApproval(url: HttpUrl): TracksidePairRequest =
-        TracksideClient.requestPairing(url, deviceInfo(), OkHttpTracksideTransport(Http.api))
+        TracksideClient.requestPairing(url, deviceInfo(), tracksideTransport(adding.api))
 
     /** Polls until the request is approved (its result) or expires (null). */
     suspend fun awaitApproval(url: HttpUrl, request: TracksidePairRequest): TracksidePairResult? {
-        val transport = OkHttpTracksideTransport(Http.api)
+        val transport = tracksideTransport(adding.api)
         val expires = runCatching { java.time.Instant.parse(request.expiresAt) }.getOrNull()
         while (expires == null || java.time.Instant.now().isBefore(expires)) {
             delay((request.pollIntervalMs ?: 2_000L).coerceIn(1_000L, 10_000L))
@@ -430,11 +500,16 @@ class ServerLibrary(
         return null
     }
 
-    private suspend fun saveTrackside(existingId: String?, name: String, url: HttpUrl, result: TracksidePairResult): SubsonicServer {
+    private suspend fun saveTrackside(existingId: String?, name: String, url: HttpUrl, result: TracksidePairResult, proven: StoredAddress? = null): SubsonicServer {
         val all = parse(settings.settings.first().subsonicServers)
+        refuseTakeover(all, result.server.serverId, existingId, ServerAddress.hostPort(url))
         val previous = all.firstOrNull { it.id == existingId }
-            ?: all.firstOrNull { it.isTrackside && it.serverUuid.equals(result.server.serverId, ignoreCase = true) }
-        val addresses = result.server.urls.orEmpty().filter { it.url.toHttpUrlOrNull() != null }.map { StoredAddress(it.url, it.kind, it.fingerprint) }
+        val announced = result.server.urls.orEmpty().filter { it.url.toHttpUrlOrNull() != null }.map { StoredAddress(it.url, it.kind, it.fingerprint) }
+        val addresses = when {
+            proven == null -> announced
+            announced.any { it.url.toHttpUrlOrNull() == url } -> announced.map { if (it.url.toHttpUrlOrNull() == url && it.fingerprint == null) it.copy(fingerprint = proven.fingerprint) else it }
+            else -> announced + proven
+        }
         val server = SubsonicServer(
             id = previous?.id ?: UUID.randomUUID().toString(),
             name = name.trim().ifEmpty { result.server.name?.takeIf { it.isNotBlank() } ?: url.host },
@@ -451,11 +526,22 @@ class ServerLibrary(
         return store(server, previous)
     }
 
+    /**
+     * What Trackside Cloud syncs with when it uses [serverId]: its server id, address and key.
+     * Changes whenever the server is paired again, so sync can ask before sending anything.
+     */
+    suspend fun syncBinding(serverId: String): String? {
+        val server = parse(settings.settings.first().subsonicServers).firstOrNull { it.id == serverId } ?: return null
+        val text = listOf(server.serverUuid.orEmpty().lowercase(), server.url, server.secret, server.deviceId.orEmpty()).joinToString("\n")
+        return java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+
     private suspend fun store(server: SubsonicServer, previous: SubsonicServer?): SubsonicServer {
         val all = parse(settings.settings.first().subsonicServers)
         syncedThisLaunch.remove(server.id)
         val updated = if (previous == null) all + server else all.map { if (it.id == server.id) server else it }
         provisionalPins.keys.removeAll(server.pins.keys.mapNotNull(PinKey::parse).toSet())
+        publishAddingPins()
         settings.update { it.copy(subsonicServers = encode(updated)) }
         return server
     }
@@ -529,8 +615,8 @@ class ServerLibrary(
             Logs.w("Couldn't sync ${server.name}", error)
             // A race swallows each address's error, so a certificate refused during one is found by address.
             val refusal = connection.endpoints.candidates.firstNotNullOfOrNull {
-                if (error is Unproven || error is TracksideError.Unproven || error.cause is Unproven) Http.pins.refusal(PinKey.of(it.url.host, it.url.port))
-                else error.certificateNeedingTrust(it.url, Http.pins)
+                if (error is Unproven || error is TracksideError.Unproven || error.cause is Unproven) connection.http.pins.refusal(PinKey.of(it.url.host, it.url.port))
+                else error.certificateNeedingTrust(it.url, connection.http.pins)
             }
             when {
                 refusal != null -> setStatus(server.id, ServerStatus.NeedsTrust(refusal))

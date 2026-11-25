@@ -54,8 +54,8 @@ object ServerLinks {
     val resolvers = ConcurrentHashMap<String, MediaResolver>()
 }
 
-/** A link's real address now, and any headers it needs. */
-data class ResolvedMedia(val url: HttpUrl, val headers: Map<String, String> = emptyMap())
+/** A link's real address now, any headers it needs, and the server's own client to fetch it with. */
+data class ResolvedMedia(val url: HttpUrl, val headers: Map<String, String> = emptyMap(), val client: okhttp3.OkHttpClient? = null)
 
 fun interface MediaResolver {
     /**
@@ -80,7 +80,9 @@ class ServerMediaInterceptor(private val resolverFor: (String) -> MediaResolver?
             }
             val builder = request.newBuilder().url(resolved.url)
             resolved.headers.forEach { (name, value) -> builder.header(name, value) }
-            return chain.proceed(builder.build())
+            val outgoing = builder.build()
+            // The server's own client, the only one that holds its pinned certificates.
+            return resolved.client?.newCall(outgoing)?.execute() ?: chain.proceed(outgoing)
         }
         val response = send(fresh = false)
         if (response.code != 401 && response.code != 403) return response

@@ -39,7 +39,7 @@ object Startup {
         Spotify.install(app, graph.scope)
         Spotify.integration?.let { graph.sources.register(it.provider) }
         // Apple Music, when there's a developer token and the build has Apple's MusicKit SDK.
-        AppleMusic.install(app, graph.scope)
+        AppleMusic.install(app, graph.scope, servers)
         AppleMusic.provider?.let { graph.sources.register(it) }
         graph.player = MediaControllerPlayer(app).also {
             // Robolectric has no session to connect to; screenshots use the player idle.

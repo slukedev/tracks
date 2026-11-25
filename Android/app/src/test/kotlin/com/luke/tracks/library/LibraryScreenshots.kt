@@ -213,7 +213,7 @@ object FakeServerActions : ServerActions {
     override suspend fun test(url: HttpUrl, username: String, secret: String, auth: SubsonicAuth, existing: SubsonicServer?): String? = null
     override suspend fun save(existing: SubsonicServer?, name: String, url: HttpUrl, username: String, secret: String, auth: SubsonicAuth, others: List<HttpUrl>) {}
     override suspend fun pair(existing: SubsonicServer?, name: String, url: HttpUrl, pairing: ServerLibrary.Pairing) {}
-    override suspend fun pair(payload: PairingPayload) {}
+    override suspend fun pair(existing: SubsonicServer?, payload: PairingPayload) {}
     override suspend fun requestApproval(url: HttpUrl): TracksidePairRequest = TracksidePairRequest("p1", "481 207", "secret", "2026-11-24T10:00:00Z")
     override suspend fun awaitApproval(url: HttpUrl, request: TracksidePairRequest): TracksidePairResult? = null
 }

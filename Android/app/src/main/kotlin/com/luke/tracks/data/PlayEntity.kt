@@ -51,6 +51,7 @@ enum class PlayKindValue { Radio, OnDemand, Imported, LastFm }
 
 /**
  * Where a play came from: streaming (Apple Music on iPhone, Last.fm imports on Android), your
- * own music, or Spotify (sideload builds).
+ * own music, Spotify (sideload builds), or [Other]: a source a newer app stored, whose own name
+ * stays in [PlayEntity.cloudFields] so it syncs back unchanged and counts only under All.
  */
-enum class PlaySourceValue { Streaming, YourMusic, Spotify }
+enum class PlaySourceValue { Streaming, YourMusic, Spotify, Other }

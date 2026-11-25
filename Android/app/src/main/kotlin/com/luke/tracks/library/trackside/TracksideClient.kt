@@ -69,12 +69,17 @@ class TracksideClient(
     @Volatile var mediaToken: TracksideMediaToken?,
     private val transport: TracksideTransport = OkHttpTracksideTransport(),
     private val now: () -> Instant = Instant::now,
+    /** The server's own client for its event stream, which holds its pinned certificates. */
+    val events: OkHttpClient? = null,
 ) {
     private val bearer get() = "Bearer $apiKey"
 
     // MARK: The user
 
     suspend fun me(): TracksideMe = get("me", TracksideMe.serializer())
+
+    suspend fun appleMusicDeveloperToken(): TracksideAppleMusicToken =
+        get("me/apple-music/developer-token", TracksideAppleMusicToken.serializer())
 
     /**
      * The server's addresses, asked of an address that has already proven itself, or null

@@ -59,7 +59,12 @@ class FakePreferences(
     override suspend fun settings(): Map<String, JsonElement> = values.toMap()
     override suspend fun applySettings(values: Map<String, JsonElement>) { this.values.putAll(values) }
     override suspend fun likes() = liked
-    override suspend fun setLikes(likes: Set<String>) { liked = likes }
+    /** Runs before a like change is applied, as a tap during a sync would. */
+    var beforeUpdate: () -> Unit = {}
+    override suspend fun updateLikes(change: (Set<String>) -> Set<String>) {
+        beforeUpdate()
+        liked = change(liked)
+    }
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -341,6 +346,30 @@ class CloudSyncEngineTest {
         val sentLikes = CloudJson.parseToJsonElement(sent("POST", "likes:batch").single().second).jsonObject["items"]!!.jsonArray.single().jsonObject
         assertEquals("a\u001fartist", sentLikes["id"]!!.jsonPrimitive.content)
         assertEquals(JsonPrimitive(false), sentLikes["fields"]!!.jsonObject["loved"])
+    }
+
+    @Test fun aLikeMadeWhileASyncRunsIsntLost() = runBlocking {
+        val preferences = FakePreferences(liked = setOf("a\u001fartist"))
+        // Elsewhere: "b" liked, and "c" unliked long ago.
+        route(
+            "GET likes",
+            json("""{"upserts":[{"id":"b\u001fartist","version":3,"fields":{"loved":true},"device_id":"x","client_modified_at":"2026-11-14T09:25:00Z"},{"id":"c\u001fartist","version":4,"fields":{"loved":false},"device_id":"x","client_modified_at":"2026-11-14T09:26:00Z"}],"deletes":[],"cursor":"e.3","has_more":false}"""),
+        )
+        // While the sync runs, "c" is liked and "a" unliked here.
+        preferences.beforeUpdate = {
+            preferences.liked = preferences.liked + "c\u001fartist" - "a\u001fartist"
+            preferences.beforeUpdate = {}
+        }
+        engine(preferences).sync()
+        assertEquals(setOf("b\u001fartist", "c\u001fartist"), preferences.liked)
+
+        // And the like goes up next time.
+        requests.clear()
+        engine(preferences).sync()
+        val sent = CloudJson.parseToJsonElement(sent("POST", "likes:batch").single().second).jsonObject["items"]!!.jsonArray
+            .associate { it.jsonObject["id"]!!.jsonPrimitive.content to it.jsonObject["fields"]!!.jsonObject["loved"] }
+        assertEquals(JsonPrimitive(true), sent["c\u001fartist"])
+        assertEquals(JsonPrimitive(false), sent["a\u001fartist"])
     }
 
     @Test fun wireFixturesReadAndWriteAsTheServerSays() {

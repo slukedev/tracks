@@ -5,10 +5,14 @@ import android.util.Log
 /**
  * Takes credentials out of addresses before they're written anywhere: logs, error messages,
  * crash reports. A Subsonic address carries a replayable token (`t` and `s`), a password
- * (`p`) or an API key; a Trackside one a media token (`mt`).
+ * (`p`) or an API key; a Trackside one a media token (`mt`); Last.fm's a session key (`sk`)
+ * and signature (`api_sig`).
  */
 object Redact {
-    val SECRET_PARAMETERS = setOf("u", "t", "s", "p", "token", "apikey", "api_key", "mt", "password")
+    val SECRET_PARAMETERS = setOf(
+        "u", "t", "s", "p", "token", "apikey", "api_key", "key", "mt", "password",
+        "access_token", "sig", "signature", "api_sig", "sk",
+    )
 
     private val urls = Regex("""(?i)\b[a-z][a-z0-9+.-]*://[^\s"'<>]+""")
 

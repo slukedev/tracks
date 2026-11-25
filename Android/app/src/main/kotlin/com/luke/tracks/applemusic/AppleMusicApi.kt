@@ -133,7 +133,7 @@ class AppleMusicApi(
     private suspend fun <T> get(path: String, serializer: KSerializer<T>, personal: Boolean, query: Map<String, String> = emptyMap()): T =
         withContext(Dispatchers.IO) {
             val url = base.newBuilder().addPathSegments(path).apply { query.forEach { (k, v) -> addQueryParameter(k, v) } }.build()
-            val body = send(url, personal) ?: send(url, personal) ?: throw AppleMusicException(AppleMusicProblem.Expired)
+            val body = send(url, personal, first = true) ?: send(url, personal, first = false) ?: throw AppleMusicException(AppleMusicProblem.Expired)
             try {
                 WireJson.decodeFromString(serializer, body)
             } catch (error: IllegalArgumentException) {
@@ -141,30 +141,33 @@ class AppleMusicApi(
             }
         }
 
-    /** The body of a successful answer, or null when Apple refused the developer token, which is then let go. */
-    private suspend fun send(url: HttpUrl, personal: Boolean): String? {
+    /**
+     * The body of a successful answer, or null when Apple refused the developer token and it's
+     * worth asking once more: a 401 lets the token go, and a 403 does when a different one can be had.
+     */
+    private suspend fun send(url: HttpUrl, personal: Boolean, first: Boolean): String? {
         val token = tokens.token() ?: throw AppleMusicException(AppleMusicProblem.Expired)
         val request = Request.Builder().url(url).header("Authorization", "Bearer ${token.jwt}").apply {
             if (personal) header(USER_TOKEN_HEADER, userToken() ?: throw AppleMusicException(AppleMusicProblem.SignedOut))
         }.build()
-        return try {
+        val (code, body) = try {
             client.newCall(request).execute().use { response ->
-                when (response.code) {
-                    in 200..299 -> response.body.string()
-                    401 -> {
-                        tokens.rejected(token)
-                        null
-                    }
-                    403 -> throw AppleMusicException(if (personal) AppleMusicProblem.SignedOut else AppleMusicProblem.Expired)
-                    404 -> throw AppleMusicException(AppleMusicProblem.Unavailable)
-                    429 -> throw AppleMusicException(AppleMusicProblem.Busy)
-                    else -> throw AppleMusicException(if (response.code >= 500) AppleMusicProblem.Busy else AppleMusicProblem.Unavailable)
-                }
+                response.code to (if (response.isSuccessful) response.body.string() else null)
             }
-        } catch (error: AppleMusicException) {
-            throw error
         } catch (error: IOException) {
             throw AppleMusicException(AppleMusicProblem.Offline, error)
+        }
+        return when (code) {
+            in 200..299 -> body
+            401 -> {
+                tokens.rejected(token)
+                null
+            }
+            403 -> if (first && tokens.replaced(token)) null
+            else throw AppleMusicException(if (personal) AppleMusicProblem.SignedOut else AppleMusicProblem.Expired)
+            404 -> throw AppleMusicException(AppleMusicProblem.Unavailable)
+            429 -> throw AppleMusicException(AppleMusicProblem.Busy)
+            else -> throw AppleMusicException(if (code >= 500) AppleMusicProblem.Busy else AppleMusicProblem.Unavailable)
         }
     }
 

@@ -22,6 +22,13 @@ object Nearby {
 
     fun isNearby(url: HttpUrl): Boolean = isNearby(url.host)
 
+    /** This device itself: localhost, 127.0.0.0/8 or ::1. */
+    fun isLoopback(host: String): Boolean {
+        val name = host.lowercase().trim('[', ']')
+        if (name == "localhost" || name == "::1") return true
+        return ipv4(name)?.let { it[0] == 127 } == true
+    }
+
     /** Credentials go over TLS, or over plain http only to a nearby address. */
     fun allowsCredentials(url: HttpUrl): Boolean = url.isHttps || isNearby(url.host)
 

@@ -100,6 +100,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import com.luke.tracks.library.Inspection
+import com.luke.tracks.library.PlainHttp
 import com.luke.tracks.library.ServerLibrary
 import com.luke.tracks.library.SubsonicAuth
 import com.luke.tracks.library.trackside.PairingPayload
@@ -215,7 +216,8 @@ interface ServerActions {
     suspend fun test(url: HttpUrl, username: String, secret: String, auth: SubsonicAuth, existing: SubsonicServer?): String?
     suspend fun save(existing: SubsonicServer?, name: String, url: HttpUrl, username: String, secret: String, auth: SubsonicAuth, others: List<HttpUrl>)
     suspend fun pair(existing: SubsonicServer?, name: String, url: HttpUrl, pairing: ServerLibrary.Pairing)
-    suspend fun pair(payload: PairingPayload)
+    /** Pairs with a link: a new server, or [existing] again when it's that server's own link. */
+    suspend fun pair(existing: SubsonicServer?, payload: PairingPayload)
     suspend fun requestApproval(url: HttpUrl): TracksidePairRequest
     suspend fun awaitApproval(url: HttpUrl, request: TracksidePairRequest): TracksidePairResult?
 }
@@ -233,11 +235,18 @@ private class LibraryServerActions(private val servers: ServerLibrary) : ServerA
     override suspend fun pair(existing: SubsonicServer?, name: String, url: HttpUrl, pairing: ServerLibrary.Pairing) {
         servers.pair(existing?.id, name, url, pairing)
     }
-    override suspend fun pair(payload: PairingPayload) {
-        servers.pair(payload)
+    override suspend fun pair(existing: SubsonicServer?, payload: PairingPayload) {
+        servers.pair(payload, existing?.id)
     }
     override suspend fun requestApproval(url: HttpUrl) = servers.requestApproval(url)
     override suspend fun awaitApproval(url: HttpUrl, request: TracksidePairRequest) = servers.awaitApproval(url, request)
+}
+
+/** "Pairing with Home at nas.local:4747": where a link would connect, before anything is sent. */
+internal fun pairingLine(payload: PairingPayload?): String {
+    val name = payload?.name?.takeIf { it.isNotBlank() } ?: "your server"
+    val hosts = payload?.urls.orEmpty().map { ServerAddress.hostPort(it.url) }.distinct()
+    return if (hosts.isEmpty()) "Pairing with $name" else "Pairing with $name at ${hosts.joinToString(", ")}"
 }
 
 /** How you sign in to Trackside. */
@@ -318,7 +327,10 @@ fun ServerEditorForm(
             TracksideSignIn.Password.takeIf { trackside?.auth?.passwordLogin != false },
         )
     }
-    val usesKey = subsonic?.acceptsApiKey == true && auth == SubsonicAuth.ApiKey
+    // An API key never goes over plain http, so a plain http address signs in with a password.
+    val keyAllowed = url == null || PlainHttp.mayCarryKey(url)
+    val usesKey = subsonic?.acceptsApiKey == true && auth == SubsonicAuth.ApiKey && keyAllowed
+    val httpOnly = subsonic != null && url != null && !url.isHttps && otherUrls.filterNotNull().none { it.isHttps }
     val ready = when {
         payload != null -> payload.isSuccess
         url == null || exposed -> false
@@ -335,7 +347,7 @@ fun ServerEditorForm(
         check = Check.Checking
         val problem = try {
             when {
-                payload != null -> actions.pair(payload.getOrThrow()).let { null }
+                payload != null -> actions.pair(existing, payload.getOrThrow()).let { null }
                 trackside != null && url != null -> {
                     val pairing = when (signIn) {
                         TracksideSignIn.Code -> ServerLibrary.Pairing.Code(PairingPayload.typedCode(code)!!)
@@ -439,7 +451,7 @@ fun ServerEditorForm(
             isError = address.isNotBlank() && ((payload == null && url == null) || payload?.isFailure == true || exposed),
             supportingText = when {
                 payload?.isFailure == true -> ({ Text(payload.exceptionOrNull()?.message.orEmpty()) })
-                payload != null -> ({ Text("Pairing with ${payload.getOrNull()?.name ?: "your server"}") })
+                payload != null -> ({ Text(pairingLine(payload.getOrNull())) })
                 address.isNotBlank() && url == null -> ({ Text("That doesn't look like an address") })
                 exposed -> ({ Text(TracksideError.InsecureAddress.message.orEmpty()) })
                 else -> null
@@ -452,7 +464,7 @@ fun ServerEditorForm(
                 Icon(Icons.Rounded.LockOpen, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    "Not encrypted. Tracks uses it only on your home network.",
+                    if (httpOnly) "Not encrypted. Use it only at home." else "Not encrypted. Tracks uses it only on your home network.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -484,7 +496,7 @@ fun ServerEditorForm(
             }
         }
         if (payload == null && subsonic != null) {
-            if (subsonic.acceptsApiKey) {
+            if (subsonic.acceptsApiKey && keyAllowed) {
                 Choice(listOf(SubsonicAuth.ApiKey, SubsonicAuth.Password), auth, { if (it == SubsonicAuth.ApiKey) "API key" else "Password" }) { auth = it; check = Check.Idle }
             }
             if (usesKey) {

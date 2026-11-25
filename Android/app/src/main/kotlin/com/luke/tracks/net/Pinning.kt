@@ -44,14 +44,17 @@ sealed interface PinDecision {
 
     companion object {
         /**
-         * The rule. A pinned address takes only its pins, whoever signed what it presents,
-         * so a public CA can't stand in for your server; an address without pins is left to
-         * the system's checks.
+         * The rule. An address you pinned takes only its pins, whoever signed what it presents,
+         * so a public CA can't stand in for your server. A fingerprint the server announced
+         * ([offered]) only vouches for a certificate the system doesn't trust: it never
+         * overrides or narrows the system's trust. Anything else is left to the system.
          */
-        fun of(pins: Set<String>, presented: String, systemTrusts: () -> Boolean): PinDecision = when {
+        fun of(pins: Set<String>, presented: String, offered: Set<String> = emptySet(), systemTrusts: () -> Boolean): PinDecision = when {
             pins.isNotEmpty() && presented in pins -> Pinned
             pins.isNotEmpty() -> Changed(presented, pins)
             systemTrusts() -> Trusted
+            presented in offered -> Pinned
+            offered.isNotEmpty() -> Changed(presented, offered)
             else -> Unknown(presented)
         }
     }
@@ -66,19 +69,30 @@ class CertificateNeedsTrust(val key: PinKey, val fingerprint: String, val previo
     CertificateException("The certificate at $key needs your confirmation")
 
 /**
- * The fingerprints you chose to trust, by address, for every server at once. Servers' own
- * entries keep them; this holds the current set for the TLS layer, and the last refusal per
- * address so the screens can ask about it.
+ * The fingerprints trusted for one server's addresses, or for one add-a-server flow: never
+ * shared, so a server's pins can't reach Apple Music, Last.fm or another server. Holds the
+ * ones you confirmed ([pins]), the ones the server announced for its own proven addresses
+ * ([offered]), and the last refusal per address so the screens can ask about it. Hosts the
+ * app reaches by name ([NEVER_PINNED]) are never pinned.
  */
 class PinStore {
     private val pins = ConcurrentHashMap<PinKey, Set<String>>()
+    private val offered = ConcurrentHashMap<PinKey, Set<String>>()
     private val refusals = ConcurrentHashMap<PinKey, CertificateNeedsTrust>()
 
-    /** Replaces every pin with these, as the servers' entries list them. */
-    fun replaceAll(all: Map<PinKey, Set<String>>) {
-        pins.keys.retainAll(all.keys)
-        all.forEach { (key, value) -> if (value.isEmpty()) pins.remove(key) else pins[key] = value.map(::normalize).toSet() }
+    /** Replaces every pin with these. */
+    fun replaceAll(all: Map<PinKey, Set<String>>, announced: Map<PinKey, Set<String>> = emptyMap()) {
+        fill(pins, all)
+        fill(offered, announced)
     }
+
+    private fun fill(into: ConcurrentHashMap<PinKey, Set<String>>, from: Map<PinKey, Set<String>>) {
+        val kept = from.filterKeys { !neverPinned(it.host) }.mapValues { (_, value) -> value.map(::normalize).filter { it.isNotEmpty() }.toSet() }.filterValues { it.isNotEmpty() }
+        into.keys.retainAll(kept.keys)
+        into.putAll(kept)
+    }
+
+    fun offered(key: PinKey): Set<String> = offered[key].orEmpty()
 
     fun pins(key: PinKey): Set<String> = pins[key].orEmpty()
 
@@ -93,6 +107,20 @@ class PinStore {
     }
 
     companion object {
+        /**
+         * The services Tracks talks to by name, as network_security_config.xml lists them:
+         * the system's trust alone decides for these.
+         */
+        val NEVER_PINNED = listOf(
+            "last.fm", "audioscrobbler.com", "fastly.net", "apple.com", "mzstatic.com",
+            "fanart.tv", "musicbrainz.org", "coverartarchive.org", "tracks-server.invalid",
+        )
+
+        fun neverPinned(host: String): Boolean {
+            val name = host.lowercase().trimEnd('.')
+            return NEVER_PINNED.any { name == it || name.endsWith(".$it") }
+        }
+
         /** Lowercase hex without separators: "AB:CD:..." and "abcd..." are the same pin. */
         fun normalize(fingerprint: String) = fingerprint.filter { it.isLetterOrDigit() }.lowercase()
 
@@ -132,7 +160,7 @@ class PinningTrustManager(
         val presented = PinStore.fingerprint(chain[0])
         val pins = store.pins(key)
         var systemError: CertificateException? = null
-        val decision = PinDecision.of(pins, presented) {
+        val decision = PinDecision.of(pins, presented, store.offered(key)) {
             try {
                 systemCheck()
                 true
@@ -173,12 +201,14 @@ class PinningTrustManager(
  */
 class PinningHostnameVerifier(private val store: PinStore, private val fallback: HostnameVerifier = OkHttpClient().hostnameVerifier) : HostnameVerifier {
     override fun verify(hostname: String, session: SSLSession): Boolean {
-        val pins = store.pins(PinKey.of(hostname, session.peerPort))
-        if (pins.isNotEmpty()) {
-            val leaf = session.peerCertificates.firstOrNull() as? X509Certificate ?: return false
-            return PinStore.fingerprint(leaf) in pins
-        }
-        return fallback.verify(hostname, session)
+        val key = PinKey.of(hostname, session.peerPort)
+        val pins = store.pins(key)
+        val offered = store.offered(key)
+        if (pins.isEmpty() && offered.isEmpty()) return fallback.verify(hostname, session)
+        val leaf = session.peerCertificates.firstOrNull() as? X509Certificate ?: return false
+        val presented = PinStore.fingerprint(leaf)
+        if (presented in pins || (pins.isEmpty() && presented in offered)) return true
+        return pins.isEmpty() && fallback.verify(hostname, session)
     }
 }
 

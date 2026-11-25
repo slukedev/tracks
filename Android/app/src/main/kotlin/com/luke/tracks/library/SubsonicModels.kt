@@ -33,6 +33,11 @@ data class SubsonicServer(
     val addressesVersion: String? = null,
     /** Certificates you chose to trust, by "host:port": SHA-256 of each, in hex. */
     val pins: Map<String, String> = emptyMap(),
+    /**
+     * Subsonic: the network ([com.luke.tracks.net.NetworkIdentity]) it was added on, where its plain http addresses may carry the password's token when it has an https
+     * one too.
+     */
+    val homeNetworks: List<String> = emptyList(),
 ) {
     val isTrackside: Boolean get() = kind == ServerKind.Trackside
 }
@@ -184,6 +189,8 @@ sealed class SubsonicError(message: String) : Exception(message) {
     data object WrongKey : SubsonicError("The server didn't accept that API key.")
     /** The server refused credentials over plain http from outside its network (Trackside's code 50). */
     data object HttpsRequired : SubsonicError("Your server only signs in over https from outside your home network. Use its https address.")
+    /** An API key would go over plain http, which it never does beyond this device. */
+    data object KeyNeedsHttps : SubsonicError("An API key needs an https address. Use one, or sign in with a password.")
     /** The server doesn't take this way of signing in (OpenSubsonic codes 42 and 43). */
     data object AuthUnsupported : SubsonicError("This server doesn't take that way of signing in.")
     /** The server is too old for what was asked (codes 20 and 30). */

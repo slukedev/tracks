@@ -48,6 +48,8 @@ data class SyncStatus(
     /** What went wrong and what to do, in a sentence. */
     val problem: String? = null,
     val usage: CloudUsage? = null,
+    /** The server was paired again: nothing goes to it until you say so ([CloudSync.confirm]). */
+    val needsConfirmation: Boolean = false,
 )
 
 /**
@@ -99,9 +101,21 @@ class CloudSync(private val graph: AppGraph, private val servers: ServerLibrary)
             runCatching { WorkManager.getInstance(graph.context).cancelUniqueWork(PERIODIC) }
             return
         }
+        startOver(serverId)
+    }
+
+    /** Syncs with the server again after it was paired again, sending everything here as for a new one. */
+    suspend fun confirm() {
+        val serverId = dao.state(SERVER) ?: return
+        _status.update { SyncStatus(serverId = serverId) }
+        startOver(serverId)
+    }
+
+    private suspend fun startOver(serverId: String) {
         dao.clearStates(CloudSyncEngine.STATE_PREFIX)
         dao.markAllPending()
         graph.history.database.plays().markAllCloudPending()
+        servers.syncBinding(serverId)?.let { dao.setState(BOUND, it) }
         schedule(graph.context)
         enqueue(graph.context)
     }
@@ -125,6 +139,21 @@ class CloudSync(private val graph: AppGraph, private val servers: ServerLibrary)
             fail("Sign in to $name again to keep syncing.")
             return Outcome.Stopped
         }
+        // Paired again, so its address or key changed: what sync knew is forgotten, and nothing
+        // goes up until you confirm it's the server you meant.
+        val binding = servers.syncBinding(serverId)
+        when (val bound = dao.state(BOUND)) {
+            null -> binding?.let { dao.setState(BOUND, it) }
+            binding -> Unit
+            else -> {
+                if (dao.state(UNCONFIRMED) != binding) {
+                    dao.clearStates(CloudSyncEngine.STATE_PREFIX)
+                    dao.setState(UNCONFIRMED, binding)
+                }
+                _status.update { it.copy(syncing = false, needsConfirmation = true, problem = "$name was paired again. Tap to keep syncing.") }
+                return Outcome.Stopped
+            }
+        }
         _status.update { it.copy(syncing = true) }
         val identity = graph.deviceIdentity
         val engine = CloudSyncEngine(
@@ -139,7 +168,7 @@ class CloudSync(private val graph: AppGraph, private val servers: ServerLibrary)
             engine.sync(entities)
             val usage = runCatching { TracksideCloud(client).usage() }.getOrNull()
             _status.update {
-                it.copy(syncing = false, problem = null, lastSyncedAt = System.currentTimeMillis(), usage = usage ?: it.usage)
+                it.copy(syncing = false, problem = null, needsConfirmation = false, lastSyncedAt = System.currentTimeMillis(), usage = usage ?: it.usage)
             }
             Outcome.Done
         } catch (error: CloudSyncError) {
@@ -167,6 +196,9 @@ class CloudSync(private val graph: AppGraph, private val servers: ServerLibrary)
 
     companion object {
         const val SERVER = "sync.server"
+        /** [ServerLibrary.syncBinding] of the server as sync last knew it. */
+        private const val BOUND = "sync.bound"
+        private const val UNCONFIRMED = "sync.unconfirmed"
         private const val NOW = "cloud-sync"
         private const val PERIODIC = "cloud-sync-periodic"
         private val online = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()

@@ -20,6 +20,7 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.luke.tracks.graph
 import com.luke.tracks.library.CombinedLibrary
+import com.luke.tracks.library.ServerAddress
 import com.luke.tracks.library.trackside.PairingLinks
 import com.luke.tracks.library.trackside.PairingPayload
 import kotlinx.coroutines.launch
@@ -68,11 +69,13 @@ fun PairingLinkPrompt() {
     var problem by remember(link) { mutableStateOf(payload.exceptionOrNull()?.message) }
     val servers = (context.graph.library as? CombinedLibrary)?.servers
     val name = payload.getOrNull()?.name?.takeIf { it.isNotBlank() } ?: "this server"
+    // Where it would connect: the name is whatever the link says, the addresses are what count.
+    val hosts = payload.getOrNull()?.urls.orEmpty().map { ServerAddress.hostPort(it.url) }.distinct()
 
     AlertDialog(
         onDismissRequest = { if (!pairing) PairingLinks.clear() },
         title = { Text(if (problem != null) "Can't pair" else "Pair with $name?") },
-        text = problem?.let { message -> { Text(message) } },
+        text = { Text(problem ?: hosts.joinToString("\n")) },
         confirmButton = {
             if (problem == null && servers != null) {
                 TextButton(

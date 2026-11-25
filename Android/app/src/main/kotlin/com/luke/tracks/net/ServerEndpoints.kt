@@ -46,7 +46,9 @@ class Unproven : IOException("Couldn't reach the server at any of its addresses.
  *
  * An address is used only once [probe] says it's the server (for Trackside, a proof only the
  * real server can give; for Subsonic, an answer in the API's own shape, which a captive
- * portal's login page never is), and plain http only to a nearby address.
+ * portal's login page never is), plain http only to a nearby address, and only addresses
+ * [allows] lets through where you are now. A plain http proof holds only on the network it
+ * was made on ([network]): a different one is a different 192.168.1.10.
  */
 class ServerEndpoints(
     candidates: List<Endpoint>,
@@ -57,6 +59,10 @@ class ServerEndpoints(
     private val timeoutMs: Long = 2_000,
     private val plainHttpProofLifetimeMs: Long = 600_000,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
+    /** The network in use now, compared by equality; null when it can't be told. */
+    private val network: () -> Any? = { null },
+    /** Whether credentials may go to an address from here. */
+    private val allows: (Endpoint) -> Boolean = { true },
 ) {
     @Volatile var candidates: List<Endpoint> = candidates
         private set
@@ -70,16 +76,31 @@ class ServerEndpoints(
         private set
 
     private val lock = Mutex()
-    private var provenAt: Long? = null
+    @Volatile private var provenAt: Long? = null
+    @Volatile private var provenOn: Any? = null
     private var racing: Deferred<Endpoint?>? = null
     @Volatile private var failures = 0
 
+    private fun endpoint(url: HttpUrl) = candidates.firstOrNull { it.url == url } ?: Endpoint.guess(url)
+
+    /** Whether the address in use still holds, checked as each request goes out. */
+    private fun stillProven(): Boolean {
+        val proven = provenAt ?: return false
+        val at = baseUrl
+        if (!allows(endpoint(at))) return false
+        if (at.isHttps) return true
+        return now() - proven < plainHttpProofLifetimeMs && network() == provenOn
+    }
+
     /** The address in use, once it has proven itself; races when it hasn't, or its proof went stale. */
     suspend fun provenBaseUrl(): HttpUrl {
-        val proven = lock.withLock { provenAt }
-        if (proven != null && (baseUrl.isHttps || now() - proven < plainHttpProofLifetimeMs)) return baseUrl
-        race() ?: throw Unproven()
-        return baseUrl
+        // A race that began on the network just left proves nothing here: one more, then give up.
+        repeat(2) {
+            if (stillProven()) return baseUrl
+            race() ?: throw Unproven()
+        }
+        if (stillProven()) return baseUrl
+        throw Unproven()
     }
 
     fun update(candidates: List<Endpoint>) {
@@ -93,8 +114,9 @@ class ServerEndpoints(
     suspend fun race(): Endpoint? {
         val race = lock.withLock {
             racing ?: scope.async {
+                val on = network()
                 val chosen = try {
-                    pick(candidates.filter { !httpsOnly || it.url.isHttps }, localGraceMs, timeoutMs, probe)
+                    pick(candidates.filter { (!httpsOnly || it.url.isHttps) && allows(it) }, localGraceMs, timeoutMs, probe)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (_: Exception) {
@@ -105,6 +127,7 @@ class ServerEndpoints(
                     failures = 0
                     if (chosen != null) {
                         baseUrl = chosen.url
+                        provenOn = on
                         provenAt = now()
                     }
                 }
@@ -124,17 +147,23 @@ class ServerEndpoints(
      */
     suspend fun requireHttps(): HttpUrl? {
         httpsOnly = true
-        if (baseUrl.isHttps && lock.withLock { provenAt } != null) return baseUrl
+        if (baseUrl.isHttps && stillProven()) return baseUrl
         return race()?.url
+    }
+
+    /**
+     * The network under the phone changed: forgets the proof at once, on the caller's thread,
+     * so nothing goes out to a plain http address before a race on the new network proves it.
+     */
+    fun invalidate() {
+        provenAt = null
+        httpsOnly = false
     }
 
     /** Wi-Fi joined or left, a VPN came up: nothing goes out until an address proves itself again. */
     fun networkChanged() {
-        httpsOnly = false
-        scope.launch {
-            lock.withLock { provenAt = null }
-            race()
-        }
+        invalidate()
+        scope.launch { race() }
     }
 
     /** A request couldn't reach the server. Two in a row start a race in the background. */

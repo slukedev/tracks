@@ -63,7 +63,7 @@ class SseReader {
  */
 class TracksideEvents(
     private val client: TracksideClient,
-    private val http: OkHttpClient = streaming,
+    private val http: OkHttpClient = client.events ?: streaming,
     private val pause: suspend (Long) -> Unit = { delay(it) },
 ) {
     sealed interface Ending {

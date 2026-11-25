@@ -74,7 +74,7 @@ val uploadKey: UploadKey? = run {
     val path = value("upload.storeFile", "TRACKS_UPLOAD_STORE_FILE") ?: return@run null
     val store = rootProject.file(path)
     if (!store.exists()) {
-        logger.warn("Tracks: the upload keystore $path doesn't exist; release builds use the debug key.")
+        logger.warn("Tracks: the upload keystore $path doesn't exist; release builds need it, or -Ptracks.allowDebugSigning=true.")
         return@run null
     }
     UploadKey(
@@ -121,8 +121,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Without an upload key, a release build is for this computer only: signed with the
-            // debug key, which Play refuses, and said so in the build output.
+            // Without an upload key a release build fails, unless -Ptracks.allowDebugSigning=true
+            // says it's for this computer only: then it's signed with the debug key, which Play
+            // refuses and which can't be trusted to sign updates.
             signingConfig = if (uploadKey != null) signingConfigs.getByName("upload") else signingConfigs.getByName("debug")
         }
     }
@@ -267,16 +268,32 @@ tasks.named("preBuild").configure {
     }
 }
 
-// Says which key a release is signed with whenever one is built, so a debug-signed release
-// never goes out by mistake.
+// Says which key a release is signed with whenever one is built. Without the upload key it
+// stops, so a debug-signed release never goes out by mistake, unless you opt in.
+val allowDebugSigning = providers.gradleProperty("tracks.allowDebugSigning").map { it.toBoolean() }.getOrElse(false)
 val signingNote = if (uploadKey == null) {
-    "Tracks: this release is signed with the DEBUG key and can't go to Play. Add the upload key to secrets.properties (see secrets.example.properties)."
+    "Tracks: this release is signed with the DEBUG key, for this computer only. It can't go to Play or update an installed release."
 } else {
     "Tracks: signing this release with the upload key '${uploadKey?.alias}'."
 }
 val signedForPlay = uploadKey != null
-tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
+val debugSigningAllowed = allowDebugSigning
+val noUploadKey = "Tracks: no upload key, so this release would be signed with the debug key. Add the upload key to secrets.properties " +
+    "(see secrets.example.properties), or pass -Ptracks.allowDebugSigning=true for a build that stays on this computer."
+// Asked for by name: stop before anything is built.
+if (!signedForPlay && !debugSigningAllowed && gradle.startParameter.taskNames.any { Regex("""(^|:)(assemble|bundle|package|install)\w*Release$""").containsMatchIn(it) }) {
+    throw GradleException(noUploadKey)
+}
+tasks.matching { it.name.startsWith("assemble") && it.name.endsWith("Release") || it.name.startsWith("bundle") && it.name.endsWith("Release") || it.name.startsWith("package") && it.name.endsWith("Release") }.configureEach {
     val note = signingNote
     val forPlay = signedForPlay
-    doFirst { if (forPlay) logger.lifecycle(note) else logger.warn(note) }
+    val allowed = debugSigningAllowed
+    val refusal = noUploadKey
+    doFirst {
+        when {
+            forPlay -> logger.lifecycle(note)
+            allowed -> logger.warn(note)
+            else -> throw GradleException(refusal)
+        }
+    }
 }

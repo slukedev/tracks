@@ -1,6 +1,7 @@
 package com.luke.tracks.library
 
 import com.luke.tracks.net.Http
+import com.luke.tracks.net.Nearby
 import com.luke.tracks.net.ServerEndpoints
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,6 +32,25 @@ class OkHttpTransport(private val http: OkHttpClient = Http.api, private val tim
 }
 
 /**
+ * Where a Subsonic server's credentials may go over plain http. A Subsonic server can't prove
+ * who it is the way Trackside can, so on someone else's network whoever holds 192.168.1.10
+ * would get them. An API key goes over plain http only to this device. A password's token
+ * goes to a plain http address only when the server has no https one, or on a network it was
+ * added or edited on.
+ */
+object PlainHttp {
+    fun mayCarryKey(url: HttpUrl): Boolean = url.isHttps || Nearby.isLoopback(url.host)
+
+    /** [here] is asked only for a plain http address, since it's a look at the network. */
+    fun allows(url: HttpUrl, auth: SubsonicAuth, hasHttps: Boolean, homeNetworks: List<String>, here: () -> String?): Boolean = when {
+        url.isHttps || Nearby.isLoopback(url.host) -> true
+        auth == SubsonicAuth.ApiKey -> false
+        !hasHttps -> true
+        else -> here()?.let { it in homeNetworks } == true
+    }
+}
+
+/**
  * Talks to one Subsonic server, the same way the iPhone app's client does. With a password,
  * every request is signed with md5(password + salt) and a fresh random salt of its own, so the
  * password never leaves the device; with an OpenSubsonic API key, the key goes instead. Either
@@ -53,6 +73,7 @@ class SubsonicClient(
             .addPathSegment("rest")
             .addPathSegment(endpoint)
         if (server.auth == SubsonicAuth.ApiKey) {
+            if (!PlainHttp.mayCarryKey(base)) throw SubsonicError.KeyNeedsHttps
             builder.addQueryParameter("apiKey", secret)
         } else {
             val salt = newSalt()

@@ -38,7 +38,9 @@ interface SyncedPreferences {
     /** Settings that changed elsewhere; keys this app doesn't know are left alone. */
     suspend fun applySettings(values: Map<String, JsonElement>)
     suspend fun likes(): Set<String>
-    suspend fun setLikes(likes: Set<String>)
+
+    /** Changes the likes in one step, from their value at that moment, so a like made meanwhile stays. */
+    suspend fun updateLikes(change: (Set<String>) -> Set<String>)
 }
 
 /**
@@ -74,6 +76,8 @@ class CloudSyncEngine(
     private var pulled = 0
     private var removed = 0
     private var dropped = 0
+    /** The likes as this sync found them, to tell a like made while it ran from one it should change. */
+    private var capturedLikes: Set<String> = emptySet()
 
     /** Pushes and pulls everything, or pulls only [entities] (after the server's `cloud` event). */
     suspend fun sync(entities: Set<String>? = null): Report = lock.withLock {
@@ -136,6 +140,7 @@ class CloudSyncEngine(
             )
         }
         val likes = preferences.likes()
+        capturedLikes = likes
         val items = dao.items(CloudEntity.LIKES).associateBy { it.id }
         val liked = likes.filter { items[it]?.loved() != true }.map { id ->
             CloudItemEntity(CloudEntity.LIKES, id, LOVED, modifiedAt = if (items[id] == null) stamp else now(), version = items[id]?.version, pending = (items[id]?.pending ?: 0) + 1)
@@ -372,10 +377,16 @@ class CloudSyncEngine(
     private suspend fun applyItems(entity: String, upserts: List<CloudRecord>, deletes: List<CloudRecord>) {
         (upserts + deletes).forEach { takeItem(entity, it, force = false) }
         if (entity == CloudEntity.LIKES && (upserts + deletes).isNotEmpty()) {
-            val items = dao.items(CloudEntity.LIKES)
-            val likes = preferences.likes()
-            val next = (likes - items.filterNot { it.loved() }.map { it.id }.toSet()) + items.filter { it.loved() }.map { it.id }
-            if (next != likes) preferences.setLikes(next)
+            val came = (upserts + deletes).map { it.id }.toSet()
+            val items = dao.items(CloudEntity.LIKES).filter { it.id in came }
+            val loved = items.filter { it.loved() }.map { it.id }.toSet()
+            val unloved = items.filterNot { it.loved() }.map { it.id }.toSet()
+            val captured = capturedLikes
+            preferences.updateLikes { likes ->
+                // Liked or unliked here while this sync ran: that stays, and goes up next time.
+                val toggled = (likes - captured) + (captured - likes)
+                (likes - (unloved - toggled)) + (loved - toggled)
+            }
         }
     }
 

@@ -4,6 +4,10 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
+import java.security.MessageDigest
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -50,6 +54,55 @@ class NetworkWatcher(context: Context) {
         return State(network, transports, caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true)
     }
 
+    private val switches = CopyOnWriteArrayList<() -> Unit>()
+
+    /**
+     * Calls [listener] on the system's own thread the moment the default network is gained or
+     * lost, before [changes] settles, so a proof made on the old network stops counting at once.
+     */
+    fun onSwitch(listener: () -> Unit) {
+        val first = switches.isEmpty()
+        switches += listener
+        if (!first) return
+        runCatching {
+            connectivity?.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) = switches.forEach { it() }
+                override fun onLost(network: Network) = switches.forEach { it() }
+            })
+        }
+    }
+
+    /** The network in use now, compared by equality; a new one each time Wi-Fi is joined. */
+    fun network(): Any? = connectivity?.activeNetwork
+
+    /**
+     * Which home network this is, as a hash, or null when it can't be told (cellular, no
+     * router). Android shows the Wi-Fi name only to apps with location access, which Tracks
+     * doesn't ask for, so it's the router as the network describes it: gateway, DHCP and DNS
+     * servers and search domain, plus the Wi-Fi name when Android does show it. Behind a VPN,
+     * the Wi-Fi or Ethernet network under it.
+     */
+    @Suppress("DEPRECATION")
+    fun identity(): String? {
+        val manager = connectivity ?: return null
+        fun local(network: Network) = manager.getNetworkCapabilities(network)?.takeIf {
+            !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                (it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || it.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+        }
+        val active = manager.activeNetwork ?: return null
+        val network = active.takeIf { local(it) != null } ?: manager.allNetworks.firstOrNull { local(it) != null } ?: return null
+        val caps = local(network) ?: return null
+        val link = manager.getLinkProperties(network) ?: return null
+        val ssid = (caps.transportInfo as? WifiInfo)?.ssid?.takeIf { it.isNotBlank() && it != WifiManager.UNKNOWN_SSID }
+        return NetworkIdentity.of(
+            ssid = ssid,
+            gateways = link.routes.filter { it.isDefaultRoute && it.hasGateway() }.mapNotNull { it.gateway?.hostAddress },
+            dhcpServer = link.dhcpServerAddress?.hostAddress,
+            domains = link.domains,
+            dns = link.dnsServers.mapNotNull { it.hostAddress },
+        )
+    }
+
     val kind: NetworkKind
         get() {
             val caps = connectivity?.activeNetwork?.let { connectivity.getNetworkCapabilities(it) } ?: return NetworkKind.Unknown
@@ -60,4 +113,20 @@ class NetworkWatcher(context: Context) {
                 else -> NetworkKind.Unknown
             }
         }
+}
+
+/** A home network's identity, as [NetworkWatcher.identity] makes it. */
+object NetworkIdentity {
+    /** A hash of what tells the network apart, or null without a gateway to go by. */
+    fun of(ssid: String?, gateways: List<String>, dhcpServer: String?, domains: String?, dns: List<String>): String? {
+        if (gateways.isEmpty()) return null
+        val parts = listOf(
+            ssid.orEmpty(),
+            gateways.sorted().joinToString(","),
+            dhcpServer.orEmpty(),
+            domains.orEmpty().lowercase(),
+            dns.sorted().joinToString(","),
+        )
+        return MessageDigest.getInstance("SHA-256").digest(parts.joinToString("\n").toByteArray()).joinToString("") { "%02x".format(it) }
+    }
 }

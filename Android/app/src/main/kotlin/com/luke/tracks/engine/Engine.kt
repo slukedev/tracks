@@ -92,6 +92,7 @@ fun PlayEntity.toEnginePlay(): Play = Play(
         PlaySourceValue.Streaming -> PlaySource.AppleMusic
         PlaySourceValue.YourMusic -> PlaySource.YourMusic
         PlaySourceValue.Spotify -> PlaySource.Spotify
+        PlaySourceValue.Other -> PlaySource.Unknown(com.luke.tracks.sync.CloudPlays.source(this))
     },
     stationName = stationName,
 )

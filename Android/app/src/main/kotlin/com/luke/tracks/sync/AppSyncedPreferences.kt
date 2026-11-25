@@ -69,5 +69,5 @@ class AppSyncedPreferences(private val settings: SettingsRepository) : SyncedPre
 
     override suspend fun likes() = settings.settings.first().likedSongs
 
-    override suspend fun setLikes(likes: Set<String>) = settings.update { it.copy(likedSongs = likes) }
+    override suspend fun updateLikes(change: (Set<String>) -> Set<String>) = settings.update { it.copy(likedSongs = change(it.likedSongs)) }
 }

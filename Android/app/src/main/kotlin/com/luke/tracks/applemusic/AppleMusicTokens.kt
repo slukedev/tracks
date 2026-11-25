@@ -1,21 +1,27 @@
 package com.luke.tracks.applemusic
 
 import android.util.Base64
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
-import kotlinx.coroutines.Dispatchers
+import com.luke.tracks.library.trackside.TracksideAppleMusicToken
+import com.luke.tracks.library.trackside.TracksideClient
+import com.luke.tracks.library.trackside.TracksideError
+import com.luke.tracks.library.trackside.instant
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.io.IOException
-import java.time.Instant
 
 /** A signed Apple Music developer token and when Apple stops taking it. */
 data class DeveloperToken(val jwt: String, val expiresAtMs: Long) {
@@ -67,6 +73,12 @@ interface DeveloperTokenProvider {
 
     /** Apple refused [token] (401): it isn't handed out again. */
     fun rejected(token: DeveloperToken)
+
+    /** Apple answered 403 to [token]: true when a different token is now to be had. */
+    suspend fun replaced(token: DeveloperToken): Boolean = false
+
+    /** Emits when [available] may have changed. */
+    val availabilityChanges: Flow<Unit> get() = emptyFlow()
 }
 
 /** A token signed ahead of time and built into a personal build (secrets.properties). */
@@ -94,86 +106,132 @@ class FirstDeveloperToken(private val providers: List<DeveloperTokenProvider>) :
     override fun cached(): DeveloperToken? = providers.firstNotNullOfOrNull { it.cached() }
 
     override fun rejected(token: DeveloperToken) = providers.forEach { it.rejected(token) }
+
+    override suspend fun replaced(token: DeveloperToken): Boolean = providers.any { it.replaced(token) }
+
+    override val availabilityChanges: Flow<Unit> = providers.map { it.availabilityChanges }.merge()
 }
 
 /**
- * A Trackside server's developer token, signed there with the owner's MusicKit key. A proposal
- * the server doesn't offer yet; the endpoint is:
- *
- * `GET /api/v1/me/apple-music/developer-token` (scope: library), with the device key as
- * `Authorization: Bearer tsk_...`, over HTTPS or from a nearby address like every keyed route.
- * `200` with `{"token": "<jwt>", "expires_at": "<RFC 3339>", "refresh_after": "<RFC 3339>"}` and
- * `Cache-Control: no-store`; `404 not_found` when the server has no MusicKit key, which a client
- * remembers until the next start. The server signs ES256 with `kid` and `iss` from its config,
- * `exp` at most 7 days on, never an `origin` claim, and advertises the route as
- * `features.apple_music.developer_token: true` in `GET /me`. The client keeps the token in
- * memory until `refresh_after` (or 5 minutes before `exp`), and asks again after Apple
- * answers 401.
+ * Developer tokens from your paired Trackside servers that offer them
+ * (`features.apple_music.developer_token` in `GET /me`), signed there with the owner's MusicKit
+ * key. A token is kept in memory until its `refresh_after`; a server that answers 404 isn't
+ * asked again until the next start, and one that answers 429 not before its `Retry-After`.
  */
 class TracksideDeveloperTokens(
-    private val client: OkHttpClient,
-    /** The server's `/api/v1/` base on the address in use, and its device key; null while it can't be reached. */
-    private val server: suspend () -> Pair<HttpUrl, String>?,
+    private val scope: CoroutineScope,
+    /** Paired Trackside servers by id, in the order they were added. */
+    servers: Flow<List<String>>,
+    private val clientFor: suspend (serverId: String) -> TracksideClient?,
     private val now: () -> Long = System::currentTimeMillis,
 ) : DeveloperTokenProvider {
-    @Serializable
-    private data class Wire(
-        val token: String,
-        @SerialName("expires_at") val expiresAt: String? = null,
-        @SerialName("refresh_after") val refreshAfter: String? = null,
-    )
-
     private val lock = Mutex()
-    @Volatile private var current: DeveloperToken? = null
-    @Volatile private var refreshAtMs = 0L
-    @Volatile private var notOffered = false
+    private val paired = MutableStateFlow<List<String>>(emptyList())
 
-    override val available: Boolean get() = !notOffered
+    /** What each server's `/me` said; a server is missing until it has answered. */
+    private val offers = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+
+    /** Servers that answered 404 since the app started. */
+    private val gone = MutableStateFlow<Set<String>>(emptySet())
+
+    @Volatile private var current: DeveloperToken? = null
+    @Volatile private var currentFrom: String? = null
+    @Volatile private var refreshAtMs = 0L
+    @Volatile private var quietUntilMs = 0L
+
+    private val offering: List<String>
+        get() = paired.value.filter { offers.value[it] == true && it !in gone.value }
+
+    override val available: Boolean get() = offering.isNotEmpty()
+
+    override val availabilityChanges: Flow<Unit> =
+        combine(paired, offers, gone) { _, _, _ -> available }.distinctUntilChanged().map { }
+
+    init {
+        scope.launch {
+            servers.distinctUntilChanged().collect { ids ->
+                paired.value = ids
+                offers.update { known -> known.filterKeys { it in ids } }
+                ask(ids.filter { it !in offers.value })
+            }
+        }
+    }
+
+    /** Asks every server again whether it offers tokens, as when the app comes back. */
+    fun refresh() {
+        scope.launch { ask(paired.value.filter { it !in gone.value }) }
+    }
 
     override suspend fun token(): DeveloperToken? = lock.withLock {
-        val held = current
-        if (held != null && held.usable(now()) && now() < refreshAtMs) return held
-        if (notOffered) return null
-        val fetched = runCatching { fetch() }.getOrNull()
-        if (fetched == null) return held?.takeIf { it.usable(now()) }
-        current = fetched.first
-        refreshAtMs = fetched.second
-        fetched.first
+        val held = cached()
+        if (held != null && now() < refreshAtMs) return held
+        if (now() < quietUntilMs) return held
+        if (offering.isEmpty()) ask(paired.value.filter { it !in offers.value })
+        for (id in offering) {
+            val client = clientFor(id) ?: continue
+            val wire = try {
+                client.appleMusicDeveloperToken()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: TracksideError.NotFound) {
+                gone.update { it + id }
+                if (currentFrom == id) forget()
+                continue
+            } catch (error: TracksideError.RateLimited) {
+                quietUntilMs = now() + (error.retryAfterSeconds ?: DEFAULT_RETRY_S) * 1000
+                return cached()
+            } catch (_: Exception) {
+                continue
+            }
+            val (token, refreshAt) = read(wire) ?: continue
+            current = token
+            currentFrom = id
+            refreshAtMs = refreshAt
+            return token
+        }
+        cached()
     }
 
     override fun cached(): DeveloperToken? = current?.takeIf { it.usable(now()) }
 
     override fun rejected(token: DeveloperToken) {
-        if (current == token) {
-            current = null
-            refreshAtMs = 0
+        if (current?.jwt == token.jwt) forget()
+    }
+
+    override suspend fun replaced(token: DeveloperToken): Boolean {
+        rejected(token)
+        val next = token() ?: return false
+        return next.jwt != token.jwt
+    }
+
+    private fun forget() {
+        current = null
+        currentFrom = null
+        refreshAtMs = 0
+    }
+
+    private suspend fun ask(ids: List<String>) {
+        for (id in ids) {
+            val me = try {
+                clientFor(id)?.me()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            } ?: continue
+            offers.update { it + (id to me.offersAppleMusic) }
         }
     }
 
-    private suspend fun fetch(): Pair<DeveloperToken, Long>? = withContext(Dispatchers.IO) {
-        val (base, key) = server() ?: return@withContext null
-        val request = Request.Builder()
-            .url(base.newBuilder().addPathSegments(PATH).build())
-            .header("Authorization", "Bearer $key")
-            .header("Accept", "application/json")
-            .build()
-        client.newCall(request).execute().use { response ->
-            if (response.code == 404) {
-                notOffered = true
-                return@withContext null
-            }
-            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-            val wire = WireJson.decodeFromString(Wire.serializer(), response.body.string())
-            val token = DeveloperToken.parse(wire.token) ?: return@withContext null
-            val stated = wire.expiresAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
-            val expires = minOf(token.expiresAtMs, stated ?: token.expiresAtMs)
-            val refresh = wire.refreshAfter?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
-                ?: (expires - DeveloperToken.EXPIRY_MARGIN_MS)
-            token.copy(expiresAtMs = expires) to minOf(refresh, expires - DeveloperToken.EXPIRY_MARGIN_MS)
-        }
+    private fun read(wire: TracksideAppleMusicToken): Pair<DeveloperToken, Long>? {
+        val token = DeveloperToken.parse(wire.token) ?: return null
+        val stated = wire.expiresAt?.let(::instant)?.toEpochMilli()
+        val expires = minOf(token.expiresAtMs, stated ?: token.expiresAtMs)
+        val refreshAt = wire.refreshAfter?.let(::instant)?.toEpochMilli() ?: (expires - 3_600_000)
+        return token.copy(expiresAtMs = expires) to minOf(refreshAt, expires - DeveloperToken.EXPIRY_MARGIN_MS)
     }
 
     companion object {
-        const val PATH = "me/apple-music/developer-token"
+        const val DEFAULT_RETRY_S = 60L
     }
 }

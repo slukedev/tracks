@@ -44,6 +44,11 @@ object ServerAddress {
     /** Whether the address travels unencrypted somewhere other than this device. */
     fun isUnencrypted(url: HttpUrl): Boolean = !url.isHttps && url.host != "localhost" && url.host != "127.0.0.1"
 
+    /** Host and port, as the pairing prompt shows where it would connect: "nas.local:4747". */
+    fun hostPort(url: HttpUrl): String = (if (url.host.contains(':')) "[${url.host}]" else url.host) + ":" + url.port
+
+    fun hostPort(url: String): String = url(url)?.let(::hostPort) ?: display(url)
+
     /** As people read it: no scheme, no trailing slash. */
     fun display(url: String): String = url.substringAfter("://").trimEnd('/')
 

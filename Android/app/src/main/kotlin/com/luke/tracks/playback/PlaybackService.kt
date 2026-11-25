@@ -2,8 +2,10 @@ package com.luke.tracks.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
+import android.os.Process
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.media3.common.AudioAttributes
@@ -23,6 +25,7 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
@@ -716,14 +719,36 @@ class PlaybackService : MediaLibraryService() {
         return future
     }
 
-    private suspend fun resolve(item: MediaItem): MediaItem? {
-        item.restored()?.let { return it }
-        item.requestMetadata.searchQuery?.let { query -> return tree.search(query).firstOrNull()?.toMediaItem() }
-        return tree.song(item.mediaId)?.toMediaItem()
-    }
+    private suspend fun resolve(item: MediaItem, controller: MediaSession.ControllerInfo): MediaItem? = ControllerAccess.resolve(
+        item,
+        own = ControllerAccess.isOwn(describe(controller), packageName, Process.myUid()),
+        restore = { it.restored() },
+        search = { query -> tree.search(query).firstOrNull()?.toMediaItem() },
+        lookup = { id -> tree.song(id)?.toMediaItem() },
+    )
+
+    private fun describe(controller: MediaSession.ControllerInfo) = ControllerAccess.Controller(
+        packageName = controller.packageName,
+        uid = controller.uid,
+        systemTrusted = controller.isTrusted,
+        systemRole = session?.isMediaNotificationController(controller) == true,
+        systemPackage = isSystemPackage(controller.packageName, controller.uid),
+    )
+
+    private fun isSystemPackage(name: String, uid: Int): Boolean = runCatching {
+        val owns = packageManager.getPackagesForUid(uid)?.contains(name) == true
+        val flags = packageManager.getApplicationInfo(name, 0).flags
+        owns && flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+    }.getOrDefault(false)
 
     private val callback = object : MediaLibrarySession.Callback {
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+            if (!ControllerAccess.trusts(describe(controller), packageName, Process.myUid())) {
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    .setAvailableSessionCommands(SessionCommands.EMPTY)
+                    .setAvailablePlayerCommands(ControllerAccess.PLAYBACK_ONLY)
+                    .build()
+            }
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
             TracksCommands.all.forEach { commands.add(it) }
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -773,7 +798,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
         override fun onAddMediaItems(mediaSession: MediaSession, controller: MediaSession.ControllerInfo, mediaItems: MutableList<MediaItem>): ListenableFuture<MutableList<MediaItem>> =
-            future { preferred(mediaItems.mapNotNull { resolve(it) }).toMutableList() }
+            future { preferred(mediaItems.mapNotNull { resolve(it, controller) }).toMutableList() }
 
         override fun onSetMediaItems(
             mediaSession: MediaSession,
@@ -799,7 +824,7 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
             }
-            val resolved = preferred(mediaItems.mapNotNull { resolve(it) })
+            val resolved = preferred(mediaItems.mapNotNull { resolve(it, controller) })
             MediaSession.MediaItemsWithStartPosition(resolved, startIndex.coerceIn(0, (resolved.size - 1).coerceAtLeast(0)), startPositionMs)
         }
 

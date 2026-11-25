@@ -32,8 +32,11 @@ See [README.md](README.md) for the legend and how to keep this current.
   MusicKit AARs. The MusicKit private key never ships: a personal build carries a token signed
   ahead of time (`appleMusic.developerToken` in `secrets.properties`, made with
   `scripts/apple-music-token.py`, 180 days at most, dropped by the build once expired), and a
-  Trackside server may hand one out (`applemusic/AppleMusicTokens.kt` has the proposed
-  endpoint; not offered by the server yet). MusicKit plays the audio, which is protected, so
+  paired Trackside server whose `/me` lists `features.apple_music.developer_token` hands one
+  out (`GET /api/v1/me/apple-music/developer-token`, signed with the owner's key). The server's
+  comes first; it's kept in memory until `refresh_after`, fetched again at once when Apple
+  answers 401 or 403, not asked for again after a 404 until the next start, nor before
+  `Retry-After` after a 429. Apple Music is offered in Sources while either has one. MusicKit plays the audio, which is protected, so
   ExoPlayer plays a silent stand-in of the song's length and MusicKit follows it (item, play,
   pause, seek), handing the audio focus to MusicKit. The queue, notification, Android Auto,
   the listen count and History stay ExoPlayer's; plays are kept as `appleMusic`.
@@ -306,12 +309,38 @@ See [README.md](README.md) for the legend and how to keep this current.
   proves it is the server (Trackside's proof; for Subsonic an unsigned ping in the API's own
   shape), so a captive portal's page is "not reachable", never a server. 10 s connect and
   30 s read timeouts; idempotent API requests retried twice with backoff; songs resume from
-  where a dropped connection broke off with range requests. *(network changes and captive
-  portals untested on a device)*
+  where a dropped connection broke off with range requests. A plain http proof holds only on
+  the network it was made on: Android's default-network callback forgets it the moment the
+  network changes, and each request compares the network with the proof's. *(network changes
+  and captive portals untested on a device)*
+- Subsonic on someone else's network: Subsonic can't prove who it is, so whoever holds
+  192.168.1.10 on a café's Wi-Fi would get what it's sent. An API key never goes over plain
+  http (except to this device), so the form offers only a password for an http address. When
+  the server also has an https address, the password's token goes to its plain http ones only
+  on the network it was added on (`homeNetworks`); elsewhere the http address isn't
+  even asked and https is used. Android shows the Wi-Fi name only to apps with location
+  access, which Tracks doesn't ask for, so a network is told by its router: gateway, DHCP and
+  DNS servers and search domain, hashed (`NetworkIdentity`). A network set up the same way can
+  pass, so an https address is the safe choice. Nothing learns a network later: a server added
+  before this uses its http addresses only if it has no https one, until it's added again. An
+  http-only server shows "Not
+  encrypted. Use it only at home." when added.
 - Certificates: a server with a self-signed certificate is trusted only once you confirm its
   fingerprint, and a pinned address that later shows a different certificate is refused until
-  you confirm again (Settings, Servers shows it). Trackside's own announced fingerprints are
-  pinned as on iPhone. Only system CAs are trusted in release builds.
+  you confirm again (Settings, Servers shows it). Each server has its own OkHttp client and
+  pin store (`Http.pinned`); Apple Music, Last.fm and the web use clients that trust the
+  system alone, and server songs and covers are fetched with their server's client. A
+  fingerprint Trackside announces for its own addresses only vouches for a certificate the
+  system doesn't trust, never for the hosts in `network_security_config.xml`. A pairing link's
+  fingerprints live in a client made for that pairing and are cleared when it ends; only the
+  one at the address that proved the offer is kept. Only system CAs are trusted in release
+  builds.
+- Pairing: the link prompt shows each address (host:port), not just the name the link gives.
+  A link or a typed address never replaces a server already here with the same server id: it's
+  refused with both addresses, and only signing in again from that server's page replaces it.
+  The claim must come from the server whose offer was proven. When the sync server is paired
+  again (its address or key changes), Trackside Cloud forgets what it knew and asks before
+  sending anything.
 - Artists, Albums and Songs, with album and artist pages.
 - Sample music in sample-data mode, so the whole app plays.
 
@@ -328,7 +357,15 @@ See [README.md](README.md) for the legend and how to keep this current.
   Android Auto, Wear and other controllers) and the image cache hold credential-free links
   (`https://media.tracks-server.invalid/<server>/stream/<song>`), signed by an OkHttp
   interceptor only as each request goes out. Older saved queues and history covers are
-  cleaned on read. Logs redact `u`, `t`, `s`, `p`, `token`, `apiKey` and `mt`.
+  cleaned on read. Logs redact `u`, `t`, `s`, `p`, `token`, `apiKey`, `api_key`, `key`, `mt`,
+  `password`, `access_token`, `sig`, `signature`, `api_sig` and `sk`.
+- The media service is exported for Android Auto, Wear and the Assistant, so any app can bind
+  it. Only Tracks, controllers Media3 calls trusted (the system, apps with media control or
+  notification access) and Android Auto, Automotive, Wear, the Assistant, System UI and
+  Bluetooth when installed as part of the system get browsing, queueing and Tracks' own
+  commands (`ControllerAccess`). Any other app gets play, pause, skip and seek. Items a
+  controller sends play only as the library's own songs by id, never from its address or
+  details, so nothing made up reaches History or Last.fm.
 - Quick Settings tile for Tracks Radio, showing the song; press and hold opens Tracks.
 - Dynamic shortcuts for your top two mixes, plus static ones for Radio, Search and Summary.
 - Listening and Last Played Glance widgets with dynamic colors. *(untested on a device)*
@@ -603,7 +640,8 @@ synced or what went wrong, and what the server holds for you (`GET /cloud/usage`
   only after its page is in Room and the engine. `410 sync_reset` (the server restored a
   backup) pulls a full snapshot keeping everything here, then pushes all of it again.
 - **What syncs**: plays (Room's id is the cloud's playID; another device's plays are never
-  scrobbled here: `recordedBy` is set and the scrobble queue skips them), play deletions as
+  scrobbled here: `recordedBy` is set and the scrobble queue skips them; a source this app
+  doesn't know is kept by name, goes back unchanged and counts only under All), play deletions as
   tombstones, likes (by song identity, `{"loved"}`, an unlike as `false`), forgotten songs,
   blocked artists and excluded stations (kept and round-tripped; forgotten songs keep Last.fm
   imports out), and settings: `scrobblesToLastFM` plus Android's own `android*` keys for

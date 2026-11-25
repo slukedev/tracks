@@ -3,7 +3,11 @@ package com.luke.tracks.applemusic
 import android.content.Context
 import androidx.compose.runtime.Composable
 import com.luke.tracks.BuildConfig
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.luke.tracks.library.KeystoreSecretBox
+import com.luke.tracks.library.ServerLibrary
 import com.luke.tracks.net.Http
 import com.luke.tracks.sources.Removal
 import com.luke.tracks.sources.Source
@@ -17,12 +21,13 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import uniffi.tracks_engine.songIdentity
 
 /**
- * Apple Music, present when there's a developer token to be had and the build has Apple's
- * MusicKit SDK. Without either it stays out of Sources altogether.
+ * Apple Music, present when the build has Apple's MusicKit SDK and offered in Sources while
+ * there's a developer token to be had.
  */
 object AppleMusic {
     @Volatile
@@ -34,15 +39,25 @@ object AppleMusic {
         private set
 
     /**
-     * Sets Apple Music up when it can be. [servers] are developer tokens from Trackside servers
-     * that hand them out, asked before the one built in.
+     * Sets Apple Music up when the build has the SDK. Developer tokens come from a paired
+     * Trackside server that offers them, then the one built in; Apple Music is offered in
+     * Sources while either has one.
      */
-    fun install(context: Context, scope: CoroutineScope, servers: List<DeveloperTokenProvider> = emptyList()) {
+    fun install(context: Context, scope: CoroutineScope, servers: ServerLibrary) {
         if (service != null) return
-        val app = context.applicationContext
-        val tokens = FirstDeveloperToken(servers + BuildTimeDeveloperToken(BuildConfig.APPLE_MUSIC_DEVELOPER_TOKEN))
-        val sdk = AppleMusicSdkFlavor.create(app)
-        if (!tokens.available || sdk == null) return
+        val sdk = AppleMusicSdkFlavor.create(context.applicationContext) ?: return
+        val trackside = TracksideDeveloperTokens(
+            scope = scope,
+            servers = servers.entries.map { entries -> entries.filter { it.server.isTrackside }.map { it.server.id } },
+            clientFor = servers::tracksideClient,
+        )
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) = trackside.refresh()
+        })
+        install(context.applicationContext, scope, sdk, FirstDeveloperToken(listOf(trackside, BuildTimeDeveloperToken(BuildConfig.APPLE_MUSIC_DEVELOPER_TOKEN))))
+    }
+
+    private fun install(app: Context, scope: CoroutineScope, sdk: AppleMusicSdk, tokens: DeveloperTokenProvider) {
         val created = AppleMusicService(
             tokens = tokens,
             vault = SealedAppleMusicVault(app.getSharedPreferences(SealedAppleMusicVault.PREFS, Context.MODE_PRIVATE), KeystoreSecretBox("tracks.appleMusic")),
@@ -73,9 +88,9 @@ class AppleMusicSourceProvider(private val service: AppleMusicService, scope: Co
     override val sources: StateFlow<List<Source>> = combine(service.state, service.library) { state, library -> sources(state, library.size) }
         .stateIn(scope, SharingStarted.Eagerly, sources(service.state.value, service.library.value.size))
 
-    override val offersAdd: StateFlow<Boolean> = sources
-        .map { it.isEmpty() }
-        .stateIn(scope, SharingStarted.Eagerly, sources.value.isEmpty())
+    override val offersAdd: StateFlow<Boolean> = combine(sources, service.tokens.availabilityChanges.onStart { emit(Unit) }) { listed, _ ->
+        listed.isEmpty() && service.tokens.available
+    }.stateIn(scope, SharingStarted.Eagerly, sources.value.isEmpty() && service.tokens.available)
 
     override fun sourceOf(mediaId: String): SourceId? = if (AppleMusicUris.isAppleMusic(mediaId)) SourceId.AppleMusic else null
 

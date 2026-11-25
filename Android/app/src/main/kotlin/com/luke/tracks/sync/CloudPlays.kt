@@ -32,17 +32,28 @@ object CloudPlays {
     }
 
     /** As the engine names sources: Android's streaming plays are Apple Music's in the engine. */
-    fun source(value: PlaySourceValue): String = when (value.name) {
-        "Streaming" -> "appleMusic"
-        "YourMusic" -> "yourMusic"
-        else -> value.name.replaceFirstChar { it.lowercase() }
+    fun source(value: PlaySourceValue): String = when (value) {
+        PlaySourceValue.Streaming -> "appleMusic"
+        PlaySourceValue.YourMusic -> "yourMusic"
+        PlaySourceValue.Spotify -> "spotify"
+        PlaySourceValue.Other -> "unknown"
     }
+
+    /** The play's source as stored: an [PlaySourceValue.Other] one by the name it came with. */
+    fun source(play: PlayEntity): String =
+        if (play.source == PlaySourceValue.Other) storedSource(play.cloudFields) ?: source(play.source) else source(play.source)
 
     fun source(value: String?): PlaySourceValue = when (value) {
         "yourMusic" -> PlaySourceValue.YourMusic
         null, "", "appleMusic" -> PlaySourceValue.Streaming
-        else -> PlaySourceValue.entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: PlaySourceValue.Streaming
+        "spotify" -> PlaySourceValue.Spotify
+        else -> PlaySourceValue.Other
     }
+
+    /** The `source` field of a play's cloud fields, as another app wrote it. */
+    fun storedSource(cloudFields: String?): String? = cloudFields?.let {
+        runCatching { (CloudJson.parseToJsonElement(it).jsonObject["source"] as? JsonPrimitive)?.contentOrNull }.getOrNull()
+    }?.takeIf { it.isNotEmpty() }
 
     /** Only a cover anyone can load travels: files and a server's own links stay on this phone. */
     private fun sharedArtwork(uri: String?) = uri?.takeIf { it.startsWith("https://") }
@@ -67,7 +78,7 @@ object CloudPlays {
         core("albumTitle", play.albumTitle)
         core("playedAtMs", play.playedAt)
         core("kind", kind(play.kind))
-        core("source", source(play.source))
+        core("source", source(play))
         core("platform", "android")
         core("recordedByDeviceID", play.recordedBy ?: deviceId)
         sharedArtwork(play.artworkUri)?.let { if (came == null) put(out, "artworkURL", it) }

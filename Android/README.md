@@ -24,7 +24,7 @@ What it does, and what it still lacks against the other platforms, is listed in
 ```sh
 Engine/build-android.sh          # the engine for Android and for this computer, plus Kotlin bindings
 cd Android
-./gradlew :app:assembleDebug     # or :app:assembleRelease
+./gradlew :app:assembleDebug     # or :app:assembleRelease, which needs the upload key (below)
 ```
 
 Run `Engine/build-android.sh` once after cloning and after any change in `Engine/`. It writes
@@ -38,8 +38,10 @@ Spotify (see `docs/platforms/android.md`); build its engine with `Engine/build-a
 
 Release builds are signed with the Play upload key when `secrets.properties` (or the
 `TRACKS_UPLOAD_*` environment variables, for CI) names one; see `secrets.example.properties`.
-Without it a release build is signed with the debug key, which Play refuses, and the build
-prints a warning saying so.
+Without it a release build fails. A release that stays on your own computer can opt in to the
+debug key with `-Ptracks.allowDebugSigning=true`, for example
+`./gradlew -Ptracks.allowDebugSigning=true :app:assembleRelease`. Play refuses such a build,
+and never share it: anyone with that machine's debug keystore could sign "updates" to it.
 
 ### Last.fm
 

@@ -52,7 +52,7 @@ fun SyncPage() {
         status = status,
         servers = servers,
         onChoose = { id -> scope.launch { sync?.choose(id) } },
-        onSyncNow = { sync?.syncNow() },
+        onSyncNow = { if (status.needsConfirmation) scope.launch { sync?.confirm() } else sync?.syncNow() },
         onAddServer = { navigator.open(SettingsPageRoute("servers")) },
     )
 }

@@ -1,9 +1,27 @@
 package com.luke.tracks.applemusic
 
+import com.luke.tracks.library.trackside.TracksideClient
+import com.luke.tracks.library.trackside.TracksideJson
+import com.luke.tracks.library.trackside.TracksideMe
+import com.luke.tracks.net.Endpoint
+import com.luke.tracks.net.ServerEndpoints
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
+import okhttp3.Headers.Companion.headersOf
 import okhttp3.OkHttpClient
+import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -69,57 +87,145 @@ class AppleMusicTokensTest {
     }
 }
 
-/** The proposed Trackside endpoint, from the client's side. */
+private fun tracksideFixture(name: String): String =
+    requireNotNull(AppleMusicTokensTest::class.java.classLoader!!.getResource("trackside/$name")) { name }.readText()
+
+/** `GET /api/v1/me/apple-music/developer-token` from the client's side, against the server's fixtures. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class TracksideDeveloperTokensTest {
     private val server = MockWebServer()
-    private val now = 1_795_000_000L
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val tokenRequests = AtomicInteger()
 
-    @Before fun start() = server.start()
-    @After fun stop() = server.close()
+    /** The fixture's token was signed at 09:30 on 14 November and lasts a day. */
+    private val signedAt = Instant.parse("2026-11-14T09:30:00Z").toEpochMilli()
+    @Volatile private var clock = signedAt + 60_000
+    @Volatile private var me = tracksideFixture("me.json")
+    @Volatile private var answer: () -> MockResponse = { json(tracksideFixture("apple-music-developer-token.json")) }
 
-    private fun provider(clock: () -> Long = { now * 1000 }) =
-        TracksideDeveloperTokens(OkHttpClient(), server = { server.url("/api/v1/") to "tsk_device" }, now = clock)
+    private fun json(body: String, code: Int = 200, headers: okhttp3.Headers = headersOf()) =
+        MockResponse(code = code, headers = headers.newBuilder().add("Content-Type", "application/json").build(), body = body)
 
-    @Test fun asksWithTheDeviceKeyAndKeepsTheTokenUntilRefreshAfter() = runBlocking {
-        val token = jwt(now, now + 7 * 86_400)
-        server.enqueue(MockResponse(body = """{"token":"$token","expires_at":"2026-12-02T00:00:00.000Z","refresh_after":"2026-11-30T00:00:00.000Z"}"""))
-        var clock = now * 1000
-        val tokens = provider { clock }
+    @Before fun start() {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.url.encodedPath) {
+                "/api/v1/me" -> json(me)
+                "/api/v1/me/apple-music/developer-token" -> {
+                    tokenRequests.incrementAndGet()
+                    answer()
+                }
+                else -> MockResponse(code = 404)
+            }
+        }
+        server.start()
+    }
 
+    @After fun stop() {
+        scope.cancel()
+        server.close()
+    }
+
+    private fun tokens(): TracksideDeveloperTokens {
+        val base = server.url("/")
+        val client = TracksideClient(ServerEndpoints(listOf(Endpoint(base, Endpoint.Kind.Lan)), base, scope, { _, _ -> true }), "tsk_device", "d1", null)
+        return TracksideDeveloperTokens(scope, MutableStateFlow(listOf("home")), { id -> client.takeIf { id == "home" } }, now = { clock })
+    }
+
+    private suspend fun TracksideDeveloperTokens.offered() = withTimeout(5_000) { availabilityChanges.first { available } }
+
+    @Test fun meSaysWhetherTheServerHandsOutTokens() {
+        assertTrue(TracksideJson.decodeFromString(TracksideMe.serializer(), tracksideFixture("me.json")).offersAppleMusic)
+        val without = tracksideFixture("me.json").replace("\"apple_music\"", "\"later\"")
+        assertFalse(TracksideJson.decodeFromString(TracksideMe.serializer(), without).offersAppleMusic)
+    }
+
+    @Test fun aServerWithoutTheFeatureIsNeverAskedForATokenAndTheBuildsOwnIsUsed() = runBlocking {
+        me = tracksideFixture("me.json").replace("\"developer_token\": true", "\"developer_token\": false")
+        val trackside = tokens()
+        val built = BuildTimeDeveloperToken(jwt(signedAt / 1000, signedAt / 1000 + 86_400), now = { clock })
+        val first = FirstDeveloperToken(listOf(trackside, built))
+        withTimeout(5_000) { while (server.requestCount == 0) delay(10) }
+        assertNull(trackside.token())
+        assertFalse(trackside.available)
+        assertEquals(built.cached(), first.token())
+        assertEquals(0, tokenRequests.get())
+    }
+
+    @Test fun keepsTheTokenUntilRefreshAfter() = runBlocking {
+        val tokens = tokens()
+        tokens.offered()
         val first = tokens.token()
-        assertEquals(token, first?.jwt)
-        val request = server.takeRequest()
-        assertEquals("/api/v1/me/apple-music/developer-token", request.url.encodedPath)
+        assertTrue(first!!.jwt.startsWith("eyJhbGciOiJFUzI1NiIs"))
+        assertEquals(Instant.parse("2026-11-15T09:30:00Z").toEpochMilli(), first.expiresAtMs)
+        val request = generateSequence { server.takeRequest() }.first { it.url.encodedPath.endsWith("developer-token") }
         assertEquals("Bearer tsk_device", request.headers["Authorization"])
 
+        clock = Instant.parse("2026-11-15T08:29:00Z").toEpochMilli()
         assertSame("kept, not asked again", first, tokens.token())
-        assertEquals(1, server.requestCount)
+        assertEquals(1, tokenRequests.get())
 
-        clock = java.time.Instant.parse("2026-11-30T00:00:01Z").toEpochMilli()
-        server.enqueue(MockResponse(body = """{"token":"$token"}"""))
+        clock = Instant.parse("2026-11-15T08:30:01Z").toEpochMilli()
         tokens.token()
-        assertEquals("asked again after refresh_after", 2, server.requestCount)
+        assertEquals("asked again after refresh_after", 2, tokenRequests.get())
     }
 
-    @Test fun aServerWithoutTheRouteIsntAskedAgain() = runBlocking {
-        server.enqueue(MockResponse(code = 404, body = """{"error":{"code":"not_found","message":"Not found.","request_id":"x"}}"""))
-        val tokens = provider()
+    @Test fun aServerThatAnswers404IsntAskedAgainUntilTheNextStart() = runBlocking {
+        answer = { json(tracksideFixture("error-not-found.json"), code = 404) }
+        val tokens = tokens()
+        tokens.offered()
         assertNull(tokens.token())
         assertFalse(tokens.available)
+        tokens.refresh()
         assertNull(tokens.token())
-        assertEquals(1, server.requestCount)
+        assertEquals(1, tokenRequests.get())
+
+        answer = { json(tracksideFixture("apple-music-developer-token.json")) }
+        val next = tokens()
+        next.offered()
+        assertNotNull("a new start asks again", next.token())
     }
 
-    @Test fun aTokenAppleRefusedIsFetchedAgain() = runBlocking {
-        val token = jwt(now, now + 86_400)
-        server.enqueue(MockResponse(body = """{"token":"$token"}"""))
-        server.enqueue(MockResponse(body = """{"token":"$token"}"""))
-        val tokens = provider()
-        tokens.rejected(tokens.token()!!)
-        assertNull(tokens.cached())
+    @Test fun waitsOutRetryAfterWhenRateLimited() = runBlocking {
+        answer = { json("""{"error":{"code":"rate_limited","message":"Slow down.","request_id":"r1"}}""", code = 429, headers = headersOf("Retry-After", "30")) }
+        val tokens = tokens()
+        tokens.offered()
+        assertNull(tokens.token())
+        clock += 20_000
+        assertNull(tokens.token())
+        assertEquals("not asked again within Retry-After", 1, tokenRequests.get())
+
+        answer = { json(tracksideFixture("apple-music-developer-token.json")) }
+        clock += 11_000
         assertNotNull(tokens.token())
-        assertEquals(2, server.requestCount)
+        assertEquals(2, tokenRequests.get())
+    }
+
+    @Test fun appleRefusingTheTokenFetchesAnotherAtOnce() = runBlocking {
+        val iat = signedAt / 1000
+        val issued = AtomicInteger()
+        answer = {
+            val n = issued.incrementAndGet()
+            json("""{"token":"${jwt(iat, iat + 86_400 - n)}","expires_at":"2026-11-15T09:00:00.000Z","refresh_after":"2026-11-15T08:00:00.000Z"}""")
+        }
+        val tokens = tokens()
+        tokens.offered()
+        val apple = MockWebServer().apply { start() }
+        try {
+            val api = AppleMusicApi(OkHttpClient(), tokens, { "user" }, apple.url("/"))
+            apple.enqueue(MockResponse(code = 401, body = fixture("error-401.json")))
+            apple.enqueue(MockResponse(body = fixture("storefront.json")))
+            assertEquals("gb", api.storefront())
+            assertEquals(2, tokenRequests.get())
+            val refused = apple.takeRequest().headers["Authorization"]
+            assertTrue(refused != apple.takeRequest().headers["Authorization"])
+
+            apple.enqueue(MockResponse(code = 403))
+            apple.enqueue(MockResponse(body = fixture("storefront.json")))
+            assertEquals("gb", api.storefront())
+            assertEquals(3, tokenRequests.get())
+        } finally {
+            apple.close()
+        }
     }
 }
