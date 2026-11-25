@@ -32,9 +32,8 @@ extension AppModel {
     func sourcedItems(for request: PlayRequest) -> (items: [MixedQueueEngine.Item], start: Int)? {
         switch request {
         case .local(let tracks, let start):
-            // Your own copy wherever it can play; another source's where it can't.
             return (tracks.map { track in
-                yourMusic.isPlayable(track) ? localItem(track) : item(for: HistorySong(track), catalog: nil) ?? localItem(track)
+                item(for: HistorySong(track), catalog: nil) ?? localItem(track)
             }, start)
         case .songs(let songs, let start):
             return aligned(songs.enumerated().map { offset, song in
@@ -86,6 +85,7 @@ extension AppModel {
     /// when none can, the first there is, which the queue then shows as unavailable.
     func item(for song: HistorySong, catalog: Song?) -> MixedQueueEngine.Item? {
         let ranked = copies(of: song, catalog: catalog)
+        // A queue left across sources comes back as it was.
         if let source = song.source, let kept = ranked.first(where: { $0.canPlay && $0.item.source == source }) {
             return kept.item
         }
@@ -111,7 +111,7 @@ extension AppModel {
             let canPlay = spotify.isConnected && yourMusic.network.isOnline
             copies.append((itemPlaying(song, from: .spotify), .source(.spotify), canPlay))
         }
-        return PlayFromOrder.current.ranked(copies, place: \.place)
+        return yourMusic.playFromOrder.ranked(copies, place: \.place)
     }
 
     /// Whether any source can play a live mix's song now, quickly enough to ask of every song

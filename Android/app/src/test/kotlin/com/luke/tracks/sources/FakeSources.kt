@@ -29,10 +29,13 @@ object FakeSources {
     val spotify = Source(SourceId.Spotify, "Spotify", SourceKind.Spotify, SourceStatus.Connected)
 
     /** A registry with these sources and nothing stored, so tests don't share a filter. */
-    fun registry(vararg sources: Source, name: String = "test-sources"): SourcesRegistry {
+    fun registry(
+        vararg sources: Source,
+        name: String = "test-sources",
+        providers: List<SourceProvider> = sources.groupBy { it.kind }.map { (kind, list) -> FakeProvider(kind, list) },
+    ): SourcesRegistry {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE).also { it.edit().clear().commit() }
-        val providers = sources.groupBy { it.kind }.map { (kind, list) -> FakeProvider(kind, list) }
         return SourcesRegistry(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), providers, spotifyAllowed = true)
     }
 }

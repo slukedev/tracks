@@ -28,9 +28,9 @@ class IconScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         Box(Modifier.size(size.dp).clip(shape)) {
             // The mask shows the middle 72 of the 108dp layers.
             val scale = 108f / 72f
-            Image(painterResource(R.drawable.ic_launcher_background), null,
+            Image(painterResource(R.drawable.ic_tracks_launcher_background), null,
                 Modifier.size(size.dp).graphicsLayer { scaleX = scale; scaleY = scale })
-            Image(painterResource(R.drawable.ic_launcher_foreground), null,
+            Image(painterResource(R.drawable.ic_tracks_launcher_foreground), null,
                 Modifier.size(size.dp).graphicsLayer { scaleX = scale; scaleY = scale })
         }
     }
@@ -40,7 +40,7 @@ class IconScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         val scheme = MaterialTheme.colorScheme
         Box(Modifier.size(size.dp).clip(CircleShape).background(scheme.primaryContainer)) {
             val scale = 108f / 72f
-            Image(painterResource(R.drawable.ic_launcher_monochrome), null,
+            Image(painterResource(R.drawable.ic_tracks_launcher_monochrome), null,
                 Modifier.size(size.dp).graphicsLayer { scaleX = scale; scaleY = scale },
                 colorFilter = ColorFilter.tint(scheme.onPrimaryContainer))
         }

@@ -97,6 +97,7 @@ final class YourMusic {
         self.isDemo = isDemo
         LibraryFolders.prepare()
         servers = MusicServers(isDemo: isDemo)
+        if !isDemo { PlayFromOrder.migrateIfNeeded(servers: servers.servers.map(\.id)) }
         downloads = Downloads(servers: servers)
         playlists = Playlists(isDemo: isDemo)
         servers.onStatusChange = { [weak self] in self?.forgetUnavailable() }
@@ -317,9 +318,12 @@ final class YourMusic {
 
     /// The song in your music a history song stands for, if it's here and can play.
     func track(for song: HistorySong) -> LocalTrack? {
-        // Played from here, by its own id: found without working out its name again, which is
-        // slow to do for every song a mix could pick.
-        if let exact = index.track(id: song.songID), isPlayable(exact) { return exact }
+        // Played from here, by its own id: its copies are found without working out its name
+        // again, which is slow to do for every song a mix could pick.
+        if let exact = index.track(id: song.songID),
+           let best = playFromOrder.choose(index.copies(of: exact), place: playFromPlace(of:), canPlay: isPlayable) {
+            return best
+        }
         let identity = SongIdentity.key(title: song.title, artistName: song.artistName)
         guard let track = index.track(forSongID: song.songID, identity: identity) else {
             // Found on a server by searching, when it was suggested.
@@ -328,7 +332,12 @@ final class YourMusic {
         // Every copy of the song, the best first in Play From order: a file before a
         // download before a server's stream, unless the person has chosen otherwise.
         let copies = [track] + index.tracks(withIdentity: identity).filter { $0.id != track.id }
-        return PlayFromOrder.current.choose(copies, place: playFromPlace(of:), canPlay: isPlayable)
+        return playFromOrder.choose(copies, place: playFromPlace(of:), canPlay: isPlayable)
+    }
+
+    /// The Play From order, with servers it doesn't name yet last, in the order they were added.
+    var playFromOrder: PlayFromOrder {
+        PlayFromOrder.current.including(servers.servers.map { .source(.server($0.id)) })
     }
 
     /// Where a copy plays from, as Play From ranks it.

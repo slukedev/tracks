@@ -4,10 +4,10 @@ import MusicKit
 import TracksCore
 
 /// Play From: which copy plays when a song is in several sources, first that can play wins.
-/// Shown once there are two sources to rank. Reordered by dragging, in Edit on iPhone.
+/// Shown once there are two sources to rank. Any place can go anywhere: drag to reorder, in
+/// Edit on iPhone.
 struct PlayFromSection: View {
     @Environment(AppModel.self) private var model
-    @Environment(YourMusic.self) private var music
     @AppStorage(PlayFromOrder.storageKey) private var stored = ""
 
     var body: some View {
@@ -34,26 +34,22 @@ struct PlayFromSection: View {
     }
 
     private var order: PlayFromOrder { PlayFromOrder(rawValue: stored) }
-    private var serverIDs: [String] { music.servers.servers.map(\.id) }
 
-    /// The places that can hold a copy on this device now.
+    /// The places that can hold a copy on this device now, servers in the order they were added.
     private var visiblePlaces: [PlayFromPlace] {
-        let added = Set(model.sourceEntries.filter(\.canPlay).map(\.id))
-        return order.arranged(servers: serverIDs).filter { place in
+        let added = model.sourceEntries.filter(\.canPlay).map(\.id)
+        let servers = added.filter(\.isServer).map(PlayFromPlace.source)
+        let others = PlayFromOrder.starting.filter { place in
             switch place {
-            case .downloads: !music.servers.servers.isEmpty
+            case .downloads: !servers.isEmpty
             case .source(let source): added.contains(source)
             }
         }
+        return order.arranged(others + servers)
     }
 
-    /// The new order of what's shown, put back among the places that aren't.
     private func save(_ moved: [PlayFromPlace]) {
-        var full = order.arranged(servers: serverIDs)
-        let shown = Set(moved)
-        let slots = full.indices.filter { shown.contains(full[$0]) }
-        for (slot, place) in zip(slots, moved) { full[slot] = place }
-        stored = order.replacing(arranged: full, servers: serverIDs).rawValue
+        stored = order.reordered(moved).rawValue
     }
 
     private func name(of place: PlayFromPlace) -> String {
