@@ -431,8 +431,10 @@ class ServerPicksService(
         val gate = Semaphore(4)
         songs.map { song ->
             async {
-                // Your own songs, from this phone or synced, always have a cover to show.
-                if (index.find(song.identity) != null && song.cover == null) return@async song
+                // Your own songs, from this phone or synced, always have a cover to show. Trackside
+                // never sends a stand-in cover, so its songs aren't checked: a song without art
+                // shows its placeholder rather than leaving the shelf empty.
+                if (server.isTrackside || index.find(song.identity) != null) return@async song
                 val cover = song.cover ?: return@async null
                 val url = ServerLinks.coverUrl(server.id, cover, 120)
                 gate.withPermit { if (hasCover(url)) song else null }

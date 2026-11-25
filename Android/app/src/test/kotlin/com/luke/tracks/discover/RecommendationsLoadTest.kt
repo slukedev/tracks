@@ -225,7 +225,7 @@ class RecommendationsLoadTest {
 
         val state = settled(picks)
         assertTrue("asked for picks, then went on from similar songs: $asked", "me/picks" in asked && asked.any { it.endsWith("/similar") })
-        assertTrue("covers checked over the pinned connection: $asked", asked.any { it.startsWith("art/") })
+        assertTrue("Trackside songs show without a cover check: $asked", asked.none { it.startsWith("art/") })
         assertTrue("Picked for you: $state", state.shelves.picks.any { it.title.startsWith("New from") })
         assertTrue("Suggested songs: $state", state.shelves.suggested.any { it.title == "Somebody New" })
     }

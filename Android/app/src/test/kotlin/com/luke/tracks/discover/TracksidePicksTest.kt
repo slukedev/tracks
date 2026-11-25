@@ -162,7 +162,7 @@ class TracksidePicksTest {
         // An artist you have but have never played is new to you: the server finds nothing else.
         assertEquals("Suggested songs: $shelves", listOf("Don't Stop Me Now"), shelves.suggested.map { it.title })
         assertTrue(titles(shelves).containsAll(listOf("Halo", "Single Ladies (Put a Ring on It)", "Don't Stop Me Now")))
-        assertTrue("covers checked through the signed link, with the media token", asked.any { it.startsWith("art/") })
+        assertTrue("Trackside never sends a stand-in cover, so its songs show without fetching one first: $asked", asked.none { it.startsWith("art/") })
         val song = ServerSong(server.id, shelves.picks.first { it.cover != null })
         assertTrue(picks.coverUrl(song)!!.startsWith("https://media.tracks-server.invalid/"))
         assertTrue(picks.playable(song) != null)
