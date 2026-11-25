@@ -68,6 +68,12 @@ interface Discovery {
     fun holding(album: CatalogAlbum): AlbumHolding
     suspend fun availability(song: CatalogSong): Availability
 
+    /**
+     * What tapping [song] plays: yours, or where a Trackside server can get it or is getting it
+     * already, a song to get as it's reached. Null when neither.
+     */
+    fun toPlay(song: CatalogSong, availability: Availability): PlayableSong? = (availability as? Availability.Owned)?.song
+
     /** Asks for a song, and returns what to tell the person. */
     suspend fun get(song: CatalogSong): String
     suspend fun getAlbum(album: CatalogAlbum): String

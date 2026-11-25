@@ -17,11 +17,16 @@ import com.luke.tracks.net.ServerLinks
 import com.luke.tracks.library.SubsonicServer
 import com.luke.tracks.library.SubsonicSong
 import com.luke.tracks.library.TracksideMusicServer
+import com.luke.tracks.library.trackside.TracksideAcquisition
 import com.luke.tracks.library.trackside.TracksideAcquisitionRequest
+import com.luke.tracks.library.trackside.TracksideCandidate
+import com.luke.tracks.library.trackside.TracksideClient
 import com.luke.tracks.library.trackside.TracksideError
 import com.luke.tracks.library.trackside.TracksideExternalPlayRequest
 import com.luke.tracks.library.trackside.TracksideSuggestion
 import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.playback.SongsToGet
+import com.luke.tracks.playback.ToPlay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -149,6 +154,16 @@ fun quotaMessage(serverName: String, resetsAt: Instant?, zone: ZoneId = ZoneId.s
  */
 enum class NewPlay { External, Instant, None }
 
+/** Both ways a Trackside server can play a song it doesn't have, from `/me`. */
+data class NewPlays(val instant: Boolean = false, val external: Boolean = false) {
+    /** Tracks Radio's way: without keeping the song where it can, as it only passes through. */
+    val forRadio: NewPlay get() = when {
+        external -> NewPlay.External
+        instant -> NewPlay.Instant
+        else -> NewPlay.None
+    }
+}
+
 /** A server's own shelf of albums, Something different, and albums it could get for you. */
 data class ServerAlbums(
     val random: List<ServerAlbum> = emptyList(),
@@ -216,6 +231,23 @@ interface ServerPicks {
      * (section 15.6), else got with instant play (section 15.5). Null when it can't be played.
      */
     suspend fun playNew(song: ServerSong): PlayableSong? = null
+
+    /**
+     * A new song queued to be got when it's reached ([com.luke.tracks.playback.GetAsReached]):
+     * where the server gets songs for you, or is getting this one already. Null otherwise.
+     */
+    fun toGet(song: ServerSong, cover: String? = null): PlayableSong? = null
+
+    /** What tapping a song on a shelf queues: the song to play, or a new one to get as it's reached. */
+    fun queueable(song: ServerSong, cover: String? = null): PlayableSong? = playable(song) ?: toGet(song, cover)
+
+    /**
+     * Gets a song queued by [toGet] so it plays: streamed as soon as the server can (instant
+     * play, or playing without keeping while it's requested to keep), else requested and waited
+     * on until it's in your library. A request already under way is waited on, not made again.
+     * [status] hears how it's going.
+     */
+    suspend fun getToPlay(song: PlayableSong, status: (String) -> Unit = {}): ToPlay = ToPlay.Failed("Couldn't get “${song.title}”.")
 }
 
 /** No servers: what screenshots and previews start from. */
@@ -257,6 +289,9 @@ class ServerPicksService(
     private val loadLimitMs: Long = 40_000,
     /** How often a song requested from Trackside is checked on, at first. */
     private val followEveryMs: Long = 5_000,
+    /** How often a song being got to play is checked on, and how long it's waited for before the next song plays. */
+    private val playCheckMs: Long = 2_000,
+    private val playWaitMs: Long = 5 * 60_000,
 ) : ServerPicks {
     private val dir = File(context.cacheDir, "for-you")
     private val serverLibrary: ServerLibrary get() = library.servers
@@ -294,9 +329,11 @@ class ServerPicksService(
     /** New songs found for each walk and not shown yet: they join Suggested songs among the server's own. */
     private val pendingNew = WeakHashMap<ServerForYou, NewFound>()
     /** How each Trackside server can play a new song without it in your library, from `/me`. */
-    private val playModes = java.util.concurrent.ConcurrentHashMap<String, NewPlay>()
+    private val playModes = java.util.concurrent.ConcurrentHashMap<String, NewPlays>()
     /** Requests being followed, by their id. */
     private val following = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+    /** Songs arriving (a sync bringing them in), by request id, so a request is synced for once. */
+    private val arriving = java.util.concurrent.ConcurrentHashMap<String, Deferred<Unit>>()
 
     fun start() {
         scope.launch {
@@ -656,11 +693,7 @@ class ServerPicksService(
         }
         offers[server.id] = now() to found
         val acquisition = me.features?.acquisition
-        playModes[server.id] = when {
-            acquisition?.externalPlay == true -> NewPlay.External
-            acquisition?.instantPlay == true -> NewPlay.Instant
-            else -> NewPlay.None
-        }
+        playModes[server.id] = NewPlays(instant = acquisition?.instantPlay == true, external = acquisition?.externalPlay == true)
         runCatching { graph.discovery.noteTracksideGets(server.id, server.name, found == NewSongs.Offered) }
         return found
     }
@@ -958,13 +991,31 @@ class ServerPicksService(
      */
     private suspend fun request(server: SubsonicServer, song: FoundSong): String = askFor(server, song).message
 
-    /** How asking for one song went: whether it was taken, whether asking for more is pointless, and what to say. */
-    private class Asked(val taken: Boolean, val message: String, val stop: Boolean = false)
+    /**
+     * How asking for one song went: whether it was taken, whether asking for more is pointless,
+     * and what to say; once taken, the request and how it stood when asked.
+     */
+    private class Asked(
+        val taken: Boolean,
+        val message: String,
+        val stop: Boolean = false,
+        val request: OctoService.Request? = null,
+        val answer: TracksideAcquisition? = null,
+    )
 
-    private suspend fun askFor(server: SubsonicServer, song: FoundSong): Asked {
+    /**
+     * Asks for one song (section 15.3), with a candidate to try first and with instant play
+     * (section 15.5) when given one, and follows the request once it's taken.
+     */
+    private suspend fun askFor(server: SubsonicServer, song: FoundSong, candidate: TracksideCandidate? = null): Asked {
         val client = serverLibrary.tracksideClient(server.id) ?: return Asked(false, "Sign in to ${server.name} again", stop = true)
         val asked = try {
-            client.requestAcquisition(TracksideAcquisitionRequest(song.title, song.artist, song.album, song.durationMs?.toLong()))
+            client.requestAcquisition(
+                TracksideAcquisitionRequest(
+                    song.title, song.artist, song.album ?: candidate?.album, song.durationMs?.toLong() ?: candidate?.durationMs,
+                    candidate = candidate?.token, instant = candidate != null,
+                ),
+            )
         } catch (error: CancellationException) {
             throw error
         } catch (error: TracksideError.QuotaExceeded) {
@@ -988,14 +1039,14 @@ class ServerPicksService(
             asked.isDone -> {
                 // 200: the server had it already; it's in your library with the next sync.
                 octo.onItsWay(request)
-                scope.launch { arrived(server, request) }
-                Asked(true, "“${song.title}” is on ${server.name} already. It'll be in your library in a moment.")
+                arrive(server, request)
+                Asked(true, "“${song.title}” is on ${server.name} already. It'll be in your library in a moment.", request = request, answer = asked)
             }
             asked.isFinished -> Asked(false, "${server.name} couldn't get “${song.title}”.")
             else -> {
                 octo.onItsWay(request)
                 follow(server, request)
-                Asked(true, "Getting “${song.title}”. It'll be in your library once ${server.name} has it.")
+                Asked(true, "Getting “${song.title}”. It'll be in your library once ${server.name} has it.", request = request, answer = asked)
             }
         }
     }
@@ -1022,7 +1073,7 @@ class ServerPicksService(
                     continue
                 }
                 if (now.isDone) {
-                    arrived(server, request)
+                    arrive(server, request).await()
                     break
                 }
                 if (now.isFinished) {
@@ -1034,6 +1085,18 @@ class ServerPicksService(
             following.remove(request.id)
         }
     }
+
+    /** The song is on the server: the library syncs to bring it in, once however many are waiting on it. */
+    private fun arrive(server: SubsonicServer, request: OctoService.Request): Deferred<Unit> =
+        arriving.computeIfAbsent(request.id) {
+            scope.async(start = CoroutineStart.LAZY) {
+                try {
+                    arrived(server, request)
+                } finally {
+                    arriving.remove(request.id)
+                }
+            }
+        }.also { it.start() }
 
     /** The song is on the server: the library syncs to bring it in, and it's no longer on its way. */
     private suspend fun arrived(server: SubsonicServer, request: OctoService.Request) {
@@ -1048,13 +1111,184 @@ class ServerPicksService(
         octo.noLongerWaiting(request.identity)
     }
 
+    // MARK: - Getting a song to play
+
+    override fun toGet(song: ServerSong, cover: String?): PlayableSong? {
+        val s = song.song
+        if (!s.isNew || server(song.serverId) == null) return null
+        if (!canKeep(song) && !octo.isWaiting(s.identity)) return null
+        return SongsToGet.song(song.serverId, s.identity, s.title, s.artist, s.album, s.durationMs?.toLong(), cover?.let(Uri::parse))
+    }
+
+    override suspend fun getToPlay(song: PlayableSong, status: (String) -> Unit): ToPlay {
+        val (serverId, _) = SongsToGet.parse(song.mediaId) ?: return ToPlay.Failed("Couldn't get “${song.title}”.")
+        val found = newSong(song.title, song.artistName, song.albumTitle, song.durationMs)
+        return try {
+            getToPlay(ServerSong(serverId, found), status)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Logs.w("Couldn't get a song to play", error)
+            ToPlay.Failed("Couldn't get “${song.title}”.")
+        }
+    }
+
+    private suspend fun getToPlay(song: ServerSong, status: (String) -> Unit): ToPlay {
+        val s = song.song
+        index.find(s.identity)?.let { return ToPlay.Ready(it) }
+        val server = server(song.serverId) ?: return ToPlay.Failed("The server for “${s.title}” isn't set up in Tracks anymore.")
+        val client = serverLibrary.tracksideClient(server.id) ?: return ToPlay.Failed("Sign in to ${server.name} again to get “${s.title}”.")
+        val offer = newSongs(server, null)
+        val plays = playModes[server.id] ?: NewPlays()
+        // Already on its way: that request is waited on rather than asking again.
+        val underWay = octo.requests().lastOrNull { it.identity == s.identity && it.serverId == server.id }?.takeIf { octo.isWaiting(s.identity) }
+        if (underWay != null) {
+            Logs.i("Getting a song to play: on its way from ${server.name} already")
+            status("On its way from ${server.name}")
+            follow(server, underWay)
+            return waitFor(server, client, underWay, s, status, streams = plays.instant)
+        }
+        when (offer) {
+            NewSongs.Offered -> Unit
+            NewSongs.NotAllowed -> return ToPlay.Failed("Your account on ${server.name} isn't allowed to request songs.")
+            else -> return ToPlay.Failed("${server.name} isn't getting songs for you right now.")
+        }
+        status("Asking ${server.name} for it")
+        // Instant play: kept as any request is, and streamed while it downloads.
+        if (plays.instant) {
+            val candidate = instantCandidate(server, client, s)
+            if (candidate != null) {
+                Logs.i("Getting a song to play from ${server.name} with instant play")
+                val asked = askFor(server, s, candidate)
+                if (!asked.taken) return ToPlay.Failed(asked.message)
+                return waitFor(server, client, asked.request!!, s, status, streams = true, first = asked.answer, candidateMs = candidate.durationMs)
+            }
+        }
+        val asked = askFor(server, s)
+        if (!asked.taken) return ToPlay.Failed(asked.message)
+        val request = asked.request!!
+        // Played without keeping while the request keeps it, where the server offers that.
+        if (plays.external && asked.answer?.isDone != true) {
+            Logs.i("Getting a song to play from ${server.name}: playing it without keeping while it's requested")
+            streamWithoutKeeping(server, client, s)?.let { return ToPlay.Ready(it) }
+        } else {
+            Logs.i("Getting a song to play from ${server.name}: requested, to play once it's in your library")
+        }
+        return waitFor(server, client, request, s, status, streams = false, first = asked.answer)
+    }
+
+    /** A candidate that can play at once, for instant play; null when there's none. */
+    private suspend fun instantCandidate(server: SubsonicServer, client: TracksideClient, song: FoundSong): TracksideCandidate? {
+        val candidates = try {
+            client.searchExternal("${song.artist} ${song.title}", 10)?.candidates.orEmpty()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Logs.w("${server.name} couldn't look for a song to play at once", error)
+            return null
+        }
+        return candidates.firstOrNull { it.instant == true && songIdentity(it.title, it.artist) == song.identity }
+            ?: candidates.firstOrNull { it.instant == true && it.match == "exact" }
+    }
+
+    /** The song played without keeping it (section 15.6), or its library copy; null when the server can't. */
+    private suspend fun streamWithoutKeeping(server: SubsonicServer, client: TracksideClient, song: FoundSong): PlayableSong? = try {
+        val answer = client.playExternal(TracksideExternalPlayRequest(song.title, song.artist, song.album, song.durationMs?.toLong()))
+        answer.songId?.let { librarySong(server, it, song) }
+            ?: answer.stream?.progressive?.let { newPlayable(server, song, it, answer.durationMs) }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Logs.w("${server.name} couldn't play a song without keeping it", error)
+        null
+    }
+
+    /**
+     * Waits on a request until the song can play: its stream once bytes flow, where [streams]
+     * (instant play), else the library's copy once it's done and synced. Gives up after
+     * [limitMs] or when the server does, saying why; the request goes on either way.
+     */
+    private suspend fun waitFor(
+        server: SubsonicServer,
+        client: TracksideClient,
+        request: OctoService.Request,
+        song: FoundSong,
+        status: (String) -> Unit,
+        streams: Boolean,
+        first: TracksideAcquisition? = null,
+        candidateMs: Long? = null,
+        limitMs: Long = playWaitMs,
+        stepMs: Long = playCheckMs,
+    ): ToPlay {
+        val started = now()
+        var answer = first
+        while (true) {
+            index.find(song.identity)?.let { return ToPlay.Ready(it) }
+            val state = answer ?: try {
+                client.acquisition(request.id)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: TracksideError.NotFound) {
+                octo.noLongerWaiting(request.identity)
+                return ToPlay.Failed("${server.name} isn't getting “${song.title}” anymore.")
+            } catch (error: Exception) {
+                Logs.w("Couldn't check on a song being got to play", error)
+                null
+            }
+            answer = null
+            val stream = state?.stream?.progressive?.takeIf { streams }
+            when {
+                state == null -> Unit
+                state.isDone -> {
+                    following.remove(request.id)?.cancel()
+                    status("Adding it to your library")
+                    arrive(server, request).await()
+                    val found = index.find(song.identity) ?: state.songId?.let { librarySong(server, it, song) }
+                    return found?.let { ToPlay.Ready(it) } ?: ToPlay.Failed("“${song.title}” is on ${server.name}, but couldn't be found to play.")
+                }
+                state.isFinished -> {
+                    Logs.i("Getting a song to play: ${server.name} couldn't get it: ${state.state} ${state.failure.orEmpty()}")
+                    octo.noLongerWaiting(request.identity)
+                    return ToPlay.Failed(failureMessage(server, song, state.failure))
+                }
+                stream != null -> return ToPlay.Ready(newPlayable(server, song, stream, candidateMs))
+                else -> status(progress(server, state))
+            }
+            if (now() - started >= limitMs) {
+                return ToPlay.Failed("“${song.title}” is taking a while. It'll be in your library once ${server.name} has it.")
+            }
+            delay(stepMs)
+        }
+    }
+
+    /** How a request is going, in a few words. */
+    private fun progress(server: SubsonicServer, request: TracksideAcquisition): String = when (request.state) {
+        "queued" -> "Waiting for ${server.name}"
+        "searching" -> "Looking for it"
+        "downloading" -> {
+            val done = request.progress?.let { p -> p.total?.takeIf { it > 0 }?.let { (p.bytes * 100 / it).coerceIn(0, 100) } }
+            if (done != null) "Downloading, $done%" else "Downloading"
+        }
+        else -> "Adding it to your library"
+    }
+
+    /** Why the server couldn't get a song (section 15.1's `failure`), in plain words. */
+    private fun failureMessage(server: SubsonicServer, song: FoundSong, failure: String?): String = when (failure) {
+        "no_match" -> "${server.name} couldn't find “${song.title}”."
+        "quota_exceeded" -> "You've reached ${server.name}'s limit on requested songs."
+        "disabled" -> "${server.name} isn't getting songs for you right now."
+        "insufficient_space" -> "${server.name} has no room for “${song.title}”."
+        "provider_unavailable" -> "${server.name} can't get songs right now. Try again later."
+        else -> "${server.name} couldn't get “${song.title}”."
+    }
+
     // MARK: - New songs on Tracks Radio
 
     override suspend fun newForRadio(): List<ServerSong> {
         val found = ArrayList<ServerSong>()
         for (server in _servers.value) {
             if (!server.isTrackside || newSongs(server, null) != NewSongs.Offered) continue
-            if ((playModes[server.id] ?: NewPlay.None) == NewPlay.None) continue
+            if ((playModes[server.id] ?: NewPlays()).forRadio == NewPlay.None) continue
             val walk = walks[server.id] ?: continue
             val shelves = walk.shelves()
             (shelves.suggested + shelves.picks + shelves.further + pending(walk))
@@ -1072,12 +1306,8 @@ class ServerPicksService(
         val client = serverLibrary.tracksideClient(server.id) ?: return null
         val s = song.song
         return try {
-            when (playModes[server.id] ?: NewPlay.None) {
-                NewPlay.External -> {
-                    val answer = client.playExternal(TracksideExternalPlayRequest(s.title, s.artist, s.album, s.durationMs?.toLong()))
-                    answer.songId?.let { id -> return librarySong(server, id, s) }
-                    answer.stream?.progressive?.let { newPlayable(server, s, it, answer.durationMs) }
-                }
+            when ((playModes[server.id] ?: NewPlays()).forRadio) {
+                NewPlay.External -> streamWithoutKeeping(server, client, s)
                 NewPlay.Instant -> playInstantly(server, client, s)
                 NewPlay.None -> null
             }
@@ -1094,33 +1324,13 @@ class ServerPicksService(
      * `instant`, then followed until the server says where it streams from. The song is kept,
      * so it joins your library once it's in, as any request does.
      */
-    private suspend fun playInstantly(server: SubsonicServer, client: com.luke.tracks.library.trackside.TracksideClient, song: FoundSong): PlayableSong? {
-        val wanted = song.identity
-        val candidates = client.searchExternal("${song.artist} ${song.title}", 10)?.candidates.orEmpty()
-        val candidate = candidates.firstOrNull { it.instant == true && songIdentity(it.title, it.artist) == wanted }
-            ?: candidates.firstOrNull { it.instant == true && it.match == "exact" }
-            ?: return null
-        var asked = client.requestAcquisition(
-            TracksideAcquisitionRequest(song.title, song.artist, song.album ?: candidate.album, song.durationMs?.toLong() ?: candidate.durationMs, candidate = candidate.token, instant = true),
-        )
-        val request = OctoService.Request(song.identity, server.id, asked.id)
-        if (asked.isDone) {
-            octo.onItsWay(request)
-            scope.launch { arrived(server, request) }
-            return asked.songId?.let { librarySong(server, it, song) }
-        }
-        if (asked.isFinished) return null
-        octo.onItsWay(request)
-        follow(server, request)
+    private suspend fun playInstantly(server: SubsonicServer, client: TracksideClient, song: FoundSong): PlayableSong? {
+        val candidate = instantCandidate(server, client, song) ?: return null
+        val asked = askFor(server, song, candidate)
+        if (!asked.taken) return null
         // Bytes usually flow within two seconds; the stream is asked after until it's there.
-        var waited = 0L
-        while (asked.stream?.progressive == null && !asked.isFinished && waited < INSTANT_WAIT_MS) {
-            delay(INSTANT_STEP_MS)
-            waited += INSTANT_STEP_MS
-            asked = client.acquisition(asked.id)
-        }
-        if (asked.isDone) asked.songId?.let { return librarySong(server, it, song) }
-        return asked.stream?.progressive?.let { newPlayable(server, song, it, candidate.durationMs) }
+        val ready = waitFor(server, client, asked.request!!, song, {}, streams = true, first = asked.answer, candidateMs = candidate.durationMs, limitMs = INSTANT_WAIT_MS, stepMs = INSTANT_STEP_MS)
+        return (ready as? ToPlay.Ready)?.song
     }
 
     /** A song the server turned out to have: its own stream, as the library plays it. */

@@ -230,8 +230,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   queue per server, so no new song shows on two shelves; when the walk has nothing more to go
   on from, a third of the waiting ones stay for Keep exploring. Before you've
   listened, every other one of the server's picks goes to Suggested songs too. A new song has
-  no cover and an id of `new:` and its identity, so a shelf's keys stay unique; it can't be
-  played until it's in your library. Its Add button sends `POST /acquisitions` with a fresh
+  no cover and an id of `new:` and its identity, so a shelf's keys stay unique. Its Add button sends `POST /acquisitions` with a fresh
   `Idempotency-Key` (sent again with the same key if the connection drops), shows a clock
   while the request goes on, checks it with `GET /acquisitions/{id}` every 5 seconds, then
   every 30, for up to 30 minutes (and again after a restart), and syncs once it's done. 200
@@ -239,6 +238,24 @@ See [README.md](README.md) for the legend and how to keep this current.
   a plain message. Without `features.acquisition`, Suggested songs says why there are no new
   songs and what the server's admin can do: turn on requests on the dashboard's Requests page
   and set a Last.fm API key under Settings, or allow the account to request songs under People.
+- Tap to get and play: tapping a new song (For You shelves, Keep exploring, and the catalog's
+  song rows in search, artist and album pages where Trackside can get it) queues the list as
+  usual, with each new song as a stand-in: media id `trackside-get:<server>:<identity>`, address
+  `tracks-get://<server>/<identity>`, the song's title, artist and catalog cover. ExoPlayer
+  plays a stand-in through `WaitingMediaSource`, a period that never prepares, so it moves onto
+  it as onto a slow stream and sits buffering: the player opens at once on the song with a
+  loading indicator in its play button, how it's going under the title ("Asking Home for it",
+  "Downloading, 40%"), and nothing is counted as a listen. `GetAsReached` in the service gets
+  the stand-in the player reaches while it's meant to be playing (not ones further on, so no
+  request is spent on songs you skip before them): with `instant_play` a candidate that can
+  play at once is requested with `instant: true` and its `stream` plays as soon as it's there;
+  else it's requested (section 15.3) and, with `external_play`, played at once without keeping
+  (section 15.6) while the request keeps it; otherwise the request is followed every 2 seconds
+  and the library's copy plays once it's done and synced. A song already on its way waits on
+  that request rather than asking again. The song then takes the stand-in's place and plays;
+  if it can't be got (quota, requests off, not found, five minutes without it arriving), it's
+  taken out with the reason in the player's quiet message and the next song plays. Moving to
+  another song stops waiting (the request goes on), and is no skip; coming back waits again.
 - Something different is the server's random albums (`getAlbumList2` / `albums?sort=random`
   only; the most played list is no longer asked for). Where Trackside gets songs, it mixes in,
   one after every two, an album from Apple's catalog for up to five artists of the new songs

@@ -70,6 +70,13 @@ class FreshShufflePlayer(private val exo: ExoPlayer) : ForwardingPlayer(exo) {
     override fun addMediaItem(mediaItem: MediaItem) = addMediaItems(listOf(mediaItem))
     override fun addMediaItem(index: Int, mediaItem: MediaItem) = addMediaItems(index, mutableListOf(mediaItem))
 
+    /** A song put in another's place (another copy, or a song got to play) takes its place in the order too. */
+    override fun replaceMediaItem(index: Int, mediaItem: MediaItem) {
+        val old = if (index in 0 until exo.mediaItemCount) exo.getMediaItemAt(index).mediaId else null
+        if (old != null) original = original?.map { if (it.mediaId == old) mediaItem else it }
+        super.replaceMediaItem(index, mediaItem)
+    }
+
     override fun clearMediaItems() {
         original = null
         super.clearMediaItems()

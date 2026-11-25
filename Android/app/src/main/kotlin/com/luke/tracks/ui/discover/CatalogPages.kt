@@ -86,6 +86,10 @@ import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.bottomClearance
 import com.luke.tracks.ui.play.components.openInAnotherApp
 import kotlinx.coroutines.launch
+import uniffi.tracks_engine.CatalogSong
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.async
 import uniffi.tracks_engine.Ownership
 import uniffi.tracks_engine.CatalogAlbumKind
 import uniffi.tracks_engine.albumOwnership
@@ -265,13 +269,25 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
                     val ownedCount = owned.values.count { it }
                     val ownership = albumOwnership(ownedCount.toUInt(), page.songs.size.toUInt().takeIf { it > 0u })
                     val shown = if (missingOnly && ownership == Ownership.PARTLY_OWNED) page.songs.filter { owned[it.id] != true } else page.songs
+                    // The album from a song: yours, and where a Trackside server gets songs, the rest got as each is reached.
+                    val playFrom: (CatalogSong?) -> Unit = { from ->
+                        scope.launch {
+                            val songs = coroutineScope {
+                                page.songs.map { song ->
+                                    async { runCatching { discovery.toPlay(song, discovery.availability(song)) }.getOrNull()?.let { song to it } }
+                                }.awaitAll().filterNotNull()
+                            }
+                            if (songs.isEmpty()) return@launch
+                            val start = songs.indexOfFirst { it.first.id == from?.id }.coerceAtLeast(0)
+                            context.graph.player.play(songs.map { it.second }, start, QueueOrigin(page.album.title, QueueOrigin.Kind.Album))
+                        }
+                    }
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = bottomClearance)) {
                         item(key = "hero") { AlbumHero(page, ownership, ownedCount, onArtist = { navigator.open(CatalogArtistRoute(page.album.artistName, page.album.artistId?.toLong())) }) }
                         item(key = "actions") {
                             val actions = buildList {
-                                if (ownedCount > 0) add(PageAction("Play", Icons.Rounded.PlayArrow, primary = true) {
-                                    val songs = page.songs.mapNotNull { discovery.owned(it) }
-                                    context.graph.player.play(songs, origin = QueueOrigin(page.album.title, QueueOrigin.Kind.Album))
+                                if (ownedCount > 0 || sources.trackside.isNotEmpty()) add(PageAction("Play", Icons.Rounded.PlayArrow, primary = ownedCount > 0) {
+                                    playFrom(null)
                                 })
                                 if (sources.canFetch && ownership != Ownership.OWNED) {
                                     val label = when {
@@ -300,7 +316,10 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
                             SongFilter(missingOnly, missing = page.songs.size - ownedCount, onChange = { missingOnly = it }, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                         }
                         itemsIndexed(shown, key = { _, s -> s.id.toLong() }) { i, song ->
-                            CatalogSongRow(song, Modifier.animateItem(), showAlbum = false, showArtist = !song.artistName.equals(page.album.artistName, ignoreCase = true), trackNumber = song.trackNumber?.toInt() ?: (i + 1))
+                            CatalogSongRow(
+                                song, Modifier.animateItem(), showAlbum = false, showArtist = !song.artistName.equals(page.album.artistName, ignoreCase = true),
+                                trackNumber = song.trackNumber?.toInt() ?: (i + 1), onPlay = playFrom,
+                            )
                         }
                     }
                 }

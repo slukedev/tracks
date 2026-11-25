@@ -38,6 +38,9 @@ import com.luke.tracks.data.HistoryRepository
 import com.luke.tracks.data.PlayEntity
 import com.luke.tracks.data.PlayKindValue
 import com.luke.tracks.data.PlaySourceValue
+import com.luke.tracks.discover.ServerSong
+import com.luke.tracks.discover.newSong
+import com.luke.tracks.discover.serverPicks
 import com.luke.tracks.graph
 import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.net.Http
@@ -116,6 +119,9 @@ class PlaybackService : MediaLibraryService() {
     private var sleepJob: Job? = null
     private var failuresInARow = 0
 
+    /** Songs queued before they're in your library, got as they're reached. */
+    private lateinit var getting: GetAsReached
+
     // Copies across sources.
     private val copies = SongCopies {
         (graph.library as? CombinedLibrary)?.let { listOf(it.device.tracks.value, it.servers.tracks.value) }.orEmpty() +
@@ -148,13 +154,28 @@ class PlaybackService : MediaLibraryService() {
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setMediaSourceFactory(
-                DefaultMediaSourceFactory(songSources)
-                    // A dropped connection resumes from where the song broke off, a few times over.
-                    .setLoadErrorHandlingPolicy(SourceLoadErrorPolicy(LOAD_RETRIES)),
+                // Songs still to get wait in the queue, loading, until they're got.
+                WaitingMediaSource.Factory(
+                    DefaultMediaSourceFactory(songSources)
+                        // A dropped connection resumes from where the song broke off, a few times over.
+                        .setLoadErrorHandlingPolicy(SourceLoadErrorPolicy(LOAD_RETRIES)),
+                ),
             )
             .build()
         player = FreshShufflePlayer(exo)
         player.addListener(listener)
+        getting = GetAsReached(
+            queue = gettingQueue,
+            scope = scope,
+            get = { song, status -> graph.serverPicks.getToPlay(song, status) },
+            cover = { song ->
+                SongsToGet.parse(song.mediaId)?.let { (server, _) ->
+                    graph.serverPicks.newCover(ServerSong(server, newSong(song.title, song.artistName, song.albumTitle, song.durationMs)))?.let(Uri::parse)
+                }
+            },
+            // Said the way songs passed over are, and the next song plays.
+            failed = { message -> graph.sources.reportSkipped(SkippedSongs(1, message)) },
+        )
         // Apple Music's songs play through MusicKit, following this player.
         AppleMusic.service?.playback?.attach(exo)
 
@@ -190,6 +211,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        getting.stop()
         remember()
         finishPlay()
         PlaybackBridge.sleepAtMs.value = null
@@ -218,6 +240,7 @@ class PlaybackService : MediaLibraryService() {
             topUpRadio()
             refreshButtons()
             remember()
+            getting.check()
         }
 
         override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
@@ -225,8 +248,11 @@ class PlaybackService : MediaLibraryService() {
             if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) {
                 playingIndex = player.currentMediaItemIndex
                 topUpRadio()
+                getting.check()
             }
         }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = getting.check()
 
         override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
             // Previous well into a station's song starts it over: wanting to hear it again.
@@ -496,6 +522,29 @@ class PlaybackService : MediaLibraryService() {
         if (PlaybackBridge.keep.value != next) PlaybackBridge.keep.value = next
     }
 
+    // MARK: Songs to get
+
+    /** The player, as getting songs as they're reached needs it. */
+    private val gettingQueue = object : GetAsReached.Queue {
+        override val current: PlayableSong? get() = player.currentMediaItem?.toPlayableSong()
+        override val playWhenReady: Boolean get() = player.playWhenReady
+
+        override fun indexOf(mediaId: String): Int? {
+            if (player.currentMediaItem?.mediaId == mediaId) return player.currentMediaItemIndex
+            return (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == mediaId }
+        }
+
+        override fun replace(index: Int, song: PlayableSong) {
+            if (index !in 0 until player.mediaItemCount) return
+            player.replaceMediaItem(index, song.toMediaItem())
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+        }
+
+        override fun remove(index: Int) {
+            if (index in 0 until player.mediaItemCount) player.removeMediaItem(index)
+        }
+    }
+
     // MARK: Tracks Radio
 
     /**
@@ -505,6 +554,8 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun noteLeaving(reason: Int) {
         val item = counterItem ?: return
+        // Moving on from a song still being got isn't a skip: it never played.
+        if (SongsToGet.isToGet(item)) return
         val song = item.toPlayableSong()
         val listen = when (reason) {
             Player.MEDIA_ITEM_TRANSITION_REASON_AUTO, Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> Listen.FINISHED

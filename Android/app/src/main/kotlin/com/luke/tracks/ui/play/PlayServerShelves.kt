@@ -332,15 +332,15 @@ fun ServerSongRow(song: ServerSong, queue: List<ServerSong>, index: Int, from: S
     val ref = remember(song, library) { song.ref(picks) }
     val links = remember(ref, library) { songLinks(ref, library, found = song) }
     val snackbar = LocalInsightsSnackbar.current
+    // A new song has no cover on the server yet: Apple's catalog lends one, as in search.
+    val newCover by androidx.compose.runtime.produceState<String?>(null, song) { if (song.song.isNew) value = picks.newCover(song) }
     val play = {
-        val songs = queue.mapNotNull { picks.playable(it) }
+        // New songs the server can get are queued too: each is got as it's reached, then plays.
+        val songs = queue.mapNotNull { picks.queueable(it, if (it == song) newCover else null) }
         val start = songs.indexOfFirst { it.identity == song.song.identity }
         when {
-            // A new song the server doesn't have yet: it plays once it's added.
-            start < 0 && song.song.isNew -> tell(
-                context, snackbar, scope,
-                if (picks.canKeep(song)) "Add “${song.song.title}” to play it." else "“${song.song.title}” isn't in your library yet.",
-            )
+            // A new song that can't be got here: say so rather than play something else.
+            start < 0 && song.song.isNew -> tell(context, snackbar, scope, "“${song.song.title}” isn't in your library yet.")
             songs.isNotEmpty() -> graph.player.play(songs, start.coerceAtLeast(0), QueueOrigin(from, QueueOrigin.Kind.Other))
         }
     }
@@ -353,8 +353,6 @@ fun ServerSongRow(song: ServerSong, queue: List<ServerSong>, index: Int, from: S
             .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // A new song has no cover on the server yet: Apple's catalog lends one, as in search.
-        val newCover by androidx.compose.runtime.produceState<String?>(null, song) { if (song.song.isNew) value = picks.newCover(song) }
         Artwork(newCover ?: ref.artworkUrl, ref.coverSeed + ref.artistName, Modifier.size(52.dp), shape = RoundedCornerShape(12.dp), showInitials = false)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {

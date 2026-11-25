@@ -230,7 +230,8 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
                 }
                 Spacer(Modifier.width(8.dp))
                 MorphPlayButton(
-                    playing = state.isPlaying,
+                    playing = state.isPlaying || state.isLoading,
+                    loading = state.isLoading,
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         graph.player.playPause()

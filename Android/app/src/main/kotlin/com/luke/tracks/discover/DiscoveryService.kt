@@ -188,6 +188,17 @@ class DiscoveryService(
         return Availability.Unavailable
     }
 
+    override fun toPlay(song: CatalogSong, availability: Availability): PlayableSong? {
+        val serverId = when (availability) {
+            is Availability.Owned -> return availability.song
+            is Availability.FromTrackside -> availability.serverId
+            // On its way: from a Trackside server when it asked for it, to wait on.
+            Availability.Waiting -> octo.requests().lastOrNull { it.identity == song.asNew().identity }?.serverId
+            else -> null
+        } ?: return null
+        return graph.serverPicks.toGet(ServerSong(serverId, song.asNew()), song.artworkUrl)
+    }
+
     // MARK: - Getting it
 
     override suspend fun get(song: CatalogSong): String = when (val availability = availability(song)) {

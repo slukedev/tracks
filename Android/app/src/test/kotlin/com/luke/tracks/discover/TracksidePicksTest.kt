@@ -12,6 +12,7 @@ import com.luke.tracks.library.ServerStatus
 import com.luke.tracks.library.SubsonicServer
 import com.luke.tracks.library.trackside.TracksideProof
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import mockwebserver3.Dispatcher
@@ -148,7 +149,11 @@ class TracksidePicksTest {
         }, graph.scope, { false }).also { octo = it },
         graph.scope,
         followEveryMs = 50,
+        playCheckMs = 20,
+        playWaitMs = playWaitMs,
     ).also { it.start() }
+
+    private var playWaitMs = 10_000L
 
     private suspend fun loaded(): Pair<ServerPicksService, uniffi.tracks_engine.ForYouShelves> {
         val library = library()
@@ -422,6 +427,131 @@ class TracksidePicksTest {
         assertEquals(listOf("Halo"), decode("mix.json").songs.map { it.title })
         assertEquals(2, decode("top-songs.json").songs.size)
         assertEquals("ca81rcgy3d9pfg6saekwd", picked.songs.first().subsonic.coverArt)
+    }
+
+    // MARK: Tapping a song that isn't in your library yet
+
+    private fun meWith(instant: Boolean, external: Boolean) {
+        me = { json(fixture("me.json").replace("\"external_play\": true", "\"external_play\": $external").replace("\"instant_play\": true", "\"instant_play\": $instant")) }
+    }
+
+    private fun instantCandidate() {
+        search = { request ->
+            if (request.url.queryParameter("types") != "external") json(fixture("search.json"))
+            else json("""{"external":{"candidates":[{"token":"xtka7fegwc8p56dnxvg3w","title":"Irreplaceable","artist":"Beyoncé","instant":true,"match":"exact"}],"complete":true}}""")
+        }
+    }
+
+    /** The new song as tapping it queues it: a song to get, with its catalog cover. */
+    private fun queued(picks: ServerPicksService, song: ServerSong): com.luke.tracks.playback.PlayableSong {
+        val queued = picks.queueable(song, "https://is1-ssl.mzstatic.com/cover.jpg")!!
+        assertTrue(queued.mediaId, com.luke.tracks.playback.SongsToGet.isToGet(queued.mediaId))
+        assertEquals(server.id to song.song.identity, com.luke.tracks.playback.SongsToGet.parse(queued.mediaId))
+        assertEquals(com.luke.tracks.playback.SongsToGet.SCHEME, queued.uri.scheme)
+        assertEquals("https://is1-ssl.mzstatic.com/cover.jpg", queued.artworkUri.toString())
+        assertEquals("Irreplaceable", queued.title)
+        return queued
+    }
+
+    @Test fun aNewSongTappedIsQueuedToGetAndASongTheServerHasPlaysAsItIs(): Unit = runBlocking {
+        val (picks, song) = suggestedNewSong()
+        queued(picks, song)
+        val own = ServerSong(server.id, picks.forYou.value.getValue(server.id).shelves.picks.first())
+        assertEquals(picks.playable(own), picks.queueable(own))
+        assertTrue("tapping asks for nothing yet: it's got as it's reached", requests.isEmpty() && externalPlays.isEmpty())
+    }
+
+    @Test fun aNewSongIsntQueuedWhereTheServerCantGetIt(): Unit = runBlocking {
+        me = { json(fixture("me-without-acquisition.json")) }
+        val (picks, _) = loaded()
+        assertEquals(null, picks.queueable(ServerSong(server.id, newSong("Formation", "Beyoncé"))))
+    }
+
+    @Test fun withInstantPlayATappedSongIsKeptAndStreamsWhileItDownloads(): Unit = runBlocking {
+        meWith(instant = true, external = true)
+        instantCandidate()
+        val (picks, song) = suggestedNewSong()
+        val heard = CopyOnWriteArrayList<String>()
+        val got = picks.getToPlay(queued(picks, song)) { heard += it }
+        val ready = (got as com.luke.tracks.playback.ToPlay.Ready).song
+        val body = requests.single().body!!.utf8()
+        assertTrue(body, body.contains("\"instant\":true") && body.contains("\"candidate\":\"xtka7fegwc8p56dnxvg3w\""))
+        assertTrue("instant play keeps it, so nothing's played without keeping", externalPlays.isEmpty())
+        val link = com.luke.tracks.net.ServerLinks.parse(ready.uri.toString())!!
+        assertEquals(com.luke.tracks.net.ServerLinks.Kind.Play, link.kind)
+        assertEquals("/api/v1/acquisitions/q/stream", com.luke.tracks.net.ServerLinks.resolvers.getValue(server.id).resolve(link, fresh = false).url.encodedPath)
+        assertEquals(song.song.identity, ready.identity)
+        assertTrue("on its way to your library", octo.isWaiting(song.song.identity))
+        assertTrue("$heard", heard.contains("Asking Home for it"))
+    }
+
+    @Test fun withPlayingWithoutKeepingATappedSongIsRequestedAndStreamedAtOnce(): Unit = runBlocking {
+        meWith(instant = false, external = true)
+        status = { json(fixture("acquisition-downloading.json")) }
+        val (picks, song) = suggestedNewSong()
+        val ready = (picks.getToPlay(queued(picks, song)) as com.luke.tracks.playback.ToPlay.Ready).song
+        val body = requests.single().body!!.utf8()
+        assertTrue("requested to keep, without instant play: $body", body.contains("\"title\":\"Irreplaceable\"") && !body.contains("\"instant\":true"))
+        assertEquals(1, externalPlays.size)
+        assertEquals(com.luke.tracks.library.ServerLibrary.newSongMediaId(server.id, song.song.identity), ready.mediaId)
+        assertEquals("/api/v1/external/plays/xzkhbcr08sk1ny8kg5mvy/stream", com.luke.tracks.net.ServerLinks.resolvers.getValue(server.id).resolve(com.luke.tracks.net.ServerLinks.parse(ready.uri.toString())!!, fresh = false).url.encodedPath)
+        assertTrue(octo.isWaiting(song.song.identity))
+    }
+
+    @Test fun withNeitherATappedSongIsRequestedFollowedAndPlayedFromYourLibraryOnceItsIn(): Unit = runBlocking {
+        meWith(instant = false, external = false)
+        var checks = 0
+        // Downloading for a few checks (its stream is no use without instant play), then done.
+        status = { if (++checks < 3) json(fixture("acquisition-downloading.json")) else json(fixture("acquisition-done.json")) }
+        val (picks, song) = suggestedNewSong()
+        val heard = CopyOnWriteArrayList<String>()
+        val synced = asked.count { it == "sync" }
+        val ready = (picks.getToPlay(queued(picks, song)) { heard += it } as com.luke.tracks.playback.ToPlay.Ready).song
+        assertEquals(1, requests.size)
+        assertTrue("never played without keeping", externalPlays.isEmpty())
+        assertEquals("the library's song, once it's done", com.luke.tracks.library.ServerLibrary.mediaId(server.id, "sdjcz08vf67h7cx28snq6"), ready.mediaId)
+        assertTrue("$heard", heard.contains("Downloading, 36%"))
+        assertTrue("synced to bring it in: $asked", asked.count { it == "sync" } > synced)
+        assertTrue("no longer on its way", !octo.isWaiting(song.song.identity))
+    }
+
+    @Test fun aSongAlreadyOnItsWayIsWaitedOnNotAskedForAgain(): Unit = runBlocking {
+        meWith(instant = false, external = false)
+        status = { json(fixture("acquisition-downloading.json")) }
+        val (picks, song) = suggestedNewSong()
+        picks.keep(song)
+        assertEquals(1, requests.size)
+        val done = launch {
+            kotlinx.coroutines.delay(300)
+            status = { json(fixture("acquisition-done.json")) }
+        }
+        val got = picks.getToPlay(queued(picks, song))
+        done.join()
+        assertTrue("$got", got is com.luke.tracks.playback.ToPlay.Ready)
+        assertEquals("attached to the request under way", 1, requests.size)
+    }
+
+    @Test fun aTappedSongThatCantBeGotSaysWhy(): Unit = runBlocking {
+        meWith(instant = false, external = false)
+        val (picks, song) = suggestedNewSong()
+        requested = { json(fixture("error-quota.json"), 429) }
+        val quota = picks.getToPlay(queued(picks, song)) as com.luke.tracks.playback.ToPlay.Failed
+        assertTrue(quota.message, quota.message.startsWith("You've reached Home's limit on requested songs."))
+
+        requested = { json(fixture("acquisition-downloading.json"), 202) }
+        status = { json(fixture("acquisition-downloading.json").replace("\"downloading\"", "\"failed\"").replace("\"quality\"", "\"failure\": \"no_match\", \"quality\"")) }
+        val failed = picks.getToPlay(queued(picks, song)) as com.luke.tracks.playback.ToPlay.Failed
+        assertEquals("Home couldn't find “Irreplaceable”.", failed.message)
+        assertTrue("free to ask again", !octo.isWaiting(song.song.identity))
+
+        playWaitMs = 100
+        val slow = picks(library())
+        withTimeout(10_000) { slow.servers.first { it.isNotEmpty() } }
+        slow.load(server.id, force = true)
+        status = { json(fixture("acquisition-downloading.json")) }
+        val waited = slow.getToPlay(queued(slow, song)) as com.luke.tracks.playback.ToPlay.Failed
+        assertEquals("“Irreplaceable” is taking a while. It'll be in your library once Home has it.", waited.message)
+        assertTrue("the request goes on", octo.isWaiting(song.song.identity))
     }
 
     private companion object {

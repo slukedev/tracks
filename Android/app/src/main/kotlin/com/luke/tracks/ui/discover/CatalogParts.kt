@@ -152,7 +152,8 @@ fun rememberAvailability(song: CatalogSong): Availability {
 }
 
 /**
- * A song from the catalog: tap plays it if it's yours, or its preview if not. The cover
+ * A song from the catalog: tap plays it if it's yours, or where a Trackside server can get it
+ * (or is getting it), gets it and plays it as soon as it can; otherwise its preview. The cover
  * shows the preview's progress. At the end, what can be done: get it, see it coming, or a
  * tick when it's yours. Press and hold for everything else.
  */
@@ -164,23 +165,26 @@ fun CatalogSongRow(
     /** Off on the artist's own pages, where it goes without saying. */
     showArtist: Boolean = true,
     trackNumber: Int? = null,
+    /** Plays the song among others (an album's), in place of playing it alone. */
+    onPlay: ((CatalogSong) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val discovery = rememberDiscovery()
     val previews = rememberPreviews()
     val availability = rememberAvailability(song)
+    val toPlay = remember(song.identity, availability) { discovery.toPlay(song, availability) }
     val sources by discovery.sources.collectAsState()
     val haptics = LocalHapticFeedback.current
     val interaction = remember { MutableInteractionSource() }
     var menu by remember { mutableStateOf(false) }
-    val owned = availability as? Availability.Owned
     val key = "song:${song.id}"
     val previewing = previews.state.key == key
     val onTap = {
         when {
-            owned != null -> {
+            toPlay != null -> {
                 haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                context.graph.player.play(listOf(owned.song), origin = QueueOrigin(song.title, QueueOrigin.Kind.Search))
+                if (onPlay != null) onPlay(song)
+                else context.graph.player.play(listOf(toPlay), origin = QueueOrigin(song.title, QueueOrigin.Kind.Search))
             }
             song.previewUrl != null -> {
                 haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
