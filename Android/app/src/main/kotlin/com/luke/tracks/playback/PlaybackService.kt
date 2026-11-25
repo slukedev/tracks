@@ -168,7 +168,7 @@ class PlaybackService : MediaLibraryService() {
             .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader.Builder(this).setDataSourceFactory(dataSources).build()))
             .setMediaButtonPreferences(buttons())
             .build()
-        setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build().apply { setSmallIcon(R.drawable.ic_launcher_monochrome) })
+        setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build().apply { setSmallIcon(R.drawable.ic_tracks_launcher_monochrome) })
 
         scope.launch {
             graph.settings.settings.collect { settings ->
