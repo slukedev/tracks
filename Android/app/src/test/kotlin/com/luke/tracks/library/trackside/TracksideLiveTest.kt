@@ -59,6 +59,25 @@ class TracksideLiveTest {
         mediaId = ServerLibrary.mediaId(server, "song$n"),
     )
 
+    @Test fun aNewSongPlayedOnTracksRadioIsAListenWithoutASongId() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val file = File(context.cacheDir, "outbox-${UUID.randomUUID()}.db")
+        val db = Room.databaseBuilder(context, HistoryDatabase::class.java, file.path).allowMainThreadQueries().build()
+        val sent = mutableListOf<String>()
+        val transport = TracksideTransport { request, _ ->
+            sent += Buffer().also { request.body!!.writeTo(it) }.readUtf8()
+            val ids = TracksideJson.parseToJsonElement(sent.last()).jsonObject["listens"]!!.jsonArray.map { it.jsonObject["client_listen_id"]!!.jsonPrimitive.content }
+            TracksideAnswer(200, """{"results":[${ids.joinToString(",") { """{"client_listen_id":"$it","status":"accepted"}""" }}]}""")
+        }
+        val outbox = ListenOutbox(db.listens(), { client(transport) }, { it == "s1" }, { Instant.parse("2026-11-24T10:00:00Z") })
+        outbox.record(listOf(play(1).copy(mediaId = ServerLibrary.newSongMediaId("s1", "irreplaceable\u001fbeyonce"))))
+        assertEquals(ListenOutbox.Outcome.Done, outbox.drain())
+        val listen = TracksideJson.parseToJsonElement(sent.single()).jsonObject["listens"]!!.jsonArray.single().jsonObject
+        assertEquals(null, listen["song_id"])
+        assertEquals("Song 1", listen["title"]!!.jsonPrimitive.content)
+        db.close()
+    }
+
     @Test fun listensWaitOnDiskUntilTheServerHasThem() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val file = File(context.cacheDir, "outbox-${UUID.randomUUID()}.db")

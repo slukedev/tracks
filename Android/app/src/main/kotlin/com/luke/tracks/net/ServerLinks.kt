@@ -19,7 +19,11 @@ import java.util.concurrent.ConcurrentHashMap
 object ServerLinks {
     const val HOST = "media.tracks-server.invalid"
 
-    enum class Kind(val path: String) { Stream("stream"), Cover("cover") }
+    /**
+     * A song's stream, a cover, or a stream the server named for a song it doesn't keep
+     * (Trackside's external and instant plays), whose id is the server's path for it.
+     */
+    enum class Kind(val path: String) { Stream("stream"), Cover("cover"), Play("play") }
 
     data class Link(val serverId: String, val kind: Kind, val id: String, val size: Int? = null)
 
@@ -33,6 +37,9 @@ object ServerLinks {
         .build()
 
     fun stream(serverId: String, songId: String): Uri = Uri.parse(url(Link(serverId, Kind.Stream, songId)).toString())
+
+    /** A stream at a path the server gave, such as `/api/v1/external/plays/<id>/stream`; the media token is added as it goes out. */
+    fun play(serverId: String, path: String): Uri = Uri.parse(url(Link(serverId, Kind.Play, path)).toString())
 
     fun cover(serverId: String, coverId: String, size: Int? = 600): Uri = Uri.parse(coverUrl(serverId, coverId, size))
 

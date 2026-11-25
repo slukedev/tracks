@@ -46,6 +46,8 @@ data class PlayerState(
     val current: PlayableSong? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
+    /** Meant to be playing and waiting on the song: buffering, or a song being got ([SongsToGet]). */
+    val isLoading: Boolean = false,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
     val queue: List<PlayableSong> = emptyList(),

@@ -112,6 +112,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.graph
 import com.luke.tracks.playback.ListenCounter
 import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.playback.PlaybackBridge
 import com.luke.tracks.playback.artistLabel
 import com.luke.tracks.playback.hasArtist
 import com.luke.tracks.playback.titleLabel
@@ -494,6 +495,24 @@ private fun TitleBlock(state: PlayerState, song: PlayableSong, actions: PlayActi
             ) { shown ->
                 if (shown != null) PickReasonLabel(shown, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.padding(top = 4.dp))
             }
+            // A song being got to play: how that's going, until it plays.
+            val getting by PlaybackBridge.getting.collectAsStateWithLifecycle()
+            AnimatedContent(
+                targetState = getting?.takeIf { it.mediaId == song.mediaId }?.status,
+                transitionSpec = { fadeIn(enter) togetherWith fadeOut(exit) },
+                label = "getting",
+            ) { said ->
+                if (said != null) {
+                    Text(
+                        said,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
         }
         Spacer(Modifier.width(12.dp))
         // A song of 30 seconds or less (a ringtone, a jingle) is never kept: no ring to fill.
@@ -604,7 +623,8 @@ private fun Transport(state: PlayerState, player: PlayerController, isStation: B
             }
             val play: @Composable () -> Unit = {
                 MorphPlayButton(
-                    playing = state.isPlaying,
+                    playing = state.isPlaying || state.isLoading,
+                    loading = state.isLoading,
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         player.playPause()

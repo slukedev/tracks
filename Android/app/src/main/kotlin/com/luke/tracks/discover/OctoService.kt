@@ -137,6 +137,35 @@ class OctoService(
     fun isWaiting(identity: String) = identity in _waiting.value
 
     /**
+     * Requests a Trackside server is getting, kept so they're followed again after a restart:
+     * the song's identity, its server and the request's id.
+     */
+    data class Request(val identity: String, val serverId: String, val id: String)
+
+    fun requests(): List<Request> = prefs.getStringSet(REQUESTS, emptySet()).orEmpty().mapNotNull { line ->
+        line.split(SEP).takeIf { it.size == 3 }?.let { (identity, server, id) -> Request(identity, server, id) }
+    }
+
+    /**
+     * A song a Trackside server is getting for you: it shows as on its way, as Octo's do, while
+     * whoever asked follows the request; it lets go with [arrived] or [noLongerWaiting].
+     */
+    fun onItsWay(request: Request) {
+        val line = listOf(request.identity, request.serverId, request.id).joinToString(SEP)
+        prefs.edit().putStringSet(REQUESTS, prefs.getStringSet(REQUESTS, emptySet()).orEmpty() + line).apply()
+        _waiting.update { it + request.identity }
+        saveWaiting()
+    }
+
+    /** The song isn't coming after all, or has come: it can be asked for again. */
+    fun noLongerWaiting(identity: String) {
+        val left = prefs.getStringSet(REQUESTS, emptySet()).orEmpty().filterNot { it.startsWith(identity + SEP) }.toSet()
+        prefs.edit().putStringSet(REQUESTS, left).apply()
+        _waiting.update { it - identity }
+        saveWaiting()
+    }
+
+    /**
      * Stars a found song, which Octo takes as "get me this": it fetches the file into the
      * library. Syncs every half minute for five minutes, then every two, for twenty minutes
      * or until the song is in.
@@ -181,6 +210,8 @@ class OctoService(
     companion object {
         private const val CAP = "capability:"
         private const val WAITING = "waiting"
+        private const val REQUESTS = "trackside-requests"
+        private const val SEP = "\u001E"
         private const val KEEP_MS = 12 * 60 * 60_000L
     }
 }

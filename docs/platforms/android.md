@@ -206,8 +206,8 @@ See [README.md](README.md) for the legend and how to keep this current.
   Android.
 - Sections in the order of the iPhone's Play with your own music: a card for a server that
   can't be reached, the crate, Suggested songs, Recently played, Your artists, Made from your
-  listening, Waiting to be heard, then for each server Picked for you, Most played on
-  and Something different, and Keep exploring at the end. Each shows only when it has
+  listening, Waiting to be heard, then for each server Picked for you and Something
+  different, and Keep exploring at the end. Each shows only when it has
   something.
 - Suggested songs, Picked for you and Keep exploring come from each Subsonic server, as on
   iPhone: the engine (`tracks_mixes::server`) picks the artists to start from (what you play,
@@ -217,13 +217,58 @@ See [README.md](README.md) for the legend and how to keep this current.
   asks the server (search, then `getSimilarSongs2`) within a budget of a few requests then one
   every 8 seconds, checks covers, and keeps the picks on disk for 6 hours. A Trackside server's own
   picks (`/api/v1/me/picks`) start the shelves and the walk goes on from there; one from
-  before picks answers 404 and gets the walk alone. Trackside only finds songs you have, so
-  there an artist you have and have never played counts as new to you (Suggested songs).
-  A server's shelves show while its first sync is still under way (picks don't need its
+  before picks answers 404 and gets the walk alone. Trackside's library songs only ever hold
+  songs you have, so there an artist you have and have never played counts as new to you
+  (Suggested songs), and before you've played anything the server's picks are Picked for you.
+- New songs from Trackside: where `/me` has `features.acquisition` (requests on with a source,
+  the account allowed to request songs, a device key, which has the `request` scope), the
+  `external` songs Last.fm suggests that the server doesn't have (from `/me/picks`, Get More
+  once you've listened, songs like each artist's, and for an artist the server has no songs by,
+  `search?types=external`) join Suggested songs, two for each of the server's own, so it
+  fills with something to get even before you've listened or on an empty server. They join
+  Picked for you too, one in four, and Keep exploring, one in two. All three take from one
+  queue per server, so no new song shows on two shelves; when the walk has nothing more to go
+  on from, a third of the waiting ones stay for Keep exploring. Before you've
+  listened, every other one of the server's picks goes to Suggested songs too. A new song has
+  no cover and an id of `new:` and its identity, so a shelf's keys stay unique. Its Add button sends `POST /acquisitions` with a fresh
+  `Idempotency-Key` (sent again with the same key if the connection drops), shows a clock
+  while the request goes on, checks it with `GET /acquisitions/{id}` every 5 seconds, then
+  every 30, for up to 30 minutes (and again after a restart), and syncs once it's done. 200
+  (already there), 429 `quota_exceeded` (says when it resets, in your time) and 410 each get
+  a plain message. Without `features.acquisition`, Suggested songs says why there are no new
+  songs and what the server's admin can do: turn on requests on the dashboard's Requests page
+  and set a Last.fm API key under Settings, or allow the account to request songs under People.
+- Tap to get and play: tapping a new song (For You shelves, Keep exploring, and the catalog's
+  song rows in search, artist and album pages where Trackside can get it) queues the list as
+  usual, with each new song as a stand-in: media id `trackside-get:<server>:<identity>`, address
+  `tracks-get://<server>/<identity>`, the song's title, artist and catalog cover. ExoPlayer
+  plays a stand-in through `WaitingMediaSource`, a period that never prepares, so it moves onto
+  it as onto a slow stream and sits buffering: the player opens at once on the song with a
+  loading indicator in its play button, how it's going under the title ("Asking Home for it",
+  "Downloading, 40%"), and nothing is counted as a listen. `GetAsReached` in the service gets
+  the stand-in the player reaches while it's meant to be playing (not ones further on, so no
+  request is spent on songs you skip before them): with `instant_play` a candidate that can
+  play at once is requested with `instant: true` and its `stream` plays as soon as it's there;
+  else it's requested (section 15.3) and, with `external_play`, played at once without keeping
+  (section 15.6) while the request keeps it; otherwise the request is followed every 2 seconds
+  and the library's copy plays once it's done and synced. A song already on its way waits on
+  that request rather than asking again. The song then takes the stand-in's place and plays;
+  if it can't be got (quota, requests off, not found, five minutes without it arriving), it's
+  taken out with the reason in the player's quiet message and the next song plays. Moving to
+  another song stops waiting (the request goes on), and is no skip; coming back waits again.
+- Something different is the server's random albums (`getAlbumList2` / `albums?sort=random`
+  only; the most played list is no longer asked for). Where Trackside gets songs, it mixes in,
+  one after every two, an album from Apple's catalog for up to five artists of the new songs
+  the server suggests that you have nothing by. They use the catalog's own album cell and page,
+  whose Get album (and each song's Get) asks Trackside for every song you don't have with
+  `POST /acquisitions`, stopping at a used-up quota. The catalog's Get shows for Trackside
+  whenever a server's `/me` has `features.acquisition`.
+- A server's shelves show while its first sync is still under way (picks don't need its
   library) and don't wait for your listening to be read. A first load runs in the app's scope,
-  so scrolling or leaving Play doesn't end it; it goes on while a shelf is empty, for at most
-  40 seconds, then every shelf settles: songs, "didn't find anything" with Try again, or
-  "Couldn't reach" with Try again when every request failed. Each step is logged, redacted,
+  so scrolling or leaving Play doesn't end it; it goes on while both shelves are empty, for at
+  most 40 seconds (once one has songs, the other fills as it's scrolled or tried again), then
+  every shelf settles: songs, "didn't find anything" with Try again, or "Couldn't reach" with
+  Try again when every request failed. Each step is logged, redacted,
   under the `Tracks` tag: `adb logcat -s Tracks` shows the servers' states, how many artists
   the picks start from, whether the server picked songs itself, songs left out for want of a
   cover, and each load's counts and requests. With Octo, songs not
@@ -246,6 +291,16 @@ See [README.md](README.md) for the legend and how to keep this current.
   by plays and recency, never-played songs and your servers' Picked for you finds as new finds,
   picked one song ahead as the one before starts, steered by skips, songs let play, likes,
   More like this and replays, with why each song came up on Now Playing and in Up next.
+- New songs on Tracks Radio: where a Trackside server gets songs, one song after every three
+  of the station's own is a new one the server suggests (never two together, never twice in a
+  listen, none you've asked to hear less of), said to be a new find. With
+  `features.acquisition.external_play` it plays without keeping it (`POST /external/play`,
+  section 15.6); else with `instant_play` a candidate that can play at once is requested with
+  `instant: true` and played from its `stream` while it downloads (section 15.5), and it joins
+  your library once it's in; with neither, new songs are left out. The stream path is a
+  `media.tracks-server.invalid/<server>/play/<path>` link that gets the media token (`mt`) as
+  it goes out. The play's media id is `trackside-new:<server>:<identity>`: it's kept in your
+  history and scrobbled like any other, and sent to Trackside as a listen without a song id.
 - Tune Tracks Radio: Show Tracks Radio, Familiar, Balanced or Adventurous, genres to lean
   into, Bring back old favorites, Reset to Balanced.
 

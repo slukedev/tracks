@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import uniffi.tracks_engine.CatalogAlbum
 import uniffi.tracks_engine.CatalogResults
@@ -69,6 +70,20 @@ class DiscoveryService(
         inLibrary = { index.find(it) != null },
     )
 
+    /** Trackside servers that get songs for you, by id, with their names: as Play's shelves last asked `/me`. */
+    private val tracksideGets = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /** Whether a Trackside server gets songs for you, as `/me` said. */
+    fun noteTracksideGets(serverId: String, name: String, gets: Boolean) {
+        tracksideGets.update { if (gets) it + (serverId to name) else it - serverId }
+    }
+
+    /** A Trackside server that gets songs for you and is answering, if there is one. */
+    private fun tracksideGetting(): String? {
+        val ready = library?.servers?.entries?.value.orEmpty().filter { it.status is ServerStatus.Ready }.map { it.server.id }.toSet()
+        return tracksideGets.value.keys.firstOrNull { it in ready }
+    }
+
     private val _sources = MutableStateFlow(FetchSources())
     override val sources: StateFlow<FetchSources> = _sources.asStateFlow()
     override val waiting: StateFlow<Set<String>> get() = octo.waiting
@@ -76,10 +91,11 @@ class DiscoveryService(
     fun start() {
         val library = library ?: return
         scope.launch {
-            combine(octo.capabilities, library.servers.entries, lidarr.state) { _, entries, state ->
+            combine(octo.capabilities, library.servers.entries, lidarr.state, tracksideGets) { _, entries, state, trackside ->
                 FetchSources(
                     octo = entries.filter { it.status is ServerStatus.Ready && octo.capability(it.server.id) == FetchCapability.Fetches }.map { it.server.name },
                     lidarr = state is LidarrState.Connected,
+                    trackside = entries.filter { it.status is ServerStatus.Ready && it.server.id in trackside }.map { it.server.name },
                 )
             }.distinctUntilChanged().collect { _sources.value = it }
         }
@@ -164,10 +180,23 @@ class DiscoveryService(
                 is LidarrSongState.Collected -> Availability.InLidarr(state.album)
                 LidarrSongState.Wanted -> Availability.ComingFromLidarr
                 LidarrSongState.Missing, null ->
-                    if (lidarr.isConnected && !song.albumTitle.isNullOrBlank()) Availability.Requestable else Availability.Unavailable
+                    if (lidarr.isConnected && !song.albumTitle.isNullOrBlank()) Availability.Requestable
+                    else tracksideGetting()?.let { Availability.FromTrackside(it) } ?: Availability.Unavailable
             }
         }
+        tracksideGetting()?.let { return Availability.FromTrackside(it) }
         return Availability.Unavailable
+    }
+
+    override fun toPlay(song: CatalogSong, availability: Availability): PlayableSong? {
+        val serverId = when (availability) {
+            is Availability.Owned -> return availability.song
+            is Availability.FromTrackside -> availability.serverId
+            // On its way: from a Trackside server when it asked for it, to wait on.
+            Availability.Waiting -> octo.requests().lastOrNull { it.identity == song.asNew().identity }?.serverId
+            else -> null
+        } ?: return null
+        return graph.serverPicks.toGet(ServerSong(serverId, song.asNew()), song.artworkUrl)
     }
 
     // MARK: - Getting it
@@ -178,6 +207,7 @@ class DiscoveryService(
         Availability.Waiting, Availability.ComingFromLidarr -> "“${song.title}” is on its way"
         is Availability.InLidarr -> bringInFromLidarr(song)
         Availability.Requestable -> lidarr.requestAlbum(song.albumTitle.orEmpty(), song.artistName)
+        is Availability.FromTrackside -> graph.serverPicks.keep(ServerSong(availability.serverId, song.asNew()))
         Availability.Checking, Availability.Unavailable -> "Nothing here can get “${song.title}”"
     }
 
@@ -189,7 +219,12 @@ class DiscoveryService(
 
     override suspend fun getAlbum(album: CatalogAlbum): String {
         if (lidarr.isConnected) return lidarr.requestAlbum(album.title, album.artistName)
-        if (octo.fetchingServers().isEmpty()) return "Nothing here can get “${album.title}”"
+        if (octo.fetchingServers().isEmpty()) {
+            // A Trackside server that gets songs is asked for each one you don't have (section 15.3).
+            val trackside = tracksideGetting() ?: return "Nothing here can get “${album.title}”"
+            val missing = itunes.album(album.id)?.songs.orEmpty().filter { owned(it) == null && !octo.isWaiting(it.identity) }
+            return graph.serverPicks.keepAll(trackside, missing.map { it.asNew() }, album.title)
+        }
         val songs = itunes.album(album.id)?.songs.orEmpty().filter { owned(it) == null }
         val asked = coroutineScope {
             songs.map { song ->
@@ -210,6 +245,9 @@ class DiscoveryService(
         }.firstOrNull()?.artist?.name
         return played ?: index.snapshot.artists.maxByOrNull { it.songCount }?.name
     }
+
+    /** A catalog song as a new song to ask a Trackside server for. */
+    private fun CatalogSong.asNew() = newSong(title, artistName, albumTitle, durationMs?.toLong())
 
     private companion object {
         const val DAY = 24 * 3600_000L

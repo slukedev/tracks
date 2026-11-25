@@ -153,6 +153,38 @@ class TracksRadioTest {
         assertEquals(null, radio.state.value.steering)
     }
 
+    /** A server that suggests [count] new songs and plays them as [play] says. */
+    private fun newSongs(count: Int, play: (com.luke.tracks.discover.ServerSong) -> PlayableSong? = { found ->
+        PlayableSong(
+            com.luke.tracks.library.ServerLibrary.newSongMediaId("home", found.song.identity),
+            android.net.Uri.parse("https://media.tracks-server.invalid/home/play/x"),
+            found.song.title, found.song.artist, null, null, 200_000, found.song.identity,
+        )
+    }): com.luke.tracks.discover.ServerPicks = object : com.luke.tracks.discover.ServerPicks by com.luke.tracks.discover.NoServerPicks {
+        override suspend fun newForRadio() = (1..count).map { com.luke.tracks.discover.ServerSong("home", com.luke.tracks.discover.newSong("New song $it", "New Artist $it")) }
+        override suspend fun playNew(song: com.luke.tracks.discover.ServerSong) = play(song)
+    }
+
+    @Test fun newSongsTheServerSuggestsComeEveryFewSongsNeverTwoTogether() = runBlocking {
+        radio = TracksRadio(graph, files, picks = { newSongs(5) })
+        val played = radio.start() + List(20) { radio.next()!! }
+        val isNew = played.map { com.luke.tracks.library.ServerLibrary.parseNewSongMediaId(it.mediaId) != null }
+        assertEquals("one in four: $isNew", 5, isNew.count { it })
+        assertTrue("never two together: $isNew", isNew.zipWithNext().none { (a, b) -> a && b })
+        assertTrue("never first: $isNew", isNew.take(3).none { it })
+        // Each once, said to be a new find, and still the station's pick in Up next.
+        val news = played.filterIndexed { i, _ -> isNew[i] }
+        assertEquals(news.size, news.map { it.identity }.toSet().size)
+        assertTrue(news.all { radio.state.value.isPick(it) && radio.state.value.reason(it) == RadioReason.NewFind })
+    }
+
+    @Test fun newSongsThatCantPlayAreLeftOut() = runBlocking {
+        radio = TracksRadio(graph, files, picks = { newSongs(5) { null } })
+        val played = radio.start() + List(12) { radio.next()!! }
+        assertTrue(played.none { com.luke.tracks.library.ServerLibrary.parseNewSongMediaId(it.mediaId) != null })
+        assertTrue(played.all { library.find(it.identity) != null })
+    }
+
     @Test fun howASongGaveWayIsToldByHowLongItPlayed() {
         assertEquals(Listen.SKIPPED, radioListen(8_000, 200_000))
         assertEquals(Listen.MOVED_ON, radioListen(70_000, 200_000))

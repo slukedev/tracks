@@ -125,7 +125,7 @@ suspend fun loadFeed(graph: AppGraph, hidden: Set<String>, nowMs: Long = System.
             .map { it.first }
         // Your songs you've never played, a fresh order each day.
         val unplayed = library.songs.filter { song(it.identity) == null }.distinctBy { it.identity }
-        val today = LocalDate.ofInstant(Instant.ofEpochMilli(nowMs), ZoneId.systemDefault())
+        val today = Instant.ofEpochMilli(nowMs).atZone(ZoneId.systemDefault()).toLocalDate()
         val order = freshShuffle(
             unplayed.map { ShuffleItem(it.identity, foldedName(it.artistName), false) },
             dailySeed(today.year.toShort(), today.monthValue.toByte(), today.dayOfMonth.toByte(), "waiting"),

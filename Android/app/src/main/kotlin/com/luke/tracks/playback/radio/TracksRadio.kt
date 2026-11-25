@@ -7,6 +7,7 @@ import android.util.Log
 import android.widget.Toast
 import com.luke.tracks.AppGraph
 import com.luke.tracks.data.radioTuning
+import com.luke.tracks.discover.ServerPicks
 import com.luke.tracks.discover.ServerSong
 import com.luke.tracks.discover.serverPicks
 import com.luke.tracks.library.CombinedLibrary
@@ -30,7 +31,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.tracks_engine.Listen
+import uniffi.tracks_engine.RadioReason
 import uniffi.tracks_engine.RadioStation
 import uniffi.tracks_engine.RadioTrack
 import uniffi.tracks_engine.radioRecordSkip
@@ -45,7 +48,12 @@ import kotlin.random.Random
  * toward what lands, opens with a few songs from different directions, and remembers what
  * landed for next time.
  */
-class TracksRadio(private val graph: AppGraph, private val files: File = graph.context.filesDir) : RadioSource {
+class TracksRadio(
+    private val graph: AppGraph,
+    private val files: File = graph.context.filesDir,
+    /** Where new songs come from: your servers' picks, when there's a server library. */
+    private val picks: () -> ServerPicks? = { if (graph.library is CombinedLibrary) graph.serverPicks else null },
+) : RadioSource {
     private val lock = Mutex()
     @Volatile private var station: RadioStation? = null
     /** Every song the station can pick, by identity: your own copy before a server's. */
@@ -92,6 +100,8 @@ class TracksRadio(private val graph: AppGraph, private val files: File = graph.c
                 built.opener()?.let(byIdentity::get)?.let(first::add)
             }
             while (first.size < 2) first += built.next()?.let(byIdentity::get) ?: break
+            sinceNew = first.size
+            newPlayed.clear()
             station?.close()
             station = built
             songs = byIdentity
@@ -101,12 +111,48 @@ class TracksRadio(private val graph: AppGraph, private val files: File = graph.c
         }
     }
 
-    override suspend fun next(): PlayableSong? = withContext(Dispatchers.Default) {
-        val current = station ?: return@withContext null
-        val song = runCatching { current.next() }.getOrNull()?.let { songs[it] } ?: return@withContext null
-        val reason = current.reason(song.identity)
-        _state.update { it.copy(picks = (it.picks - song.mediaId + (song.mediaId to reason)).recent()) }
-        song
+    override suspend fun next(): PlayableSong? {
+        val current = station ?: return null
+        // Every few songs, one the server suggests and doesn't have, where it can play it.
+        if (sinceNew >= NEW_EVERY) {
+            newSong()?.let { song ->
+                sinceNew = 0
+                _state.update { it.copy(picks = (it.picks - song.mediaId + (song.mediaId to RadioReason.NewFind)).recent()) }
+                return song
+            }
+        }
+        return withContext(Dispatchers.Default) {
+            val song = runCatching { current.next() }.getOrNull()?.let { songs[it] } ?: return@withContext null
+            val reason = current.reason(song.identity)
+            _state.update { it.copy(picks = (it.picks - song.mediaId + (song.mediaId to reason)).recent()) }
+            sinceNew++
+            song
+        }
+    }
+
+    /** Songs of the station's own since the last new one: a new one comes after [NEW_EVERY], never two together. */
+    @Volatile private var sinceNew = 0
+    /** New songs played this listen, so none comes twice. */
+    private val newPlayed = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /**
+     * A new song from a Trackside server that gets songs, made playable as the server allows
+     * (streamed without keeping it, or got with instant play); null when there's none it can
+     * play, so the station's own song comes instead.
+     */
+    private suspend fun newSong(): PlayableSong? {
+        val source = runCatching { picks() }.getOrNull() ?: return null
+        val skipped = graph.settings.settings.first().hiddenSongs
+        val waiting = runCatching { source.newForRadio() }.getOrDefault(emptyList())
+            .filter { it.song.identity !in newPlayed && it.song.identity !in skipped }
+            .shuffled()
+        for (found in waiting.take(NEW_TRIES)) {
+            newPlayed += found.song.identity
+            val song = withTimeoutOrNull(NEW_WAIT_MS) { runCatching { source.playNew(found) }.getOrNull() } ?: continue
+            songs = songs + (song.identity to song)
+            return song
+        }
+        return null
     }
 
     override fun knows(song: PlayableSong): Boolean = runCatching { station?.knows(song.identity) == true }.getOrDefault(false)
@@ -196,8 +242,7 @@ class TracksRadio(private val graph: AppGraph, private val files: File = graph.c
 
     /** Picked for you's songs from every server that aren't in your music yet: new finds. */
     private fun serverFinds(): List<PlayableSong> {
-        if (graph.library !is CombinedLibrary) return emptyList()
-        val picks = graph.serverPicks
+        val picks = runCatching { picks() }.getOrNull() ?: return emptyList()
         return picks.forYou.value.flatMap { (serverId, state) ->
             (state.shelves.picks + state.shelves.suggested + state.shelves.further).map { ServerSong(serverId, it) }
         }.mapNotNull(picks::playable)
@@ -232,6 +277,11 @@ class TracksRadio(private val graph: AppGraph, private val files: File = graph.c
     private companion object {
         /** Picks kept for saying why, enough for any Up next. */
         const val KEPT_PICKS = 200
+        /** One new song after every three of the station's own. */
+        const val NEW_EVERY = 3
+        /** New songs tried before the station's own song comes instead, and how long each may take. */
+        const val NEW_TRIES = 2
+        const val NEW_WAIT_MS = 20_000L
 
         fun <V> Map<String, V>.recent(): Map<String, V> =
             if (size <= KEPT_PICKS) this else entries.drop(size - KEPT_PICKS).associate { it.key to it.value }

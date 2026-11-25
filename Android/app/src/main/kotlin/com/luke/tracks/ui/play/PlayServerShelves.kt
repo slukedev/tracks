@@ -64,7 +64,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.luke.tracks.discover.LocalServerPicks
+import com.luke.tracks.discover.NewSongs
+import com.luke.tracks.discover.isNew
 import com.luke.tracks.discover.ServerAlbum
+import com.luke.tracks.discover.ServerAlbums
+import com.luke.tracks.discover.sprinkle
+import com.luke.tracks.ui.discover.CatalogAlbumCell
+import uniffi.tracks_engine.CatalogAlbum
 import com.luke.tracks.discover.ServerForYouState
 import com.luke.tracks.discover.ServerPicks
 import com.luke.tracks.discover.ServerSong
@@ -141,7 +147,9 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
             Column(Modifier.weight(1f)) {
                 SectionTitle(title)
                 val subtitle = when {
+                    shelf == ForYouShelf.SUGGESTED && state?.newSongs == NewSongs.Offered && songs.isNotEmpty() -> "New songs to add, mixed with ones on ${server.name}"
                     from.isEmpty() -> null
+                    shelf == ForYouShelf.PICKS && songs.any { it.song.isNew } -> "From ${listPhrase(from)}, and artists like them, with new songs to add"
                     shelf == ForYouShelf.PICKS -> "From ${listPhrase(from)}, and artists like them"
                     else -> "Artists new to you, like the ones you play"
                 }
@@ -154,6 +162,15 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
                         modifier = Modifier.padding(horizontal = 24.dp),
                     )
                 }
+                // Songs the server has, and why there are no new ones among them.
+                if (shelf == ForYouShelf.SUGGESTED && songs.isNotEmpty()) newSongsNote(server, state?.newSongs)?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp),
+                    )
+                }
             }
             if (shelf == ForYouShelf.PICKS && songs.isNotEmpty()) PicksMenu(server, songs, onPickAgain = { scope.launch { picks.load(server.id, force = true) } })
         }
@@ -161,11 +178,7 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
         when (view) {
             ForYouShelfView.Loading -> SongShelfLoading()
             ForYouShelfView.Problem -> ShelfMessage(state?.problem.orEmpty(), onRetry = retry)
-            ForYouShelfView.Empty -> ShelfMessage(
-                if (server.isTrackside) "${server.name} didn't find anything to suggest."
-                else "${server.name} didn't find anything to suggest. If it's Octo, it needs a Last.fm API key, set on its admin page.",
-                onRetry = retry,
-            )
+            ForYouShelfView.Empty -> ShelfMessage(emptyMessage(server, shelf, state?.newSongs), onRetry = retry)
             else -> {
                 val grid = rememberLazyGridState()
                 // Only whole columns while more are coming, so the end is never a column of gaps.
@@ -190,6 +203,28 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
     }
 }
 
+/** Why a For You shelf is empty, and for Suggested songs on Trackside, what would bring new songs. */
+fun emptyMessage(server: SubsonicServer, shelf: ForYouShelf, newSongs: NewSongs?): String = when {
+    shelf == ForYouShelf.PICKS -> "Nothing picked for you yet. Songs by artists you play show up here as you listen."
+    newSongs == NewSongs.TurnedOff ->
+        "No new songs to suggest: ${server.name} can't get songs for you yet. Its admin can turn on requests, with a source to get songs from, " +
+            "on the Requests page of the Trackside dashboard. Suggestions also need a Last.fm API key, under Settings there."
+    newSongs == NewSongs.NotAllowed ->
+        "No new songs to suggest: your account on ${server.name} isn't allowed to request songs. Its admin can allow it under People on the Trackside dashboard."
+    newSongs == NewSongs.Offered ->
+        "${server.name} has no new songs to suggest yet. It finds them on Last.fm as you listen, so if none show up after a while, " +
+            "its admin can check the Last.fm API key under Settings on the Trackside dashboard."
+    server.isTrackside -> "${server.name} didn't find anything to suggest."
+    else -> "${server.name} didn't find anything to suggest. If it's Octo, it needs a Last.fm API key, set on its admin page."
+}
+
+/** Why Suggested songs holds only songs a Trackside server has, and what its admin can do; null where it has new ones too. */
+fun newSongsNote(server: SubsonicServer, newSongs: NewSongs?): String? = when (newSongs) {
+    NewSongs.TurnedOff -> "No new songs here: ${server.name} can't get songs for you yet. Its admin can turn on requests on the Requests page of the Trackside dashboard."
+    NewSongs.NotAllowed -> "No new songs here: your account on ${server.name} isn't allowed to request songs. Its admin can allow it under People on the Trackside dashboard."
+    else -> null
+}
+
 /** What a For You shelf shows: every state ends in songs, a word on why there are none, or nothing. */
 enum class ForYouShelfView {
     Loading, Songs, Empty, Problem, Hidden;
@@ -202,6 +237,8 @@ enum class ForYouShelfView {
                 songs.isNotEmpty() -> Songs
                 state.isFilling -> Loading
                 state.problem != null -> Problem
+                // A Trackside server that can't get songs says why Suggested songs has no new ones.
+                shelf == ForYouShelf.SUGGESTED && (state.newSongs == NewSongs.TurnedOff || state.newSongs == NewSongs.NotAllowed) -> Empty
                 // Nothing to start from yet (no plays, no songs synced): the shelf isn't there.
                 state.shelves.from.isEmpty() -> Hidden
                 else -> Empty
@@ -261,7 +298,7 @@ private fun PicksMenu(server: SubsonicServer, songs: List<ServerSong>, onPickAga
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, shape = MaterialTheme.shapes.large) {
             MenuItem(Icons.Rounded.Refresh, "Pick again") { open = false; onPickAgain() }
-            val toAdd = songs.filter { picks.canKeep(it.serverId) && context.graph.library.find(it.song.identity) == null }
+            val toAdd = songs.filter { picks.canKeep(it) && context.graph.library.find(it.song.identity) == null }
             if (toAdd.isNotEmpty()) {
                 MenuItem(Icons.Rounded.Add, "Add all to library") {
                     open = false
@@ -294,10 +331,18 @@ fun ServerSongRow(song: ServerSong, queue: List<ServerSong>, index: Int, from: S
     val scope = rememberCoroutineScope()
     val ref = remember(song, library) { song.ref(picks) }
     val links = remember(ref, library) { songLinks(ref, library, found = song) }
+    val snackbar = LocalInsightsSnackbar.current
+    // A new song has no cover on the server yet: Apple's catalog lends one, as in search.
+    val newCover by androidx.compose.runtime.produceState<String?>(null, song) { if (song.song.isNew) value = picks.newCover(song) }
     val play = {
-        val songs = queue.mapNotNull { picks.playable(it) }
-        val start = songs.indexOfFirst { it.identity == song.song.identity }.coerceAtLeast(0)
-        if (songs.isNotEmpty()) graph.player.play(songs, start, QueueOrigin(from, QueueOrigin.Kind.Other))
+        // New songs the server can get are queued too: each is got as it's reached, then plays.
+        val songs = queue.mapNotNull { picks.queueable(it, if (it == song) newCover else null) }
+        val start = songs.indexOfFirst { it.identity == song.song.identity }
+        when {
+            // A new song that can't be got here: say so rather than play something else.
+            start < 0 && song.song.isNew -> tell(context, snackbar, scope, "“${song.song.title}” isn't in your library yet.")
+            songs.isNotEmpty() -> graph.player.play(songs, start.coerceAtLeast(0), QueueOrigin(from, QueueOrigin.Kind.Other))
+        }
     }
     Row(
         modifier
@@ -308,7 +353,7 @@ fun ServerSongRow(song: ServerSong, queue: List<ServerSong>, index: Int, from: S
             .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Artwork(ref.artworkUrl, ref.coverSeed + ref.artistName, Modifier.size(52.dp), shape = RoundedCornerShape(12.dp), showInitials = false)
+        Artwork(newCover ?: ref.artworkUrl, ref.coverSeed + ref.artistName, Modifier.size(52.dp), shape = RoundedCornerShape(12.dp), showInitials = false)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -343,7 +388,7 @@ private fun rememberAdd(song: ServerSong, scope: CoroutineScope): (() -> Unit)? 
     val waiting by discovery.waiting.collectAsState()
     val snackbar = LocalInsightsSnackbar.current
     val owned = context.graph.library.find(song.song.identity) != null
-    if (owned || !picks.canKeep(song.serverId) || song.song.identity in waiting) return null
+    if (owned || !picks.canKeep(song) || song.song.identity in waiting) return null
     return {
         scope.launch {
             val message = runCatching { picks.keep(song) }.getOrElse { "Couldn't add “${song.song.title}”" }
@@ -360,13 +405,16 @@ private fun AddFoundSong(song: ServerSong) {
     val library by context.graph.library.snapshot.collectAsState()
     val discovery = com.luke.tracks.ui.discover.rememberDiscovery()
     val waiting by discovery.waiting.collectAsState()
+    // Read so the button follows whether the server gets songs, once that's known.
+    val offers by picks.forYou.collectAsState()
     val snackbar = LocalInsightsSnackbar.current
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
     var adding by remember(song.song.identity) { mutableStateOf(false) }
     val owned = remember(library, song.song.identity) { context.graph.library.find(song.song.identity) != null }
+    val canKeep = remember(offers, song) { picks.canKeep(song) }
     val state = when {
-        owned || !picks.canKeep(song.serverId) -> 0
+        owned || !canKeep -> 0
         adding -> 1
         song.song.identity in waiting -> 2
         else -> 3
@@ -403,18 +451,25 @@ private fun AddFoundSong(song: ServerSong) {
     }
 }
 
-/** A server's own shelves: what it plays most and albums at random. */
+/**
+ * Something different: a server's albums at random, and where Trackside gets songs for you,
+ * albums from Apple's catalog by artists it suggests that it doesn't have, to open and get.
+ */
 @Composable
 fun ServerAlbumShelves(server: SubsonicServer, modifier: Modifier = Modifier) {
     val picks = rememberServerPicks()
     val all by picks.albums.collectAsState()
+    val forYou by picks.forYou.collectAsState()
     val scope = rememberCoroutineScope()
     val songCount = rememberLibraryIndex().snapshot.songs.size
-    LaunchedEffect(server.id, songCount) { picks.loadAlbums(server.id) }
+    // Asked again as new songs are suggested, so albums to get follow them.
+    val newArtists = forYou[server.id]?.shelves?.let { shelves -> (shelves.suggested + shelves.picks).filter { it.isNew }.map { it.artist }.toSet() }.orEmpty()
+    LaunchedEffect(server.id, songCount, newArtists) { picks.loadAlbums(server.id) }
     val shelves = all[server.id] ?: return
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(32.dp)) {
-        if (shelves.mostPlayed.isNotEmpty()) AlbumShelf("Most played on ${server.name}", shelves.mostPlayed)
-        if (shelves.random.isNotEmpty()) AlbumShelf("Something different", shelves.random) {
+    val albums = remember(shelves) { somethingDifferent(shelves) }
+    if (albums.isEmpty()) return
+    Column(modifier) {
+        AlbumShelf("Something different", albums) {
             IconButton(onClick = { scope.launch { picks.shuffleRandom(server.id) } }) {
                 Icon(Icons.Rounded.Shuffle, contentDescription = "Show other albums")
             }
@@ -422,8 +477,25 @@ fun ServerAlbumShelves(server: SubsonicServer, modifier: Modifier = Modifier) {
     }
 }
 
+/** An album on Something different: one on the server, or one from the catalog it could get. */
+sealed interface ShelfAlbum {
+    val key: String
+
+    data class OnServer(val album: ServerAlbum) : ShelfAlbum {
+        override val key get() = "server:" + album.libraryId
+    }
+
+    data class ToGet(val album: CatalogAlbum) : ShelfAlbum {
+        override val key get() = "catalog:" + album.id
+    }
+}
+
+/** The server's albums with one to get after every two of them, and the rest of those to get after. */
+fun somethingDifferent(shelves: ServerAlbums): List<ShelfAlbum> =
+    sprinkle(shelves.random.map { ShelfAlbum.OnServer(it) }, shelves.toGet.map { ShelfAlbum.ToGet(it) }, every = 2).distinctBy { it.key }
+
 @Composable
-private fun AlbumShelf(title: String, albums: List<ServerAlbum>, action: (@Composable () -> Unit)? = null) {
+private fun AlbumShelf(title: String, albums: List<ShelfAlbum>, action: (@Composable () -> Unit)? = null) {
     val navigator = LocalNavigator.current
     val actions = LocalLibraryActions.current
     val index = rememberLibraryIndex()
@@ -434,23 +506,30 @@ private fun AlbumShelf(title: String, albums: List<ServerAlbum>, action: (@Compo
         }
         Spacer(Modifier.height(8.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(albums, key = { it.libraryId }) { album ->
-                Column(
-                    Modifier
-                        .animateItem()
-                        .width(148.dp)
-                        .goToActions(remember(album, index) { GoTo(artist = index.artistIdOf(album.artist)?.let(::LibraryArtistRoute)) }, navigator)
-                        .pressable(
-                            onClick = { navigator.open(LibraryAlbumRoute(album.libraryId)) },
-                            onLongClick = {
-                                index.album(album.libraryId)?.let { actions.open(LibraryTarget.Album(it)) }
-                            },
-                        ),
-                ) {
-                    Artwork(album.coverUrl, album.title + album.artist, Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp))
-                    Spacer(Modifier.height(10.dp))
-                    Text(album.title, style = MaterialTheme.typography.titleSmallEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(album.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            items(albums, key = { it.key }) { shown ->
+                when (shown) {
+                    // The catalog's own cell: its page says how much you have and gets the rest.
+                    is ShelfAlbum.ToGet -> CatalogAlbumCell(shown.album, Modifier.animateItem().width(148.dp))
+                    is ShelfAlbum.OnServer -> {
+                        val album = shown.album
+                        Column(
+                            Modifier
+                                .animateItem()
+                                .width(148.dp)
+                                .goToActions(remember(album, index) { GoTo(artist = index.artistIdOf(album.artist)?.let(::LibraryArtistRoute)) }, navigator)
+                                .pressable(
+                                    onClick = { navigator.open(LibraryAlbumRoute(album.libraryId)) },
+                                    onLongClick = {
+                                        index.album(album.libraryId)?.let { actions.open(LibraryTarget.Album(it)) }
+                                    },
+                                ),
+                        ) {
+                            Artwork(album.coverUrl, album.title + album.artist, Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp))
+                            Spacer(Modifier.height(10.dp))
+                            Text(album.title, style = MaterialTheme.typography.titleSmallEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(album.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }

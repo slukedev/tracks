@@ -63,7 +63,7 @@ class TracksideServices(private val graph: AppGraph, private val servers: Server
         graph.scope.launch {
             graph.history.written.collect { plays ->
                 outbox.record(plays)
-                if (plays.any { ServerLibrary.parseMediaId(it.mediaId) != null }) enqueue(graph.context)
+                if (plays.any { ServerLibrary.parseMediaId(it.mediaId) != null || ServerLibrary.parseNewSongMediaId(it.mediaId) != null }) enqueue(graph.context)
             }
         }
         enqueue(graph.context)

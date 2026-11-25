@@ -17,6 +17,7 @@ class TracksApplication : Application(), Configuration.Provider, SingletonImageL
 
     override fun onCreate() {
         super.onCreate()
+        com.luke.tracks.net.CrashLog.install(this)
         // Read once at launch: switching sample data on or off restarts the app.
         val sample = getSharedPreferences("launch", MODE_PRIVATE).getBoolean("sampleData", false)
         graph = AppGraph(this, sample)

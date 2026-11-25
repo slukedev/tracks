@@ -26,7 +26,10 @@ class ListenOutbox(
     /** Keeps the plays that are of a Trackside server's songs; a play kept again replaces its listen with the final length. */
     suspend fun record(plays: List<PlayEntity>) {
         val listens = plays.mapNotNull { play ->
-            val (serverId, songId) = ServerLibrary.parseMediaId(play.mediaId) ?: return@mapNotNull null
+            // A new song the server played without having it goes as a listen without a song id.
+            val (serverId, songId) = ServerLibrary.parseMediaId(play.mediaId)
+                ?: ServerLibrary.parseNewSongMediaId(play.mediaId)?.let { it to null }
+                ?: return@mapNotNull null
             if (!isTrackside(serverId)) return@mapNotNull null
             ListenEntity(serverId, play.id, songId, play.playedAt, play.listenedMs, play.title, play.artistName, play.albumTitle, play.durationMs)
         }

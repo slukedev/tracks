@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ripple
@@ -30,6 +31,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
@@ -56,6 +59,8 @@ fun MorphPlayButton(
     contentDescription: String = if (playing) "Pause" else "Play",
     enabled: Boolean = true,
     shadowElevation: Dp = 0.dp,
+    /** Waiting on the song: a loading indicator in place of the icon. */
+    loading: Boolean = false,
     /** Drawn over the button, inside its shape, pressing and turning with it. */
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
@@ -98,19 +103,23 @@ fun MorphPlayButton(
         contentAlignment = Alignment.Center,
     ) {
         AnimatedContent(
-            targetState = playing,
+            targetState = if (loading) null else playing,
             transitionSpec = {
                 (scaleIn(motion.fastSpatialSpec(), initialScale = 0.6f) + fadeIn(motion.fastEffectsSpec()))
                     .togetherWith(scaleOut(motion.fastSpatialSpec(), targetScale = 0.6f) + fadeOut(motion.fastEffectsSpec()))
             },
             label = "icon",
         ) { isPlaying ->
-            Icon(
-                imageVector = if (isPlaying) Icons.Rounded.Pause else playIcon,
-                contentDescription = contentDescription,
-                tint = contentColor,
-                modifier = Modifier.size(size * 0.42f),
-            )
+            if (isPlaying == null) {
+                LoadingIndicator(Modifier.size(size * 0.62f).semantics { this.contentDescription = "Loading" }, color = contentColor)
+            } else {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Rounded.Pause else playIcon,
+                    contentDescription = contentDescription,
+                    tint = contentColor,
+                    modifier = Modifier.size(size * 0.42f),
+                )
+            }
         }
         overlay()
     }

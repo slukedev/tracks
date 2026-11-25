@@ -109,7 +109,8 @@ class MediaControllerPlayer(private val context: Context) : PlayerController {
         if (timelineChanged || queueCache.size != c.mediaItemCount) {
             queueCache = List(c.mediaItemCount) { i ->
                 val item = c.getMediaItemAt(i)
-                known[item.mediaId] ?: item.toPlayableSong()
+                // A song being got takes its cover from the queue, once one's found for it.
+                known[item.mediaId]?.takeIf { !it.isToGet } ?: item.toPlayableSong()
             }
         }
         val index = c.currentMediaItemIndex.coerceAtLeast(0)
@@ -119,6 +120,7 @@ class MediaControllerPlayer(private val context: Context) : PlayerController {
             current = current,
             isPlaying = c.isPlaying,
             isBuffering = c.playbackState == Player.STATE_BUFFERING,
+            isLoading = c.playWhenReady && c.playbackState == Player.STATE_BUFFERING,
             positionMs = c.currentPosition,
             durationMs = duration,
             queue = queueCache,
@@ -219,7 +221,8 @@ class MediaControllerPlayer(private val context: Context) : PlayerController {
     }
 
     override fun playPause() = run {
-        if (isPlaying) pause()
+        // Waiting on a song counts as playing: the button pauses it.
+        if (isPlaying || (playWhenReady && playbackState == Player.STATE_BUFFERING)) pause()
         else {
             if (playbackState == Player.STATE_IDLE) prepare()
             if (playbackState == Player.STATE_ENDED) seekToDefaultPosition(0)

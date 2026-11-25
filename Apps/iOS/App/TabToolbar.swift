@@ -21,6 +21,7 @@ extension View {
             title: title,
             opensDevicesAtLaunch: opensDevicesAtLaunch,
             opensSettingsAtLaunch: opensSettingsAtLaunch,
+            hasActions: true,
             actions: actions()
         ))
     }
@@ -30,22 +31,30 @@ extension View {
         opensDevicesAtLaunch: Bool = false,
         opensSettingsAtLaunch: Bool = false
     ) -> some View {
-        tabRoot(title, opensDevicesAtLaunch: opensDevicesAtLaunch, opensSettingsAtLaunch: opensSettingsAtLaunch) {
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-        }
+        // No actions of its own: nothing before Your Devices and Settings, not even a spacer. An
+        // empty group there made the bar fold both into its overflow while the large title showed.
+        modifier(TabRoot(
+            title: title,
+            opensDevicesAtLaunch: opensDevicesAtLaunch,
+            opensSettingsAtLaunch: opensSettingsAtLaunch,
+            hasActions: false,
+            actions: ToolbarSpacer(.fixed, placement: .primaryAction)
+        ))
     }
 }
 
 private struct TabRoot<Actions: ToolbarContent>: ViewModifier {
     let title: LocalizedStringKey
     let opensDevicesAtLaunch: Bool
+    let hasActions: Bool
     let actions: Actions
     @State private var showsSettings: Bool
     @AppStorage(NearbyDevices.storageKey) private var showsDevices = true
 
-    init(title: LocalizedStringKey, opensDevicesAtLaunch: Bool, opensSettingsAtLaunch: Bool, actions: Actions) {
+    init(title: LocalizedStringKey, opensDevicesAtLaunch: Bool, opensSettingsAtLaunch: Bool, hasActions: Bool, actions: Actions) {
         self.title = title
         self.opensDevicesAtLaunch = opensDevicesAtLaunch
+        self.hasActions = hasActions
         self.actions = actions
         _showsSettings = State(initialValue: opensSettingsAtLaunch)
     }
@@ -59,8 +68,10 @@ private struct TabRoot<Actions: ToolbarContent>: ViewModifier {
             // bar once the page scrolls.
             .scrollEdgeEffectStyle(.soft, for: .top)
             .toolbar {
-                actions
-                ToolbarSpacer(.fixed, placement: .primaryAction)
+                if hasActions {
+                    actions
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                }
                 // Next to each other with no spacer, so they share one capsule. The page's own
                 // actions fold into the overflow before these do.
                 ToolbarItem(placement: .primaryAction) {
