@@ -248,6 +248,7 @@ class ServerLibrary(
                 when (link.kind) {
                     ServerLinks.Kind.Stream -> client.streamUrl(link.id, base = base)
                     ServerLinks.Kind.Cover -> client.coverArtUrl(link.id, link.size, base)
+                    ServerLinks.Kind.Play -> throw IOException("Only Trackside plays songs it doesn't have.")
                 },
                 client = connection.http.base,
             )
@@ -262,6 +263,8 @@ class ServerLibrary(
         client.endpoints.provenBaseUrl()
         val url = when (link.kind) {
             ServerLinks.Kind.Cover -> client.artworkUrl(link.id, link.size)
+            // Its own address, at the server in use; only a path there gets the token.
+            ServerLinks.Kind.Play -> client.mediaUrl(link.id)?.takeIf { TracksideClient.isSameOrigin(it, client.endpoints.baseUrl) } ?: throw IOException("Not a stream on this server.")
             ServerLinks.Kind.Stream -> {
                 val now = System.currentTimeMillis()
                 val kind = network?.kind ?: NetworkKind.Unknown
@@ -735,6 +738,7 @@ class ServerLibrary(
 
     companion object {
         private const val PREFIX = "subsonic:"
+        private const val NEW_PREFIX = "trackside-new:"
         private const val DECISION_KEEP_MS = 10 * 60_000L
         private val songList = ListSerializer(SubsonicSong.serializer())
         private val serverList = ListSerializer(SubsonicServer.serializer())
@@ -754,6 +758,18 @@ class ServerLibrary(
 
         /** The library's id for a server's album. */
         fun albumId(serverId: String, albumId: String) = "$PREFIX$serverId:album:$albumId"
+
+        /**
+         * The media id of a song a Trackside server plays without it being in your library
+         * (a new song on Tracks Radio): never a server song's, so nothing is sent with a song id.
+         */
+        fun newSongMediaId(serverId: String, identity: String) = "$NEW_PREFIX$serverId:$identity"
+
+        /** The server a new song's media id names, if it's one. */
+        fun parseNewSongMediaId(mediaId: String): String? {
+            if (!mediaId.startsWith(NEW_PREFIX)) return null
+            return mediaId.removePrefix(NEW_PREFIX).substringBefore(':', "").takeIf { it.isNotEmpty() }
+        }
 
         /** The server and song a media id names, if it's a server's. */
         fun parseMediaId(mediaId: String): Pair<String, String>? {

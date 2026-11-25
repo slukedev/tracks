@@ -67,6 +67,10 @@ import com.luke.tracks.discover.LocalServerPicks
 import com.luke.tracks.discover.NewSongs
 import com.luke.tracks.discover.isNew
 import com.luke.tracks.discover.ServerAlbum
+import com.luke.tracks.discover.ServerAlbums
+import com.luke.tracks.discover.sprinkle
+import com.luke.tracks.ui.discover.CatalogAlbumCell
+import uniffi.tracks_engine.CatalogAlbum
 import com.luke.tracks.discover.ServerForYouState
 import com.luke.tracks.discover.ServerPicks
 import com.luke.tracks.discover.ServerSong
@@ -145,6 +149,7 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
                 val subtitle = when {
                     shelf == ForYouShelf.SUGGESTED && state?.newSongs == NewSongs.Offered && songs.isNotEmpty() -> "New songs to add, mixed with ones on ${server.name}"
                     from.isEmpty() -> null
+                    shelf == ForYouShelf.PICKS && songs.any { it.song.isNew } -> "From ${listPhrase(from)}, and artists like them, with new songs to add"
                     shelf == ForYouShelf.PICKS -> "From ${listPhrase(from)}, and artists like them"
                     else -> "Artists new to you, like the ones you play"
                 }
@@ -448,18 +453,25 @@ private fun AddFoundSong(song: ServerSong) {
     }
 }
 
-/** A server's own shelves: what it plays most and albums at random. */
+/**
+ * Something different: a server's albums at random, and where Trackside gets songs for you,
+ * albums from Apple's catalog by artists it suggests that it doesn't have, to open and get.
+ */
 @Composable
 fun ServerAlbumShelves(server: SubsonicServer, modifier: Modifier = Modifier) {
     val picks = rememberServerPicks()
     val all by picks.albums.collectAsState()
+    val forYou by picks.forYou.collectAsState()
     val scope = rememberCoroutineScope()
     val songCount = rememberLibraryIndex().snapshot.songs.size
-    LaunchedEffect(server.id, songCount) { picks.loadAlbums(server.id) }
+    // Asked again as new songs are suggested, so albums to get follow them.
+    val newArtists = forYou[server.id]?.shelves?.let { shelves -> (shelves.suggested + shelves.picks).filter { it.isNew }.map { it.artist }.toSet() }.orEmpty()
+    LaunchedEffect(server.id, songCount, newArtists) { picks.loadAlbums(server.id) }
     val shelves = all[server.id] ?: return
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(32.dp)) {
-        if (shelves.mostPlayed.isNotEmpty()) AlbumShelf("Most played on ${server.name}", shelves.mostPlayed)
-        if (shelves.random.isNotEmpty()) AlbumShelf("Something different", shelves.random) {
+    val albums = remember(shelves) { somethingDifferent(shelves) }
+    if (albums.isEmpty()) return
+    Column(modifier) {
+        AlbumShelf("Something different", albums) {
             IconButton(onClick = { scope.launch { picks.shuffleRandom(server.id) } }) {
                 Icon(Icons.Rounded.Shuffle, contentDescription = "Show other albums")
             }
@@ -467,8 +479,25 @@ fun ServerAlbumShelves(server: SubsonicServer, modifier: Modifier = Modifier) {
     }
 }
 
+/** An album on Something different: one on the server, or one from the catalog it could get. */
+sealed interface ShelfAlbum {
+    val key: String
+
+    data class OnServer(val album: ServerAlbum) : ShelfAlbum {
+        override val key get() = "server:" + album.libraryId
+    }
+
+    data class ToGet(val album: CatalogAlbum) : ShelfAlbum {
+        override val key get() = "catalog:" + album.id
+    }
+}
+
+/** The server's albums with one to get after every two of them, and the rest of those to get after. */
+fun somethingDifferent(shelves: ServerAlbums): List<ShelfAlbum> =
+    sprinkle(shelves.random.map { ShelfAlbum.OnServer(it) }, shelves.toGet.map { ShelfAlbum.ToGet(it) }, every = 2).distinctBy { it.key }
+
 @Composable
-private fun AlbumShelf(title: String, albums: List<ServerAlbum>, action: (@Composable () -> Unit)? = null) {
+private fun AlbumShelf(title: String, albums: List<ShelfAlbum>, action: (@Composable () -> Unit)? = null) {
     val navigator = LocalNavigator.current
     val actions = LocalLibraryActions.current
     val index = rememberLibraryIndex()
@@ -479,23 +508,30 @@ private fun AlbumShelf(title: String, albums: List<ServerAlbum>, action: (@Compo
         }
         Spacer(Modifier.height(8.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(albums, key = { it.libraryId }) { album ->
-                Column(
-                    Modifier
-                        .animateItem()
-                        .width(148.dp)
-                        .goToActions(remember(album, index) { GoTo(artist = index.artistIdOf(album.artist)?.let(::LibraryArtistRoute)) }, navigator)
-                        .pressable(
-                            onClick = { navigator.open(LibraryAlbumRoute(album.libraryId)) },
-                            onLongClick = {
-                                index.album(album.libraryId)?.let { actions.open(LibraryTarget.Album(it)) }
-                            },
-                        ),
-                ) {
-                    Artwork(album.coverUrl, album.title + album.artist, Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp))
-                    Spacer(Modifier.height(10.dp))
-                    Text(album.title, style = MaterialTheme.typography.titleSmallEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(album.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            items(albums, key = { it.key }) { shown ->
+                when (shown) {
+                    // The catalog's own cell: its page says how much you have and gets the rest.
+                    is ShelfAlbum.ToGet -> CatalogAlbumCell(shown.album, Modifier.animateItem().width(148.dp))
+                    is ShelfAlbum.OnServer -> {
+                        val album = shown.album
+                        Column(
+                            Modifier
+                                .animateItem()
+                                .width(148.dp)
+                                .goToActions(remember(album, index) { GoTo(artist = index.artistIdOf(album.artist)?.let(::LibraryArtistRoute)) }, navigator)
+                                .pressable(
+                                    onClick = { navigator.open(LibraryAlbumRoute(album.libraryId)) },
+                                    onLongClick = {
+                                        index.album(album.libraryId)?.let { actions.open(LibraryTarget.Album(it)) }
+                                    },
+                                ),
+                        ) {
+                            Artwork(album.coverUrl, album.title + album.artist, Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp))
+                            Spacer(Modifier.height(10.dp))
+                            Text(album.title, style = MaterialTheme.typography.titleSmallEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(album.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }

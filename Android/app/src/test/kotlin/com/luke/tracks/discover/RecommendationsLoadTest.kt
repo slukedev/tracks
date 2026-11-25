@@ -284,7 +284,12 @@ class RecommendationsLoadTest {
         assertMixed(state)
         val new = state.shelves.suggested.filter { it.isNew }.map { it.title }
         assertTrue("from picks and Get More: $new", new.any { it.startsWith("Picked") } && new.any { it.startsWith("More") })
-        assertTrue("Picked for you holds the server's songs: $state", state.shelves.picks.isNotEmpty() && state.shelves.picks.none { it.isNew })
+        assertTrue("Picked for you holds the server's songs: $state", state.shelves.picks.any { !it.isNew })
+        // With new ones among them, never one Suggested songs has.
+        val newPicks = state.shelves.picks.filter { it.isNew }.map { it.identity }
+        assertTrue("$state", newPicks.size <= (state.shelves.picks.size + 3) / 4 + 1)
+        assertTrue("$state", newPicks.none { id -> state.shelves.suggested.any { it.identity == id } })
+        assertEquals(state.shelves.picks.size, state.shelves.picks.map { it.id }.toSet().size)
         assertTrue("didn't wait for the load limit: ${System.currentTimeMillis() - started} ms", System.currentTimeMillis() - started < 7_000)
         assertTrue(picks.canKeep(ServerSong(server.id, state.shelves.suggested.first { it.isNew })))
     }

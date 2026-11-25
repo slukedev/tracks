@@ -206,8 +206,8 @@ See [README.md](README.md) for the legend and how to keep this current.
   Android.
 - Sections in the order of the iPhone's Play with your own music: a card for a server that
   can't be reached, the crate, Suggested songs, Recently played, Your artists, Made from your
-  listening, Waiting to be heard, then for each server Picked for you, Most played on
-  and Something different, and Keep exploring at the end. Each shows only when it has
+  listening, Waiting to be heard, then for each server Picked for you and Something
+  different, and Keep exploring at the end. Each shows only when it has
   something.
 - Suggested songs, Picked for you and Keep exploring come from each Subsonic server, as on
   iPhone: the engine (`tracks_mixes::server`) picks the artists to start from (what you play,
@@ -225,7 +225,10 @@ See [README.md](README.md) for the legend and how to keep this current.
   `external` songs Last.fm suggests that the server doesn't have (from `/me/picks`, Get More
   once you've listened, songs like each artist's, and for an artist the server has no songs by,
   `search?types=external`) join Suggested songs, two for each of the server's own, so it
-  fills with something to get even before you've listened or on an empty server. Before you've
+  fills with something to get even before you've listened or on an empty server. They join
+  Picked for you too, one in four, and Keep exploring, one in two. All three take from one
+  queue per server, so no new song shows on two shelves; when the walk has nothing more to go
+  on from, a third of the waiting ones stay for Keep exploring. Before you've
   listened, every other one of the server's picks goes to Suggested songs too. A new song has
   no cover and an id of `new:` and its identity, so a shelf's keys stay unique; it can't be
   played until it's in your library. Its Add button sends `POST /acquisitions` with a fresh
@@ -236,6 +239,13 @@ See [README.md](README.md) for the legend and how to keep this current.
   a plain message. Without `features.acquisition`, Suggested songs says why there are no new
   songs and what the server's admin can do: turn on requests on the dashboard's Requests page
   and set a Last.fm API key under Settings, or allow the account to request songs under People.
+- Something different is the server's random albums (`getAlbumList2` / `albums?sort=random`
+  only; the most played list is no longer asked for). Where Trackside gets songs, it mixes in,
+  one after every two, an album from Apple's catalog for up to five artists of the new songs
+  the server suggests that you have nothing by. They use the catalog's own album cell and page,
+  whose Get album (and each song's Get) asks Trackside for every song you don't have with
+  `POST /acquisitions`, stopping at a used-up quota. The catalog's Get shows for Trackside
+  whenever a server's `/me` has `features.acquisition`.
 - A server's shelves show while its first sync is still under way (picks don't need its
   library) and don't wait for your listening to be read. A first load runs in the app's scope,
   so scrolling or leaving Play doesn't end it; it goes on while both shelves are empty, for at
@@ -264,6 +274,16 @@ See [README.md](README.md) for the legend and how to keep this current.
   by plays and recency, never-played songs and your servers' Picked for you finds as new finds,
   picked one song ahead as the one before starts, steered by skips, songs let play, likes,
   More like this and replays, with why each song came up on Now Playing and in Up next.
+- New songs on Tracks Radio: where a Trackside server gets songs, one song after every three
+  of the station's own is a new one the server suggests (never two together, never twice in a
+  listen, none you've asked to hear less of), said to be a new find. With
+  `features.acquisition.external_play` it plays without keeping it (`POST /external/play`,
+  section 15.6); else with `instant_play` a candidate that can play at once is requested with
+  `instant: true` and played from its `stream` while it downloads (section 15.5), and it joins
+  your library once it's in; with neither, new songs are left out. The stream path is a
+  `media.tracks-server.invalid/<server>/play/<path>` link that gets the media token (`mt`) as
+  it goes out. The play's media id is `trackside-new:<server>:<identity>`: it's kept in your
+  history and scrobbled like any other, and sent to Trackside as a listen without a song id.
 - Tune Tracks Radio: Show Tracks Radio, Familiar, Balanced or Adventurous, genres to lean
   into, Bring back old favorites, Reset to Balanced.
 

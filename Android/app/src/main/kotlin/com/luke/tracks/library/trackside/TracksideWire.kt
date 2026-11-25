@@ -411,6 +411,8 @@ data class TracksideAcquisition(
     val failure: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
+    /** With instant play, where it streams from while it downloads, once bytes are flowing. */
+    val stream: TracksideStream? = null,
 ) {
     @Serializable
     data class Progress(val bytes: Long = 0, val total: Long? = null)
@@ -418,6 +420,33 @@ data class TracksideAcquisition(
     val isDone: Boolean get() = state == "done"
     val isFinished: Boolean get() = state == "done" || state == "failed" || state == "cancelled"
 }
+
+/** Where a song the server is getting, or playing without keeping, streams from: paths that take the media token. */
+@Serializable
+data class TracksideStream(val hls: String? = null, val progressive: String? = null)
+
+/** `POST /api/v1/external/play`: a candidate's token, or a suggestion's title and artist. */
+@Serializable
+data class TracksideExternalPlayRequest(
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    val candidate: String? = null,
+)
+
+/**
+ * A song the server plays without keeping it (section 15.6): where it streams from, or
+ * `song_id` when your library has it after all.
+ */
+@Serializable
+data class TracksideExternalPlay(
+    val title: String = "",
+    val artist: String = "",
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    val stream: TracksideStream? = null,
+    @SerialName("song_id") val songId: String? = null,
+)
 
 @Serializable
 data class TracksideAcquisitionList(

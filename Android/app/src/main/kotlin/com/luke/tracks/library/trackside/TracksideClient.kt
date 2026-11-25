@@ -204,6 +204,13 @@ class TracksideClient(
     /** Cancels a request that hasn't finished. */
     suspend fun cancelAcquisition(id: String) = perform("acquisitions/$id", "DELETE")
 
+    /**
+     * Plays a song the server doesn't have without keeping it (section 15.6), where `/me` says
+     * `external_play`. Its `stream` paths take the media token, as [mediaUrl] adds.
+     */
+    suspend fun playExternal(request: TracksideExternalPlayRequest): TracksideExternalPlay =
+        send("external/play", "POST", TracksideJson.encodeToString(TracksideExternalPlayRequest.serializer(), request), TracksideExternalPlay.serializer())
+
     // MARK: Playing
 
     suspend fun decide(playback: TracksidePlaybackRequest): TracksidePlaybackDecision =

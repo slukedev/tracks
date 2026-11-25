@@ -16,9 +16,11 @@ data class FetchSources(
     val octo: List<String> = emptyList(),
     /** Lidarr set up and answering. */
     val lidarr: Boolean = false,
+    /** Trackside servers that get songs for you (`features.acquisition` in `/me`). */
+    val trackside: List<String> = emptyList(),
 ) {
     /** Getting music is offered only when one of these is there to do it. */
-    val canFetch: Boolean get() = octo.isNotEmpty() || lidarr
+    val canFetch: Boolean get() = octo.isNotEmpty() || lidarr || trackside.isNotEmpty()
 }
 
 /** What can be done about a song you don't have. */
@@ -35,10 +37,12 @@ sealed interface Availability {
     data object ComingFromLidarr : Availability
     /** Lidarr doesn't have it, and can be asked for its album. */
     data object Requestable : Availability
+    /** A Trackside server can get it for you with a request (section 15.3). */
+    data class FromTrackside(val serverId: String) : Availability
     /** Nothing here can get it. */
     data object Unavailable : Availability
 
-    val canGet: Boolean get() = this is OnServer || this is Requestable || this is InLidarr
+    val canGet: Boolean get() = this is OnServer || this is Requestable || this is InLidarr || this is FromTrackside
 }
 
 data class AlbumHolding(val ownership: Ownership, val ownedSongs: Int)

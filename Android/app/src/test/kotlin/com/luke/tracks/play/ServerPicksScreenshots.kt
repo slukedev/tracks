@@ -67,7 +67,7 @@ class FakeServerPicks(
     override val albums = MutableStateFlow(
         if (state == Shape.Loaded) {
             val all = library.snapshot.value.albums.map { ServerAlbum(it.id, it.title, it.artistName, null) }
-            mapOf(server.id to ServerAlbums(mostPlayed = all.take(6), random = all.takeLast(6)))
+            mapOf(server.id to ServerAlbums(random = all.takeLast(6)))
         } else emptyMap(),
     )
     override val exploring = MutableStateFlow(if (state == Shape.Loaded) suggested.drop(8).map { ServerSong(server.id, it) } else emptyList())

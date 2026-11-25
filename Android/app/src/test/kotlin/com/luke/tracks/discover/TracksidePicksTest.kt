@@ -50,6 +50,10 @@ class TracksidePicksTest {
     private var requested: (RecordedRequest) -> MockResponse = { json(fixture("acquisition-downloading.json"), 202) }
     private var status: () -> MockResponse = { json(fixture("acquisition-done.json")) }
     private val requests = CopyOnWriteArrayList<RecordedRequest>()
+    private var search: (RecordedRequest) -> MockResponse = { json(fixture("search.json")) }
+    private var external: (RecordedRequest) -> MockResponse = { json(fixture("external-play.json")) }
+    private val externalPlays = CopyOnWriteArrayList<RecordedRequest>()
+    private val albumSorts = CopyOnWriteArrayList<String>()
     private lateinit var octo: OctoService
 
     private val plain = object : SecretBox {
@@ -80,13 +84,20 @@ class TracksidePicksTest {
                     requests += request
                     requested(request)
                 }
+                path == "external/play" && request.method == "POST" -> {
+                    externalPlays += request
+                    external(request)
+                }
                 path.startsWith("acquisitions/") -> status()
                 path == "media-token" -> json(fixture("media-token.json"))
                 path == "sync" -> json(fixture(if (url.queryParameter("cursor") == null) "sync-snapshot-songs.json" else "sync-snapshot-complete.json"))
-                path == "search" -> json(fixture("search.json"))
+                path == "search" -> search(request)
                 path.startsWith("songs/") && path.endsWith("/similar") -> similar()
                 path == "songs/random" -> json(fixture("songs.json"))
-                path == "albums" -> json(fixture("albums.json"))
+                path == "albums" -> {
+                    albumSorts += url.queryParameter("sort").orEmpty()
+                    json(fixture("albums.json"))
+                }
                 else -> json(fixture("error-not-found.json"), 404)
             }
         }
@@ -288,6 +299,118 @@ class TracksidePicksTest {
         assertEquals(NewSongs.NotAllowed, state.newSongs)
         val empty = com.luke.tracks.ui.play.emptyMessage(server, uniffi.tracks_engine.ForYouShelf.SUGGESTED, state.newSongs)
         assertTrue(empty, empty.contains("isn't allowed to request songs") && empty.contains("People"))
+    }
+
+    /** Picks naming new songs by several artists, so both shelves have some. */
+    private fun picksWithNewSongs(vararg songs: Pair<String, String>) {
+        val external = songs.joinToString(",") { (title, artist) -> """{"title":"$title","artist":"$artist"}""" }
+        picks = { json(fixture("picks.json").replace(Regex("\"external\"\\s*:\\s*\\[[^\\]]*\\]"), "\"external\": [$external]")) }
+    }
+
+    @Test fun pickedForYouAndKeepExploringHaveNewSongsTooNeverTheSameOnesAsSuggested(): Unit = runBlocking {
+        picksWithNewSongs(
+            "Irreplaceable" to "Beyoncé", "Formation" to "Beyoncé", "Hello" to "Adele", "Rolling in the Deep" to "Adele",
+            "Easy on Me" to "Adele", "Bad Guy" to "Billie Eilish", "Ocean Eyes" to "Billie Eilish", "Lovely" to "Billie Eilish",
+            "Vampire" to "Olivia Rodrigo", "Drivers License" to "Olivia Rodrigo", "Levitating" to "Dua Lipa", "Houdini" to "Dua Lipa",
+        )
+        playBeyonce()
+        val (picks, shelves) = loaded()
+        val suggestedNew = shelves.suggested.filter { it.isNew }.map { it.identity }
+        val picksNew = shelves.picks.filter { it.isNew }.map { it.identity }
+        assertTrue("Suggested songs has new ones: $shelves", suggestedNew.isNotEmpty())
+        assertTrue("Picked for you has new ones too: $shelves", picksNew.isNotEmpty())
+        assertTrue("never the same new song on both: $suggestedNew $picksNew", suggestedNew.intersect(picksNew.toSet()).isEmpty())
+        assertTrue("each can be added", picksNew.all { id -> picks.canKeep(ServerSong(server.id, shelves.picks.first { it.identity == id })) })
+        assertEquals(shelves.picks.size, shelves.picks.map { it.id }.toSet().size)
+
+        // Keep exploring goes on with new ones among the server's own, none already on show.
+        repeat(3) { picks.exploreMore() }
+        val exploringNew = picks.exploring.value.filter { it.song.isNew }.map { it.song.identity }
+        assertTrue("Keep exploring: ${picks.exploring.value}", exploringNew.isNotEmpty())
+        assertTrue(exploringNew.intersect((suggestedNew + picksNew).toSet()).isEmpty())
+        assertEquals(picks.exploring.value.size, picks.exploring.value.map { it.serverId + it.song.id }.toSet().size)
+    }
+
+    @Test fun somethingDifferentAsksOnlyForRandomAlbums(): Unit = runBlocking {
+        val (picks, _) = loaded()
+        picks.loadAlbums(server.id)
+        picks.shuffleRandom(server.id)
+        assertTrue("albums asked: $albumSorts", albumSorts.isNotEmpty() && albumSorts.all { it == "random" })
+    }
+
+    @Test fun somethingDifferentMixesInAlbumsToGetWithUniqueKeys() {
+        val onServer = (1..5).map { ServerAlbum("subsonic:home:album:$it", "Album $it", "Artist", null) }
+        val toGet = (1..2).map { uniffi.tracks_engine.CatalogAlbum(it.toULong(), "New $it", "Someone", null, null, null, null, null, uniffi.tracks_engine.CatalogAlbumKind.ALBUM, null) }
+        val shown = com.luke.tracks.ui.play.somethingDifferent(ServerAlbums(random = onServer, toGet = toGet))
+        assertEquals(listOf("server", "server", "catalog", "server", "server", "catalog", "server"), shown.map { it.key.substringBefore(':') })
+        assertEquals(shown.size, shown.map { it.key }.toSet().size)
+        assertEquals(listOf(1, 2, 3), sprinkle(listOf(1, 3), listOf(2), every = 1))
+        assertEquals(listOf(1, 3, 2, 4), sprinkle(listOf(1, 3), listOf(2, 4), every = 2))
+    }
+
+    @Test fun tracksRadioPlaysANewSongWithoutKeepingItWhereTheServerOffersThat(): Unit = runBlocking {
+        val (picks, song) = suggestedNewSong()
+        val forRadio = picks.newForRadio()
+        assertTrue("$forRadio", forRadio.any { it.song.identity == song.song.identity })
+        val playable = picks.playNew(song)!!
+        val sent = externalPlays.single().body!!.utf8()
+        assertTrue(sent, sent.contains("\"title\":\"Irreplaceable\"") && sent.contains("\"artist\":\"Beyoncé\"") && !sent.contains("candidate"))
+        assertTrue("nothing requested to keep", requests.isEmpty())
+        assertEquals(com.luke.tracks.library.ServerLibrary.newSongMediaId(server.id, song.song.identity), playable.mediaId)
+        assertEquals(server.id, com.luke.tracks.library.ServerLibrary.parseNewSongMediaId(playable.mediaId))
+        assertEquals(null, com.luke.tracks.library.ServerLibrary.parseMediaId(playable.mediaId))
+        assertEquals(song.song.identity, playable.identity)
+        // A link without credentials, swapped for the server's own address with the media token as it goes out.
+        val link = com.luke.tracks.net.ServerLinks.parse(playable.uri.toString())!!
+        assertEquals(com.luke.tracks.net.ServerLinks.Kind.Play, link.kind)
+        val resolved = com.luke.tracks.net.ServerLinks.resolvers.getValue(server.id).resolve(link, fresh = false).url
+        assertEquals("/api/v1/external/plays/xzkhbcr08sk1ny8kg5mvy/stream", resolved.encodedPath)
+        assertTrue("$resolved", resolved.queryParameter("mt") != null && resolved.host == base.host && resolved.port == base.port)
+    }
+
+    @Test fun aSongTheServerHasAfterAllPlaysFromItsLibrary(): Unit = runBlocking {
+        val (picks, song) = suggestedNewSong()
+        external = { json("""{"title":"Irreplaceable","artist":"Beyoncé","song_id":"s7m2k4q9x1v8b3n6c0de"}""") }
+        val playable = picks.playNew(song)!!
+        assertEquals(com.luke.tracks.library.ServerLibrary.mediaId(server.id, "s7m2k4q9x1v8b3n6c0de"), playable.mediaId)
+    }
+
+    @Test fun withInstantPlayOnlyTracksRadioGetsTheSongAndPlaysItWhileItDownloads(): Unit = runBlocking {
+        me = { json(fixture("me.json").replace("\"external_play\": true", "\"external_play\": false")) }
+        search = { request ->
+            if (request.url.queryParameter("types") != "external") json(fixture("search.json"))
+            else json("""{"external":{"candidates":[{"token":"xtka7fegwc8p56dnxvg3w","title":"Irreplaceable","artist":"Beyoncé","instant":true,"match":"exact"}],"complete":true}}""")
+        }
+        status = { json(fixture("acquisition-downloading.json")) }
+        val (picks, song) = suggestedNewSong()
+        val playable = picks.playNew(song)!!
+        assertTrue("not played without keeping", externalPlays.isEmpty())
+        val body = requests.single().body!!.utf8()
+        assertTrue(body, body.contains("\"instant\":true") && body.contains("\"candidate\":\"xtka7fegwc8p56dnxvg3w\""))
+        assertEquals(com.luke.tracks.net.ServerLinks.Kind.Play, com.luke.tracks.net.ServerLinks.parse(playable.uri.toString())!!.kind)
+        val resolved = com.luke.tracks.net.ServerLinks.resolvers.getValue(server.id).resolve(com.luke.tracks.net.ServerLinks.parse(playable.uri.toString())!!, fresh = false).url
+        assertEquals("/api/v1/acquisitions/q/stream", resolved.encodedPath)
+        // Kept, as any request is: on its way to your library.
+        assertTrue(octo.isWaiting(song.song.identity))
+    }
+
+    @Test fun withNeitherWayToPlayItTracksRadioLeavesNewSongsOut(): Unit = runBlocking {
+        me = { json(fixture("me.json").replace("\"external_play\": true", "\"external_play\": false").replace("\"instant_play\": true", "\"instant_play\": false")) }
+        val (picks, song) = suggestedNewSong()
+        assertTrue(picks.newForRadio().isEmpty())
+        assertEquals(null, picks.playNew(song))
+        assertTrue(externalPlays.isEmpty() && requests.isEmpty())
+    }
+
+    @Test fun anAlbumIsAskedForSongBySong(): Unit = runBlocking {
+        val (picks, _) = loaded()
+        val said = picks.keepAll(server.id, listOf(newSong("Halo", "Beyoncé", "I Am... Sasha Fierce"), newSong("Sweet Dreams", "Beyoncé", "I Am... Sasha Fierce")), "I Am... Sasha Fierce")
+        assertEquals("Getting 2 songs from “I Am... Sasha Fierce”", said)
+        assertEquals(2, requests.size)
+        requested = { json(fixture("error-quota.json"), 429) }
+        val stopped = picks.keepAll(server.id, listOf(newSong("Ego", "Beyoncé"), newSong("Diva", "Beyoncé")), "More")
+        assertTrue(stopped, stopped.startsWith("You've reached Home's limit"))
+        assertEquals("stopped at the first refusal", 3, requests.size)
     }
 
     @Test fun readsTheServersShelves() {
