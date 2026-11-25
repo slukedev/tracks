@@ -64,6 +64,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.luke.tracks.discover.LocalServerPicks
+import com.luke.tracks.discover.NewSongs
+import com.luke.tracks.discover.isNew
 import com.luke.tracks.discover.ServerAlbum
 import com.luke.tracks.discover.ServerForYouState
 import com.luke.tracks.discover.ServerPicks
@@ -141,6 +143,7 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
             Column(Modifier.weight(1f)) {
                 SectionTitle(title)
                 val subtitle = when {
+                    shelf == ForYouShelf.SUGGESTED && state?.newSongs == NewSongs.Offered && songs.isNotEmpty() -> "New songs to add, mixed with ones on ${server.name}"
                     from.isEmpty() -> null
                     shelf == ForYouShelf.PICKS -> "From ${listPhrase(from)}, and artists like them"
                     else -> "Artists new to you, like the ones you play"
@@ -154,6 +157,15 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
                         modifier = Modifier.padding(horizontal = 24.dp),
                     )
                 }
+                // Songs the server has, and why there are no new ones among them.
+                if (shelf == ForYouShelf.SUGGESTED && songs.isNotEmpty()) newSongsNote(server, state?.newSongs)?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp),
+                    )
+                }
             }
             if (shelf == ForYouShelf.PICKS && songs.isNotEmpty()) PicksMenu(server, songs, onPickAgain = { scope.launch { picks.load(server.id, force = true) } })
         }
@@ -161,11 +173,7 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
         when (view) {
             ForYouShelfView.Loading -> SongShelfLoading()
             ForYouShelfView.Problem -> ShelfMessage(state?.problem.orEmpty(), onRetry = retry)
-            ForYouShelfView.Empty -> ShelfMessage(
-                if (server.isTrackside) "${server.name} didn't find anything to suggest."
-                else "${server.name} didn't find anything to suggest. If it's Octo, it needs a Last.fm API key, set on its admin page.",
-                onRetry = retry,
-            )
+            ForYouShelfView.Empty -> ShelfMessage(emptyMessage(server, shelf, state?.newSongs), onRetry = retry)
             else -> {
                 val grid = rememberLazyGridState()
                 // Only whole columns while more are coming, so the end is never a column of gaps.
@@ -190,6 +198,28 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
     }
 }
 
+/** Why a For You shelf is empty, and for Suggested songs on Trackside, what would bring new songs. */
+fun emptyMessage(server: SubsonicServer, shelf: ForYouShelf, newSongs: NewSongs?): String = when {
+    shelf == ForYouShelf.PICKS -> "Nothing picked for you yet. Songs by artists you play show up here as you listen."
+    newSongs == NewSongs.TurnedOff ->
+        "No new songs to suggest: ${server.name} can't get songs for you yet. Its admin can turn on requests, with a source to get songs from, " +
+            "on the Requests page of the Trackside dashboard. Suggestions also need a Last.fm API key, under Settings there."
+    newSongs == NewSongs.NotAllowed ->
+        "No new songs to suggest: your account on ${server.name} isn't allowed to request songs. Its admin can allow it under People on the Trackside dashboard."
+    newSongs == NewSongs.Offered ->
+        "${server.name} has no new songs to suggest yet. It finds them on Last.fm as you listen, so if none show up after a while, " +
+            "its admin can check the Last.fm API key under Settings on the Trackside dashboard."
+    server.isTrackside -> "${server.name} didn't find anything to suggest."
+    else -> "${server.name} didn't find anything to suggest. If it's Octo, it needs a Last.fm API key, set on its admin page."
+}
+
+/** Why Suggested songs holds only songs a Trackside server has, and what its admin can do; null where it has new ones too. */
+fun newSongsNote(server: SubsonicServer, newSongs: NewSongs?): String? = when (newSongs) {
+    NewSongs.TurnedOff -> "No new songs here: ${server.name} can't get songs for you yet. Its admin can turn on requests on the Requests page of the Trackside dashboard."
+    NewSongs.NotAllowed -> "No new songs here: your account on ${server.name} isn't allowed to request songs. Its admin can allow it under People on the Trackside dashboard."
+    else -> null
+}
+
 /** What a For You shelf shows: every state ends in songs, a word on why there are none, or nothing. */
 enum class ForYouShelfView {
     Loading, Songs, Empty, Problem, Hidden;
@@ -202,6 +232,8 @@ enum class ForYouShelfView {
                 songs.isNotEmpty() -> Songs
                 state.isFilling -> Loading
                 state.problem != null -> Problem
+                // A Trackside server that can't get songs says why Suggested songs has no new ones.
+                shelf == ForYouShelf.SUGGESTED && (state.newSongs == NewSongs.TurnedOff || state.newSongs == NewSongs.NotAllowed) -> Empty
                 // Nothing to start from yet (no plays, no songs synced): the shelf isn't there.
                 state.shelves.from.isEmpty() -> Hidden
                 else -> Empty
@@ -261,7 +293,7 @@ private fun PicksMenu(server: SubsonicServer, songs: List<ServerSong>, onPickAga
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, shape = MaterialTheme.shapes.large) {
             MenuItem(Icons.Rounded.Refresh, "Pick again") { open = false; onPickAgain() }
-            val toAdd = songs.filter { picks.canKeep(it.serverId) && context.graph.library.find(it.song.identity) == null }
+            val toAdd = songs.filter { picks.canKeep(it) && context.graph.library.find(it.song.identity) == null }
             if (toAdd.isNotEmpty()) {
                 MenuItem(Icons.Rounded.Add, "Add all to library") {
                     open = false
@@ -294,10 +326,18 @@ fun ServerSongRow(song: ServerSong, queue: List<ServerSong>, index: Int, from: S
     val scope = rememberCoroutineScope()
     val ref = remember(song, library) { song.ref(picks) }
     val links = remember(ref, library) { songLinks(ref, library, found = song) }
+    val snackbar = LocalInsightsSnackbar.current
     val play = {
         val songs = queue.mapNotNull { picks.playable(it) }
-        val start = songs.indexOfFirst { it.identity == song.song.identity }.coerceAtLeast(0)
-        if (songs.isNotEmpty()) graph.player.play(songs, start, QueueOrigin(from, QueueOrigin.Kind.Other))
+        val start = songs.indexOfFirst { it.identity == song.song.identity }
+        when {
+            // A new song the server doesn't have yet: it plays once it's added.
+            start < 0 && song.song.isNew -> tell(
+                context, snackbar, scope,
+                if (picks.canKeep(song)) "Add “${song.song.title}” to play it." else "“${song.song.title}” isn't in your library yet.",
+            )
+            songs.isNotEmpty() -> graph.player.play(songs, start.coerceAtLeast(0), QueueOrigin(from, QueueOrigin.Kind.Other))
+        }
     }
     Row(
         modifier
@@ -343,7 +383,7 @@ private fun rememberAdd(song: ServerSong, scope: CoroutineScope): (() -> Unit)? 
     val waiting by discovery.waiting.collectAsState()
     val snackbar = LocalInsightsSnackbar.current
     val owned = context.graph.library.find(song.song.identity) != null
-    if (owned || !picks.canKeep(song.serverId) || song.song.identity in waiting) return null
+    if (owned || !picks.canKeep(song) || song.song.identity in waiting) return null
     return {
         scope.launch {
             val message = runCatching { picks.keep(song) }.getOrElse { "Couldn't add “${song.song.title}”" }
@@ -360,13 +400,16 @@ private fun AddFoundSong(song: ServerSong) {
     val library by context.graph.library.snapshot.collectAsState()
     val discovery = com.luke.tracks.ui.discover.rememberDiscovery()
     val waiting by discovery.waiting.collectAsState()
+    // Read so the button follows whether the server gets songs, once that's known.
+    val offers by picks.forYou.collectAsState()
     val snackbar = LocalInsightsSnackbar.current
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
     var adding by remember(song.song.identity) { mutableStateOf(false) }
     val owned = remember(library, song.song.identity) { context.graph.library.find(song.song.identity) != null }
+    val canKeep = remember(offers, song) { picks.canKeep(song) }
     val state = when {
-        owned || !picks.canKeep(song.serverId) -> 0
+        owned || !canKeep -> 0
         adding -> 1
         song.song.identity in waiting -> 2
         else -> 3

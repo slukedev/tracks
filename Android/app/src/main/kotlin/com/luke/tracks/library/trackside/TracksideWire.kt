@@ -202,7 +202,16 @@ data class TracksideUser(
     val username: String = "",
     @SerialName("display_name") val displayName: String? = null,
     val role: String? = null,
-)
+    val permissions: Permissions? = null,
+) {
+    @Serializable
+    data class Permissions(
+        @SerialName("can_download") val canDownload: Boolean? = null,
+        @SerialName("can_upload") val canUpload: Boolean? = null,
+        /** Whether this account may ask the server to get songs it doesn't have. */
+        @SerialName("can_request") val canRequest: Boolean? = null,
+    )
+}
 
 /** What media addresses carry as `mt`: short-lived, so one that leaks soon stops working. */
 @Serializable
@@ -274,8 +283,27 @@ data class TracksideMe(
     /** Whether this server hands out Apple Music developer tokens. */
     val offersAppleMusic: Boolean get() = features?.appleMusic?.developerToken == true
 
+    /**
+     * Whether this phone can ask the server to get songs it doesn't have. The server sends
+     * `features.acquisition` only when acquisition is on with a source, the account may request
+     * songs, and this credential has the `request` scope; otherwise the key is left out.
+     */
+    val offersAcquisition: Boolean get() = features?.acquisition != null
+
+    /** Whether the account may request songs at all, as the server's admin set it. */
+    val canRequest: Boolean get() = user.permissions?.canRequest != false
+
     @Serializable
-    data class Features(@SerialName("apple_music") val appleMusic: AppleMusic? = null)
+    data class Features(
+        @SerialName("apple_music") val appleMusic: AppleMusic? = null,
+        val acquisition: Acquisition? = null,
+    )
+
+    @Serializable
+    data class Acquisition(
+        @SerialName("instant_play") val instantPlay: Boolean? = null,
+        @SerialName("external_play") val externalPlay: Boolean? = null,
+    )
 
     @Serializable
     data class AppleMusic(@SerialName("developer_token") val developerToken: Boolean? = null)
@@ -320,10 +348,82 @@ data class TracksideSearchResults(
     val songs: Section<TracksideSong>? = null,
     val albums: Section<TracksideAlbum>? = null,
     val artists: Section<TracksideArtist>? = null,
+    /** With `types=external`, where the server gets songs: ones it could get, never in the library. */
+    val external: TracksideAcquisitionSearch? = null,
 ) {
     @Serializable
     data class Section<T>(val items: List<T> = emptyList(), @SerialName("next_cursor") val nextCursor: String? = null)
 }
+
+/** A song the server could get, from a search for one it doesn't have. */
+@Serializable
+data class TracksideCandidate(
+    val token: String = "",
+    val title: String,
+    val artist: String,
+    val album: String? = null,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    /** "lossless", "high" or "standard". */
+    val quality: String? = null,
+    val instant: Boolean? = null,
+    /** "exact" or "close". */
+    val match: String? = null,
+)
+
+/** `POST /api/v1/acquisitions/search`, and the external part of a search. */
+@Serializable
+data class TracksideAcquisitionSearch(
+    @SerialName("search_id") val searchId: String? = null,
+    val complete: Boolean? = null,
+    @SerialName("in_library") val inLibrary: List<TracksideSong>? = null,
+    val candidates: List<TracksideCandidate> = emptyList(),
+)
+
+/** What to ask the server to get: only the title and artist are needed. */
+@Serializable
+data class TracksideAcquisitionRequest(
+    val title: String,
+    val artist: String,
+    val album: String? = null,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    /** A candidate's token, tried first. */
+    val candidate: String? = null,
+    @SerialName("allow_versions") val allowVersions: Boolean = false,
+    val instant: Boolean = false,
+)
+
+/** A song asked of the server, and how getting it is going (section 15.1). */
+@Serializable
+data class TracksideAcquisition(
+    val id: String,
+    /** queued, searching, downloading, verifying, importing, done, failed or cancelled. */
+    val state: String,
+    val title: String = "",
+    val artist: String = "",
+    val album: String? = null,
+    val progress: Progress? = null,
+    val quality: String? = null,
+    /** The song's id in the library, final once it's done. */
+    @SerialName("song_id") val songId: String? = null,
+    /** It was in the library already. */
+    val existing: Boolean? = null,
+    /** Why it failed: no_match, quota_exceeded and the rest. */
+    val failure: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+) {
+    @Serializable
+    data class Progress(val bytes: Long = 0, val total: Long? = null)
+
+    val isDone: Boolean get() = state == "done"
+    val isFinished: Boolean get() = state == "done" || state == "failed" || state == "cancelled"
+}
+
+@Serializable
+data class TracksideAcquisitionList(
+    val acquisitions: List<TracksideAcquisition> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+)
 
 /** A page of `GET /api/v1/sync`: a snapshot's, or the changes after a cursor. */
 @Serializable

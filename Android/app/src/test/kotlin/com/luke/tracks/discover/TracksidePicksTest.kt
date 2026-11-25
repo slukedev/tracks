@@ -46,6 +46,11 @@ class TracksidePicksTest {
     private val asked = CopyOnWriteArrayList<String>()
     private var similar: () -> MockResponse = { json(fixture("similar-songs.json")) }
     private var picks: () -> MockResponse = { json(fixture("picks.json")) }
+    private var me: () -> MockResponse = { json(fixture("me.json")) }
+    private var requested: (RecordedRequest) -> MockResponse = { json(fixture("acquisition-downloading.json"), 202) }
+    private var status: () -> MockResponse = { json(fixture("acquisition-done.json")) }
+    private val requests = CopyOnWriteArrayList<RecordedRequest>()
+    private lateinit var octo: OctoService
 
     private val plain = object : SecretBox {
         override fun seal(plain: String) = plain
@@ -70,7 +75,12 @@ class TracksidePicksTest {
                 request.headers["Authorization"] != "Bearer $KEY" -> json(fixture("error-not-found.json"), 401)
                 path == "me/picks" -> picks()
                 path == "server/urls" -> MockResponse.Builder().code(304).build()
-                path == "me" -> json(fixture("me.json"))
+                path == "me" -> me()
+                path == "acquisitions" && request.method == "POST" -> {
+                    requests += request
+                    requested(request)
+                }
+                path.startsWith("acquisitions/") -> status()
                 path == "media-token" -> json(fixture("media-token.json"))
                 path == "sync" -> json(fixture(if (url.queryParameter("cursor") == null) "sync-snapshot-songs.json" else "sync-snapshot-complete.json"))
                 path == "search" -> json(fixture("search.json"))
@@ -124,8 +134,9 @@ class TracksidePicksTest {
             override val entries get() = library.servers.entries
             override fun client(server: SubsonicServer) = library.servers.client(server)
             override suspend fun sync(server: SubsonicServer) = Unit
-        }, graph.scope, { false }),
+        }, graph.scope, { false }).also { octo = it },
         graph.scope,
+        followEveryMs = 50,
     ).also { it.start() }
 
     private suspend fun loaded(): Pair<ServerPicksService, uniffi.tracks_engine.ForYouShelves> {
@@ -158,9 +169,12 @@ class TracksidePicksTest {
 
         assertTrue("asked for the server's picks: $asked", asked.contains("me/picks"))
         assertTrue("Picked for you: $shelves", shelves.picks.isNotEmpty())
-        assertTrue(shelves.picks.all { it.artist == "Beyoncé" })
-        // An artist you have but have never played is new to you: the server finds nothing else.
-        assertEquals("Suggested songs: $shelves", listOf("Don't Stop Me Now"), shelves.suggested.map { it.title })
+        assertTrue("$shelves", shelves.picks.all { it.artist == "Beyoncé" })
+        // An artist you have but have never played is new to you, and the server gets songs, so
+        // the song Last.fm suggests that it doesn't have joins them: once, though picks and
+        // similar songs both suggest it.
+        assertEquals("Suggested songs: $shelves", setOf("Don't Stop Me Now", "Irreplaceable"), shelves.suggested.map { it.title }.toSet())
+        assertEquals(shelves.suggested.size, shelves.suggested.map { it.id }.toSet().size)
         assertTrue(titles(shelves).containsAll(listOf("Halo", "Single Ladies (Put a Ring on It)", "Don't Stop Me Now")))
         assertTrue("Trackside never sends a stand-in cover, so its songs show without fetching one first: $asked", asked.none { it.startsWith("art/") })
         val song = ServerSong(server.id, shelves.picks.first { it.cover != null })
@@ -194,6 +208,86 @@ class TracksidePicksTest {
         assertTrue(logged, logged.contains("couldn't pick songs") && logged.contains("couldn't find similar songs"))
         assertTrue("no key in the log", !logged.contains(KEY))
         assertTrue("$shelves", titles(shelves).contains("Halo"))
+    }
+
+    private suspend fun suggestedNewSong(): Pair<ServerPicksService, ServerSong> {
+        playBeyonce()
+        val (picks, shelves) = loaded()
+        val new = shelves.suggested.single { it.title == "Irreplaceable" }
+        return picks to ServerSong(server.id, new)
+    }
+
+    @Test fun aNewSongIsAddedWithARequestAndShowsOnItsWayUntilItsDone(): Unit = runBlocking {
+        val (picks, song) = suggestedNewSong()
+        assertEquals(NewSongs.Offered, picks.forYou.value.getValue(server.id).newSongs)
+        assertTrue("not on the server yet: it isn't played", song.song.isNew && picks.playable(song) == null && song.song.cover == null)
+        assertTrue("it can be added", picks.canKeep(song))
+        val library = ServerSong(server.id, picks.forYou.value.getValue(server.id).shelves.picks.first())
+        assertTrue("songs the server has aren't requested", !picks.canKeep(library))
+
+        // Still getting it when first checked on, so it shows as on its way.
+        status = { json(fixture("acquisition-downloading.json")) }
+        val said = picks.keep(song)
+        assertTrue(said, said.startsWith("Getting “Irreplaceable”"))
+        val sent = requests.single()
+        assertTrue("an idempotency key", !sent.headers["Idempotency-Key"].isNullOrBlank())
+        val body = sent.body!!.utf8()
+        assertTrue(body, body.contains("\"title\":\"Irreplaceable\"") && body.contains("\"artist\":\"Beyoncé\""))
+        assertTrue(octo.isWaiting(song.song.identity))
+        assertEquals(1, octo.requests().size)
+
+        status = { json(fixture("acquisition-done.json")) }
+        withTimeout(10_000) { octo.waiting.first { song.song.identity !in it } }
+        assertTrue("checked on with 15.4: $asked", asked.any { it == "acquisitions/qc5hgnjk920q78t8wpcg1" })
+        assertTrue(octo.requests().isEmpty())
+    }
+
+    @Test fun aSongTheServerHasAlreadyIsSaidSo(): Unit = runBlocking {
+        val (picks, song) = suggestedNewSong()
+        requested = { json(fixture("acquisition-done.json"), 200) }
+        val said = picks.keep(song)
+        assertTrue(said, said.contains("is on Home already"))
+    }
+
+    @Test fun aUsedUpQuotaSaysWhenItResets(): Unit = runBlocking {
+        val (picks, song) = suggestedNewSong()
+        requested = { json(fixture("error-quota.json"), 429) }
+        val said = picks.keep(song)
+        assertTrue(said, said.startsWith("You've reached Home's limit on requested songs. It resets "))
+        assertTrue("not on its way", !octo.isWaiting(song.song.identity))
+        val zone = java.time.ZoneId.of("Europe/London")
+        val resets = java.time.Instant.parse("2026-11-15T09:30:00Z")
+        assertTrue(quotaMessage("Home", resets, zone, java.time.Instant.parse("2026-11-14T20:00:00Z")).contains("It resets tomorrow at "))
+        assertTrue(quotaMessage("Home", resets, zone, java.time.Instant.parse("2026-11-15T08:00:00Z")).contains("It resets at "))
+        assertEquals("You've reached Home's limit on requested songs. Try again later.", quotaMessage("Home", null))
+    }
+
+    @Test fun aServerThatDoesntGetSongsSaysWhySuggestedHasNoNewOnes(): Unit = runBlocking {
+        me = { json(fixture("me-without-acquisition.json")) }
+        playBeyonce()
+        val (picks, shelves) = loaded()
+        val state = picks.forYou.value.getValue(server.id)
+        assertEquals(NewSongs.TurnedOff, state.newSongs)
+        assertTrue("no new songs: $shelves", shelves.suggested.none { it.isNew } && shelves.picks.none { it.isNew })
+        assertTrue(shelves.suggested.none { picks.canKeep(ServerSong(server.id, it)) })
+        assertTrue("no requests asked: $asked", asked.none { it.startsWith("acquisitions") || it == "me/get-more" })
+        val note = com.luke.tracks.ui.play.newSongsNote(server, state.newSongs)!!
+        assertTrue(note, note.contains("Requests page"))
+        val empty = com.luke.tracks.ui.play.emptyMessage(server, uniffi.tracks_engine.ForYouShelf.SUGGESTED, state.newSongs)
+        assertTrue(empty, empty.contains("Requests page") && empty.contains("Last.fm API key") && !empty.contains("didn't find"))
+        // Even with no songs to show, Suggested songs says why rather than hiding.
+        val bare = state.copy(shelves = state.shelves.copy(suggested = emptyList(), from = emptyList()))
+        assertEquals(com.luke.tracks.ui.play.ForYouShelfView.Empty, com.luke.tracks.ui.play.ForYouShelfView.of(bare, uniffi.tracks_engine.ForYouShelf.SUGGESTED))
+        assertEquals(com.luke.tracks.ui.play.ForYouShelfView.Hidden, com.luke.tracks.ui.play.ForYouShelfView.of(bare.copy(newSongs = null), uniffi.tracks_engine.ForYouShelf.SUGGESTED))
+    }
+
+    @Test fun anAccountThatCantRequestSongsIsToldWhoCanAllowIt(): Unit = runBlocking {
+        me = { json(fixture("me-without-acquisition.json").replace("\"can_request\": true", "\"can_request\": false")) }
+        val (picks, _) = loaded()
+        val state = picks.forYou.value.getValue(server.id)
+        assertEquals(NewSongs.NotAllowed, state.newSongs)
+        val empty = com.luke.tracks.ui.play.emptyMessage(server, uniffi.tracks_engine.ForYouShelf.SUGGESTED, state.newSongs)
+        assertTrue(empty, empty.contains("isn't allowed to request songs") && empty.contains("People"))
     }
 
     @Test fun readsTheServersShelves() {

@@ -26,6 +26,10 @@ sealed class TracksideError(message: String) : Exception(message) {
     data object NotFound : TracksideError("The server couldn't find that.")
     data object SyncReset : TracksideError("The server started its library over.")
     class RateLimited(val retryAfterSeconds: Long?) : TracksideError("The server is busy. Try again in a moment.")
+    /** The account's limit on requested songs is used up until [resetsAt]. */
+    class QuotaExceeded(val resetsAt: Instant?) : TracksideError("You've reached your server's limit on requested songs.")
+    /** A song offered for getting isn't known anymore: search again. */
+    data object CandidateExpired : TracksideError("That song isn't on offer anymore. Try again.")
     class Unavailable(val code: String, val retryAfterSeconds: Long?) : TracksideError("The server can't play that right now. Try again in a moment.")
     class Server(val status: Int, val code: String, detail: String, val field: String? = null) : TracksideError(detail.ifBlank { "The server had a problem." })
     /** Not an answer Tracks can read: not Trackside, most likely. */
@@ -126,8 +130,11 @@ class TracksideClient(
     suspend fun topSongs(artistId: String, count: Int = 20): List<TracksideSong> =
         get("artists/$artistId/top-songs", TracksideSongList.serializer(), mapOf("count" to "$count")).songs
 
-    suspend fun similarSongs(songId: String, count: Int = 20): List<TracksideSong> =
-        get("songs/$songId/similar", TracksideSongList.serializer(), mapOf("count" to "$count")).songs
+    suspend fun similarSongs(songId: String, count: Int = 20): List<TracksideSong> = similar(songId, count).songs
+
+    /** Songs like one, and with acquisition, ones the server doesn't have in `external`. */
+    suspend fun similar(songId: String, count: Int = 20): TracksideSuggestedSongs =
+        get("songs/$songId/similar", TracksideSuggestedSongs.serializer(), mapOf("count" to "$count"))
 
     suspend fun random(count: Int = 40): List<TracksideSong> =
         get("songs/random", TracksideSongList.serializer(), mapOf("count" to "$count")).songs
@@ -157,6 +164,45 @@ class TracksideClient(
     /** A page of the library's changes after [cursor], or of a snapshot without one. */
     suspend fun sync(cursor: String?, limit: Int = 2_000): TracksideSyncPage =
         get("sync", TracksideSyncPage.serializer(), listOfNotNull("limit" to "$limit", cursor?.let { "cursor" to it }).toMap())
+
+    // MARK: Getting songs the server doesn't have (section 15)
+
+    /**
+     * Songs the server could get for [query], waiting up to 8 s for its sources; null when
+     * this phone can't request songs there (no `features.acquisition`), never an error.
+     */
+    suspend fun searchExternal(query: String, limit: Int = 20): TracksideAcquisitionSearch? =
+        get("search", TracksideSearchResults.serializer(), mapOf("q" to query, "types" to "external", "limit" to "$limit")).external
+
+    /**
+     * Asks the server to get a song: `done` with `existing` when it has it already (200), or
+     * on its way (202). [key] is the `Idempotency-Key`: a request lost on the way is sent once
+     * more with the same key, so the server takes it once. A used-up quota throws
+     * [TracksideError.QuotaExceeded] with when it resets; an expired candidate,
+     * [TracksideError.CandidateExpired]; a server that doesn't get songs, NotFound.
+     */
+    suspend fun requestAcquisition(request: TracksideAcquisitionRequest, key: String = java.util.UUID.randomUUID().toString()): TracksideAcquisition {
+        val body = TracksideJson.encodeToString(TracksideAcquisitionRequest.serializer(), request)
+        val build = { base: HttpUrl ->
+            request(base, "acquisitions", method = "POST", body = body, authorization = bearer).newBuilder().header("Idempotency-Key", key).build()
+        }
+        val answer = try {
+            call(build)
+        } catch (_: IOException) {
+            call(build)
+        }
+        return decode(answer, TracksideAcquisition.serializer())
+    }
+
+    /** How a request is going (section 15.4). */
+    suspend fun acquisition(id: String): TracksideAcquisition = get("acquisitions/$id", TracksideAcquisition.serializer())
+
+    /** Your requests, newest first: still going, or [finished]. */
+    suspend fun acquisitions(finished: Boolean = false, limit: Int = 100, cursor: String? = null): TracksideAcquisitionList =
+        get("acquisitions", TracksideAcquisitionList.serializer(), listOfNotNull("state" to if (finished) "finished" else "active", "limit" to "$limit", cursor?.let { "cursor" to it }).toMap())
+
+    /** Cancels a request that hasn't finished. */
+    suspend fun cancelAcquisition(id: String) = perform("acquisitions/$id", "DELETE")
 
     // MARK: Playing
 
@@ -395,6 +441,8 @@ class TracksideClient(
                 "https_required" -> TracksideError.HttpsRequired
                 "sync_reset" -> TracksideError.SyncReset
                 "rate_limited" -> TracksideError.RateLimited(retryAfter)
+                "quota_exceeded" -> TracksideError.QuotaExceeded(instant(body.details?.resetsAt))
+                "candidate_expired" -> TracksideError.CandidateExpired
                 "library_unavailable", "transcoder_busy", "unavailable" -> TracksideError.Unavailable(body.code, retryAfter)
                 else -> TracksideError.Server(answer.status, body.code, body.message.orEmpty(), body.details?.field)
             }

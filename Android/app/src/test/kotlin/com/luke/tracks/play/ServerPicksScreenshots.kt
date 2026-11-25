@@ -81,7 +81,7 @@ class FakeServerPicks(
     override suspend fun shuffleRandom(serverId: String) = Unit
     override fun playable(song: ServerSong): PlayableSong? = library.find(song.song.identity)
     override fun coverUrl(song: ServerSong): String? = null
-    override fun canKeep(serverId: String) = fetches
+    override fun canKeep(song: ServerSong) = fetches
     override suspend fun keep(song: ServerSong) = ""
 }
 

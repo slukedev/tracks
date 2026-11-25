@@ -2,6 +2,7 @@ package com.luke.tracks.library
 
 import com.luke.tracks.library.trackside.TracksideClient
 import com.luke.tracks.library.trackside.TracksideError
+import com.luke.tracks.library.trackside.TracksideSuggestedSongs
 
 /**
  * What Tracks asks of any music server, in the Subsonic shapes the rest of the app reads:
@@ -98,8 +99,14 @@ class TracksideMusicServer(val client: TracksideClient) : MusicServerClient {
 
     override suspend fun unstar(songId: String) = client.unstar(songId)
 
-    override suspend fun picks(count: Int): List<SubsonicSong>? = try {
-        client.picks(count).songs.filter { it.missing != true }.map { it.subsonic }
+    override suspend fun picks(count: Int): List<SubsonicSong>? = suggestedPicks(count)?.songs?.filter { it.missing != true }?.map { it.subsonic }
+
+    /**
+     * The server's picks with the songs it suggests and doesn't have (`external`, only where
+     * this phone can request songs), or null from a server from before picks.
+     */
+    suspend fun suggestedPicks(count: Int = 40): TracksideSuggestedSongs? = try {
+        client.picks(count)
     } catch (error: TracksideError) {
         // A server from before picks answers 404: the walk from similar songs stands in.
         if (error is TracksideError.NotFound || (error is TracksideError.Http && error.status == 404)) null else throw error

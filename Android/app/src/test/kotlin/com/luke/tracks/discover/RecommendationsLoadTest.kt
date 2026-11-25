@@ -70,6 +70,21 @@ class RecommendationsLoadTest {
     /** A server from before the similar-songs fix finds nothing like a song. */
     private var findsSimilar = true
     private var slowMs = 0L
+    /** Whether you've played anything yet. */
+    private var listened = true
+    /** Whether the server gets songs it doesn't have (`features.acquisition` in `/me`). */
+    private var acquires = false
+    /** Whether the server's library has no songs at all. */
+    private var emptyLibrary = false
+
+    /** Songs Last.fm suggests that the server doesn't have: what it could get. */
+    private fun external(prefix: String, count: Int) = buildJsonArray {
+        repeat(count) { n -> add(buildJsonObject { put("title", "$prefix Song ${n + 1}"); put("artist", "$prefix Artist ${n + 1}") }) }
+    }
+
+    private val me = """{"user":{"id":"u1","username":"luke","role":"member","permissions":{"can_request":true}},
+        "server":{"server_id":"$SERVER_UUID","name":"Home","version":"1.0.0"},
+        "features":{"acquisition":{"instant_play":false,"external_play":false}}}"""
 
     private val plain = object : SecretBox {
         override fun seal(plain: String) = plain
@@ -113,18 +128,35 @@ class RecommendationsLoadTest {
                 path == "sync" && url.queryParameter("cursor") == null -> json(
                     buildJsonObject {
                         put("mode", "snapshot"); put("next_cursor", "page-2")
-                        put("libraries", buildJsonArray { add(buildJsonObject { put("song_count", artists.size * 400) }) })
-                        put("songs", JsonArray(artists.map(::yours)))
+                        put("libraries", buildJsonArray { add(buildJsonObject { put("song_count", if (emptyLibrary) 0 else artists.size * 400) }) })
+                        put("songs", JsonArray(if (emptyLibrary) emptyList() else artists.map(::yours)))
                     }.toString(),
                 )
+                path == "me" -> if (acquires) json(me) else json(notFound, 404)
+                path == "me/get-more" -> if (acquires) json(buildJsonObject { put("songs", JsonArray(emptyList())); put("external", external("More", 2)) }.toString()) else json(notFound, 404)
                 path == "sync" -> {
                     if (syncing) syncGate.await(20, TimeUnit.SECONDS)
                     json("""{"mode":"snapshot","complete":true,"next_cursor":"done","songs":[]}""")
                 }
-                path == "me/picks" -> if (newest) json(songs(listOf(theirs("Artist 1"), theirs("Artist 2"), stranger))) else json(notFound, 404)
+                path == "me/picks" -> when {
+                    !newest -> json(notFound, 404)
+                    emptyLibrary -> json(buildJsonObject { put("songs", JsonArray(emptyList())); if (acquires) put("external", JsonArray(emptyList())) }.toString())
+                    else -> json(
+                        buildJsonObject {
+                            put("songs", JsonArray(listOf(theirs("Artist 1"), theirs("Artist 2"), stranger)))
+                            if (acquires) put("external", external("Picked", 6))
+                        }.toString(),
+                    )
+                }
+                path == "search" && url.queryParameter("types") == "external" -> {
+                    // The server looks for songs it could get by an artist it has none of.
+                    val artist = url.queryParameter("q").orEmpty()
+                    json("""{"external":{"search_id":"s1","complete":true,"candidates":[{"token":"t-$artist","title":"Got by $artist","artist":"$artist","duration_ms":201000}]}}""")
+                }
                 path == "search" -> {
                     val artist = url.queryParameter("q").orEmpty()
-                    json("""{"songs":{"items":${JsonArray(listOf(yours(artist)) + if (findsSimilar) listOf(theirs(artist)) else emptyList())}}}""")
+                    if (emptyLibrary) json("""{"songs":{"items":[]}}""")
+                    else json("""{"songs":{"items":${JsonArray(listOf(yours(artist)) + if (findsSimilar) listOf(theirs(artist)) else emptyList())}}}""")
                 }
                 path.startsWith("songs/") && path.endsWith("/similar") -> json(songs(if (findsSimilar) listOf(stranger) else emptyList()))
                 path == "songs/random" -> json(songs(artists.map(::yours)))
@@ -160,7 +192,7 @@ class RecommendationsLoadTest {
                 kind = PlayKindValue.OnDemand, source = PlaySourceValue.YourMusic, appPackage = null, appName = "Tracks", stationName = null, mediaId = "",
             )
         }
-        graph.history.replaceAll(plays)
+        graph.history.replaceAll(if (listened) plays else emptyList())
         graph.history.syncIndex()
     }
 
@@ -215,6 +247,75 @@ class RecommendationsLoadTest {
         assertTrue("Picked for you, from the artists you play: $state", state.shelves.picks.map { it.title }.containsAll(listOf("New from Artist 1", "New from Artist 2")))
         assertTrue("Suggested songs: $state", state.shelves.suggested.any { it.title == "Somebody New" })
         assertEquals(ServerStatus.Syncing, library.servers.entries.value.single().status)
+    }
+
+    @Test fun beforeYouveListenedTheServersPicksArePickedForYouAndTheShelvesSettleQuickly(): Unit = runBlocking {
+        listened = false
+        start(https = false)
+        val (library, picks) = picks()
+        withTimeout(15_000) { library.servers.entries.first { entries -> entries.any { it.status is ServerStatus.Ready } } }
+
+        val started = System.currentTimeMillis()
+        val state = settled(picks)
+        assertTrue("Picked for you, from the server's picks: $state", state.shelves.picks.map { it.title }.containsAll(listOf("New from Artist 1", "New from Artist 2", "Somebody New")))
+        assertTrue("didn't wait for the load limit: ${System.currentTimeMillis() - started} ms", System.currentTimeMillis() - started < 7_000)
+    }
+
+    /** Suggested songs' new songs, and whether every song on the shelf has its own id. */
+    private fun assertMixed(state: ServerForYouState) {
+        val suggested = state.shelves.suggested
+        assertEquals("ids are a grid's keys: $suggested", suggested.size, suggested.map { it.id }.toSet().size)
+        val first = suggested.take(4)
+        assertTrue("new songs and the server's own together in the first column: $first", first.any { it.isNew } && first.any { !it.isNew })
+        assertTrue(suggested.filter { it.isNew }.all { it.cover == null && it.id.startsWith(NEW_SONG_ID) })
+    }
+
+    @Test fun whereTheServerGetsSongsSuggestedMixesNewSongsWithItsOwn(): Unit = runBlocking {
+        acquires = true
+        start(https = false)
+        val (library, picks) = picks()
+        withTimeout(15_000) { library.servers.entries.first { entries -> entries.any { it.status is ServerStatus.Ready } } }
+
+        val started = System.currentTimeMillis()
+        val state = settled(picks)
+        assertEquals(NewSongs.Offered, state.newSongs)
+        assertMixed(state)
+        val new = state.shelves.suggested.filter { it.isNew }.map { it.title }
+        assertTrue("from picks and Get More: $new", new.any { it.startsWith("Picked") } && new.any { it.startsWith("More") })
+        assertTrue("Picked for you holds the server's songs: $state", state.shelves.picks.isNotEmpty() && state.shelves.picks.none { it.isNew })
+        assertTrue("didn't wait for the load limit: ${System.currentTimeMillis() - started} ms", System.currentTimeMillis() - started < 7_000)
+        assertTrue(picks.canKeep(ServerSong(server.id, state.shelves.suggested.first { it.isNew })))
+    }
+
+    @Test fun beforeYouveListenedSuggestedStillMixesInNewSongs(): Unit = runBlocking {
+        acquires = true
+        listened = false
+        start(https = false)
+        val (library, picks) = picks()
+        withTimeout(15_000) { library.servers.entries.first { entries -> entries.any { it.status is ServerStatus.Ready } } }
+
+        val started = System.currentTimeMillis()
+        val state = settled(picks)
+        assertMixed(state)
+        assertTrue("Picked for you still has some of the server's picks: $state", state.shelves.picks.isNotEmpty())
+        assertTrue("no Get More before you've listened: $asked", "me/get-more" !in asked)
+        assertTrue("didn't wait for the load limit: ${System.currentTimeMillis() - started} ms", System.currentTimeMillis() - started < 7_000)
+    }
+
+    @Test fun anEmptyLibraryStillSuggestsSongsToGet(): Unit = runBlocking {
+        acquires = true
+        emptyLibrary = true
+        start(https = false)
+        val (library, picks) = picks()
+        withTimeout(15_000) { library.servers.entries.first { entries -> entries.any { it.status is ServerStatus.Ready } } }
+
+        val state = settled(picks)
+        val suggested = state.shelves.suggested
+        assertTrue("songs to get, from the artists you play: $state $asked", suggested.isNotEmpty() && suggested.all { it.isNew })
+        assertTrue(suggested.map { it.title }.any { it.startsWith("Got by Artist") })
+        assertTrue("and from Get More", suggested.map { it.title }.any { it.startsWith("More") })
+        assertEquals(suggested.size, suggested.map { it.id }.toSet().size)
+        assertEquals(ForYouShelfView.Songs, ForYouShelfView.of(state, ForYouShelf.SUGGESTED))
     }
 
     @Test fun aServerFromBeforePicksFillsThemOverHttpsWithTheCertificateYouTrusted(): Unit = runBlocking {

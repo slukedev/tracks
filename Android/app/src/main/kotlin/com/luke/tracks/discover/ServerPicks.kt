@@ -16,6 +16,10 @@ import com.luke.tracks.net.Logs
 import com.luke.tracks.net.ServerLinks
 import com.luke.tracks.library.SubsonicServer
 import com.luke.tracks.library.SubsonicSong
+import com.luke.tracks.library.TracksideMusicServer
+import com.luke.tracks.library.trackside.TracksideAcquisitionRequest
+import com.luke.tracks.library.trackside.TracksideError
+import com.luke.tracks.library.trackside.TracksideSuggestion
 import com.luke.tracks.playback.PlayableSong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -55,7 +60,13 @@ import uniffi.tracks_engine.serverForYouFromJson
 import uniffi.tracks_engine.serverSeeds
 import uniffi.tracks_engine.songIdentity
 import java.io.File
+import java.io.IOException
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.util.Locale
 import java.util.WeakHashMap
 import java.util.concurrent.TimeUnit
 
@@ -63,7 +74,53 @@ import java.util.concurrent.TimeUnit
  * What one server picks for you: its For You shelves, whether it's still looking, and why it
  * found nothing when every request to it failed.
  */
-data class ServerForYouState(val shelves: ForYouShelves, val isFilling: Boolean = false, val problem: String? = null)
+data class ServerForYouState(
+    val shelves: ForYouShelves,
+    val isFilling: Boolean = false,
+    val problem: String? = null,
+    /** For Trackside, whether Suggested songs can hold new songs to add; null for other servers or not known yet. */
+    val newSongs: NewSongs? = null,
+)
+
+/**
+ * Whether a Trackside server gets songs it doesn't have, as `/me` says with
+ * `features.acquisition`: only then can Suggested songs hold new songs, with an Add button.
+ */
+enum class NewSongs {
+    /** It gets songs for you: new ones join Suggested songs, among ones it has. */
+    Offered,
+    /** Requests are off on the server, or have no source to get songs from. */
+    TurnedOff,
+    /** Your account isn't allowed to request songs. */
+    NotAllowed,
+}
+
+/** How a song the server doesn't have is named on a shelf: never a server's id, as those are letters and digits. */
+const val NEW_SONG_ID = "new:"
+
+/** A song suggested that the server doesn't have yet: it can be added, not played. */
+val FoundSong.isNew: Boolean get() = id.startsWith(NEW_SONG_ID)
+
+/** A suggested song the server doesn't have, as a shelf shows it: no cover, an id from its identity so a shelf's keys stay unique. */
+fun newSong(title: String, artist: String, album: String? = null, durationMs: Long? = null): FoundSong {
+    val identity = songIdentity(title, artist)
+    return FoundSong(NEW_SONG_ID + identity, identity, title, artist, album?.takeIf { it.isNotBlank() }, null, durationMs?.takeIf { it > 0 }?.toULong())
+}
+
+/** What to say when the account's request limit is used up, with when it resets in your time. */
+fun quotaMessage(serverName: String, resetsAt: Instant?, zone: ZoneId = ZoneId.systemDefault(), now: Instant = Instant.now()): String {
+    val said = "You've reached $serverName's limit on requested songs."
+    val at = resetsAt?.atZone(zone) ?: return "$said Try again later."
+    // atZone, not LocalDate.ofInstant, which needs Android 14.
+    val today = now.atZone(zone).toLocalDate()
+    val time = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale.getDefault()).format(at)
+    val day = when (at.toLocalDate()) {
+        today -> "at $time"
+        today.plusDays(1) -> "tomorrow at $time"
+        else -> "on ${DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()).format(at)} at $time"
+    }
+    return "$said It resets $day."
+}
 
 /** A server's own shelves of albums. */
 data class ServerAlbums(
@@ -105,8 +162,11 @@ interface ServerPicks {
     /** The song to play: the library's where it's synced, the server's stream otherwise. */
     fun playable(song: ServerSong): PlayableSong?
     fun coverUrl(song: ServerSong): String?
-    /** Whether the server fetches songs it doesn't have (Octo): only then is Add offered. */
-    fun canKeep(serverId: String): Boolean
+    /**
+     * Whether the server can get [song] for you: any song not in your music where it fetches
+     * (Octo), and new songs it suggests where Trackside gets songs. Only then is Add offered.
+     */
+    fun canKeep(song: ServerSong): Boolean
     /** Has the server fetch a song to keep, and says how it went. */
     suspend fun keep(song: ServerSong): String
 }
@@ -126,7 +186,7 @@ object NoServerPicks : ServerPicks {
     override suspend fun shuffleRandom(serverId: String) = Unit
     override fun playable(song: ServerSong): PlayableSong? = null
     override fun coverUrl(song: ServerSong): String? = null
-    override fun canKeep(serverId: String) = false
+    override fun canKeep(song: ServerSong) = false
     override suspend fun keep(song: ServerSong) = ""
 }
 
@@ -148,6 +208,8 @@ class ServerPicksService(
     private val newBudget: () -> RequestBudget = { RequestBudget(3, 8_000) },
     /** How long a first load goes on finding songs before the shelves show what it has. */
     private val loadLimitMs: Long = 40_000,
+    /** How often a song requested from Trackside is checked on, at first. */
+    private val followEveryMs: Long = 5_000,
 ) : ServerPicks {
     private val dir = File(context.cacheDir, "for-you")
     private val serverLibrary: ServerLibrary get() = library.servers
@@ -178,6 +240,14 @@ class ServerPicksService(
     private var failuresInARow = 0
     /** Each server's first load, run here so a shelf scrolled away or a tab left doesn't end it. */
     private val loads = java.util.concurrent.ConcurrentHashMap<String, Deferred<Unit>>()
+    /** Whether each Trackside server gets songs, and when that was asked. */
+    private val offers = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, NewSongs>>()
+    /** What each server's picks were made with: picks made before it got songs are made again. */
+    private val madeWith = java.util.concurrent.ConcurrentHashMap<String, NewSongs>()
+    /** New songs found for each walk and not shown yet: they join Suggested songs among the server's own. */
+    private val pendingNew = WeakHashMap<ServerForYou, NewFound>()
+    /** Requests being followed, by their id. */
+    private val following = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 
     fun start() {
         scope.launch {
@@ -199,6 +269,16 @@ class ServerPicksService(
                     if (shown == null || (shown.picks.isEmpty() && shown.suggested.isEmpty())) scope.launch { load(entry.server.id, force = true) }
                 }
                 before = statuses
+            }
+        }
+        // Requests from before a restart are followed again until their songs arrive.
+        scope.launch {
+            val requests = octo.requests()
+            if (requests.isEmpty()) return@launch
+            val entries = withTimeoutOrNull(30_000) { serverLibrary.entries.first { it.isNotEmpty() } }.orEmpty()
+            for (request in requests) {
+                val server = entries.firstOrNull { it.server.id == request.serverId }?.server
+                if (server == null) octo.noLongerWaiting(request.identity) else follow(server, request)
             }
         }
     }
@@ -243,9 +323,16 @@ class ServerPicksService(
 
     private suspend fun loadNow(serverId: String, force: Boolean) {
         val server = server(serverId) ?: return Logs.i("For You: that server isn't set up anymore")
+        val offer = newSongs(server, null)
         lock(serverId).withLock {
             val previous = walks[serverId]
-            if (!force && previous?.stands(PICKED, now()) == true) return Logs.i("For You: ${server.name}: picks from earlier still stand")
+            // Picks made before the server got songs are made again, so new ones join them.
+            val remake = offer == NewSongs.Offered && madeWith[serverId] != NewSongs.Offered
+            if (!force && !remake && previous?.stands(PICKED, now()) == true) {
+                publishOffer(serverId)
+                return Logs.i("For You: ${server.name}: picks from earlier still stand")
+            }
+            offer?.let { madeWith[serverId] = it }
             val started = now()
             val played = playedArtists()
             val library = libraryArtists()
@@ -261,19 +348,47 @@ class ServerPicksService(
                     val client = serverLibrary.client(server)
                     if (client == null) Logs.i("For You: ${server.name}: its sign-in can't be opened on this phone")
                     // A server that picks for you (Trackside) starts the shelves; the walk goes on from there.
-                    val picked = client?.let { serverPicks(it, server, tally) }
-                    if (seeds.isEmpty() && picked.isNullOrEmpty()) {
+                    val serverPicked = client?.let { serverPicks(it, server, tally) }
+                    val picked = serverPicked?.songs
+                    if (offer == NewSongs.Offered && client is TracksideMusicServer) {
+                        // New songs the server suggests and could get: from its picks, and from Get More once you've listened.
+                        addNew(fresh, serverPicked?.external.orEmpty().map { newSong(it.title, it.artist) })
+                        if (played.isNotEmpty()) {
+                            // A list from what's stored, like picks: not counted against the budget.
+                            val more = ask(tally, "For You: ${server.name} couldn't suggest more") { client.client.getMore(GET_MORE).external }
+                            addNew(fresh, more.orEmpty().map { newSong(it.title, it.artist) })
+                        }
+                        Logs.i("For You: ${server.name} suggested ${pending(fresh).size} new songs it can get")
+                    }
+                    if (seeds.isEmpty() && picked.isNullOrEmpty() && pending(fresh).isEmpty()) {
                         Logs.i("For You: ${server.name}: nothing to start from yet: no plays, no songs synced and no picks from the server")
                         return@withTimeoutOrNull
                     }
-                    if (!picked.isNullOrEmpty()) fresh.add(candidates(picked, server), emptyList(), dailySeed("for-you-server"))
-                    // A column for each shelf at a time, Suggested songs first as it leads the page,
-                    // and on while a shelf is still empty and there's more to find.
+                    if (!picked.isNullOrEmpty()) {
+                        val found = candidates(picked, server).let { list ->
+                            when {
+                                played.isNotEmpty() -> list
+                                // Before you've played anything no artist is yours yet. Where new songs
+                                // join Suggested songs, every other song the server picked does too, so
+                                // that shelf mixes what it has with what it can get; otherwise all of
+                                // them are Picked for you.
+                                offer == NewSongs.Offered -> list.mapIndexed { n, candidate -> candidate.copy(knownArtist = n % 2 == 0) }
+                                else -> list.map { it.copy(knownArtist = true) }
+                            }
+                        }
+                        fresh.add(found, emptyList(), dailySeed("for-you-server"))
+                    }
+                    // A column for each shelf at a time, Suggested songs first as it leads the page.
+                    // While both are empty it goes on as long as there's more to find; once one has
+                    // songs, the other fills as it's scrolled or tried again, so a shelf that stays
+                    // empty (no artists you play on the server, say) doesn't hold every load up.
                     var round = 0
-                    while (!tally.unreachable && (round < FIRST_ROUNDS || (round < MAX_ROUNDS && fresh.canGoOn() && fresh.shelves().let { it.picks.isEmpty() || it.suggested.isEmpty() }))) {
+                    while (!tally.unreachable && (round < FIRST_ROUNDS || (round < MAX_ROUNDS && fresh.canGoOn() && fresh.shelves().let { it.picks.isEmpty() && it.suggested.isEmpty() }))) {
                         goOn(fresh, if (round % 2 == 0) ForYouShelf.SUGGESTED else ForYouShelf.PICKS, server, publishing = !replaces, want = COLUMN, tally = tally)
                         round++
                     }
+                    // Nothing more to go on from: the new songs still waiting show all the same.
+                    if (!fresh.canGoOn()) showNew(fresh, pending(fresh).size)
                 } ?: Logs.i("For You: ${server.name}: stopped looking after ${loadLimitMs / 1000} s; showing what was found")
             } finally {
                 withContext(NonCancellable) {
@@ -308,7 +423,7 @@ class ServerPicksService(
         val server = server(serverId) ?: return
         lock(serverId).withLock {
             val walk = walks[serverId] ?: return
-            if (!walk.canGoOn()) return
+            if (!walk.canGoOn() && pending(walk).isEmpty()) return
             val tally = Tally()
             publish(serverId, walk, filling = true)
             try {
@@ -355,7 +470,9 @@ class ServerPicksService(
      * found, going on from the next artist only when those run out, from at most two artists a
      * call so songs without covers can't keep it asking.
      */
-    private suspend fun goOn(walk: ServerForYou, shelf: ForYouShelf, server: SubsonicServer, publishing: Boolean, want: Int, tally: Tally? = null) {
+    private suspend fun goOn(walk: ServerForYou, shelf: ForYouShelf, server: SubsonicServer, publishing: Boolean, want: Int, tally: Tally? = null): Int {
+        // On Suggested songs, new songs the server can get come two for each of its own.
+        if (shelf == ForYouShelf.SUGGESTED) return goOnSuggested(walk, server, publishing, want, tally)
         var shown = 0
         var goneOn = 0
         while (shown < want) {
@@ -372,6 +489,104 @@ class ServerPicksService(
             shown += kept.size
             if (publishing && kept.isNotEmpty()) publish(server.id, walk, filling = true)
         }
+        return shown
+    }
+
+    /**
+     * Suggested songs: the server's own songs by artists new to you, and where Trackside gets
+     * songs, new ones mixed in, two for each of its own. Songs are found first and placed
+     * together, so nothing is held back from the walk while it goes on.
+     */
+    private suspend fun goOnSuggested(walk: ServerForYou, server: SubsonicServer, publishing: Boolean, want: Int, tally: Tally?): Int {
+        val shelf = ForYouShelf.SUGGESTED
+        val newWanted = if (pending(walk).isEmpty()) 0 else (want * 2 + 2) / 3
+        var goneOn = 0
+        while (walk.waiting(shelf) < (want - newWanted).toUInt() && goneOn < 2 && walk.hasQueue()) {
+            findMore(walk, server, tally)
+            goneOn++
+        }
+        val batch = walk.takeWaiting(shelf, (want - minOf(newWanted, pending(walk).size)).coerceAtLeast(0).toUInt())
+        val theirs = withCovers(server, batch)
+        if (theirs.size < batch.size) Logs.i("For You: ${server.name}: ${batch.size - theirs.size} of ${batch.size} songs left out for want of a cover")
+        // New songs fill the rest of the column, and all of them show once there's nothing more to go on from.
+        val newOnes = takeNew(walk, if (walk.canGoOn()) want - theirs.size else Int.MAX_VALUE)
+        val mixed = if (newOnes.isEmpty()) theirs else serverBlend(theirs, newOnes)
+        if (mixed.isNotEmpty()) {
+            walk.place(shelf, mixed)
+            if (publishing) publish(server.id, walk, filling = true)
+        }
+        return mixed.size
+    }
+
+    // MARK: - New songs
+
+    /** New songs found for a walk: those waiting to be shown, and every one it has met, so none comes twice. */
+    private class NewFound {
+        val waiting = ArrayDeque<FoundSong>()
+        val met = HashSet<String>()
+    }
+
+    private fun newFound(walk: ServerForYou): NewFound = synchronized(pendingNew) { pendingNew.getOrPut(walk) { NewFound() } }
+
+    private fun pending(walk: ServerForYou): List<FoundSong> = newFound(walk).let { synchronized(it) { it.waiting.toList() } }
+
+    private fun takeNew(walk: ServerForYou, count: Int): List<FoundSong> {
+        val found = newFound(walk)
+        return synchronized(found) { List(minOf(count, found.waiting.size)) { found.waiting.removeFirst() } }
+    }
+
+    /** Places up to [count] waiting new songs on Suggested songs straight away. */
+    private fun showNew(walk: ServerForYou, count: Int) {
+        val shown = takeNew(walk, count)
+        if (shown.isNotEmpty()) walk.place(ForYouShelf.SUGGESTED, shown)
+    }
+
+    /**
+     * Keeps new songs the server suggests for Suggested songs: each once, none you have or
+     * have played, none already on the shelves.
+     */
+    private suspend fun addNew(walk: ServerForYou, songs: List<FoundSong>) {
+        if (songs.isEmpty()) return
+        val heard = heard(songs.map { it.identity })
+        val shelves = walk.shelves()
+        val found = newFound(walk)
+        synchronized(found) {
+            val shown = (shelves.picks + shelves.suggested + shelves.further).mapTo(HashSet()) { it.identity }
+            found.waiting.addAll(songs.filter { it.identity !in heard && it.identity !in shown && index.find(it.identity) == null && found.met.add(it.identity) })
+        }
+    }
+
+    /**
+     * Whether a Trackside server gets songs for you, from `/me`, asked at most every few
+     * minutes; null for any other server, or when it couldn't be asked and wasn't known.
+     */
+    private suspend fun newSongs(server: SubsonicServer, tally: Tally?): NewSongs? {
+        if (!server.isTrackside) return null
+        val known = offers[server.id]
+        if (known != null && now() - known.first < OFFER_KEEP_MS) return known.second
+        val client = serverLibrary.tracksideClient(server.id) ?: return known?.second
+        val me = ask(tally, "For You: ${server.name} couldn't say whether it gets songs") { client.me() } ?: return known?.second
+        val found = when {
+            me.offersAcquisition -> NewSongs.Offered
+            !me.canRequest -> NewSongs.NotAllowed
+            else -> NewSongs.TurnedOff
+        }
+        if (known?.second != found) {
+            Logs.i(
+                "For You: ${server.name} " + when (found) {
+                    NewSongs.Offered -> "gets songs for you, so Suggested songs has new ones"
+                    NewSongs.NotAllowed -> "doesn't let your account request songs, so Suggested songs has only songs it has"
+                    NewSongs.TurnedOff -> "doesn't get songs (no features.acquisition in /me), so Suggested songs has only songs it has"
+                },
+            )
+        }
+        offers[server.id] = now() to found
+        return found
+    }
+
+    private fun publishOffer(serverId: String) {
+        val offer = offers[serverId]?.second
+        _forYou.update { all -> all[serverId]?.takeIf { it.newSongs != offer }?.let { all + (serverId to it.copy(newSongs = offer)) } ?: all }
     }
 
     /** Goes on from the next artist: a few of their songs, then songs like the first, as the server's budget allows. */
@@ -381,10 +596,24 @@ class ServerPicksService(
         budget(server.id).take()
         val found = ask(tally, "For You: ${server.name} couldn't search") { client.search(artist, artists = 0, albums = 0, songs = ARTIST_SONGS).songs }
             ?.map { it.found() } ?: return
+        // Where Trackside gets songs, songs like these it doesn't have are new songs to suggest.
+        val trackside = (client as? TracksideMusicServer)?.client?.takeIf { offers[server.id]?.second == NewSongs.Offered }
+        if (found.isEmpty() && trackside != null) {
+            // None of the artist's songs on the server: ones it could get stand in.
+            budget(server.id).take()
+            val could = ask(tally, "For You: ${server.name} couldn't look for songs to get") { trackside.searchExternal(artist, ARTIST_SONGS) }
+            addNew(walk, could?.candidates.orEmpty().map { newSong(it.title, it.artist, it.album, it.durationMs) })
+        }
         val start = serverArtistStart(artist, found)
         val like = start.start?.let { index ->
-            ask(tally, "For You: ${server.name} couldn't find similar songs") { client.similarSongs(found[index.toInt()].id, 15) }
-                .orEmpty().map { it.found() }
+            ask(tally, "For You: ${server.name} couldn't find similar songs") {
+                val id = found[index.toInt()].id
+                if (trackside == null) client.similarSongs(id, 15).map { it.found() }
+                else trackside.similar(id, 15).let { answer ->
+                    addNew(walk, answer.external.orEmpty().map { newSong(it.title, it.artist) })
+                    answer.songs.filter { it.missing != true }.map { it.subsonic.found() }
+                }
+            }.orEmpty()
         }.orEmpty()
         val songs = start.theirs.map { found[it.toInt()] } + like
         val yours = yoursBy(artist)
@@ -393,16 +622,25 @@ class ServerPicksService(
         walk.add(candidates, yours.filter { it.identity !in heard }, dailySeed("for-you-$artist"))
     }
 
+    /** What a server picked: its songs, and with Trackside, ones it suggests and doesn't have. */
+    private class Picked(val songs: List<FoundSong>, val external: List<TracksideSuggestion>)
+
     /** The server's own picks, or null when it doesn't make any; a failure says why in the log. */
-    private suspend fun serverPicks(client: MusicServerClient, server: SubsonicServer, tally: Tally): List<FoundSong>? {
+    private suspend fun serverPicks(client: MusicServerClient, server: SubsonicServer, tally: Tally): Picked? {
         budget(server.id).take()
-        val picked = ask(tally, "For You: ${server.name} couldn't pick songs") { client.picks(SERVER_PICKS) }
+        val picked = ask(tally, "For You: ${server.name} couldn't pick songs") {
+            if (client is TracksideMusicServer) {
+                client.suggestedPicks(SERVER_PICKS)?.let { answer -> Picked(answer.songs.filter { it.missing != true }.map { it.subsonic.found() }, answer.external.orEmpty()) }
+            } else {
+                client.picks(SERVER_PICKS)?.let { songs -> Picked(songs.map { it.found() }, emptyList()) }
+            }
+        }
         when {
             picked == null && server.isTrackside -> Logs.i("For You: ${server.name} made no picks (a Trackside from before picks, or the request failed); going on from similar songs")
             picked == null -> Logs.i("For You: ${server.name} doesn't pick songs itself; going on from similar songs")
-            else -> Logs.i("For You: ${server.name} picked ${picked.size} songs")
+            else -> Logs.i("For You: ${server.name} picked ${picked.songs.size} songs")
         }
-        return picked?.map { it.found() }
+        return picked
     }
 
     private suspend fun candidates(songs: List<FoundSong>, server: SubsonicServer, also: List<String> = emptyList()): List<FoundCandidate> {
@@ -474,7 +712,14 @@ class ServerPicksService(
 
     /** The server's albums of a kind that are in the library, to open there. */
     private suspend fun albums(server: SubsonicServer, client: MusicServerClient, type: SubsonicClient.AlbumListType): List<ServerAlbum> =
-        runCatching { client.albums(type, size = 15) }.onFailure { Logs.w("${server.name} couldn't list albums", it) }.getOrDefault(emptyList()).mapNotNull { album ->
+        try {
+            client.albums(type, size = 15)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Logs.w("${server.name} couldn't list albums", error)
+            emptyList()
+        }.mapNotNull { album ->
             val id = ServerLibrary.albumId(server.id, album.id)
             index.album(id)?.let { ServerAlbum(id, it.title, it.artistName, album.coverArt?.let { cover -> ServerLinks.coverUrl(server.id, cover) }) }
         }
@@ -530,6 +775,8 @@ class ServerPicksService(
 
     override fun playable(song: ServerSong): PlayableSong? {
         index.find(song.song.identity)?.let { return it }
+        // A new song plays once the server has it and it's in your library.
+        if (song.song.isNew) return null
         val server = server(song.serverId) ?: return null
         val s = song.song
         return PlayableSong(
@@ -550,12 +797,106 @@ class ServerPicksService(
         return ServerLinks.coverUrl(server.id, cover, 300)
     }
 
-    override fun canKeep(serverId: String) = octo.capability(serverId) == FetchCapability.Fetches
+    override fun canKeep(song: ServerSong): Boolean =
+        if (song.song.isNew) offers[song.serverId]?.second == NewSongs.Offered
+        else octo.capability(song.serverId) == FetchCapability.Fetches
 
     override suspend fun keep(song: ServerSong): String {
         val server = server(song.serverId) ?: return "That server isn't set up anymore"
         val s = song.song
+        if (s.isNew) return request(server, s)
         return octo.get(ServerFind(server.id, server.name, SubsonicSong(id = s.id, title = s.title, artist = s.artist, album = s.album, isExternal = true)))
+    }
+
+    /**
+     * Asks Trackside to get a new song (`POST /acquisitions`), shows it on its way and follows
+     * the request until the song is in your library or the server gives up on it.
+     */
+    private suspend fun request(server: SubsonicServer, song: FoundSong): String {
+        val client = serverLibrary.tracksideClient(server.id) ?: return "Sign in to ${server.name} again"
+        val asked = try {
+            client.requestAcquisition(TracksideAcquisitionRequest(song.title, song.artist, song.album, song.durationMs?.toLong()))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: TracksideError.QuotaExceeded) {
+            return quotaMessage(server.name, error.resetsAt)
+        } catch (error: TracksideError.CandidateExpired) {
+            return "“${song.title}” isn't on offer anymore. Try again later."
+        } catch (error: TracksideError.NotFound) {
+            // Requests were turned off since the server said it gets songs.
+            offers[server.id] = now() to NewSongs.TurnedOff
+            publishOffer(server.id)
+            return "${server.name} isn't getting songs for you right now."
+        } catch (error: TracksideError) {
+            Logs.w("For You: ${server.name} couldn't take a request", error)
+            return error.message ?: "Couldn't add “${song.title}”"
+        } catch (error: IOException) {
+            Logs.w("For You: couldn't reach ${server.name} to request a song", error)
+            return "Couldn't reach ${server.name}. Try again."
+        }
+        val request = OctoService.Request(song.identity, server.id, asked.id)
+        return when {
+            asked.isDone -> {
+                // 200: the server had it already; it's in your library with the next sync.
+                octo.onItsWay(request)
+                scope.launch { arrived(server, request) }
+                "“${song.title}” is on ${server.name} already. It'll be in your library in a moment."
+            }
+            asked.isFinished -> "${server.name} couldn't get “${song.title}”."
+            else -> {
+                octo.onItsWay(request)
+                follow(server, request)
+                "Getting “${song.title}”. It'll be in your library once ${server.name} has it."
+            }
+        }
+    }
+
+    /** Checks on a request (section 15.4) until it's done, often at first, then less. */
+    private fun follow(server: SubsonicServer, request: OctoService.Request) {
+        if (following[request.id]?.isActive == true) return
+        following[request.id] = scope.launch {
+            var waited = 0L
+            while (waited < FOLLOW_MS) {
+                val step = if (waited < 24 * followEveryMs) followEveryMs else followEveryMs * 6
+                delay(step)
+                waited += step
+                val client = serverLibrary.tracksideClient(server.id) ?: break
+                val now = try {
+                    client.acquisition(request.id)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: TracksideError.NotFound) {
+                    octo.noLongerWaiting(request.identity)
+                    break
+                } catch (error: Exception) {
+                    Logs.w("For You: couldn't check on a request to ${server.name}", error)
+                    continue
+                }
+                if (now.isDone) {
+                    arrived(server, request)
+                    break
+                }
+                if (now.isFinished) {
+                    Logs.i("For You: ${server.name} couldn't get a song: ${now.state} ${now.failure.orEmpty()}")
+                    octo.noLongerWaiting(request.identity)
+                    break
+                }
+            }
+            following.remove(request.id)
+        }
+    }
+
+    /** The song is on the server: the library syncs to bring it in, and it's no longer on its way. */
+    private suspend fun arrived(server: SubsonicServer, request: OctoService.Request) {
+        try {
+            serverLibrary.sync(server)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Logs.w("For You: couldn't sync ${server.name}", error)
+        }
+        octo.settle()
+        octo.noLongerWaiting(request.identity)
     }
 
     // MARK: - What you know
@@ -591,7 +932,7 @@ class ServerPicksService(
 
     private fun publish(serverId: String, walk: ServerForYou, filling: Boolean, problem: String? = null) {
         walks[serverId] = walk
-        _forYou.update { it + (serverId to ServerForYouState(walk.shelves(), filling, problem)) }
+        _forYou.update { it + (serverId to ServerForYouState(walk.shelves(), filling, problem, offers[serverId]?.second)) }
         publishExploring()
         val json = walk.toJson()
         scope.launch(Dispatchers.IO) { runCatching { dir.mkdirs(); File(dir, "$serverId.json").writeText(json) } }
@@ -633,6 +974,11 @@ class ServerPicksService(
         const val PAGE = 8
         const val ARTIST_SONGS = 20
         const val SERVER_PICKS = 40
+        const val GET_MORE = 24
+        /** How long whether a server gets songs is taken as known. */
+        const val OFFER_KEEP_MS = 5 * 60_000L
+        /** How long a request is followed before it's left to the next launch. */
+        const val FOLLOW_MS = 30 * 60_000L
         const val ALBUMS_KEEP_MS = 15 * 60_000L
         val coverHttp: OkHttpClient by lazy {
             Http.media.newBuilder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()

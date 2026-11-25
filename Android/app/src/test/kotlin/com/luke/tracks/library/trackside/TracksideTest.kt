@@ -369,4 +369,107 @@ class TracksideClientTest {
         }
         assertEquals(TracksideError.HttpsRequired, TracksideClient.error(TracksideAnswer(403, fixture("error-https-required.json"))))
     }
+
+    @Test fun meSaysWhetherThisPhoneCanRequestSongs() {
+        val with = TracksideJson.decodeFromString(TracksideMe.serializer(), fixture("me.json"))
+        assertTrue(with.offersAcquisition)
+        assertTrue(with.canRequest)
+        assertEquals(true, with.features?.acquisition?.externalPlay)
+        val without = TracksideJson.decodeFromString(TracksideMe.serializer(), fixture("me-without-acquisition.json"))
+        assertFalse(without.offersAcquisition)
+        val barred = TracksideJson.decodeFromString(
+            TracksideMe.serializer(),
+            fixture("me-without-acquisition.json").replace("\"can_request\": true", "\"can_request\": false"),
+        )
+        assertFalse(barred.canRequest)
+    }
+
+    @Test fun aRequestSendsTitleAndArtistWithAnIdempotencyKeyAndRetriesWithTheSameKey() = runTest {
+        val sent = mutableListOf<Request>()
+        val bodies = mutableListOf<String>()
+        var lose = true
+        val transport = TracksideTransport { request, _ ->
+            sent += request
+            bodies += Buffer().also { request.body?.writeTo(it) }.readUtf8()
+            // The first is lost on the way: the phone can't know whether the server took it.
+            if (lose) {
+                lose = false
+                throw java.io.IOException("connection reset")
+            }
+            TracksideAnswer(202, fixture("acquisition-downloading.json"))
+        }
+        val endpoints = ServerEndpoints(listOf(home), home.url, backgroundScope, { _, _ -> true })
+        val client = TracksideClient(endpoints, key, "d1", null, transport)
+        val asked = client.requestAcquisition(TracksideAcquisitionRequest("Halo", "Beyoncé", "I Am... Sasha Fierce", 261_640))
+
+        assertEquals("downloading", asked.state)
+        assertFalse(asked.isFinished)
+        assertEquals(2, sent.size)
+        sent.forEach {
+            assertEquals("POST", it.method)
+            assertEquals("/api/v1/acquisitions", it.url.encodedPath)
+        }
+        val key0 = sent[0].header("Idempotency-Key")
+        assertTrue("a key: $key0", !key0.isNullOrBlank())
+        assertEquals("the retry is the same request", key0, sent[1].header("Idempotency-Key"))
+        assertEquals(bodies[0], bodies[1])
+        val body = TracksideJson.parseToJsonElement(bodies[0]).toString()
+        assertTrue(body, body.contains("\"title\":\"Halo\"") && body.contains("\"artist\":\"Beyoncé\""))
+        assertTrue(body, body.contains("\"duration_ms\":261640") && body.contains("\"allow_versions\":false") && body.contains("\"instant\":false"))
+        assertFalse("no candidate without one: $body", body.contains("candidate"))
+
+        // A new request is a new key.
+        lose = false
+        client.requestAcquisition(TracksideAcquisitionRequest("Halo", "Beyoncé"))
+        assertTrue(sent.last().header("Idempotency-Key") != key0)
+    }
+
+    @Test fun requestAnswersAndRefusals() = runTest {
+        var answer = TracksideAnswer(200, fixture("acquisition-done.json"))
+        val transport = TracksideTransport { _, _ -> answer }
+        val endpoints = ServerEndpoints(listOf(home), home.url, backgroundScope, { _, _ -> true })
+        val client = TracksideClient(endpoints, key, "d1", null, transport)
+        val request = TracksideAcquisitionRequest("Halo", "Beyoncé")
+
+        // 200: the library has it already.
+        val done = client.requestAcquisition(request)
+        assertTrue(done.isDone && done.existing == true)
+        assertEquals("sdjcz08vf67h7cx28snq6", done.songId)
+
+        // 429: the quota, and when it resets.
+        answer = TracksideAnswer(429, fixture("error-quota.json"))
+        try {
+            client.requestAcquisition(request)
+            fail("quota")
+        } catch (error: TracksideError.QuotaExceeded) {
+            assertEquals(Instant.parse("2026-11-15T09:30:00Z"), error.resetsAt)
+        }
+
+        // 410: a candidate that's gone.
+        answer = TracksideAnswer(410, """{"error":{"code":"candidate_expired","message":"Search again."}}""")
+        try {
+            client.requestAcquisition(request.copy(candidate = "x3n8"))
+            fail("expired")
+        } catch (_: TracksideError.CandidateExpired) {
+        }
+
+        // A server that doesn't get songs answers 404 to all of section 15.
+        answer = TracksideAnswer(404, fixture("error-not-found.json"))
+        try {
+            client.requestAcquisition(request)
+            fail("not offered")
+        } catch (_: TracksideError.NotFound) {
+        }
+
+        // Status (15.4).
+        answer = TracksideAnswer(200, fixture("acquisition-downloading.json"))
+        assertEquals(12_000_000L, client.acquisition("qc5hgnjk920q78t8wpcg1").progress?.bytes)
+        answer = TracksideAnswer(200, fixture("acquisitions.json"))
+        assertTrue(client.acquisitions().acquisitions.isNotEmpty())
+        answer = TracksideAnswer(200, fixture("search.json"))
+        assertEquals("Halo", client.searchExternal("halo")!!.candidates.first().title)
+        answer = TracksideAnswer(200, fixture("search-library-only.json"))
+        assertEquals("left out where this phone can't request songs", null, client.searchExternal("halo"))
+    }
+
 }

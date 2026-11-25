@@ -217,13 +217,31 @@ See [README.md](README.md) for the legend and how to keep this current.
   asks the server (search, then `getSimilarSongs2`) within a budget of a few requests then one
   every 8 seconds, checks covers, and keeps the picks on disk for 6 hours. A Trackside server's own
   picks (`/api/v1/me/picks`) start the shelves and the walk goes on from there; one from
-  before picks answers 404 and gets the walk alone. Trackside only finds songs you have, so
-  there an artist you have and have never played counts as new to you (Suggested songs).
-  A server's shelves show while its first sync is still under way (picks don't need its
+  before picks answers 404 and gets the walk alone. Trackside's library songs only ever hold
+  songs you have, so there an artist you have and have never played counts as new to you
+  (Suggested songs), and before you've played anything the server's picks are Picked for you.
+- New songs from Trackside: where `/me` has `features.acquisition` (requests on with a source,
+  the account allowed to request songs, a device key, which has the `request` scope), the
+  `external` songs Last.fm suggests that the server doesn't have (from `/me/picks`, Get More
+  once you've listened, songs like each artist's, and for an artist the server has no songs by,
+  `search?types=external`) join Suggested songs, two for each of the server's own, so it
+  fills with something to get even before you've listened or on an empty server. Before you've
+  listened, every other one of the server's picks goes to Suggested songs too. A new song has
+  no cover and an id of `new:` and its identity, so a shelf's keys stay unique; it can't be
+  played until it's in your library. Its Add button sends `POST /acquisitions` with a fresh
+  `Idempotency-Key` (sent again with the same key if the connection drops), shows a clock
+  while the request goes on, checks it with `GET /acquisitions/{id}` every 5 seconds, then
+  every 30, for up to 30 minutes (and again after a restart), and syncs once it's done. 200
+  (already there), 429 `quota_exceeded` (says when it resets, in your time) and 410 each get
+  a plain message. Without `features.acquisition`, Suggested songs says why there are no new
+  songs and what the server's admin can do: turn on requests on the dashboard's Requests page
+  and set a Last.fm API key under Settings, or allow the account to request songs under People.
+- A server's shelves show while its first sync is still under way (picks don't need its
   library) and don't wait for your listening to be read. A first load runs in the app's scope,
-  so scrolling or leaving Play doesn't end it; it goes on while a shelf is empty, for at most
-  40 seconds, then every shelf settles: songs, "didn't find anything" with Try again, or
-  "Couldn't reach" with Try again when every request failed. Each step is logged, redacted,
+  so scrolling or leaving Play doesn't end it; it goes on while both shelves are empty, for at
+  most 40 seconds (once one has songs, the other fills as it's scrolled or tried again), then
+  every shelf settles: songs, "didn't find anything" with Try again, or "Couldn't reach" with
+  Try again when every request failed. Each step is logged, redacted,
   under the `Tracks` tag: `adb logcat -s Tracks` shows the servers' states, how many artists
   the picks start from, whether the server picked songs itself, songs left out for want of a
   cover, and each load's counts and requests. With Octo, songs not
