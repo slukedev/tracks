@@ -12,9 +12,10 @@ are marked *(untested on a device)*.
 
 Two things to know about the platform:
 
-- Tracks can't play Apple Music on Android, so "Play" here means your own music (files on the
-  phone and Subsonic servers). Anything Apple Music does on iPhone has to come from history,
-  the engine, your servers or Last.fm.
+- Apple Music plays on Android only in builds with Apple's MusicKit for Android SDK and a
+  developer token (see Apple Music below), and even then it's unverified on a device. Without
+  them "Play" means your own music (files on the phone and servers), and anything Apple Music
+  does on iPhone has to come from history, the engine, your servers or Last.fm.
 - The history comes only from Tracks itself: songs played in Tracks' own player, and your
   Last.fm history if you import it. See Decisions.
 
@@ -27,6 +28,15 @@ See [README.md](README.md) for the legend and how to keep this current.
   registry (`sources/`), are managed in Settings > Sources, and filter Play and Library once
   there are two or more. The tabs are Play, Library, Summary, History and Search, with Charts
   as History's second mode. Plays stay in History when a source is removed.
+- 2026-11-25: Apple Music is a source when the build has a developer token and Apple's
+  MusicKit AARs. The MusicKit private key never ships: a personal build carries a token signed
+  ahead of time (`appleMusic.developerToken` in `secrets.properties`, made with
+  `scripts/apple-music-token.py`, 180 days at most, dropped by the build once expired), and a
+  Trackside server may hand one out (`applemusic/AppleMusicTokens.kt` has the proposed
+  endpoint; not offered by the server yet). MusicKit plays the audio, which is protected, so
+  ExoPlayer plays a silent stand-in of the song's length and MusicKit follows it (item, play,
+  pause, seek), handing the audio focus to MusicKit. The queue, notification, Android Auto,
+  the listen count and History stay ExoPlayer's; plays are kept as `appleMusic`.
 - 2026-11-24: Cleartext is the app's decision, not the network security config's. The config
   can't name private address ranges, so it permits cleartext and `net/Http.kt`'s
   `CleartextGuard` refuses plain http to anything but a nearby address (the iPhone's and
@@ -261,6 +271,16 @@ See [README.md](README.md) for the legend and how to keep this current.
   or skipped with one Snackbar (`Skipped 2 songs`, `Home is offline`); when nothing left can
   play, `Nothing in Up Next can play right now.` once the music stops.
 - Library filtered to Spotify shows Spotify's own saved albums, playlists and liked songs.
+- Apple Music (`applemusic/`, `ui/applemusic/`): Add source opens its page, Sign in hands over
+  to the Apple Music app through MusicKit's sign-in, and the account is checked by its
+  storefront. Every state has its sentence (Install Apple Music to sign in, no subscription,
+  offline, signed out again) and action. The Music User Token is sealed with a Keystore key.
+  Library filtered to Apple Music shows its playlists, albums and songs, and search across
+  the library and the catalog (Not in your library), all through the Apple Music API. Library
+  songs (kept for 6 hours) are copies for Play From, which ranks Apple Music after servers
+  and before Spotify by default. Now Playing always names Apple Music. Uploads that aren't in
+  the catalog are listed dimmed. *(the API client is tested against Apple's documented
+  responses; sign-in and playback are unverified: no SDK here)*
 - Library: one library across sources, with the source filter and Artists, Albums and Songs
   as chips. "No music yet" with Add source when there's nothing.
 - Device files through MediaStore, with permission handling and change watching. *(untested
@@ -513,7 +533,8 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - **Wavy seek bar, floating mini player, expressive motion**: Material 3 Expressive design.
 - **Quick Settings tile and dynamic shortcuts**: Android surfaces, standing in for Control
   Center controls and App Shortcuts.
-- **Apple-only features that don't come across**: Apple Music playback, the Heard on Radio
+- **Apple-only features that don't come across**: Apple Music radio stations (MusicKit for
+  Android can't play them), gapless Apple Music, the Heard on Radio
   playlist, Play Back, Merge with Apple Music, Explicit Songs, Offline Mode for Apple Music,
   Motif import, Handoff, CarPlay (Android Auto instead), the menu bar extra and the Mac's
   windows.

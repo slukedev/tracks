@@ -108,6 +108,15 @@ class ServerLibrary(
     private val mutex = Mutex()
 
     val entries: StateFlow<List<ServerEntry>> = _entries.asStateFlow()
+
+    private val _away = MutableStateFlow<Set<String>>(emptySet())
+    private val _syncProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
+
+    /** Servers, by id, reached now through an address away from home: Tailscale or public. */
+    val away: StateFlow<Set<String>> = _away.asStateFlow()
+
+    /** How far each server's first sync has got, 0 to 1, where the server says how many songs it has. */
+    val syncProgress: StateFlow<Map<String, Float>> = _syncProgress.asStateFlow()
     val tracks: StateFlow<List<LibraryTrack>> = _tracks.asStateFlow()
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
@@ -153,6 +162,10 @@ class ServerLibrary(
             scope.launch {
                 watcher.changes.collect {
                     connections.values.forEach { it.endpoints.networkChanged() }
+                    scope.launch {
+                        connections.values.forEach { it.endpoints.race() }
+                        noteAway()
+                    }
                     refreshAddresses()
                     // A server that couldn't be reached may be reachable from here.
                     _entries.value.filter { it.status is ServerStatus.Failed }.forEach { scope.launch { sync(it.server) } }
@@ -491,6 +504,8 @@ class ServerLibrary(
             syncNow(server)
         } finally {
             syncing.remove(server.id)
+            _syncProgress.update { it - server.id }
+            noteAway()
         }
     }
 
@@ -532,7 +547,16 @@ class ServerLibrary(
         val cached = withContext(Dispatchers.IO) { readCache(server.id) }
         val cursor = withContext(Dispatchers.IO) { runCatching { cursorFile(server.id).readText() }.getOrNull()?.takeIf { it.isNotBlank() } }
         val mirror = TracksideMirror(cached.orEmpty().associateBy { it.id }, cursor.takeIf { cached != null })
-        val updated = TracksideSync.run(mirror, { after, limit -> client.sync(after, limit) })
+        var total = 0
+        var received = 0
+        val updated = TracksideSync.run(mirror, { after, limit ->
+            client.sync(after, limit).also { page ->
+                if (page.mode != "snapshot" || cached != null) return@also
+                total = maxOf(total, page.libraries.orEmpty().sumOf { it.songCount ?: 0 })
+                received += page.songs.orEmpty().size
+                if (total > 0) _syncProgress.update { it + (server.id to (received.toFloat() / total).coerceIn(0f, 1f)) }
+            }
+        })
         withContext(Dispatchers.IO) {
             cacheDir.mkdirs()
             updated.cursor?.let { cursorFile(server.id).writeText(it) } ?: cursorFile(server.id).delete()
@@ -581,6 +605,14 @@ class ServerLibrary(
         val server = _entries.value.firstOrNull { it.server.id == serverId }?.server ?: return
         val client = client(server) ?: return
         runCatching { if (on) client.star(songId) else client.unstar(songId) }
+    }
+
+    private fun noteAway() {
+        _away.value = connections.filterValues { connection ->
+            val at = connection.endpoints.baseUrl
+            val kind = connection.endpoints.candidates.firstOrNull { it.url == at }?.kind ?: Endpoint.guess(at).kind
+            kind == Endpoint.Kind.Tailnet || kind == Endpoint.Kind.Public
+        }.keys
     }
 
     private fun setStatus(id: String, status: ServerStatus) {

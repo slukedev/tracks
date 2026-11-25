@@ -30,7 +30,7 @@ class SourceDataSourceTest {
         override val sampleRate = 44_100
         override val channels = 2
         override val durationMs = 1000L
-        override fun read(maxFrames: Int) = FloatArray(maxFrames * 2)
+        override fun readPcm16(maxFrames: Int) = ByteArray(maxFrames * 4)
         override fun seek(positionMs: Long) = positionMs
         override fun close() = Unit
     }

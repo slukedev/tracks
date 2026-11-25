@@ -130,6 +130,9 @@ fun SourcesSettingsPage(adding: Boolean = false) {
         when (provider.kind) {
             SourceKind.Device -> AddOption("device", "On This Device", SourceKind.Device) { permission.launch(musicPermission) }
             SourceKind.Server -> AddOption("server", "Server", SourceKind.Server) { editing.add() }
+            SourceKind.AppleMusic -> AddOption("appleMusic", "Apple Music", SourceKind.AppleMusic, provider.addSubtitle, provider.iconRes) {
+                navigator.open(SettingsPageRoute(sourcePage(SourceId.AppleMusic)))
+            }
             SourceKind.Spotify -> AddOption("spotify", "Spotify", SourceKind.Spotify, provider.addSubtitle, provider.iconRes) {
                 navigator.open(SettingsPageRoute(sourcePage(SourceId.Spotify)))
             }
@@ -323,7 +326,7 @@ private fun SourceRow(
             selected = selected,
             shapes = ListItemDefaults.segmentedShapes(index, count),
             colors = rowColors(),
-            leadingContent = { SourceGlyph(source.kind, iconRes = registry.provider(source.kind)?.iconRes) },
+            leadingContent = { SourceGlyph(source.kind, iconRes = registry.iconRes(source.kind)) },
             supportingContent = {
                 Text(
                     word,

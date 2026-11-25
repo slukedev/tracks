@@ -1,3 +1,4 @@
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -16,9 +17,47 @@ plugins {
 val sideload = providers.gradleProperty("tracks.sideload").map { it.toBoolean() }.getOrElse(false)
 val variant = if (sideload) "sideload" else "play"
 
+/**
+ * Apple's MusicKit for Android SDK, for Apple Music sign-in and playback. Apple ships it only as
+ * AARs behind a developer sign-in (developer.apple.com/download/all, "Android MusicKit"), so it's
+ * never committed: put them in app/libs/apple-musickit/. Built with them when they're there;
+ * -Ptracks.appleMusicSdk=false leaves them out. Without them Apple Music stays out of Sources.
+ */
+val appleMusicAars = fileTree("libs/apple-musickit") { include("*.aar") }
+val appleMusicSdk = providers.gradleProperty("tracks.appleMusicSdk").map { it.toBoolean() }.getOrElse(!appleMusicAars.isEmpty)
+if (appleMusicSdk && appleMusicAars.isEmpty) {
+    throw GradleException("Tracks: -Ptracks.appleMusicSdk=true needs Apple's MusicKit AARs in app/libs/apple-musickit/.")
+}
+
 val secrets = Properties().apply {
     val file = rootProject.file("secrets.properties")
     if (file.exists()) file.inputStream().use(::load)
+}
+
+/**
+ * The Apple Music developer token for a personal build: a JWT you sign with your own MusicKit key
+ * (appleMusic.developerToken in secrets.properties or TRACKS_APPLE_MUSIC_DEVELOPER_TOKEN). Apple
+ * allows at most 6 months; the app stops using it when it expires. The .p8 key never goes in.
+ */
+val appleMusicDeveloperToken: String = run {
+    val token = secrets.getProperty("appleMusic.developerToken")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("TRACKS_APPLE_MUSIC_DEVELOPER_TOKEN")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: return@run ""
+    val claims = runCatching {
+        String(Base64.getUrlDecoder().decode(token.split('.')[1].trimEnd('=')))
+    }.getOrNull()
+    val exp = claims?.let { Regex("\"exp\"\\s*:\\s*(\\d+)").find(it)?.groupValues?.get(1)?.toLongOrNull() }
+    when {
+        token.count { it == '.' } != 2 || !token.all { it.isLetterOrDigit() || it in "-_." } -> {
+            logger.warn("Tracks: appleMusic.developerToken isn't a JWT; Apple Music is left out.")
+            ""
+        }
+        exp == null || exp * 1000 <= System.currentTimeMillis() -> {
+            logger.warn("Tracks: the Apple Music developer token has expired; make a new one. Apple Music is left out.")
+            ""
+        }
+        else -> token
+    }
 }
 
 /**
@@ -60,6 +99,8 @@ android {
         buildConfigField("String", "LASTFM_API_KEY", "\"${secrets.getProperty("lastfm.apiKey", "")}\"")
         buildConfigField("String", "LASTFM_SECRET", "\"${secrets.getProperty("lastfm.secret", "")}\"")
         buildConfigField("boolean", "SPOTIFY", sideload.toString())
+        buildConfigField("String", "APPLE_MUSIC_DEVELOPER_TOKEN", "\"$appleMusicDeveloperToken\"")
+        buildConfigField("boolean", "APPLE_MUSIC_SDK", appleMusicSdk.toString())
         if (sideload) versionNameSuffix = "-sideload"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
@@ -97,6 +138,8 @@ android {
             kotlin.directories += "src/$variant/kotlin"
             jniLibs.directories += "engine-bindings/$variant/jniLibs"
             res.directories += "src/$variant/res"
+            kotlin.directories += if (appleMusicSdk) "src/appleMusicSdk/kotlin" else "src/appleMusicNoSdk/kotlin"
+            if (appleMusicSdk) res.directories += "src/appleMusicSdk/res"
         }
         getByName("test") {
             kotlin.directories += "src/test${variant.replaceFirstChar(Char::uppercase)}/kotlin"
@@ -111,6 +154,13 @@ android {
 
     packaging {
         jniLibs { useLegacyPackaging = false }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        // MusicKit's sign-in screen needs an AppCompat theme.
+        if (appleMusicSdk) variant.sources.manifests.addStaticManifestFile("src/appleMusicSdk/AndroidManifest.xml")
     }
 }
 
@@ -172,6 +222,10 @@ dependencies {
     implementation(libs.splashscreen)
     implementation(libs.browser)
     implementation(libs.code.scanner)
+    if (appleMusicSdk) {
+        implementation(appleMusicAars)
+        implementation(libs.appcompat)
+    }
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 

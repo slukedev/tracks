@@ -10,6 +10,7 @@ import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.library.MusicLibrary
 import com.luke.tracks.library.ServerEntry
 import com.luke.tracks.library.ServerStatus
+import com.luke.tracks.spotify.SpotifyFlavor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -126,12 +127,12 @@ class SourcesRegistry(
     val playFrom: StateFlow<PlayFromOrder> = order.asStateFlow()
 
     fun arrangedPlayFrom(list: List<Source> = sources.value): List<PlayFromPlace> =
-        order.value.arranged(list.serverIds(), list.any { it.kind == SourceKind.Spotify })
+        order.value.arranged(list.serverIds(), list.any { it.kind == SourceKind.Spotify }, list.any { it.kind == SourceKind.AppleMusic })
 
     /** Saves a new order of the places here. */
     fun setPlayFrom(places: List<PlayFromPlace>) {
         val list = sources.value
-        val next = order.value.replacing(places, list.serverIds(), list.any { it.kind == SourceKind.Spotify })
+        val next = order.value.replacing(places, list.serverIds(), list.any { it.kind == SourceKind.Spotify }, list.any { it.kind == SourceKind.AppleMusic })
         order.value = next
         prefs.edit().putString(ORDER_KEY, next.raw).apply()
     }
@@ -145,6 +146,27 @@ class SourcesRegistry(
     /** Whether a song's source can play it now. A song whose source isn't known is given the benefit of the doubt. */
     fun canPlay(mediaId: String): Boolean = source(sourceOf(mediaId))?.status?.canPlay ?: true
 
+    /** Why a song's source can't play it now, in a few words ("Home is offline"), where there's one to give. */
+    fun whyUnavailable(mediaId: String): String? {
+        val source = source(sourceOf(mediaId)) ?: return null
+        return when (source.status) {
+            is SourceStatus.Offline -> "${source.name} is offline"
+            SourceStatus.SignIn -> "${source.name} is signed out"
+            else -> null
+        }
+    }
+
+    /** Copies of a song, keyed by their media ids, best first in the Play From order. */
+    fun <T> ranked(copies: List<T>, mediaId: (T) -> String): List<T> =
+        order.value.ranked(copies, spotify = sources.value.any { it.kind == SourceKind.Spotify }, appleMusic = sources.value.any { it.kind == SourceKind.AppleMusic }) { copy ->
+            PlayFromPlace.From(sourceOf(mediaId(copy)) ?: SourceId.Unknown(mediaId(copy)))
+        }
+
+    /** A kind's brand mark: its provider's, or Spotify's even before Spotify registers. */
+    @DrawableRes
+    fun iconRes(kind: SourceKind): Int? =
+        provider(kind)?.iconRes ?: if (kind == SourceKind.Spotify) SpotifyFlavor.markRes else null
+
     private val skipped = MutableSharedFlow<SkippedSongs>(extraBufferCapacity = 4)
 
     /** Each time the player skips songs it couldn't play, for the one quiet message. */
@@ -152,7 +174,7 @@ class SourcesRegistry(
 
     /** Called by the player when it passes over songs whose source can't play them. */
     fun reportSkipped(songs: SkippedSongs) {
-        if (songs.count > 0) skipped.tryEmit(songs)
+        if (songs.count > 0 || songs.nothingLeft) skipped.tryEmit(songs)
     }
 
     private fun List<Source>.serverIds() = mapNotNull { (it.id as? SourceId.Server)?.id }
@@ -201,17 +223,22 @@ class DeviceSourceProvider(
     }
 }
 
-/** Your Trackside and Subsonic servers, each a source by its own name. */
+/**
+ * Your Trackside and Subsonic servers, each a source by its own name: Away when reached from
+ * outside home, and how far a first sync has got.
+ */
 class ServerSourceProvider(
     entries: StateFlow<List<ServerEntry>>,
     scope: CoroutineScope,
+    away: StateFlow<Set<String>> = MutableStateFlow(emptySet()),
+    progress: StateFlow<Map<String, Float>> = MutableStateFlow(emptyMap()),
     private val onRemove: suspend (String) -> Unit,
 ) : SourceProvider {
     override val kind = SourceKind.Server
 
-    override val sources: StateFlow<List<Source>> = entries
-        .map { list -> list.map(::source) }
-        .stateIn(scope, SharingStarted.Eagerly, entries.value.map(::source))
+    override val sources: StateFlow<List<Source>> = combine(entries, away, progress) { list, remote, fractions ->
+        list.map { source(it, it.server.id in remote, fractions[it.server.id]) }
+    }.stateIn(scope, SharingStarted.Eagerly, entries.value.map { source(it, it.server.id in away.value, progress.value[it.server.id]) })
 
     /** There can always be another server. */
     override val offersAdd: StateFlow<Boolean> = MutableStateFlow(true)
@@ -221,10 +248,10 @@ class ServerSourceProvider(
     }
 
     companion object {
-        fun source(entry: ServerEntry): Source {
+        fun source(entry: ServerEntry, away: Boolean = false, syncing: Float? = null): Source {
             val status = when (val s = entry.status) {
-                ServerStatus.Syncing -> SourceStatus.Syncing()
-                is ServerStatus.Ready -> SourceStatus.Connected
+                ServerStatus.Syncing -> SourceStatus.Syncing(syncing)
+                is ServerStatus.Ready -> if (away) SourceStatus.Away else SourceStatus.Connected
                 is ServerStatus.Failed -> SourceStatus.Offline(s.message)
                 ServerStatus.NeedsPassword -> SourceStatus.SignIn
                 is ServerStatus.NeedsTrust -> SourceStatus.CheckCertificate
@@ -257,8 +284,8 @@ val AppGraph.sources: SourcesRegistry
             scope = scope,
             canAsk = !sampleData,
         )
-        val servers = combined?.servers?.let { ServerSourceProvider(it.entries, scope, onRemove = it::remove) }
-        val carried = existing?.registered?.value.orEmpty().filter { it.kind == SourceKind.Spotify }
+        val servers = combined?.servers?.let { ServerSourceProvider(it.entries, scope, it.away, it.syncProgress, onRemove = it::remove) }
+        val carried = existing?.registered?.value.orEmpty().filter { it.kind == SourceKind.Spotify || it.kind == SourceKind.AppleMusic }
         SourcesRegistry(SourcesRegistry.prefs(context), scope, listOfNotNull(device, servers) + carried).also {
             instances[this] = it
             libraries[this] = library

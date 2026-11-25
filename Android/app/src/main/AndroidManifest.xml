@@ -12,6 +12,11 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Apple Music's sign-in goes through its app, so Tracks checks it's there. -->
+    <queries>
+        <package android:name="com.apple.android.music" />
+    </queries>
+
     <application
         android:name=".TracksApplication"
         android:allowBackup="true"

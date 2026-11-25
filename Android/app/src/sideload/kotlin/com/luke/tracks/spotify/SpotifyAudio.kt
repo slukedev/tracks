@@ -32,8 +32,8 @@ class SpotifyPcm(private val stream: SpotifyStreamInterface) : PcmSource {
     override val channels: Int = stream.channels().toInt()
     override val durationMs: Long = stream.durationMs().toLong()
 
-    override fun read(maxFrames: Int): FloatArray =
-        spotifyCall { stream.read(maxFrames.coerceAtLeast(1).toUInt()).toFloatArray() }
+    override fun readPcm16(maxFrames: Int): ByteArray =
+        spotifyCall { stream.readPcm16(maxFrames.coerceAtLeast(1).toUInt()) }
 
     override fun seek(positionMs: Long): Long =
         spotifyCall { stream.seek(positionMs.coerceIn(0, UInt.MAX_VALUE.toLong()).toUInt()).toLong() }

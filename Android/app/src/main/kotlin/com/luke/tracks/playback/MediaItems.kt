@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
+import com.luke.tracks.applemusic.AppleMusicUris
 import com.luke.tracks.spotify.SpotifyUris
 import com.luke.tracks.library.ServerLibrary
 import com.luke.tracks.net.ServerLinks
@@ -20,7 +21,7 @@ private const val DURATION = "tracks.durationMs"
 fun PlayableSong.toMediaItem(): MediaItem = MediaItem.Builder()
     .setMediaId(mediaId)
     .setUri(uri)
-    .setMimeType(if (isSpotify) MimeTypes.AUDIO_WAV else null)
+    .setMimeType(if (isSpotify || isAppleMusic) MimeTypes.AUDIO_WAV else null)
     .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(uri).build())
     .setMediaMetadata(
         MediaMetadata.Builder()
@@ -74,8 +75,12 @@ fun MediaItem.restored(): MediaItem? {
     }
     if (localConfiguration != null) return this
     val address = requestMetadata.mediaUri ?: return null
-    return buildUpon().setUri(address).setMimeType(if (address.scheme == SpotifyUris.SCHEME) MimeTypes.AUDIO_WAV else null).build()
+    val pcm = address.scheme == SpotifyUris.SCHEME || address.scheme == AppleMusicUris.SCHEME
+    return buildUpon().setUri(address).setMimeType(if (pcm) MimeTypes.AUDIO_WAV else null).build()
 }
 
 /** A Spotify song, played from its decoded audio ([SourceDataSource]). */
 val PlayableSong.isSpotify: Boolean get() = uri.scheme == SpotifyUris.SCHEME
+
+/** An Apple Music song, played by MusicKit beside its silent stand-in ([SourceDataSource]). */
+val PlayableSong.isAppleMusic: Boolean get() = uri.scheme == AppleMusicUris.SCHEME

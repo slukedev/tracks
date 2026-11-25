@@ -36,10 +36,15 @@ private class RampSource(
     val seeks = mutableListOf<Long>()
     var closed = false
 
-    override fun read(maxFrames: Int): FloatArray {
+    override fun readPcm16(maxFrames: Int): ByteArray {
         failOnRead?.let { throw it }
         val n = minOf(maxFrames, decodable - at).coerceAtLeast(0)
-        val out = FloatArray(n * channels) { sample(at + it / channels) }
+        val out = ByteArray(n * channels * 2)
+        for (i in 0 until n * channels) {
+            val s = pcm16(at + i / channels).toInt()
+            out[2 * i] = s.toByte()
+            out[2 * i + 1] = (s shr 8).toByte()
+        }
         at += n
         return out
     }
@@ -56,7 +61,6 @@ private class RampSource(
     }
 
     companion object {
-        fun sample(frame: Int) = frame / 32767f
         fun pcm16(frame: Int): Short = frame.toShort()
     }
 }

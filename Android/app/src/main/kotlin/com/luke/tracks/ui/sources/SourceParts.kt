@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
@@ -62,6 +63,7 @@ fun SourceKind.icon(): ImageVector = when (this) {
     SourceKind.Device -> Icons.Rounded.PhoneAndroid
     SourceKind.Server -> Icons.Rounded.Dns
     SourceKind.Spotify -> Icons.Rounded.GraphicEq
+    SourceKind.AppleMusic -> Icons.Rounded.MusicNote
 }
 
 /** One word for where a source stands, as its row shows it. */
@@ -114,7 +116,7 @@ fun SourceGlyph(kind: SourceKind, modifier: Modifier = Modifier, iconRes: Int? =
 @Composable
 fun SourceMark(source: Source, modifier: Modifier = Modifier, size: Dp = 16.dp, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     val registry = rememberSources()
-    val iconRes = registry.provider(source.kind)?.iconRes
+    val iconRes = registry.iconRes(source.kind)
     val fade = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     AnimatedContent(source.kind to iconRes, transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) }, label = "mark", modifier = modifier) { (kind, res) ->
         if (res != null) {

@@ -27,6 +27,8 @@ import uniffi.tracks_engine.SpotifyLogin
 
 /** Sideload builds: Spotify on the engine's librespot. */
 object SpotifyFlavor {
+    val markRes: Int? = R.drawable.ic_spotify
+
     fun create(context: Context, scope: CoroutineScope): SpotifyIntegration {
         val service = SpotifyService(
             engine = LibrespotEngine,
@@ -76,7 +78,7 @@ class SpotifySourceProvider(private val service: SpotifyService, scope: Coroutin
 
     override val addSubtitle: String = "Needs Premium"
 
-    override val iconRes: Int = R.drawable.ic_spotify
+    override val iconRes: Int? = SpotifyFlavor.markRes
 
     override fun sourceOf(mediaId: String): SourceId? = if (SpotifyUris.isSpotify(mediaId)) SourceId.Spotify else null
 

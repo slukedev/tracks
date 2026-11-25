@@ -89,6 +89,7 @@ fun SourceDetailPage(raw: String, showBack: Boolean = true) {
 
 private fun SourceKind.matches(id: SourceId) = when (this) {
     SourceKind.Spotify -> id == SourceId.Spotify
+    SourceKind.AppleMusic -> id == SourceId.AppleMusic
     SourceKind.Device -> id == SourceId.Device
     SourceKind.Server -> id is SourceId.Server
 }

@@ -4,8 +4,8 @@ import uniffi.tracks_engine.PlaySource
 
 /**
  * Where a song can come from, as the iPhone's `SourceID` names it: files on this device, a
- * server by its id, or Spotify. Apple Music never plays on Android but can arrive in a Play
- * From order synced from an iPhone, so it's kept; anything newer is kept as it was stored.
+ * server by its id, Spotify, or Apple Music. Anything newer, from a Play From order synced from
+ * another device, is kept as it was stored.
  */
 sealed interface SourceId {
     /** The stored form, the same on every platform: "device", "server:<id>", "spotify". */
@@ -60,13 +60,14 @@ sealed interface SourceId {
             mediaId.startsWith("local:") || mediaId.startsWith("sample:") -> Device
             mediaId.startsWith("subsonic:") -> mediaId.removePrefix("subsonic:").substringBefore(':', "").takeIf { it.isNotEmpty() }?.let(::Server)
             mediaId.startsWith("spotify:") -> Spotify
+            mediaId.startsWith("applemusic:") -> AppleMusic
             else -> null
         }
     }
 }
 
 /** What kind of place a source is, for its glyph and its words. */
-enum class SourceKind { Device, Server, Spotify }
+enum class SourceKind { Device, Server, AppleMusic, Spotify }
 
 /**
  * Where a source stands, worst first, as one word for its row. Only [needsAction] ones are
@@ -171,8 +172,8 @@ data class PlayFromOrder(val places: List<PlayFromPlace>) {
      * The full order for the sources here: the chosen order, with anything it doesn't name
      * placed after what comes before it by default, and sources no longer here left out.
      */
-    fun arranged(servers: List<String>, spotify: Boolean): List<PlayFromPlace> {
-        val defaults = defaultOrder(servers, spotify)
+    fun arranged(servers: List<String>, spotify: Boolean, appleMusic: Boolean = false): List<PlayFromPlace> {
+        val defaults = defaultOrder(servers, spotify, appleMusic)
         val current = defaults.toSet()
         val arranged = places.filter { it in current }.distinct().toMutableList()
         defaults.forEachIndexed { offset, place ->
@@ -185,15 +186,15 @@ data class PlayFromOrder(val places: List<PlayFromPlace>) {
     }
 
     /** This order with [new] as arranged here, keeping places this phone doesn't have where they were. */
-    fun replacing(new: List<PlayFromPlace>, servers: List<String>, spotify: Boolean): PlayFromOrder {
-        val here = defaultOrder(servers, spotify).toSet()
+    fun replacing(new: List<PlayFromPlace>, servers: List<String>, spotify: Boolean, appleMusic: Boolean = false): PlayFromOrder {
+        val here = defaultOrder(servers, spotify, appleMusic).toSet()
         return PlayFromOrder((new + places.filter { it !in here }).distinct())
     }
 
     /** Copies best first; copies from the same place keep their order. */
-    fun <T> ranked(copies: List<T>, spotify: Boolean, place: (T) -> PlayFromPlace): List<T> {
+    fun <T> ranked(copies: List<T>, spotify: Boolean, appleMusic: Boolean = false, place: (T) -> PlayFromPlace): List<T> {
         val servers = copies.mapNotNull { ((place(it) as? PlayFromPlace.From)?.source as? SourceId.Server)?.id }.distinct()
-        val order = arranged(servers, spotify)
+        val order = arranged(servers, spotify, appleMusic)
         val rank = order.withIndex().associate { (i, p) -> p to i }
         return copies.withIndex()
             .sortedWith(compareBy({ rank[place(it.value)] ?: order.size }, { it.index }))
@@ -206,10 +207,11 @@ data class PlayFromOrder(val places: List<PlayFromPlace>) {
         fun parse(raw: String?): PlayFromOrder =
             PlayFromOrder(raw.orEmpty().split('\n').filter { it.isNotBlank() }.map(PlayFromPlace::parse).distinct())
 
-        /** Local first: free, offline and more often lossless; then servers as added; then Spotify. */
-        fun defaultOrder(servers: List<String>, spotify: Boolean): List<PlayFromPlace> =
+        /** Local first: free, offline and more often lossless; then servers as added; then Apple Music, then Spotify. */
+        fun defaultOrder(servers: List<String>, spotify: Boolean, appleMusic: Boolean = false): List<PlayFromPlace> =
             listOf<PlayFromPlace>(PlayFromPlace.From(SourceId.Device)) +
                 servers.map { PlayFromPlace.From(SourceId.Server(it)) } +
+                (if (appleMusic) listOf(PlayFromPlace.From(SourceId.AppleMusic)) else emptyList()) +
                 if (spotify) listOf(PlayFromPlace.From(SourceId.Spotify)) else emptyList()
     }
 }
@@ -217,7 +219,13 @@ data class PlayFromOrder(val places: List<PlayFromPlace>) {
 /**
  * Songs the player passed over because their source couldn't play them, for the one quiet
  * message: "Skipped 3 songs", and why when there's a single reason ("Home is offline").
+ * [nothingLeft] once the music stopped because nothing in Up Next could play.
  */
-data class SkippedSongs(val count: Int, val reason: String? = null) {
-    val message: String get() = if (count == 1) "Skipped 1 song" else "Skipped $count songs"
+data class SkippedSongs(val count: Int, val reason: String? = null, val nothingLeft: Boolean = false) {
+    val message: String
+        get() = when {
+            nothingLeft -> "Nothing in Up Next can play right now."
+            count == 1 -> "Skipped 1 song"
+            else -> "Skipped $count songs"
+        }
 }

@@ -33,6 +33,16 @@ pub(crate) fn normalisation_factor(gain_db: f32, peak: f32) -> f32 {
     }
 }
 
+fn samples_in(frames: u32) -> usize {
+    frames as usize * usize::from(CHANNELS)
+}
+
+/// A sample in -1..=1 as 16-bit PCM, rounded to the nearest step.
+#[allow(clippy::cast_possible_truncation)]
+fn pcm16(sample: f32) -> i16 {
+    (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16
+}
+
 /// A track's audio as interleaved `f32` frames at 44.1 kHz stereo.
 pub(crate) struct PcmStream<S> {
     source: S,
@@ -67,9 +77,34 @@ impl<S: PacketSource> PcmStream<S> {
 
     /// Up to `max_frames` frames. Fewer only at the end; none once it has ended.
     pub(crate) fn read(&mut self, max_frames: u32) -> Result<Vec<f32>> {
-        let wanted = max_frames as usize * usize::from(CHANNELS);
-        let mut out = Vec::with_capacity(wanted);
-        while out.len() < wanted {
+        let mut out = Vec::with_capacity(samples_in(max_frames));
+        self.read_with(max_frames, |chunk| out.extend_from_slice(chunk))?;
+        Ok(out)
+    }
+
+    /// [`Self::read`] as interleaved little-endian 16-bit PCM.
+    pub(crate) fn read_pcm16(&mut self, max_frames: u32) -> Result<Vec<u8>> {
+        let mut out = Vec::with_capacity(samples_in(max_frames) * 2);
+        self.read_with(max_frames, |chunk| {
+            out.extend(chunk.iter().flat_map(|&s| pcm16(s).to_le_bytes()));
+        })?;
+        Ok(out)
+    }
+
+    /// [`Self::read`] as interleaved little-endian 32-bit floats.
+    pub(crate) fn read_f32_bytes(&mut self, max_frames: u32) -> Result<Vec<u8>> {
+        let mut out = Vec::with_capacity(samples_in(max_frames) * 4);
+        self.read_with(max_frames, |chunk| {
+            out.extend(chunk.iter().flat_map(|s| s.to_le_bytes()));
+        })?;
+        Ok(out)
+    }
+
+    /// Hands up to `max_frames` frames to `sink`, a run of samples at a time.
+    fn read_with(&mut self, max_frames: u32, mut sink: impl FnMut(&[f32])) -> Result<()> {
+        let wanted = samples_in(max_frames);
+        let mut given = 0;
+        while given < wanted {
             if self.taken == self.pending.len() {
                 if self.ended {
                     break;
@@ -86,12 +121,13 @@ impl<S: PacketSource> PcmStream<S> {
                 }
                 continue;
             }
-            let take = (wanted - out.len()).min(self.pending.len() - self.taken);
-            out.extend_from_slice(&self.pending[self.taken..self.taken + take]);
+            let take = (wanted - given).min(self.pending.len() - self.taken);
+            sink(&self.pending[self.taken..self.taken + take]);
             self.taken += take;
+            given += take;
         }
-        self.position_frames += (out.len() / usize::from(CHANNELS)) as u64;
-        Ok(out)
+        self.position_frames += (given / usize::from(CHANNELS)) as u64;
+        Ok(())
     }
 
     /// Moves to `position_ms` (clamped to the track) and returns where it landed.
@@ -334,6 +370,68 @@ mod tests {
         let samples = stream.read(4).expect("read");
         assert!(samples.iter().all(|s| (-1.0..=1.0).contains(s)));
         assert!((samples[1] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn pcm16_reads_the_same_frames_as_little_endian_16_bit() {
+        let mut floats = PcmStream::new(Counting::new(3), 1_000, 1.0);
+        let mut bytes = PcmStream::new(Counting::new(3), 1_000, 1.0);
+        for _ in 0..3 {
+            let expected = floats.read(5).expect("read");
+            let got = bytes.read_pcm16(5).expect("read");
+            assert_eq!(got.len(), expected.len() * 2);
+            for (pair, sample) in got.as_chunks::<2>().0.iter().zip(&expected) {
+                assert_eq!(i16::from_le_bytes(*pair), pcm16(*sample));
+            }
+        }
+        assert_eq!(bytes.position_frames, floats.position_frames);
+        assert_eq!(bytes.read_pcm16(5).expect("read"), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn pcm16_rounds_and_reaches_full_scale_both_ways() {
+        assert_eq!(pcm16(0.0), 0);
+        assert_eq!(pcm16(1.0), i16::MAX);
+        assert_eq!(pcm16(-1.0), -i16::MAX);
+        assert_eq!(pcm16(2.0), i16::MAX);
+        assert_eq!(pcm16(-2.0), -i16::MAX);
+        assert_eq!(pcm16(0.5), 16_384);
+        assert_eq!(pcm16(1.0 / 32_767.0), 1);
+    }
+
+    #[test]
+    fn pcm16_bytes_are_little_endian() {
+        let mut stream = PcmStream::new(Counting::new(1), 1_000, 100.0);
+        let bytes = stream.read_pcm16(4).expect("read");
+        // The third sample is 0.2: 6553.4 rounds to 6553, 0x1999.
+        assert_eq!(&bytes[4..6], &[0x99, 0x19]);
+    }
+
+    #[test]
+    fn f32_bytes_carry_the_samples_exactly() {
+        let mut floats = PcmStream::new(Counting::new(2), 1_000, 1.0);
+        let mut bytes = PcmStream::new(Counting::new(2), 1_000, 1.0);
+        let expected = floats.read(7).expect("read");
+        let got = bytes.read_f32_bytes(7).expect("read");
+        let decoded: Vec<f32> = got
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
+            .collect();
+        assert_eq!(decoded, expected);
+        assert_eq!(bytes.position_frames, 7);
+    }
+
+    #[test]
+    fn byte_reads_pass_errors_on() {
+        let mut source = Counting::new(3);
+        source.fail_after = Some(0);
+        let mut stream = PcmStream::new(source, 1_000, 1.0);
+        assert!(matches!(
+            stream.read_pcm16(4),
+            Err(SpotifyError::Network { .. })
+        ));
     }
 
     #[test]

@@ -114,9 +114,11 @@ calculator row for row.
 system browser is open. `SpotifyAccount` keeps one session per account, reconnecting with
 backoff when it drops, and reads metadata over Spotify's own protocol and the saved library and
 search over the Web API (a 429 with a short Retry-After is waited out, a long one returned as
-`RateLimited`). `SpotifyStream` decodes a song to interleaved `f32` at 44.1 kHz stereo for
-`AVAudioSourceNode` or Media3; reads block while audio downloads, so hosts pull from a feeder
-thread.
+`RateLimited`). `SpotifyStream` decodes a song to interleaved 44.1 kHz stereo for
+`AVAudioSourceNode` or Media3: `read` as floats, or as bytes, which cross the boundary without
+boxing each sample: `read_pcm16` (little-endian 16-bit, 4 bytes a frame) and `read_f32_bytes`
+(little-endian `f32`, 8 bytes a frame). Reads block while audio downloads, so hosts pull from
+a feeder thread.
 
 Since November 2026 Spotify refuses audio keys to clients like this for accounts it hasn't seen
 on one before ([librespot#1649](https://github.com/librespot-org/librespot/issues/1649)), and

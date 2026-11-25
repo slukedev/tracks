@@ -14,6 +14,7 @@ import com.luke.tracks.playback.MediaControllerPlayer
 import com.luke.tracks.playback.radio.TracksRadio
 import com.luke.tracks.sources.sources
 import com.luke.tracks.spotify.Spotify
+import com.luke.tracks.applemusic.AppleMusic
 
 /**
  * Wires the parts that need the Application: the library, the player, workers, widgets and
@@ -37,6 +38,9 @@ object Startup {
         // Spotify, in sideload builds only.
         Spotify.install(app, graph.scope)
         Spotify.integration?.let { graph.sources.register(it.provider) }
+        // Apple Music, when there's a developer token and the build has Apple's MusicKit SDK.
+        AppleMusic.install(app, graph.scope)
+        AppleMusic.provider?.let { graph.sources.register(it) }
         graph.player = MediaControllerPlayer(app).also {
             // Robolectric has no session to connect to; screenshots use the player idle.
             if (Build.FINGERPRINT != "robolectric") it.connect()

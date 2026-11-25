@@ -166,6 +166,17 @@ impl Stream {
         self.lock().read(max_frames)
     }
 
+    /// [`Self::read`] as interleaved little-endian 16-bit PCM: half the bytes, ready for a
+    /// WAV or `AudioTrack`.
+    pub fn read_pcm16(&self, max_frames: u32) -> Result<Vec<u8>> {
+        self.lock().read_pcm16(max_frames)
+    }
+
+    /// [`Self::read`] as interleaved little-endian 32-bit floats, for hosts that mix in float.
+    pub fn read_f32_bytes(&self, max_frames: u32) -> Result<Vec<u8>> {
+        self.lock().read_f32_bytes(max_frames)
+    }
+
     pub fn seek(&self, position_ms: u32) -> Result<u32> {
         self.lock().seek(position_ms)
     }

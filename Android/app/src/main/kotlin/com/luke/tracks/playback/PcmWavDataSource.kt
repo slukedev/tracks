@@ -9,10 +9,9 @@ import androidx.media3.datasource.DataSpec
 import java.io.Closeable
 import java.io.IOException
 import kotlin.math.min
-import kotlin.math.roundToInt
 
 /**
- * Decoded audio a host pulls a block at a time, as interleaved float frames between -1 and 1.
+ * Decoded audio a host pulls a block at a time, as interleaved little-endian 16-bit frames.
  * Reads block while audio downloads; callers are Media3's loading threads, never the audio one.
  */
 interface PcmSource : Closeable {
@@ -22,7 +21,7 @@ interface PcmSource : Closeable {
 
     /** Up to [maxFrames] frames; fewer only at the end, none once it has ended. */
     @Throws(IOException::class)
-    fun read(maxFrames: Int): FloatArray
+    fun readPcm16(maxFrames: Int): ByteArray
 
     /** Moves to [positionMs] and returns where it landed. */
     @Throws(IOException::class)
@@ -80,15 +79,6 @@ object WavLayout {
         le(40, size, 4)
         return out
     }
-
-    /** Float samples to little-endian 16-bit, written from [into]'s start. */
-    fun toPcm16(samples: FloatArray, into: ByteArray) {
-        for (i in samples.indices) {
-            val s = (samples[i].coerceIn(-1f, 1f) * Short.MAX_VALUE).roundToInt()
-            into[2 * i] = s.toByte()
-            into[2 * i + 1] = (s shr 8).toByte()
-        }
-    }
 }
 
 /**
@@ -108,8 +98,10 @@ class PcmWavDataSource(private val opener: PcmOpener) : BaseDataSource(/* isNetw
     private var position = 0L
     private var remaining = 0L
 
-    /** Converted bytes waiting to be handed out, from [pendingAt]. */
+    /** Bytes waiting to be handed out, from [pendingAt]: the decoder's own block, or [silence]. */
     private var pending = ByteArray(0)
+    /** Zeros, never written to. */
+    private var silence = ByteArray(0)
     private var pendingAt = 0
     private var pendingEnd = 0
 
@@ -180,47 +172,39 @@ class PcmWavDataSource(private val opener: PcmOpener) : BaseDataSource(/* isNetw
     private fun fill() {
         val pcm = source ?: throw IOException("Not open")
         val frameBytes = WavLayout.frameBytes(channels)
-        var frames: Int
+        var from: Int
+        var end: Int
         while (true) {
-            if (silenceFrames > 0) {
-                frames = min(silenceFrames, BLOCK_FRAMES.toLong()).toInt()
-                silenceFrames -= frames
-                ensure(frames * frameBytes)
-                pending.fill(0, 0, frames * frameBytes)
+            from = 0
+            if (silenceFrames > 0 || ended) {
+                val owed = silenceFrames > 0
+                val frames = if (owed) min(silenceFrames, BLOCK_FRAMES.toLong()).toInt() else BLOCK_FRAMES
+                if (owed) silenceFrames -= frames
+                end = frames * frameBytes
+                if (silence.size < end) silence = ByteArray(BLOCK_FRAMES * frameBytes)
+                pending = silence
                 break
             }
-            if (ended) {
-                frames = BLOCK_FRAMES
-                ensure(frames * frameBytes)
-                pending.fill(0, 0, frames * frameBytes)
-                break
-            }
-            val samples = pcm.read(BLOCK_FRAMES)
-            if (samples.isEmpty()) {
+            val block = pcm.readPcm16(BLOCK_FRAMES)
+            if (block.isEmpty()) {
                 ended = true
                 continue
             }
-            var from = 0
-            var count = samples.size / channels
+            var count = block.size / frameBytes
             if (discardFrames > 0) {
                 val drop = min(discardFrames, count.toLong()).toInt()
                 discardFrames -= drop
-                from = drop
+                from = drop * frameBytes
                 count -= drop
                 if (count == 0) continue
             }
-            frames = count
-            ensure(frames * frameBytes)
-            WavLayout.toPcm16(if (from == 0) samples else samples.copyOfRange(from * channels, samples.size), pending)
+            pending = block
+            end = from + count * frameBytes
             break
         }
-        pendingAt = skipBytes.coerceAtMost(frames * frameBytes)
+        pendingAt = from + skipBytes.coerceAtMost(end - from)
         skipBytes = 0
-        pendingEnd = frames * frameBytes
-    }
-
-    private fun ensure(bytes: Int) {
-        if (pending.size < bytes) pending = ByteArray(bytes)
+        pendingEnd = end
     }
 
     override fun getUri(): Uri? = uri
@@ -231,6 +215,7 @@ class PcmWavDataSource(private val opener: PcmOpener) : BaseDataSource(/* isNetw
             source?.close()
         } finally {
             source = null
+            pending = ByteArray(0)
             pendingAt = 0
             pendingEnd = 0
             discardFrames = 0
