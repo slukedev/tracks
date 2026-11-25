@@ -162,18 +162,47 @@ sealed interface PlayFromPlace {
 
 /**
  * Which copy plays when a song is in several sources: the first that can play, in this
- * order. The same stored form and rules as the iPhone's `PlayFromOrder`, so an order can
- * travel between them: places this phone doesn't have are kept and skipped.
+ * order. Entirely the person's to arrange: nothing is pinned, and a place it doesn't name yet
+ * goes last. The same stored form as the iPhone's `PlayFromOrder`, so an order can travel
+ * between them: places this phone doesn't have are kept and skipped.
  */
 data class PlayFromOrder(val places: List<PlayFromPlace>) {
     val raw: String get() = places.joinToString("\n") { it.raw }
 
+    /** This order with the places it doesn't name yet added at the end, in the order given. */
+    fun including(new: List<PlayFromPlace>): PlayFromOrder = PlayFromOrder((places + new).distinct())
+
+    /** The order of these places, the ones it doesn't name yet last. */
+    fun arranged(present: List<PlayFromPlace>): List<PlayFromPlace> {
+        val here = present.toSet()
+        return including(present).places.filter { it in here }
+    }
+
+    /** This order with [shown] in their new order; every other place keeps its position. */
+    fun reordered(shown: List<PlayFromPlace>): PlayFromOrder {
+        val full = including(shown).places.toMutableList()
+        val moved = shown.distinct()
+        val set = moved.toSet()
+        full.indices.filter { full[it] in set }.zip(moved).forEach { (slot, place) -> full[slot] = place }
+        return PlayFromOrder(full)
+    }
+
+    /** Copies best first; copies from places it doesn't name come last; same place keeps its order. */
+    fun <T> ranked(copies: List<T>, place: (T) -> PlayFromPlace): List<T> {
+        val rank = places.withIndex().associate { (i, p) -> p to i }
+        return copies.withIndex()
+            .sortedWith(compareBy({ rank[place(it.value)] ?: places.size }, { it.index }))
+            .map { it.value }
+    }
+
     /**
-     * The full order for the sources here: the chosen order, with anything it doesn't name
-     * placed after what comes before it by default, and sources no longer here left out.
+     * The order as it played before any place could go anywhere, written out in full for
+     * these servers: what it didn't name sat after what comes before it in the old default.
      */
-    fun arranged(servers: List<String>, spotify: Boolean, appleMusic: Boolean = false): List<PlayFromPlace> {
-        val defaults = defaultOrder(servers, spotify, appleMusic)
+    fun migrated(servers: List<String>): PlayFromOrder {
+        val defaults = listOf<PlayFromPlace>(PlayFromPlace.From(SourceId.Device)) +
+            servers.map { PlayFromPlace.From(SourceId.Server(it)) } +
+            listOf(PlayFromPlace.From(SourceId.AppleMusic), PlayFromPlace.From(SourceId.Spotify))
         val current = defaults.toSet()
         val arranged = places.filter { it in current }.distinct().toMutableList()
         defaults.forEachIndexed { offset, place ->
@@ -182,23 +211,7 @@ data class PlayFromOrder(val places: List<PlayFromPlace>) {
             val index = before?.let { arranged.indexOf(it) + 1 } ?: 0
             arranged.add(index, place)
         }
-        return arranged
-    }
-
-    /** This order with [new] as arranged here, keeping places this phone doesn't have where they were. */
-    fun replacing(new: List<PlayFromPlace>, servers: List<String>, spotify: Boolean, appleMusic: Boolean = false): PlayFromOrder {
-        val here = defaultOrder(servers, spotify, appleMusic).toSet()
-        return PlayFromOrder((new + places.filter { it !in here }).distinct())
-    }
-
-    /** Copies best first; copies from the same place keep their order. */
-    fun <T> ranked(copies: List<T>, spotify: Boolean, appleMusic: Boolean = false, place: (T) -> PlayFromPlace): List<T> {
-        val servers = copies.mapNotNull { ((place(it) as? PlayFromPlace.From)?.source as? SourceId.Server)?.id }.distinct()
-        val order = arranged(servers, spotify, appleMusic)
-        val rank = order.withIndex().associate { (i, p) -> p to i }
-        return copies.withIndex()
-            .sortedWith(compareBy({ rank[place(it.value)] ?: order.size }, { it.index }))
-            .map { it.value }
+        return PlayFromOrder((arranged + places.filter { it !in current }).distinct())
     }
 
     companion object {
@@ -206,13 +219,6 @@ data class PlayFromOrder(val places: List<PlayFromPlace>) {
 
         fun parse(raw: String?): PlayFromOrder =
             PlayFromOrder(raw.orEmpty().split('\n').filter { it.isNotBlank() }.map(PlayFromPlace::parse).distinct())
-
-        /** Local first: free, offline and more often lossless; then servers as added; then Apple Music, then Spotify. */
-        fun defaultOrder(servers: List<String>, spotify: Boolean, appleMusic: Boolean = false): List<PlayFromPlace> =
-            listOf<PlayFromPlace>(PlayFromPlace.From(SourceId.Device)) +
-                servers.map { PlayFromPlace.From(SourceId.Server(it)) } +
-                (if (appleMusic) listOf(PlayFromPlace.From(SourceId.AppleMusic)) else emptyList()) +
-                if (spotify) listOf(PlayFromPlace.From(SourceId.Spotify)) else emptyList()
     }
 }
 

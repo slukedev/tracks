@@ -246,13 +246,11 @@ class AppleMusicServiceTest {
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class AppleMusicSourcesTest {
-    @Test fun playFromPutsAppleMusicAfterServersAndBeforeSpotify() {
-        val order = PlayFromOrder.Standard.arranged(listOf("s1"), spotify = true, appleMusic = true)
-        assertEquals(
-            listOf(SourceId.Device, SourceId.Server("s1"), SourceId.AppleMusic, SourceId.Spotify).map { PlayFromPlace.From(it) },
-            order,
-        )
-        assertFalse(PlayFromPlace.From(SourceId.AppleMusic) in PlayFromOrder.Standard.arranged(listOf("s1"), spotify = true))
+    @Test fun appleMusicCanGoAnywhereInPlayFrom() {
+        val here = listOf(SourceId.Device, SourceId.Server("s1"), SourceId.AppleMusic, SourceId.Spotify).map { PlayFromPlace.From(it) }
+        val chosen = listOf(SourceId.Spotify, SourceId.AppleMusic, SourceId.Device, SourceId.Server("s1")).map { PlayFromPlace.From(it) }
+        assertEquals(chosen, PlayFromOrder.Standard.reordered(chosen).arranged(here))
+        assertFalse(PlayFromPlace.From(SourceId.AppleMusic) in PlayFromOrder(here).arranged(here - PlayFromPlace.From(SourceId.AppleMusic)))
     }
 
     @Test fun appleMusicSongsAreKnownByTheirMediaIdAndRankedInPlayFrom() {

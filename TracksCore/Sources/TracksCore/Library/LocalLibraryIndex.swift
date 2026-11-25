@@ -106,6 +106,8 @@ public struct LocalLibraryIndex: Sendable {
     public let artists: [LocalArtist]
     private let byID: [String: LocalTrack]
     private let byIdentity: [String: [LocalTrack]]
+    /// Each song's copies, by its id, so they're found without working out its name again.
+    private let copiesByID: [String: [LocalTrack]]
     private let albumsByID: [String: LocalAlbum]
     private let artistsByID: [String: LocalArtist]
     /// Each song's title, artist and album, folded for search once rather than on every letter
@@ -133,7 +135,13 @@ public struct LocalLibraryIndex: Sendable {
         let unique = tracks.filter { seen.insert($0.id).inserted }
         self.tracks = unique.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         self.byID = Dictionary(uniqueKeysWithValues: unique.map { ($0.id, $0) })
-        self.byIdentity = Dictionary(grouping: unique, by: \.identity)
+        let byIdentity = Dictionary(grouping: unique, by: \.identity)
+        self.byIdentity = byIdentity
+        var copiesByID: [String: [LocalTrack]] = [:]
+        for copies in byIdentity.values {
+            for track in copies { copiesByID[track.id] = copies }
+        }
+        self.copiesByID = copiesByID
 
         let albums = Dictionary(grouping: unique, by: \.albumKey).map { key, tracks in
             let ordered = LocalAlbum.ordered(tracks)
@@ -180,6 +188,11 @@ public struct LocalLibraryIndex: Sendable {
     /// Every copy of a song, by its ``LocalTrack/identity``: a file, a server's, a download.
     public func tracks(withIdentity identity: String) -> [LocalTrack] {
         byIdentity[identity] ?? []
+    }
+
+    /// Every copy of a song in this library, the song itself first.
+    public func copies(of track: LocalTrack) -> [LocalTrack] {
+        [track] + (copiesByID[track.id] ?? []).filter { $0.id != track.id }
     }
 
     /// Songs from elsewhere, a server's search say, that aren't in this library by id or by

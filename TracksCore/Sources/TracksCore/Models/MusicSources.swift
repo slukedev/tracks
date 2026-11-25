@@ -104,9 +104,13 @@ public enum PlayFromPlace: Hashable, Sendable, RawRepresentable {
 }
 
 /// Which copy plays when a song is in several sources: the first that can play, in this
-/// order. Synced between devices; servers another device doesn't have are kept and skipped.
+/// order. Entirely the person's to arrange: nothing is pinned, and a place it doesn't name yet
+/// goes last. Synced between devices; places another device doesn't have are kept and skipped.
 public struct PlayFromOrder: Hashable, Sendable, RawRepresentable {
     public static let storageKey = "playFromOrder"
+    /// Set on each device once its stored order has been written out in full, as it played
+    /// before places could go anywhere.
+    public static let migratedKey = "playFromOrderMigrated"
 
     public let places: [PlayFromPlace]
 
@@ -123,46 +127,36 @@ public struct PlayFromOrder: Hashable, Sendable, RawRepresentable {
         places.map(\.rawValue).joined(separator: "\n")
     }
 
-    /// Nothing chosen yet: the default order alone.
+    /// Nothing chosen yet.
     public static let standard = PlayFromOrder([])
 
-    /// Local and owned first: free, offline and more often lossless.
-    static func defaultOrder(servers: [String]) -> [PlayFromPlace] {
-        [.source(.device), .downloads] + servers.map { .source(.server($0)) } + [.source(.appleMusic), .source(.spotify)]
+    /// Where a new order starts, before anything is moved.
+    public static let starting: [PlayFromPlace] = [.source(.device), .downloads, .source(.appleMusic), .source(.spotify)]
+
+    /// The order with the places it doesn't name yet added at the end, in the order given.
+    public func including(_ new: [PlayFromPlace]) -> PlayFromOrder {
+        PlayFromOrder(places + Self.starting + new)
     }
 
-    /// The full order for these servers, in the order they were added: the chosen order, with
-    /// anything it doesn't name placed after what comes before it by default, and servers no
-    /// longer here left out.
-    public func arranged(servers: [String]) -> [PlayFromPlace] {
-        let defaults = Self.defaultOrder(servers: servers)
-        let current = Set(defaults)
-        var arranged = places.filter(current.contains)
-        for (offset, place) in defaults.enumerated() where !arranged.contains(place) {
-            let before = defaults[..<offset].last(where: arranged.contains)
-            let index = before.flatMap { arranged.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
-            arranged.insert(place, at: index)
-        }
-        return arranged
+    /// The order of these places, the ones it doesn't name yet last.
+    public func arranged(_ present: [PlayFromPlace]) -> [PlayFromPlace] {
+        let here = Set(present)
+        return including(present).places.filter(here.contains)
     }
 
-    /// The order with these places as arranged for the servers here, keeping the places of
-    /// servers this device doesn't have where they were.
-    public func replacing(arranged new: [PlayFromPlace], servers: [String]) -> PlayFromOrder {
-        let here = Set(Self.defaultOrder(servers: servers))
-        let elsewhere = places.filter { !here.contains($0) }
-        return PlayFromOrder(new + elsewhere)
+    /// The order with these places, as shown, in their new order. Every other place keeps
+    /// its position.
+    public func reordered(_ shown: [PlayFromPlace]) -> PlayFromOrder {
+        var full = including(shown).places
+        let moved = Set(shown)
+        let slots = full.indices.filter { moved.contains(full[$0]) }
+        for (slot, place) in zip(slots, PlayFromOrder(shown).places) { full[slot] = place }
+        return PlayFromOrder(full)
     }
 
     /// Copies best first, by where they play from; copies from the same place keep their order.
     public func ranked<Copy>(_ copies: [Copy], place: (Copy) -> PlayFromPlace) -> [Copy] {
-        let servers = copies.compactMap { copy -> String? in
-            if case .source(.server(let id)) = place(copy) { return id }
-            return nil
-        }
-        var unique: [String] = []
-        for id in servers where !unique.contains(id) { unique.append(id) }
-        let order = arranged(servers: unique)
+        let order = including([]).places
         let rank = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
         return copies.enumerated()
             .sorted { lhs, rhs in
@@ -176,5 +170,21 @@ public struct PlayFromOrder: Hashable, Sendable, RawRepresentable {
     /// The copy to play: the best that can play now, or nil when none can.
     public func choose<Copy>(_ copies: [Copy], place: (Copy) -> PlayFromPlace, canPlay: (Copy) -> Bool) -> Copy? {
         ranked(copies, place: place).first(where: canPlay)
+    }
+
+    // MARK: - Orders saved before places could go anywhere
+
+    /// The order as it played before, written out in full for these servers: what it didn't
+    /// name sat after what comes before it in the old default order.
+    public func migrated(servers: [String]) -> PlayFromOrder {
+        let defaults: [PlayFromPlace] = [.source(.device), .downloads] + servers.map { .source(.server($0)) } + [.source(.appleMusic), .source(.spotify)]
+        let current = Set(defaults)
+        var arranged = places.filter(current.contains)
+        for (offset, place) in defaults.enumerated() where !arranged.contains(place) {
+            let before = defaults[..<offset].last(where: arranged.contains)
+            let index = before.flatMap { arranged.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
+            arranged.insert(place, at: index)
+        }
+        return PlayFromOrder(arranged + places.filter { !current.contains($0) })
     }
 }

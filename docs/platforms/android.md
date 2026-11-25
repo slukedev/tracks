@@ -266,7 +266,9 @@ See [README.md](README.md) for the legend and how to keep this current.
   reached outside home, Offline, Sign in, Check certificate, Syncing with a percentage on a
   Trackside server's first sync, a song count), Add source (a container transform from the button;
   On This Device asks for music access, Server opens the server form, Spotify its own page),
-  the Play From order to drag once there are two or more, and remove with a confirmation that
+  the Play From order once there are two or more (drag a row by its handle or after a long
+  press, or TalkBack's Move up and Move down; any source can go anywhere and a new one goes
+  last), and remove with a confirmation that
   counts what goes and says plays stay. Each source has a page: a server's status, name,
   addresses (home network, Tailscale, internet), Check connection and Remove. On a tablet the
   page sits beside the list.
@@ -283,8 +285,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   offline, signed out again) and action. The Music User Token is sealed with a Keystore key.
   Library filtered to Apple Music shows its playlists, albums and songs, and search across
   the library and the catalog (Not in your library), all through the Apple Music API. Library
-  songs (kept for 6 hours) are copies for Play From, which ranks Apple Music after servers
-  and before Spotify by default. Now Playing always names Apple Music. Uploads that aren't in
+  songs (kept for 6 hours) are copies for Play From. Now Playing always names Apple Music. Uploads that aren't in
   the catalog are listed dimmed. *(the API client is tested against Apple's documented
   responses; the MusicKit code compiles against SDK 1.1.4 and its mapping is unit tested with
   fakes of the SDK's interfaces; sign-in and playback are unverified on a device)*
