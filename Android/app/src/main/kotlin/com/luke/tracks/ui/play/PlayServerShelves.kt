@@ -154,7 +154,8 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
         when {
             songs.isEmpty() && goesOn -> SongShelfLoading()
             songs.isEmpty() -> Text(
-                "${server.name} didn't find anything to suggest. If it's Octo, it needs a Last.fm API key, set on its admin page.",
+                if (server.isTrackside) "${server.name} didn't find anything to suggest."
+                else "${server.name} didn't find anything to suggest. If it's Octo, it needs a Last.fm API key, set on its admin page.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 24.dp),

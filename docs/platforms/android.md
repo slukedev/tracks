@@ -199,7 +199,12 @@ See [README.md](README.md) for the legend and how to keep this current.
   leaves out songs you've heard, and decides which shelf each goes to (artists you know to
   Picked for you, woven with your own unheard songs; new artists to Suggested songs). The app
   asks the server (search, then `getSimilarSongs2`) within a budget of a few requests then one
-  every 8 seconds, checks covers, and keeps the picks on disk for 6 hours. With Octo, songs not
+  every 8 seconds, checks covers, and keeps the picks on disk for 6 hours. A Trackside server's own
+  picks (`/api/v1/me/picks`) start the shelves and the walk goes on from there; one from
+  before picks answers 404 and gets the walk alone. Trackside only finds songs you have, so
+  there an artist you have and have never played counts as new to you (Suggested songs).
+  A request that fails is logged, redacted, and the shelf says it found nothing only once
+  nothing is left to ask. With Octo, songs not
   in your music have an Add button that has Octo fetch them. Keep exploring weaves in songs
   you've never played from `getRandomSongs`.
 - Recently played (your albums by when you last heard them), Your artists (only ones in your
@@ -241,13 +246,20 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ### Sources and Library
 
-- Settings > Sources: every source with one status word (Connected, Offline, Sign in, Check
-  certificate, Syncing, a song count), Add source (a container transform from the button;
+- Settings > Sources: every source with one status word (Connected, Away when a server is
+  reached outside home, Offline, Sign in, Check certificate, Syncing with a percentage on a
+  Trackside server's first sync, a song count), Add source (a container transform from the button;
   On This Device asks for music access, Server opens the server form, Spotify its own page),
   the Play From order to drag once there are two or more, and remove with a confirmation that
   counts what goes and says plays stay. Each source has a page: a server's status, name,
   addresses (home network, Tailscale, internet), Check connection and Remove. On a tablet the
   page sits beside the list.
+- Play From: with every source on, each queued song plays from the first copy in the order
+  that can play now (files and servers, matched by title and artist); filtered to one source,
+  the copy asked for. A copy that fails is replaced by the next, from where it got to. Half a
+  minute before a song ends, songs next whose source can't play are switched to another copy
+  or skipped with one Snackbar (`Skipped 2 songs`, `Home is offline`); when nothing left can
+  play, `Nothing in Up Next can play right now.` once the music stops.
 - Library filtered to Spotify shows Spotify's own saved albums, playlists and liked songs.
 - Library: one library across sources, with the source filter and Artists, Albums and Songs
   as chips. "No music yet" with Add source when there's nothing.
@@ -422,8 +434,8 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - Driving: Tracks Radio for the road, from Activity Recognition or an Android Auto
   connection.
 - Shake to Play.
-- Play From is stored and ordered in the UI; the player still plays the copy the library
-  finds first.
+- Spotify copies of a song in your files or on a server: Play From only chooses among the
+  phone's files and servers, and a Spotify song plays as Spotify.
 
 ### Now Playing
 
@@ -532,8 +544,8 @@ id, so it replaces a store install (and its history) rather than sitting beside 
   shows `Spotify can't play this account in Tracks.` with Remove and Try Again, and the Sources
   row asks to sign in.
 - **Playback** goes through the same Media3 ExoPlayer as everything else.
-  `playback/PcmWavDataSource` presents the engine's `SpotifyStream` (44.1 kHz stereo float) as a
-  16-bit WAV, so focus, the notification, Android Auto, speed and gapless joins work unchanged.
+  `playback/PcmWavDataSource` presents the engine's `SpotifyStream` (44.1 kHz stereo, read as
+  16-bit bytes with `read_pcm16`, so no float is boxed) as a WAV, so focus, the notification, Android Auto, speed and gapless joins work unchanged.
   WavExtractor seeks by byte offset; the source maps it to a frame, seeks the engine to the
   millisecond at or before it, and drops or pads the difference. A song that decodes short is
   padded with silence to the length it promised. ExoPlayer opens the next song about 50 s

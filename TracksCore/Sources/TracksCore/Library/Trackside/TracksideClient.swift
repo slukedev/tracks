@@ -208,8 +208,12 @@ public struct TracksideClient: Sendable {
         return list.songs
     }
 
-    public func similarArtists(toArtist artistID: String, count: Int = 15) async throws -> [TracksideSimilarArtist] {
-        let list: TracksideSimilarArtists = try await get("artists/\(artistID)/similar", ["count": String(count)])
+    /// - Parameter inLibrary: only artists the server has, chosen before the list is cut to
+    ///   `count`. A server from before it ignores it, so callers still leave out the others.
+    public func similarArtists(toArtist artistID: String, count: Int = 15, inLibrary: Bool = false) async throws -> [TracksideSimilarArtist] {
+        var query = ["count": String(count)]
+        if inLibrary { query["in_library"] = "true" }
+        let list: TracksideSimilarArtists = try await get("artists/\(artistID)/similar", query)
         return list.artists
     }
 
@@ -222,6 +226,31 @@ public struct TracksideClient: Sendable {
         var query = ["count": String(count)]
         query["genre"] = genre
         let list: TracksideSongList = try await get("songs/random", query)
+        return list.songs
+    }
+
+    // MARK: Shelves
+
+    /// Songs like the ones you play that you haven't lately: the server's picks for you.
+    public func picks(count: Int = 40, timeZone: TimeZone = .current) async throws -> TracksideSuggestedSongs {
+        try await get("me/picks", ["count": String(count), "tz": timeZone.identifier])
+    }
+
+    /// One of Tracks' mixes made by the server from your listens there, by the id the apps
+    /// use: "onRepeat", "rediscover", "newFinds" and the rest.
+    public func mix(_ id: String, timeZone: TimeZone = .current) async throws -> [TracksideSong] {
+        let list: TracksideSongList = try await get("me/mixes/\(id)", ["tz": timeZone.identifier])
+        return list.songs
+    }
+
+    /// Songs by the artists you play and ones like them that you've never played.
+    public func getMore(count: Int = 24) async throws -> TracksideSuggestedSongs {
+        try await get("me/get-more", ["count": String(count)])
+    }
+
+    /// The most played songs on the server.
+    public func mostPlayed(count: Int = 50) async throws -> [TracksideSong] {
+        let list: TracksideSongList = try await get("songs/top", ["count": String(count)])
         return list.songs
     }
 
@@ -640,7 +669,17 @@ extension TracksideClient: MusicServerClient {
     }
 
     public func similarArtists(to artistID: String, count: Int) async throws -> [SubsonicArtist] {
-        try await similarArtists(toArtist: artistID, count: count).compactMap { $0.artist?.subsonicArtist }
+        let found = try await similarArtists(toArtist: artistID, count: min(count * 3, 100), inLibrary: true)
+        return Array(found.compactMap { $0.artist?.subsonicArtist }.prefix(count))
+    }
+
+    public func serverPicks(count: Int) async throws -> [SubsonicSong]? {
+        do {
+            return try await picks(count: count).songs.filter { $0.missing != true }.map(\.subsonicSong)
+        } catch TracksideError.notFound, TracksideError.http(status: 404) {
+            // A server from before picks: the walk from similar songs stands in.
+            return nil
+        }
     }
 
     public func randomSongs(count: Int, genre: String?) async throws -> [SubsonicSong] {

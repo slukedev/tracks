@@ -400,8 +400,10 @@ public struct SubsonicClient: Sendable {
 
     /// Artists like this one that the server has.
     public func similarArtists(to id: String, count: Int = 20) async throws -> [SubsonicArtist] {
-        let body = try await call("getArtistInfo2", ["id": id, "count": String(count)])
-        return body.artistInfo2?.similarArtist ?? []
+        // Some servers cut the list before leaving out artists they don't have: ask for more,
+        // and keep the first that are there.
+        let body = try await call("getArtistInfo2", ["id": id, "count": String(min(count * 3, 100))])
+        return Array((body.artistInfo2?.similarArtist ?? []).filter { !$0.id.isEmpty }.prefix(count))
     }
 
     public func randomSongs(count: Int = 30, genre: String? = nil) async throws -> [SubsonicSong] {

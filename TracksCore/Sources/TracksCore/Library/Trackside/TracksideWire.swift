@@ -427,6 +427,18 @@ struct TracksideSongList: Codable, Sendable {
     let songs: [TracksideSong]
 }
 
+/// A song Last.fm suggests that the server doesn't have.
+public struct TracksideSuggestion: Codable, Sendable, Hashable {
+    public var title: String
+    public var artist: String
+}
+
+/// `GET /me/picks` and `GET /me/get-more`: songs the server has, and ones it suggests that it doesn't.
+public struct TracksideSuggestedSongs: Codable, Sendable, Hashable {
+    public var songs: [TracksideSong]
+    public var external: [TracksideSuggestion]?
+}
+
 struct TracksideAlbumList: Codable, Sendable {
     let albums: [TracksideAlbum]
     let nextCursor: String?

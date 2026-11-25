@@ -12,6 +12,7 @@ import com.luke.tracks.library.ServerStatus
 import com.luke.tracks.library.MusicServerClient
 import com.luke.tracks.library.SubsonicClient
 import com.luke.tracks.net.Http
+import com.luke.tracks.net.Logs
 import com.luke.tracks.net.ServerLinks
 import com.luke.tracks.library.SubsonicServer
 import com.luke.tracks.library.SubsonicSong
@@ -72,8 +73,9 @@ data class ServerSong(val serverId: String, val song: FoundSong)
 /**
  * What your music servers find for you, as on iPhone: songs by the artists you play and
  * artists like them (Picked for you, Suggested songs and Keep exploring), each server's
- * most played and random albums, and songs you've never played. Needs a Subsonic server;
- * with Octo in front of it, most of what's found can be fetched to keep.
+ * most played and random albums, and songs you've never played. Trackside starts them with
+ * its own picks; a Subsonic server with its similar songs, and with Octo in front of it, most
+ * of what's found can be fetched to keep.
  */
 interface ServerPicks {
     /** Servers answering, whose shelves show. */
@@ -183,9 +185,13 @@ class ServerPicksService(
             if (!force && walks[serverId]?.stands(PICKED, now()) == true) return
             val seeds = serverSeeds(PICKED, playedArtists(), libraryArtists(), QUEUE_START, dailySeed("for-you-seeds"))
             val fresh = ServerForYou(seeds, PICKED, now())
-            if (seeds.isEmpty()) return publish(serverId, fresh, filling = false)
+            val client = serverLibrary.client(server)
+            // A server that picks for you (Trackside) starts the shelves; the walk goes on from there.
+            val picked = client?.let { serverPicks(it, server) }
+            if (seeds.isEmpty() && picked.isNullOrEmpty()) return publish(serverId, fresh, filling = false)
             // What's on show stays until the new picks are ready; an empty shelf fills as they come.
             val replaces = walks[serverId]?.shelves()?.let { it.picks.isNotEmpty() || it.suggested.isNotEmpty() } == true
+            if (!picked.isNullOrEmpty()) fresh.add(candidates(picked, server), emptyList(), dailySeed("for-you-server"))
             if (!replaces) publish(serverId, fresh, filling = true)
             // A column for each shelf at a time, Suggested songs first as it leads the page.
             for (shelf in listOf(ForYouShelf.SUGGESTED, ForYouShelf.PICKS, ForYouShelf.SUGGESTED, ForYouShelf.PICKS)) {
@@ -236,19 +242,34 @@ class ServerPicksService(
         val artist = walk.nextArtist() ?: return
         budget(server.id).take()
         val found = runCatching { client.search(artist, artists = 0, albums = 0, songs = ARTIST_SONGS).songs }
-            .onFailure { com.luke.tracks.net.Logs.w("For You search failed", it) }.getOrNull()?.map { it.found() } ?: return
+            .onFailure { Logs.w("For You: ${server.name} couldn't search", it) }.getOrNull()?.map { it.found() } ?: return
         val start = serverArtistStart(artist, found)
         val like = start.start?.let { index ->
-            runCatching { client.similarSongs(found[index.toInt()].id, 15) }.getOrDefault(emptyList()).map { it.found() }
+            runCatching { client.similarSongs(found[index.toInt()].id, 15) }
+                .onFailure { Logs.w("For You: ${server.name} couldn't find similar songs", it) }
+                .getOrDefault(emptyList()).map { it.found() }
         }.orEmpty()
         val songs = start.theirs.map { found[it.toInt()] } + like
-        val heard = heard(songs.map { it.identity } + yoursBy(artist).map { it.identity })
-        val known = knownArtists()
-        val candidates = songs.map { song ->
+        val yours = yoursBy(artist)
+        val candidates = candidates(songs, server, also = yours.map { it.identity })
+        val heard = candidates.filter { it.heard }.map { it.song.identity }.toSet() + heard(yours.map { it.identity })
+        walk.add(candidates, yours.filter { it.identity !in heard }, dailySeed("for-you-$artist"))
+    }
+
+    /** The server's own picks, or null when it doesn't make any; a failure says why in the log. */
+    private suspend fun serverPicks(client: MusicServerClient, server: SubsonicServer): List<FoundSong>? {
+        budget(server.id).take()
+        return runCatching { client.picks(SERVER_PICKS) }
+            .onFailure { Logs.w("For You: ${server.name} couldn't pick songs", it) }
+            .getOrNull()?.map { it.found() }
+    }
+
+    private suspend fun candidates(songs: List<FoundSong>, server: SubsonicServer, also: List<String> = emptyList()): List<FoundCandidate> {
+        val heard = heard(songs.map { it.identity } + also)
+        val known = knownArtists(server)
+        return songs.map { song ->
             FoundCandidate(song, heard = song.identity in heard, knownArtist = foldedName(song.artist) in known, owned = index.find(song.identity) != null)
         }
-        val yours = yoursBy(artist).filter { it.identity !in heard }
-        walk.add(candidates, yours, dailySeed("for-you-$artist"))
     }
 
     /** Your songs by an artist, as songs found. */
@@ -283,7 +304,7 @@ class ServerPicksService(
             coverHttp.newCall(Request.Builder().url(url).build()).execute().use { answer ->
                 answer.isSuccessful && answer.body.contentType()?.type == "image" && answer.body.bytes().size > 256
             }
-        }.getOrDefault(false)
+        }.onFailure { Logs.w("For You: couldn't check a cover", it) }.getOrDefault(false)
     }
 
     // MARK: - Shelves of albums
@@ -309,7 +330,7 @@ class ServerPicksService(
 
     /** The server's albums of a kind that are in the library, to open there. */
     private suspend fun albums(server: SubsonicServer, client: MusicServerClient, type: SubsonicClient.AlbumListType): List<ServerAlbum> =
-        runCatching { client.albums(type, size = 15) }.getOrDefault(emptyList()).mapNotNull { album ->
+        runCatching { client.albums(type, size = 15) }.onFailure { Logs.w("${server.name} couldn't list albums", it) }.getOrDefault(emptyList()).mapNotNull { album ->
             val id = ServerLibrary.albumId(server.id, album.id)
             index.album(id)?.let { ServerAlbum(id, it.title, it.artistName, album.coverArt?.let { cover -> ServerLinks.coverUrl(server.id, cover) }) }
         }
@@ -325,7 +346,7 @@ class ServerPicksService(
             if (exploringWaiting.size < PAGE) {
                 val server = servers.random()
                 val client = serverLibrary.client(server)
-                val songs = client?.let { runCatching { it.randomSongs(40) }.getOrNull() }
+                val songs = client?.let { runCatching { it.randomSongs(40) }.onFailure { e -> Logs.w("Keep exploring: ${server.name} couldn't pick songs", e) }.getOrNull() }
                 if (songs == null) {
                     failuresInARow++
                 } else {
@@ -399,10 +420,15 @@ class ServerPicksService(
     private fun libraryArtists(): List<String> =
         index.snapshot.artists.sortedByDescending { it.songCount }.map { it.name }
 
-    /** Artists you play or have, folded: their songs are Picked for you's, everyone else's Suggested songs'. */
-    private suspend fun knownArtists(): Set<String> =
-        graph.engine.read { artistChart(Engine.allTime, null, SourceFilter.ALL, 2000u).rows.map { foldedName(it.artist.name) } }.toSet() +
-            index.snapshot.artists.map { foldedName(it.name) }
+    /**
+     * Artists you know, folded: their songs are Picked for you's, everyone else's Suggested
+     * songs'. Those you play, and those in your music, unless the server only ever finds what's
+     * in your music (Trackside): then an artist you have and have never played is new to you.
+     */
+    private suspend fun knownArtists(server: SubsonicServer): Set<String> {
+        val played = graph.engine.read { artistChart(Engine.allTime, null, SourceFilter.ALL, 2000u).rows.map { foldedName(it.artist.name) } }.toSet()
+        return if (server.isTrackside) played else played + index.snapshot.artists.map { foldedName(it.name) }
+    }
 
     /** Which of these songs you've played. */
     private suspend fun heard(identities: List<String>): Set<String> =
@@ -448,6 +474,7 @@ class ServerPicksService(
         const val COLUMN = 4
         const val PAGE = 8
         const val ARTIST_SONGS = 20
+        const val SERVER_PICKS = 40
         const val ALBUMS_KEEP_MS = 15 * 60_000L
         val coverHttp: OkHttpClient by lazy {
             Http.media.newBuilder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()

@@ -29,6 +29,10 @@ public protocol MusicServerClient: Sendable {
 
     func randomSongs(count: Int, genre: String?) async throws -> [SubsonicSong]
 
+    /// The server's own picks for you, songs like the ones you play, or nil when it doesn't
+    /// make any (Subsonic, or a Trackside server from before it did).
+    func serverPicks(count: Int) async throws -> [SubsonicSong]?
+
     /// The first albums of a list, for shelves.
     func albumList(_ list: MusicAlbumList, count: Int) async throws -> [SubsonicAlbum]
 
@@ -55,6 +59,10 @@ public protocol MusicServerClient: Sendable {
 
     /// Tells the server about songs that played. The answer says, by listen id, which it took.
     func submitListens(_ listens: [ServerListen]) async throws -> [String: ServerListenStatus]
+}
+
+extension MusicServerClient {
+    public func serverPicks(count: Int) async throws -> [SubsonicSong]? { nil }
 }
 
 /// Where the next page of a search's songs starts: an offset on Subsonic, a cursor on

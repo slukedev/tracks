@@ -311,6 +311,7 @@ data class TracksideSyncPage(
     /** "snapshot" or "delta". */
     val mode: String,
     val complete: Boolean? = null,
+    val libraries: List<Library>? = null,
     val artists: List<TracksideArtist>? = null,
     val songs: List<TracksideSong>? = null,
     val upserts: Upserts? = null,
@@ -318,6 +319,9 @@ data class TracksideSyncPage(
     @SerialName("has_more") val hasMore: Boolean? = null,
     @SerialName("next_cursor") val nextCursor: String? = null,
 ) {
+    @Serializable
+    data class Library(@SerialName("song_count") val songCount: Int? = null)
+
     @Serializable
     data class Upserts(val songs: List<TracksideSong>? = null, val artists: List<TracksideArtist>? = null)
 
