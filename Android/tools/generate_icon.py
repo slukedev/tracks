@@ -88,9 +88,12 @@ background = '''<vector xmlns:android="http://schemas.android.com/apk/res/androi
 </vector>
 '''
 
-open(f"{RES}/drawable/ic_launcher_foreground.xml", "w").write(foreground())
-open(f"{RES}/drawable/ic_launcher_monochrome.xml", "w").write(monochrome())
-open(f"{RES}/drawable/ic_launcher_background.xml", "w").write(background)
+# The layers carry a "tracks" prefix: Apple's MusicKitAuth AAR ships Android Studio's template
+# ic_launcher_background/ic_launcher_foreground, and its drawable-anydpi-v24 foreground outranks
+# an app drawable/ of the same name, which put the Android robot on the launcher icon.
+open(f"{RES}/drawable/ic_tracks_launcher_foreground.xml", "w").write(foreground())
+open(f"{RES}/drawable/ic_tracks_launcher_monochrome.xml", "w").write(monochrome())
+open(f"{RES}/drawable/ic_tracks_launcher_background.xml", "w").write(background)
 
 # The launch splash: the same cassette, its reels turning while the app opens.
 splash = f'''<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
