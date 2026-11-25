@@ -21,6 +21,7 @@ extension SettingsRegistry {
         .everyDevice(PlayPreferences.speedVolumeAmountKey, in: .app),
         .everyDevice(OpeningTab.storageKey, in: .app),
         .everyDevice(PlayFromOrder.storageKey, in: .app),
+        .thisDevice(PlayFromOrder.migratedKey, in: .app),
         .everyDevice(SuggestionMode.storageKey, in: .app),
         .everyDevice(LastSessionStore.resumesKey, in: .app),
         .everyDevice(LastSessionStore.windowKey, in: .app),

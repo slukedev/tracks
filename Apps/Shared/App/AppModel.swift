@@ -712,7 +712,7 @@ final class AppModel {
             copies.append((.source(.spotify), .spotify))
         }
         guard copies.count > 1 || copies.first?.source != musicSource else { return nil }
-        return PlayFromOrder.current.choose(copies, place: \.place, canPlay: { _ in true })?.source
+        return yourMusic.playFromOrder.choose(copies, place: \.place, canPlay: { _ in true })?.source
     }
 
     /// Apple Music's ids: a catalog id is digits, a library one starts "i.".

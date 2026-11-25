@@ -20,12 +20,16 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.util.WeakHashMap
 
 /**
@@ -86,6 +90,8 @@ class SourcesRegistry(
     scope: CoroutineScope,
     builtIn: List<SourceProvider>,
     private val spotifyAllowed: Boolean = BuildConfig.SPOTIFY,
+    /** The servers once they're read, for writing out an order saved before; null until then. */
+    loadedServers: Flow<List<String>?>? = null,
 ) {
     private val providers = MutableStateFlow(builtIn)
 
@@ -126,13 +132,25 @@ class SourcesRegistry(
     /** The Play From order as stored; [arrangedPlayFrom] for the places here. */
     val playFrom: StateFlow<PlayFromOrder> = order.asStateFlow()
 
-    fun arrangedPlayFrom(list: List<Source> = sources.value): List<PlayFromPlace> =
-        order.value.arranged(list.serverIds(), list.any { it.kind == SourceKind.Spotify }, list.any { it.kind == SourceKind.AppleMusic })
+    init {
+        scope.launch {
+            if (!prefs.getBoolean(MIGRATED_KEY, false)) {
+                val servers = loadedServers?.filterNotNull()?.first() ?: sources.value.serverIds()
+                save(order.value.migrated(servers))
+                prefs.edit().putBoolean(MIGRATED_KEY, true).apply()
+            }
+            // A source added later goes last.
+            sources.collect { list -> save(order.value.including(list.places())) }
+        }
+    }
 
-    /** Saves a new order of the places here. */
-    fun setPlayFrom(places: List<PlayFromPlace>) {
-        val list = sources.value
-        val next = order.value.replacing(places, list.serverIds(), list.any { it.kind == SourceKind.Spotify }, list.any { it.kind == SourceKind.AppleMusic })
+    fun arrangedPlayFrom(list: List<Source> = sources.value): List<PlayFromPlace> = order.value.arranged(list.places())
+
+    /** Saves a new order of the places shown; the rest keep their positions. */
+    fun setPlayFrom(places: List<PlayFromPlace>) = save(order.value.reordered(places))
+
+    private fun save(next: PlayFromOrder) {
+        if (next == order.value && prefs.contains(ORDER_KEY)) return
         order.value = next
         prefs.edit().putString(ORDER_KEY, next.raw).apply()
     }
@@ -158,7 +176,7 @@ class SourcesRegistry(
 
     /** Copies of a song, keyed by their media ids, best first in the Play From order. */
     fun <T> ranked(copies: List<T>, mediaId: (T) -> String): List<T> =
-        order.value.ranked(copies, spotify = sources.value.any { it.kind == SourceKind.Spotify }, appleMusic = sources.value.any { it.kind == SourceKind.AppleMusic }) { copy ->
+        order.value.ranked(copies) { copy ->
             PlayFromPlace.From(sourceOf(mediaId(copy)) ?: SourceId.Unknown(mediaId(copy)))
         }
 
@@ -179,9 +197,12 @@ class SourcesRegistry(
 
     private fun List<Source>.serverIds() = mapNotNull { (it.id as? SourceId.Server)?.id }
 
+    private fun List<Source>.places() = map { PlayFromPlace.From(it.id) }
+
     companion object {
         private const val SELECTION_KEY = "sourceFilter"
         private const val ORDER_KEY = "playFromOrder"
+        private const val MIGRATED_KEY = "playFromOrderMigrated"
         const val PREFS = "sources"
 
         fun prefs(context: Context): SharedPreferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -286,7 +307,10 @@ val AppGraph.sources: SourcesRegistry
         )
         val servers = combined?.servers?.let { ServerSourceProvider(it.entries, scope, it.away, it.syncProgress, onRemove = it::remove) }
         val carried = existing?.registered?.value.orEmpty().filter { it.kind == SourceKind.Spotify || it.kind == SourceKind.AppleMusic }
-        SourcesRegistry(SourcesRegistry.prefs(context), scope, listOfNotNull(device, servers) + carried).also {
+        val loadedServers = combined?.servers?.let { library ->
+            combine(library.loading, library.entries) { loading, entries -> if (loading) null else entries.map { it.server.id } }
+        } ?: flowOf(emptyList())
+        SourcesRegistry(SourcesRegistry.prefs(context), scope, listOfNotNull(device, servers) + carried, loadedServers = loadedServers).also {
             instances[this] = it
             libraries[this] = library
         }

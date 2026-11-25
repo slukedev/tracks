@@ -10,6 +10,7 @@ import com.luke.tracks.playback.PlayerState
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.sources.FakeSources
 import com.luke.tracks.sources.PlayFromOrder
+import com.luke.tracks.sources.PlayFromPlace
 import com.luke.tracks.sources.Source
 import com.luke.tracks.sources.SourceKind
 import com.luke.tracks.sources.SourceStatus
@@ -40,7 +41,7 @@ class SourceScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         Frame {
             SourcesPageContent(
                 sources = sources,
-                playFrom = PlayFromOrder.Standard.arranged(listOf("s1", "s2"), spotify = true),
+                playFrom = PlayFromOrder.Standard.arranged(all.map { PlayFromPlace.From(it.id) }),
                 options = listOf(
                     AddOption("server", "Server", SourceKind.Server) {},
                     AddOption("spotify", "Spotify", SourceKind.Spotify, subtitle = "Needs Premium") {},

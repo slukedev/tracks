@@ -109,7 +109,10 @@ See [README.md](README.md) for the legend and how to keep this current.
   Songs…, Add Folder…), each server's page. Add Source… offers Apple Music, On This iPhone and
   Server (the server form); Spotify only in builds with the `SPOTIFY` flag (see Spotify).
 - Play From (Settings › Sources, Edit to reorder, synced): which copy plays when a song is in
-  several sources. Default On This iPhone, Downloads, servers, Apple Music, Spotify. Applied
+  several sources. Every place (each server, Downloads, Apple Music, Spotify, On This iPhone)
+  can go anywhere, and a source added later goes last. A new order starts On This iPhone,
+  Downloads, Apple Music, Spotify; an order saved before that rule is written out once as it
+  played (`PlayFromOrder.migrated`). Applied
   where Tracks picks among a song's copies by name (`YourMusic.track(for:)`), and with All
   Sources to every request: a mix, a chart or a search result plays through the player of
   its best copy (`AppModel.routedSource`, `PlayerModel.routeEngine`). When a request's

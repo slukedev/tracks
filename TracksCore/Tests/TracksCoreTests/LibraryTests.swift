@@ -446,6 +446,9 @@ struct LocalLibraryTests {
         let index = LocalLibraryIndex(tracks: [file, copy, track("Tidal")])
         #expect(Set(index.tracks(withIdentity: SongIdentity.key(title: "night drive", artistName: "MARA SOLIS"))) == [file, copy])
         #expect(index.tracks(withIdentity: "nothing").isEmpty)
+        #expect(index.copies(of: copy).first == copy)
+        #expect(Set(index.copies(of: copy)) == [file, copy])
+        #expect(index.copies(of: copy).count == 2)
     }
 
     @Test("a server's search keeps only songs that aren't yours already, each once, in its order")

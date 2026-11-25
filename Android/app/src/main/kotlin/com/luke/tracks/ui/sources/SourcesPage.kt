@@ -7,6 +7,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -14,6 +15,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +51,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -352,83 +356,123 @@ private fun SourceRow(
 }
 
 /**
- * Which copy plays when a song is in more than one source: press and hold a row to drag it,
- * or use TalkBack's Move up and Move down.
+ * Which copy plays when a song is in more than one source. Drag a row by its handle, or press
+ * and hold anywhere on it; TalkBack offers Move up and Move down. Any row can go anywhere.
  */
 @Composable
 private fun PlayFromSection(sources: List<Source>, places: List<PlayFromPlace>, onReorder: (List<PlayFromPlace>) -> Unit, modifier: Modifier = Modifier) {
     val haptics = LocalHapticFeedback.current
-    val rowPx = with(LocalDensity.current) { 64.dp.toPx() }
+    val gapPx = with(LocalDensity.current) { ListItemDefaults.SegmentedGap.toPx() }
     val names = places.mapNotNull { place ->
         val source = (place as? PlayFromPlace.From)?.source?.let { id -> sources.firstOrNull { it.id == id } } ?: return@mapNotNull null
         place to source
     }
-    var dragging by remember { mutableStateOf<Int?>(null) }
+    var dragging by remember { mutableStateOf<PlayFromPlace?>(null) }
     var offset by remember { mutableFloatStateOf(0f) }
+    var rowPx by remember { mutableFloatStateOf(1f) }
+    fun fromIndex() = names.indexOfFirst { it.first == dragging }
+    fun targetIndex() = fromIndex().let { if (it < 0) -1 else (it + (offset / rowPx).roundToInt()).coerceIn(0, names.lastIndex) }
+
     fun move(from: Int, to: Int) {
-        if (from == to || to !in names.indices) return
+        if (from == to || from !in names.indices || to !in names.indices) return
         val list = names.map { it.first }.toMutableList()
         list.add(to, list.removeAt(from))
         onReorder(list)
     }
+    fun start(place: PlayFromPlace) {
+        haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+        dragging = place
+        offset = 0f
+    }
+    fun drag(amount: Float) {
+        val before = (offset / rowPx).roundToInt()
+        offset += amount
+        if ((offset / rowPx).roundToInt() != before) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+    }
+    fun end() {
+        val from = fromIndex()
+        if (from >= 0) {
+            move(from, targetIndex())
+            haptics.performHapticFeedback(HapticFeedbackType.GestureEnd)
+        }
+        dragging = null
+        offset = 0f
+    }
+    fun cancel() {
+        dragging = null
+        offset = 0f
+    }
+
     Column(modifier) {
         GroupTitle("Play from")
+        val from = fromIndex()
+        val target = targetIndex()
         names.forEachIndexed { i, (place, source) ->
-            val lifted = dragging == i
-            val lift by animateDpAsState(if (lifted) 6.dp else 0.dp, MaterialTheme.motionScheme.fastSpatialSpec(), label = "lift")
-            Surface(
-                shape = ListItemDefaults.segmentedShapes(i, names.size).shape,
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                shadowElevation = lift,
-                modifier = Modifier
-                    .padding(bottom = ListItemDefaults.SegmentedGap)
-                    .zIndex(if (lifted) 1f else 0f)
-                    .graphicsLayer { translationY = if (lifted) offset else 0f }
-                    .semantics(mergeDescendants = true) {
-                        customActions = listOfNotNull(
-                            CustomAccessibilityAction("Move up") { move(i, i - 1); true }.takeIf { i > 0 },
-                            CustomAccessibilityAction("Move down") { move(i, i + 1); true }.takeIf { i < names.lastIndex },
-                        )
-                    },
-            ) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 64.dp)
-                        .pointerInput(names.size) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
-                                    dragging = i
-                                    offset = 0f
-                                },
-                                onDragEnd = {
-                                    val from = dragging ?: return@detectDragGesturesAfterLongPress
-                                    move(from, (from + (offset / rowPx).roundToInt()).coerceIn(0, names.lastIndex))
-                                    haptics.performHapticFeedback(HapticFeedbackType.GestureEnd)
-                                    dragging = null
-                                    offset = 0f
-                                },
-                                onDragCancel = { dragging = null; offset = 0f },
-                                onDrag = { change, amount ->
-                                    change.consume()
-                                    val before = (offset / rowPx).roundToInt()
-                                    offset += amount.y
-                                    if ((offset / rowPx).roundToInt() != before) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                                },
+            key(place.raw) {
+                val lifted = place == dragging
+                val shift = when {
+                    from < 0 || lifted -> 0f
+                    i in (from + 1)..target -> -rowPx
+                    i in target..<from -> rowPx
+                    else -> 0f
+                }
+                val lift by animateDpAsState(if (lifted) 6.dp else 0.dp, MaterialTheme.motionScheme.fastSpatialSpec(), label = "lift")
+                val slide by animateFloatAsState(shift, MaterialTheme.motionScheme.fastSpatialSpec(), label = "slide")
+                Surface(
+                    shape = ListItemDefaults.segmentedShapes(i, names.size).shape,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shadowElevation = lift,
+                    modifier = Modifier
+                        .padding(bottom = ListItemDefaults.SegmentedGap)
+                        .onSizeChanged { rowPx = it.height + gapPx }
+                        .zIndex(if (lifted) 1f else 0f)
+                        .graphicsLayer { translationY = if (lifted) offset else slide }
+                        .semantics(mergeDescendants = true) {
+                            stateDescription = "${i + 1} of ${names.size}"
+                            customActions = listOfNotNull(
+                                CustomAccessibilityAction("Move up") { move(i, i - 1); true }.takeIf { i > 0 },
+                                CustomAccessibilityAction("Move down") { move(i, i + 1); true }.takeIf { i < names.lastIndex },
                             )
-                        }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        },
                 ) {
-                    Text(
-                        "${i + 1}",
-                        style = MaterialTheme.typography.titleMediumEmphasized,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.width(28.dp),
-                    )
-                    Text(source.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Icon(Icons.Rounded.DragHandle, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 64.dp)
+                            .pointerInput(place, names) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { start(place) },
+                                    onDragEnd = ::end,
+                                    onDragCancel = ::cancel,
+                                    onDrag = { change, amount -> change.consume(); drag(amount.y) },
+                                )
+                            }
+                            .padding(start = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "${i + 1}",
+                            style = MaterialTheme.typography.titleMediumEmphasized,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.width(28.dp),
+                        )
+                        Text(source.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Box(
+                            Modifier
+                                .size(56.dp)
+                                .pointerInput(place, names) {
+                                    detectVerticalDragGestures(
+                                        onDragStart = { start(place) },
+                                        onDragEnd = ::end,
+                                        onDragCancel = ::cancel,
+                                        onVerticalDrag = { change, amount -> change.consume(); drag(amount) },
+                                    )
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.DragHandle, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
         }

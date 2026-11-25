@@ -108,7 +108,17 @@ enum SourceWords {
 extension PlayFromOrder {
     /// As chosen in Settings ▸ Sources, synced between devices.
     static var current: PlayFromOrder {
-        PlayFromOrder(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "")
+        get { PlayFromOrder(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: storageKey) }
+    }
+
+    /// Writes an order saved before places could go anywhere out in full, once on each
+    /// device, so it plays as it did.
+    static func migrateIfNeeded(servers: [String]) {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: migratedKey) else { return }
+        current = current.migrated(servers: servers)
+        defaults.set(true, forKey: migratedKey)
     }
 }
 
