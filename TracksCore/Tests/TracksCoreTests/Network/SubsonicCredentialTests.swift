@@ -26,6 +26,16 @@ struct SubsonicCredentialTests {
         #expect(SubsonicCredentialRule.allows(https, usesAPIKey: true, hasHTTPS: true, onHomeNetwork: false))
     }
 
+    @Test("a server with no recorded home: https only when it has it, plain http as always when not")
+    func noHome() {
+        let here = SubsonicCredentialRule.isHome("n1", of: [])
+        #expect(!here)
+        #expect(!SubsonicCredentialRule.allows(lan, usesAPIKey: false, hasHTTPS: true, onHomeNetwork: here))
+        #expect(SubsonicCredentialRule.allows(https, usesAPIKey: false, hasHTTPS: true, onHomeNetwork: here))
+        #expect(SubsonicCredentialRule.allows(lan, usesAPIKey: false, hasHTTPS: false, onHomeNetwork: here))
+        #expect(!SubsonicCredentialRule.allows(lan, usesAPIKey: true, hasHTTPS: false, onHomeNetwork: here))
+    }
+
     @Test("home is a network recorded for the server, never no network")
     func home() {
         #expect(SubsonicCredentialRule.isHome("n1", of: ["n0", "n1"]))

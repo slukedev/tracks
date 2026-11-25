@@ -147,10 +147,10 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Subsonic over plain HTTP (`SubsonicCredentialRule`): an API key never, except to loopback.
   A server that also has an https address gets credentials on its nearby http address only
   on a network recorded as its home (`NetworkIdentity`: routers, IPv4 subnets and
-  unique-local IPv6 prefixes, as a digest), recorded when it's added there; elsewhere the
-  nearby address isn't raced and https is used. An entry from before this learns its home
-  once, where only the nearby address answers. A server with only an http address is marked
-  as working on the home network only when it's added.
+  unique-local IPv6 prefixes, as a digest), recorded only when it's added or edited in the
+  form there and its nearby address answers; elsewhere the nearby address isn't raced and
+  https is used. An entry with no home recorded uses https only. A server with only an http
+  address works as before, and is marked as working on the home network when it's added.
 - Subsonic: every request is signed with a fresh salt. Cover addresses carry no credentials
   at all (they're cache keys, and reach Now Playing); `ArtworkImages` signs each one as it's
   fetched through `ServerMediaSigning`. Add Server offers Password or API Key where the server

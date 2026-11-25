@@ -29,12 +29,10 @@ public final class SubsonicEndpoints: Sendable {
     private let homes: Mutex<[String]>
     private let probe: @Sendable (URL, Duration) async -> Bool
     private let network: @Sendable () -> String?
-    private let onNewHome: @Sendable ([String]) -> Void
 
     /// - Parameters:
     ///   - homes: the networks recorded as the server's home (``NetworkIdentity``).
     ///   - network: the network the device is on now.
-    ///   - onNewHome: the homes, after this one was first recorded, to keep with the entry.
     ///   - probe: whether an address answers as the server, within the timeout.
     public init(
         candidates: [TracksideServerURL],
@@ -42,7 +40,6 @@ public final class SubsonicEndpoints: Sendable {
         usesAPIKey: Bool = false,
         homes: [String] = [],
         network: @escaping @Sendable () -> String? = { CurrentNetwork.shared.identity },
-        onNewHome: @escaping @Sendable ([String]) -> Void = { _ in },
         localGrace: Duration = .milliseconds(300),
         timeout: Duration = .seconds(3),
         probe: @escaping @Sendable (URL, Duration) async -> Bool
@@ -54,15 +51,14 @@ public final class SubsonicEndpoints: Sendable {
         self.usesAPIKey = usesAPIKey
         self.homes = Mutex(homes)
         self.network = network
-        self.onNewHome = onNewHome
         self.localGrace = localGrace
         self.timeout = timeout
         self.probe = probe
     }
 
     /// Endpoints for a server's addresses, probed through `transport`.
-    public convenience init(server: SubsonicServer, transport: any SubsonicTransport = URLSessionTransport(), onNewHome: @escaping @Sendable ([String]) -> Void = { _ in }) {
-        self.init(candidates: server.addresses, current: server.url, usesAPIKey: server.usesAPIKey, homes: server.homeNetworks ?? [], onNewHome: onNewHome) { url, timeout in
+    public convenience init(server: SubsonicServer, transport: any SubsonicTransport = URLSessionTransport()) {
+        self.init(candidates: server.addresses, current: server.url, usesAPIKey: server.usesAPIKey, homes: server.homeNetworks ?? []) { url, timeout in
             await SubsonicClient.answersAsSubsonic(url, timeout: timeout, transport: transport)
         }
     }
@@ -81,17 +77,20 @@ public final class SubsonicEndpoints: Sendable {
         SubsonicCredentialRule.allows(url, usesAPIKey: usesAPIKey, hasHTTPS: hasHTTPS, onHomeNetwork: isHome)
     }
 
-    /// Records the network now as one of the server's homes, keeping the last four.
+    /// Records the network now as one of the server's homes when a nearby plain HTTP address
+    /// answers here, keeping the last four. Only for the form adding or editing the server:
+    /// nothing else ever records a home.
+    /// - Returns: the homes, when this network was added to them.
     @discardableResult
-    public func recordHome() -> [String]? {
-        guard let here = network() else { return nil }
-        let updated: [String]? = homes.withLock { homes in
+    public func recordHomeIfNearbyAnswers() async -> [String]? {
+        guard network() != nil else { return nil }
+        let nearby = candidates.filter { $0.url.scheme?.lowercased() == "http" && NearbyAddress.isNearby($0.url) }
+        guard !nearby.isEmpty, await pick(from: nearby) != nil, let here = network() else { return nil }
+        return homes.withLock { homes in
             guard !homes.contains(here) else { return nil }
             homes = Array((homes + [here]).suffix(4))
             return homes
         }
-        if let updated { onNewHome(updated) }
-        return updated
     }
 
     /// The address requests go to now.
@@ -108,19 +107,9 @@ public final class SubsonicEndpoints: Sendable {
     public func race() async -> URL? {
         guard hasChoice else { return baseURL }
         let usable = candidates.filter { allowsCredentials(to: $0.url) }
-        // An entry from before homes were recorded: home is where only its nearby address
-        // answers, and that network is recorded as it, once.
-        let firstHome = homes.withLock { $0.isEmpty } && hasHTTPS && !usesAPIKey && network() != nil
-            ? candidates.filter { $0.url.scheme?.lowercased() == "http" && NearbyAddress.isNearby($0.url) && !usable.contains($0) }
-            : []
         let task: Task<URL?, Never> = state.withLock { state in
             if let running = state.racing { return running }
-            let task = Task { [self] in
-                if let chosen = await pick(from: usable) { return chosen }
-                guard !firstHome.isEmpty, let chosen = await pick(from: firstHome) else { return nil }
-                recordHome()
-                return chosen
-            }
+            let task = Task { [self] in await pick(from: usable) }
             state.racing = task
             return task
         }

@@ -8,8 +8,8 @@ import Foundation
 /// - An API key never goes over plain HTTP anywhere else: it's the whole account until it's
 ///   revoked.
 /// - A server with an https address: plain HTTP only to a nearby address, and only on a
-///   network recorded as its home (``NetworkIdentity``). Elsewhere a café's 192.168.1.10 is
-///   someone else's.
+///   network recorded as its home (``NetworkIdentity``) when it was added or edited there.
+///   Elsewhere a café's 192.168.1.10 is someone else's. With no home recorded, https only.
 /// - A server with no https address at all: plain HTTP, as chosen when it was added, with a
 ///   word that it's for home.
 public enum SubsonicCredentialRule {

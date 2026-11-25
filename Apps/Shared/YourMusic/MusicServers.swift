@@ -187,7 +187,7 @@ final class MusicServers {
         syncs.invalidate(server.id)
         switch server.kind {
         case .subsonic:
-            let client = SubsonicClient(server: server, password: secret, endpoints: endpoints(for: server))
+            let client = SubsonicClient(server: server, password: secret, endpoints: SubsonicEndpoints(server: server))
             subsonic[server.id] = client
             ServerMediaSigning.shared.register(client, for: server.id)
             trackside.removeValue(forKey: server.id)?.stopEvents()
@@ -303,12 +303,13 @@ final class MusicServers {
         if server.usesAPIKey, !(try await client.openSubsonicExtensions()).contains("apiKeyAuthentication") {
             throw SubsonicError.authMethodUnsupported
         }
-        await client.endpoints?.race()
-        server.url = client.baseURL
-        // Added here, at a nearby plain http address: this network is its home.
-        if server.url.scheme?.lowercased() == "http", let homes = client.endpoints?.recordHome() {
+        // Added or edited here, answering at a nearby plain http address: this network is its
+        // home. The only place a home is ever recorded.
+        if let homes = await client.endpoints?.recordHomeIfNearbyAnswers() {
             server.homeNetworks = homes
         }
+        await client.endpoints?.race()
+        server.url = client.baseURL
         try await client.ping()
         if wasTrackside || trackside[server.id] != nil { forgetTrackside(server) }
         if let previous = self.server(server.id), previous.url != server.url || previous.username != server.username {
@@ -587,20 +588,6 @@ final class MusicServers {
         guard var server = server(serverID) else { return }
         server.candidateURLs = trusted
         server.urlsETag = etag
-        store(server)
-    }
-
-    /// A Subsonic server's addresses, keeping each home network it learns with its entry.
-    private func endpoints(for server: SubsonicServer) -> SubsonicEndpoints {
-        let serverID = server.id
-        return SubsonicEndpoints(server: server) { [weak self] homes in
-            Task { @MainActor in self?.noteHomes(homes, for: serverID) }
-        }
-    }
-
-    private func noteHomes(_ homes: [String], for serverID: String) {
-        guard var server = server(serverID), server.homeNetworks != homes else { return }
-        server.homeNetworks = homes
         store(server)
     }
 
