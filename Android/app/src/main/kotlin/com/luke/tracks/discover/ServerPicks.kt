@@ -225,8 +225,10 @@ class ServerPicksService(
                     loadNow(serverId, force)
                 } catch (error: CancellationException) {
                     throw error
-                } catch (error: Exception) {
-                    Logs.w("For You: picks stopped", error)
+                } catch (error: Throwable) {
+                    // Throwable, not Exception: an error in the picks must never take the app down.
+                    Logs.e("For You: picks stopped", error)
+                    com.luke.tracks.net.CrashLog.describe(Thread.currentThread().name, error).lines().forEach { Logs.e("For You: $it") }
                     // Never left loading: an empty walk settles the shelves.
                     if (_forYou.value[serverId]?.isFilling != false) publish(serverId, walks[serverId] ?: ServerForYou(emptyList(), PICKED, now()), filling = false)
                 }
@@ -291,6 +293,18 @@ class ServerPicksService(
     }
 
     override suspend fun loadMore(serverId: String, shelf: ForYouShelf, want: Int) {
+        // Called from the shelves themselves, so nothing here may reach the UI as a crash.
+        try {
+            loadMoreNow(serverId, shelf, want)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            Logs.e("For You: couldn't find more", error)
+            com.luke.tracks.net.CrashLog.describe(Thread.currentThread().name, error).lines().forEach { Logs.e("For You: $it") }
+        }
+    }
+
+    private suspend fun loadMoreNow(serverId: String, shelf: ForYouShelf, want: Int) {
         val server = server(serverId) ?: return
         lock(serverId).withLock {
             val walk = walks[serverId] ?: return
