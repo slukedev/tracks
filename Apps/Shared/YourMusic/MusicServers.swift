@@ -187,7 +187,7 @@ final class MusicServers {
         syncs.invalidate(server.id)
         switch server.kind {
         case .subsonic:
-            let client = SubsonicClient(server: server, password: secret, endpoints: SubsonicEndpoints(server: server))
+            let client = SubsonicClient(server: server, password: secret, endpoints: endpoints(for: server))
             subsonic[server.id] = client
             ServerMediaSigning.shared.register(client, for: server.id)
             trackside.removeValue(forKey: server.id)?.stopEvents()
@@ -305,6 +305,10 @@ final class MusicServers {
         }
         await client.endpoints?.race()
         server.url = client.baseURL
+        // Added here, at a nearby plain http address: this network is its home.
+        if server.url.scheme?.lowercased() == "http", let homes = client.endpoints?.recordHome() {
+            server.homeNetworks = homes
+        }
         try await client.ping()
         if wasTrackside || trackside[server.id] != nil { forgetTrackside(server) }
         if let previous = self.server(server.id), previous.url != server.url || previous.username != server.username {
@@ -586,6 +590,20 @@ final class MusicServers {
         store(server)
     }
 
+    /// A Subsonic server's addresses, keeping each home network it learns with its entry.
+    private func endpoints(for server: SubsonicServer) -> SubsonicEndpoints {
+        let serverID = server.id
+        return SubsonicEndpoints(server: server) { [weak self] homes in
+            Task { @MainActor in self?.noteHomes(homes, for: serverID) }
+        }
+    }
+
+    private func noteHomes(_ homes: [String], for serverID: String) {
+        guard var server = server(serverID), server.homeNetworks != homes else { return }
+        server.homeNetworks = homes
+        store(server)
+    }
+
     // MARK: - Trackside Cloud
 
     /// Starts Trackside Cloud with a server once it's connected, when it's the backend chosen.
@@ -596,7 +614,9 @@ final class MusicServers {
             return
         }
         cloudSync?.stop()
-        guard let store = try? TracksStore.shared() else { return }
+        // Only with the history on disk: one held in memory for a run that couldn't open it
+        // is nearly empty, and has nothing to say about what the server keeps.
+        guard let store = try? TracksStore.shared(), store.isOnDisk else { return }
         let device = TracksideDeviceInfo.thisDevice
         let sync = TracksideCloudSync(serverID: serverID, client: connection.client, store: store, deviceName: device.name, platform: device.platform, extraStores: cloudStores())
         cloudSync = sync

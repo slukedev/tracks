@@ -52,6 +52,8 @@ final class SpotifyPlayerEngine: PlayerEngine {
     private var index = 0
     /// Entries Spotify couldn't open, skipped from then on.
     private var unplayable: Set<String> = []
+    /// Entries Spotify couldn't be asked about, and when to ask again.
+    private var lookupRetries: [String: (tries: Int, after: ContinuousClock.Instant)] = [:]
 
     /// Each time a song plays it has a token of its own, so a song repeated, or the same song
     /// twice in a row, is told apart in the ring.
@@ -191,12 +193,12 @@ final class SpotifyPlayerEngine: PlayerEngine {
         }
         // The first song that Spotify has.
         while queue.indices.contains(first), queue[first].track == nil {
-            let found = await service.track(for: queue[first].lookup)
+            let found = await service.lookUp(queue[first].lookup)
             guard asked == generation else { throw CancellationError() }
-            if let found {
-                queue[first].track = found
-            } else {
-                queue.remove(at: first)
+            switch found {
+            case .found(let track): queue[first].track = track
+            case .missing: queue.remove(at: first)
+            case .unknown: throw PlayerProblem.failed(SpotifyProblem.network.message, title: String(localized: "Couldn't Reach Spotify"))
             }
         }
         guard queue.indices.contains(first) else { throw Self.notOnSpotify }
@@ -205,6 +207,7 @@ final class SpotifyPlayerEngine: PlayerEngine {
         index = first
         isShuffled = shuffled
         unplayable = []
+        lookupRetries = [:]
         failuresInARow = 0
         activate()
         load(startPlaying: true)
@@ -269,34 +272,52 @@ final class SpotifyPlayerEngine: PlayerEngine {
     }
 
     /// Finds the rest of the queue on Spotify, in play order, so Up Next fills in as it goes.
-    /// A song Spotify doesn't have leaves the queue.
+    /// A song Spotify doesn't have leaves the queue; one it couldn't be asked about is asked
+    /// again later, waiting longer each time.
     private func resolveTheRest() {
         resolving?.cancel()
         resolving = Task { [weak self] in
             while let self, !Task.isCancelled {
-                guard let position = self.entries.indices.first(where: { $0 > self.index && self.entries[$0].track == nil && !self.unplayable.contains(self.entries[$0].id) })
-                        ?? self.entries.indices.first(where: { self.entries[$0].track == nil && !self.unplayable.contains(self.entries[$0].id) })
-                else { return }
-                await self.resolve(at: position)
+                let now = ContinuousClock.now
+                let unresolved = { (position: Int) in
+                    self.entries[position].track == nil && !self.unplayable.contains(self.entries[position].id)
+                }
+                let ready = { (position: Int) in
+                    unresolved(position) && (self.lookupRetries[self.entries[position].id]?.after ?? now) <= now
+                }
+                if let position = self.entries.indices.first(where: { $0 > self.index && ready($0) }) ?? self.entries.indices.first(where: ready) {
+                    await self.resolve(at: position)
+                    continue
+                }
+                let soonest = self.entries.indices.filter(unresolved).compactMap { self.lookupRetries[self.entries[$0].id]?.after }.min()
+                guard let soonest else { return }
+                try? await Task.sleep(until: soonest, clock: .continuous)
             }
         }
     }
 
     /// Looks one entry up, and drops it if Spotify doesn't have it.
-    private func resolve(at position: Int) async {
-        guard let service, entries.indices.contains(position) else { return }
+    @discardableResult
+    private func resolve(at position: Int) async -> SpotifyService.Lookup? {
+        guard let service, entries.indices.contains(position) else { return nil }
         let id = entries[position].id
-        let found = await service.track(for: entries[position].lookup)
-        guard let now = entries.firstIndex(where: { $0.id == id }) else { return }
-        if let found {
-            entries[now].track = found
-            if let kept = unshuffled.firstIndex(where: { $0.id == id }) { unshuffled[kept].track = found }
-            if now == index + 1 { refreshNext() }
-        } else {
+        let found = await service.lookUp(entries[position].lookup)
+        guard let now = entries.firstIndex(where: { $0.id == id }) else { return found }
+        switch found {
+        case .found(let track):
+            entries[now].track = track
+            if let kept = unshuffled.firstIndex(where: { $0.id == id }) { unshuffled[kept].track = track }
+            lookupRetries[id] = nil
+        case .missing:
             unplayable.insert(id)
-            if now == index + 1 { refreshNext() }
+            lookupRetries[id] = nil
+        case .unknown:
+            let tries = (lookupRetries[id]?.tries ?? 0) + 1
+            lookupRetries[id] = (tries, ContinuousClock.now + .seconds(min(120, 5 << min(tries - 1, 5))))
         }
+        if now == index + 1 { refreshNext() }
         onChange?()
+        return found
     }
 
     func pause() {
@@ -348,6 +369,8 @@ final class SpotifyPlayerEngine: PlayerEngine {
         waiting = song.token
         waitingTime = max(0, time)
         ring.dropAll()
+        // Until the feeder lands, the old position mustn't read as heard.
+        feeder.timeline.withLock { $0 = SpotifyFeeder.Timeline() }
         feeder.seek(song, to: waitingTime)
         updateStatus()
         updateNowPlayingInfo()
@@ -448,13 +471,27 @@ final class SpotifyPlayerEngine: PlayerEngine {
             updateStatus()
             Task { [weak self] in
                 guard let self else { return }
-                await self.resolve(at: self.index)
-                guard self.entries.indices.contains(self.index), self.entries[self.index].id == entry.id else { return }
+                let found = await self.resolve(at: self.index)
+                guard self.isStill(on: entry.id) else { return }
                 if self.entries[self.index].track != nil {
                     self.load(startPlaying: self.isMeantToPlay, at: time)
-                } else {
-                    self.skipPastFailure()
+                    return
                 }
+                guard case .unknown? = found else {
+                    self.skipPastFailure()
+                    return
+                }
+                // Couldn't ask: again shortly, a couple of times, then on.
+                let tries = self.retried?.entryID == entry.id ? self.retried?.tries ?? 0 : 0
+                guard tries < 2 else {
+                    self.onNotice?(SpotifyProblem.network.message)
+                    self.skipPastFailure()
+                    return
+                }
+                self.retried = (entry.id, tries + 1)
+                try? await Task.sleep(for: .seconds(2 * (tries + 1)))
+                guard self.isStill(on: entry.id) else { return }
+                self.load(startPlaying: self.isMeantToPlay, at: time)
             }
             return
         }
@@ -475,6 +512,10 @@ final class SpotifyPlayerEngine: PlayerEngine {
         updateStatus()
         publish()
         updateNowPlayingInfo()
+    }
+
+    private func isStill(on entryID: String) -> Bool {
+        entries.indices.contains(index) && entries[index].id == entryID
     }
 
     /// Tells the feeder what follows the song playing, so it's ready without a gap.
@@ -623,7 +664,7 @@ final class SpotifyPlayerEngine: PlayerEngine {
         } else if waiting == nil, segment.token != heard {
             arrived(at: segment.token)
         }
-        if let end = timeline.end, read >= end, waiting == nil {
+        if let end = timeline.end, read >= end, waiting == nil, !ranOut {
             ranOutOfSongs()
             return
         }
@@ -663,9 +704,15 @@ final class SpotifyPlayerEngine: PlayerEngine {
         }
         isMeantToPlay = false
         output.pause()
+        if let onRanOut {
+            // Part of a longer queue, which goes on with another player: nothing to reopen.
+            ranOut = true
+            updateStatus()
+            onRanOut()
+            return
+        }
         load(startPlaying: false)
         ranOut = true
-        onRanOut?()
     }
 
     private func updateStatus() {
@@ -701,6 +748,7 @@ final class SpotifyPlayerEngine: PlayerEngine {
         entries = []
         unshuffled = []
         unplayable = []
+        lookupRetries = [:]
         index = 0
         heard = nil
         waiting = nil

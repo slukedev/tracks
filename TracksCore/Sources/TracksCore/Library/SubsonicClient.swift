@@ -69,8 +69,13 @@ public struct SubsonicServer: Codable, Sendable, Hashable, Identifiable {
     /// next ask is answered with a 304 when nothing changed.
     public var urlsETag: String?
 
+    /// For a Subsonic server: the networks it was added or used on at home
+    /// (``NetworkIdentity``), the only ones where its plain HTTP address gets the
+    /// credentials while it has an https one (``SubsonicCredentialRule``).
+    public var homeNetworks: [String]?
+
     enum CodingKeys: String, CodingKey {
-        case id, name, url, username, salt, kind, serverUUID, candidateURLs, deviceID, deviceName, authMethod, urlsETag
+        case id, name, url, username, salt, kind, serverUUID, candidateURLs, deviceID, deviceName, authMethod, urlsETag, homeNetworks
     }
 
     /// Entries saved before there was more than one kind are Subsonic servers.
@@ -88,6 +93,7 @@ public struct SubsonicServer: Codable, Sendable, Hashable, Identifiable {
         deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName)
         authMethod = try? container.decodeIfPresent(SubsonicAuthMethod.self, forKey: .authMethod)
         urlsETag = try container.decodeIfPresent(String.self, forKey: .urlsETag)
+        homeNetworks = try? container.decodeIfPresent([String].self, forKey: .homeNetworks)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -104,6 +110,7 @@ public struct SubsonicServer: Codable, Sendable, Hashable, Identifiable {
         try container.encodeIfPresent(deviceName, forKey: .deviceName)
         try container.encodeIfPresent(authMethod, forKey: .authMethod)
         try container.encodeIfPresent(urlsETag, forKey: .urlsETag)
+        try container.encodeIfPresent(homeNetworks, forKey: .homeNetworks)
     }
 
     public var isTrackside: Bool { kind == .trackside }
@@ -252,6 +259,15 @@ public struct SubsonicClient: Sendable {
         unsignedURL(endpoint, parameters, json: json).flatMap(authorize)
     }
 
+    /// Whether a request to `url` may carry the credentials now. See
+    /// ``SubsonicCredentialRule``.
+    public func allowsCredentials(to url: URL) -> Bool {
+        if let endpoints { return endpoints.allowsCredentials(to: url) }
+        let hasHTTPS = server.addresses.contains { $0.url.scheme?.lowercased() == "https" }
+        let isHome = SubsonicCredentialRule.isHome(CurrentNetwork.shared.identity, of: server.homeNetworks ?? [])
+        return SubsonicCredentialRule.allows(url, usesAPIKey: server.usesAPIKey, hasHTTPS: hasHTTPS, onHomeNetwork: isHome)
+    }
+
     /// An endpoint's address without anything that signs in, as covers are handed around:
     /// to image caches, Now Playing and the rest of the system. It's signed only as it's
     /// fetched (``authorize(_:)``).
@@ -270,7 +286,7 @@ public struct SubsonicClient: Sendable {
     /// The address signed for one request, with a salt of its own, if it's one of this
     /// server's API addresses. Nil for anywhere else, which never sees the credentials.
     public func authorize(_ url: URL) -> URL? {
-        guard isOwn(url), var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        guard isOwn(url), allowsCredentials(to: url), var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         let kept = (components.queryItems ?? []).filter { !Self.signingItems.contains($0.name) }
         components.queryItems = signingItems() + kept
         return Self.encodingPlus(components)

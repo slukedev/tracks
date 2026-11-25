@@ -105,6 +105,10 @@ public final class TracksideCloudSync {
     }
 
     private func syncOnce() async {
+        guard store.isOnDisk else {
+            state = .failed(String(localized: "Tracks couldn’t open your history. Restart Tracks to sync it."))
+            return
+        }
         state = .syncing
         do {
             if !isRegistered {

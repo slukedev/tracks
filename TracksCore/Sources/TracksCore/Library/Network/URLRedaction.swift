@@ -10,6 +10,7 @@ public enum URLRedaction {
     /// Query items that sign a request, by name, compared without case.
     public static let signingItems: Set<String> = [
         "u", "t", "s", "p", "apikey", "mt", "token", "key", "api_key", "access_token", "password", "sig", "signature",
+        "sk", "api_sig",
     ]
 
     static let mask = "redacted"

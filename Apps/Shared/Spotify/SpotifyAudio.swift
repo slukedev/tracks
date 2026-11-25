@@ -48,31 +48,38 @@ nonisolated final class SpotifyRing: @unchecked Sendable {
         return capacity - (written.load(ordering: .relaxed) - heard)
     }
 
-    /// Copies in whole frames, as many as fit, and returns how many samples that was.
-    func write(_ source: UnsafeBufferPointer<Float>) -> Int {
+    /// Copies in whole frames of interleaved little-endian floats, as many as fit, byte for
+    /// byte, and returns how many bytes that was.
+    func write(bytes source: UnsafeRawBufferPointer) -> Int {
         guard let base = source.baseAddress else { return 0 }
+        let size = MemoryLayout<Float>.size
         let start = written.load(ordering: .relaxed)
-        var count = min(source.count, freeSpace)
+        var count = min(source.count / size, freeSpace)
         count -= count % Self.channels
         guard count > 0 else { return 0 }
         let offset = start & mask
         let first = min(count, capacity - offset)
-        (samples + offset).update(from: base, count: first)
+        UnsafeMutableRawPointer(samples + offset).copyMemory(from: base, byteCount: first * size)
         if first < count {
-            samples.update(from: base + first, count: count - first)
+            UnsafeMutableRawPointer(samples).copyMemory(from: base + first * size, byteCount: (count - first) * size)
         }
         written.store(start + count, ordering: .releasing)
-        return count
+        return count * size
     }
 
     /// Drops everything written so far; what's written next plays straight away. Returns
     /// where that is. The player may call it too, to fall silent before the writer catches
-    /// up: the reader only ever moves forward, so a drop that lands late changes nothing.
+    /// up: the mark only ever moves forward, so a drop that lands late changes nothing.
     @discardableResult
     func dropAll() -> Int {
-        let at = written.load(ordering: .relaxed)
-        dropBefore.store(at, ordering: .releasing)
-        return at
+        let at = written.load(ordering: .acquiring)
+        var known = dropBefore.load(ordering: .relaxed)
+        while known < at {
+            let (exchanged, original) = dropBefore.compareExchange(expected: known, desired: at, ordering: .acquiringAndReleasing)
+            if exchanged { return at }
+            known = original
+        }
+        return known
     }
 
     // MARK: Reading (the render callback only)
@@ -209,7 +216,9 @@ nonisolated final class SpotifyFeeder: @unchecked Sendable {
     private var currentEnded = false
     private var upcoming: (song: Song, stream: SpotifyStream)?
     private var failedNext: String?
-    private var pending: [Float] = []
+    /// Decoded audio not yet in the ring, as the engine hands it over, and how many of its
+    /// bytes are in already.
+    private var pending = Data()
     private var pendingOffset = 0
 
     init(account: SpotifyAccount, ring: SpotifyRing, options: SpotifyStreamOptions, report: @escaping @Sendable (Event) -> Void) {
@@ -310,7 +319,7 @@ nonisolated final class SpotifyFeeder: @unchecked Sendable {
     }
 
     private func startOver() {
-        pending = []
+        pending = Data()
         pendingOffset = 0
         ring.dropAll()
         timeline.withLock { $0 = Timeline() }
@@ -333,7 +342,7 @@ nonisolated final class SpotifyFeeder: @unchecked Sendable {
     }
 
     private func seek(_ stream: SpotifyStream, of song: Song, to milliseconds: UInt32) {
-        pending = []
+        pending = Data()
         pendingOffset = 0
         ring.dropAll()
         timeline.withLock { $0 = Timeline() }
@@ -397,19 +406,21 @@ nonisolated final class SpotifyFeeder: @unchecked Sendable {
     /// there's nothing to decode.
     private func feed() -> Bool {
         if pendingOffset < pending.count {
-            let wrote = pending.withUnsafeBufferPointer { buffer in
-                ring.write(UnsafeBufferPointer(rebasing: buffer[pendingOffset...]))
+            let wrote = pending.withUnsafeBytes { buffer in
+                ring.write(bytes: UnsafeRawBufferPointer(rebasing: buffer[pendingOffset...]))
             }
             pendingOffset += wrote
+            // Less than a frame left over can never go in.
+            if pending.count - pendingOffset < MemoryLayout<Float>.size * SpotifyRing.channels { pendingOffset = pending.count }
             return pendingOffset >= pending.count
         }
         guard let current, !currentEnded, ring.freeSpace >= Int(Self.chunkFrames) * SpotifyRing.channels else { return false }
         do {
-            let samples = try current.stream.read(maxFrames: Self.chunkFrames)
-            if samples.isEmpty {
+            let bytes = try current.stream.readF32Bytes(maxFrames: Self.chunkFrames)
+            if bytes.isEmpty {
                 currentEnded = true
             } else {
-                pending = samples
+                pending = bytes
                 pendingOffset = 0
             }
             return true

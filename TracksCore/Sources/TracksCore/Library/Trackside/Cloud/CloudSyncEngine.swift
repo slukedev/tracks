@@ -18,18 +18,64 @@ public enum CloudSyncError: Error, Sendable, Equatable {
 
 /// One kind of thing Tracks keeps, as the sync engine sees it: every item it holds now, and
 /// a way to take in what the server sent.
+///
+/// Nothing is deleted on the server because it's missing here: only removals the store
+/// recorded (``removals()``), or, for a list read whole that's always there, an item gone
+/// from it (``removesByAbsence``).
 public protocol CloudEntityStore: Sendable {
     var entity: CloudEntity { get }
 
     /// Every item kept on this device, with the fields the server would hold for it.
+    /// Throws ``CloudStoreUnavailable`` when what it keeps can't be read now.
     func localItems() async throws -> [CloudLocalItem]
+
+    /// The items that changed here since ``localItems()`` or this was last asked, or nil
+    /// when the store can't tell, and every item is read.
+    func changedItems() async throws -> [CloudLocalItem]?
+
+    /// Items removed here on purpose, to go up as tombstones.
+    func removals() async throws -> [CloudRemoval]
+
+    /// The server has had these removals: they needn't go again.
+    func removalsSent(_ ids: Set<String>) async
+
+    /// Whether an item the server had that ``localItems()`` leaves out was removed here: only
+    /// for a short list read whole that can't fail to load, never for the history.
+    var removesByAbsence: Bool { get }
 
     /// Takes in a page from the server. Duplicates it makes are merged the way the store
     /// always merges them, afterwards.
     /// - Returns: the fields of each item taken in, as this device now holds it, so what
-    ///   came down isn't sent straight back up. An id missing from the answer isn't kept
-    ///   here (it was merged away or is gone).
+    ///   came down isn't sent straight back up. An id missing from the answer wasn't taken
+    ///   in (it couldn't be read here): it's left as the server has it.
     func apply(upserts: [CloudRecord], deletes: [CloudDeletion]) async throws -> [String: [String: JSONValue]]
+}
+
+extension CloudEntityStore {
+    public func changedItems() async throws -> [CloudLocalItem]? { nil }
+    public func removals() async throws -> [CloudRemoval] { [] }
+    public func removalsSent(_ ids: Set<String>) async {}
+    public var removesByAbsence: Bool { false }
+}
+
+/// What a store keeps can't be read now, as before the device is first unlocked: nothing of
+/// it goes up this time.
+public struct CloudStoreUnavailable: Error, Sendable {
+    public init() {}
+}
+
+/// An item removed on this device on purpose, waiting to go up as a tombstone.
+public struct CloudRemoval: Codable, Sendable, Hashable {
+    public var id: String
+    public var at: Date
+    /// The item it was merged into, where it was a duplicate of one.
+    public var mergedInto: String?
+
+    public init(id: String, at: Date, mergedInto: String? = nil) {
+        self.id = id
+        self.at = at
+        self.mergedInto = mergedInto
+    }
 }
 
 public struct CloudLocalItem: Sendable, Hashable {
@@ -47,7 +93,9 @@ public struct CloudLocalItem: Sendable, Hashable {
 
 /// Keeps what this device holds and what Trackside Cloud holds the same, one kind at a time:
 /// pulls the server's changes since its cursor, then pushes what changed here since the
-/// last sync, found by comparing every item with what the server last had of it.
+/// last sync, found by comparing each item with what the server last had of it. Only the
+/// items a store says changed are compared, except on the first sync of a run, after a
+/// reset or a push that didn't finish, and once a day, when every item is.
 ///
 /// Nothing is lost on the way: a page is taken in before its cursor is kept, a push is
 /// idempotent by id so sending twice costs nothing, and a `410 sync_reset` starts the pull
@@ -84,6 +132,10 @@ public actor CloudSyncEngine {
     private let now: @Sendable () -> Date
     private var states: [CloudEntity: State] = [:]
     private var running: Task<Report, any Error>?
+    /// When every item of a kind was last compared, this run.
+    private var wholePasses: [CloudEntity: Date] = [:]
+    /// How long incremental pushes go on before every item is compared again.
+    static let wholePassEvery: TimeInterval = 24 * 60 * 60
 
     public init(
         api: any CloudSyncAPI,
@@ -125,6 +177,7 @@ public actor CloudSyncEngine {
     /// backend from another.
     public func startOver() {
         states = [:]
+        wholePasses = [:]
         for entity in CloudEntity.allCases {
             try? FileManager.default.removeItem(at: cursorURL(entity))
             try? FileManager.default.removeItem(at: ledgerURL(entity))
@@ -153,6 +206,7 @@ public actor CloudSyncEngine {
             // The server's history isn't the one this cursor walked: start again from a
             // full snapshot, then send up whatever this device holds that it lacks.
             report.resets += 1
+            wholePasses[entity] = nil
             var reset = state(entity)
             reset.cursor = nil
             reset.ledger = [:]
@@ -172,13 +226,11 @@ public actor CloudSyncEngine {
             let page = try await api.pull(entity, cursor: current.cursor, limit: pageSize)
             if !page.upserts.isEmpty || !page.deletes.isEmpty {
                 let held = try await store.apply(upserts: page.upserts, deletes: page.deletes)
+                // One that couldn't be taken in stays out of the ledger, and the server keeps
+                // it as it is.
                 for record in page.upserts {
                     if let fields = held[record.id] {
                         current.ledger[record.id] = CloudJSON.digest(fields)
-                    } else {
-                        // Merged into another here: the server keeps it until that merge's
-                        // tombstone goes up.
-                        current.ledger[record.id] = Self.mergedAway
                     }
                 }
                 for deletion in page.deletes {
@@ -197,25 +249,55 @@ public actor CloudSyncEngine {
         }
     }
 
-    /// Marks an item the server has that this device merged into another, so it goes up as a
-    /// tombstone.
-    static let mergedAway = "merged"
-
     // MARK: - Pushing
 
     private func push(_ entity: CloudEntity, store: any CloudEntityStore, into report: inout Report) async throws {
         var current = state(entity)
         defer { save(current, for: entity) }
-        let items = try await store.localItems()
-        let changes = Self.changes(local: items, ledger: current.ledger, deviceID: deviceID, now: now())
+        let started = now()
+        let whole = wholePasses[entity].map { started.timeIntervalSince($0) > Self.wholePassEvery } ?? true
+        var changes: [CloudPushItem]
+        do {
+            if !whole, let changed = try await store.changedItems() {
+                changes = Self.changes(local: changed, ledger: current.ledger, deviceID: deviceID, now: started)
+            } else {
+                let items = try await store.localItems()
+                changes = Self.changes(local: items, ledger: current.ledger, deviceID: deviceID, now: started)
+                if store.removesByAbsence {
+                    changes += Self.absent(local: items, ledger: current.ledger, deviceID: deviceID, now: started)
+                }
+                wholePasses[entity] = started
+            }
+        } catch is CloudStoreUnavailable {
+            return
+        }
+        let sending = Set(changes.map(\.id))
+        changes += try await store.removals().filter { !sending.contains($0.id) }.map {
+            CloudPushItem(id: $0.id, fields: nil, clientModifiedAt: $0.at, deviceID: deviceID, deletedAt: $0.at, mergedInto: $0.mergedInto)
+        }
+        do {
+            try await send(changes, of: entity, store: store, state: &current, into: &report)
+        } catch {
+            // What changed and didn't go up is found by comparing every item next time.
+            wholePasses[entity] = nil
+            throw error
+        }
+    }
+
+    private func send(_ changes: [CloudPushItem], of entity: CloudEntity, store: any CloudEntityStore, state current: inout State, into report: inout Report) async throws {
         for batch in batches(changes) {
             try Task.checkCancellation()
             let results = try await api.push(entity, items: batch)
             let byID = Dictionary(results.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
             var conflicts: [CloudRecord] = []
             var refused: [CloudDeletion] = []
+            var removalsDone: Set<String> = []
             for item in batch {
                 guard let result = byID[item.id] else { continue }
+                // A tombstone the server has answered, either way, isn't sent again.
+                if item.isTombstone, result.status != .unknown, result.reason != "device_mismatch" {
+                    removalsDone.insert(item.id)
+                }
                 switch result.status {
                 case .accepted, .duplicate:
                     if item.isTombstone {
@@ -258,27 +340,29 @@ public actor CloudSyncEngine {
             if !conflicts.isEmpty || !refused.isEmpty {
                 let held = try await store.apply(upserts: conflicts, deletes: refused)
                 for record in conflicts {
-                    current.ledger[record.id] = held[record.id].map(CloudJSON.digest) ?? Self.mergedAway
+                    if let fields = held[record.id] { current.ledger[record.id] = CloudJSON.digest(fields) }
                 }
             }
+            if !removalsDone.isEmpty { await store.removalsSent(removalsDone) }
             keep(current, for: entity)
         }
     }
 
-    /// What to send up: every item held here whose fields differ from what the server last
-    /// had, and a tombstone for every item the server has that this device no longer holds.
+    /// What to send up: every item given whose fields differ from what the server last had.
     static func changes(local: [CloudLocalItem], ledger: [String: String], deviceID: String, now: Date) -> [CloudPushItem] {
-        var items: [CloudPushItem] = []
-        var held: Set<String> = []
-        for item in local {
-            held.insert(item.id)
-            guard ledger[item.id] != CloudJSON.digest(item.fields) else { continue }
-            items.append(CloudPushItem(id: item.id, fields: item.fields, clientModifiedAt: item.modifiedAt, deviceID: deviceID))
+        local.compactMap { item in
+            guard ledger[item.id] != CloudJSON.digest(item.fields) else { return nil }
+            return CloudPushItem(id: item.id, fields: item.fields, clientModifiedAt: item.modifiedAt, deviceID: deviceID)
         }
-        for id in ledger.keys.sorted() where !held.contains(id) {
-            items.append(CloudPushItem(id: id, fields: nil, clientModifiedAt: now, deviceID: deviceID, deletedAt: now))
+    }
+
+    /// A tombstone for every item the server has that a whole list read here leaves out. Only
+    /// for a store that ``CloudEntityStore/removesByAbsence``.
+    static func absent(local: [CloudLocalItem], ledger: [String: String], deviceID: String, now: Date) -> [CloudPushItem] {
+        let held = Set(local.map(\.id))
+        return ledger.keys.sorted().filter { !held.contains($0) }.map {
+            CloudPushItem(id: $0, fields: nil, clientModifiedAt: now, deviceID: deviceID, deletedAt: now)
         }
-        return items
     }
 
     /// Batches of at most `batchSize` items and about `batchBytes`.

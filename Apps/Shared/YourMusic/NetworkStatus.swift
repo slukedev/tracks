@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Observation
+import TracksCore
 
 /// Whether the iPhone is online, and on a metered connection, so server music that isn't
 /// downloaded can be shown as out of reach.
@@ -21,6 +22,9 @@ final class NetworkStatus {
 
     init() {
         monitor.pathUpdateHandler = { [weak self] path in
+            // At once, before the move settles: a nearby address is somebody else's the
+            // moment the network changes.
+            CurrentNetwork.shared.identity = Self.identity(of: path)
             let online = path.status == .satisfied
             let expensive = path.isExpensive
             let interfaces = path.availableInterfaces.map(\.name)
@@ -34,6 +38,17 @@ final class NetworkStatus {
             }
         }
         monitor.start(queue: DispatchQueue(label: "com.luke.tracks.network"))
+    }
+
+    /// Which Wi-Fi or wired network the path is on (``NetworkIdentity``). Nil on cellular.
+    nonisolated private static func identity(of path: NWPath) -> String? {
+        guard path.status == .satisfied, path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet) else { return nil }
+        let names = Set(path.availableInterfaces.filter { $0.type == .wifi || $0.type == .wiredEthernet }.map(\.name))
+        let gateways = path.gateways.compactMap { endpoint -> String? in
+            guard case .hostPort(let host, _) = endpoint else { return nil }
+            return host.debugDescription
+        }
+        return NetworkIdentity.make(gateways: gateways, prefixes: NetworkIdentity.localPrefixes(onInterfaces: names))
     }
 
     /// Passes a move on once the path has held still for a moment. Walking out of Wi-Fi

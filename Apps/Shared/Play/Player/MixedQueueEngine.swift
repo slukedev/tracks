@@ -75,6 +75,7 @@ final class MixedQueueEngine: PlayerEngine {
     private var wasPlaying = false
     private var lastTime: TimeInterval = 0
     private var watcher: Task<Void, Never>?
+    private var tailTask: Task<Void, Never>?
 
     private(set) var isShuffled = false
     private(set) var repeatMode: PlayerRepeat = .off
@@ -468,7 +469,20 @@ final class MixedQueueEngine: PlayerEngine {
 
     /// Gives the active player what now follows its song in the same source, where that has
     /// changed: songs added, removed, moved or shuffled.
+    /// One at a time: a second edit made while the first is still being handed over waits,
+    /// then looks again, so no song is handed over twice.
     private func handTail() async {
+        let previous = tailTask
+        let task = Task { [weak self] in
+            await previous?.value
+            await self?.handTailNow()
+        }
+        tailTask = task
+        await task.value
+        if tailTask == task { tailTask = nil }
+    }
+
+    private func handTailNow() async {
         guard let active, !isHanding, items.indices.contains(index) else { return }
         let end = runEnd(from: index)
         let wanted = items[(index + 1)..<end].map(\.id)
@@ -521,16 +535,20 @@ final class MixedQueueEngine: PlayerEngine {
 
     private func activeChanged() {
         guard let active, !isHanding else { return }
-        // Moved on within its run by itself: follow it to the song now on.
-        if let playing = active.current, items.indices.contains(index), playing.songIdentity != items[index].track.songIdentity {
-            let end = runEnd(from: index)
-            if let found = items[index..<end].firstIndex(where: { $0.track.songIdentity == playing.songIdentity }) {
+        // Moved within its run by itself, on or back: follow it to the song now on.
+        if let playing = active.current, items.indices.contains(index) {
+            let start = runStart(of: index)
+            let found = QueueRunPosition.follow(
+                identities: items.map(\.track.songIdentity),
+                run: start..<runEnd(from: index),
+                current: index,
+                playing: playing.songIdentity,
+                left: active.upNext.count
+            )
+            if found != index {
                 index = found
-            } else {
-                // Named differently by its player: by how many it has left.
-                index = max(index, min(end - 1, end - 1 - active.upNext.count))
+                lastTime = 0
             }
-            lastTime = 0
         }
         let playing = active.status == .playing
         // Played again from the lock screen or headphones, which reach its player directly.
@@ -563,7 +581,13 @@ final class MixedQueueEngine: PlayerEngine {
             onChange?()
             return
         }
-        Task { try? await startRun(at: next, playing: true) }
+        let musicKitEnded = active is MusicKitPlayerEngine
+        let asked = generation
+        // Paused in the moment before the next run starts: it's made ready, paused.
+        Task { [weak self] in
+            guard let self, asked == self.generation else { return }
+            try? await self.startRun(at: next, playing: self.isMeantToPlay || musicKitEnded)
+        }
     }
 
     /// Samples the position once a second while a run's last song plays, which is when the

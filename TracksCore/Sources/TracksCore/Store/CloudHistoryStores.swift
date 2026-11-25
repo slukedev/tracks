@@ -14,25 +14,58 @@ import SwiftData
 public struct CloudPlaysStore: CloudEntityStore {
     public let entity = CloudEntity.plays
     let writer: HistoryWriter
+    let journal: CloudRemovalJournal
+    private let mark = CloudHistoryMark(entity: Schema.entityName(for: Capture.self))
 
-    init(writer: HistoryWriter) {
+    init(writer: HistoryWriter, journal: CloudRemovalJournal = .shared) {
         self.writer = writer
+        self.journal = journal
     }
 
     public func localItems() async throws -> [CloudLocalItem] {
-        try await writer.read { context in
+        try await writer.read { [mark] context in
+            mark.start(in: context)
             let links = try CloudSessionLinks(context)
             var descriptor = FetchDescriptor<Capture>(predicate: #Predicate { $0.playID != nil })
             descriptor.propertiesToFetch = Self.properties
-            return try context.fetch(descriptor).compactMap { capture in
-                guard let id = capture.playID, let fields = try? CloudJSON.fields(Self.fields(of: capture, links: links)) else { return nil }
-                return CloudLocalItem(id: id, fields: fields, modifiedAt: capture.scrobbledAt ?? capture.addedToPlaylistAt ?? capture.capturedAt)
+            return try context.fetch(descriptor).compactMap { Self.item(of: $0, links: links) }
+        }
+    }
+
+    public func changedItems() async throws -> [CloudLocalItem]? {
+        try await writer.read { [mark] context in
+            guard let changed = mark.changes(in: context) else { return nil }
+            let links = CloudSessionLinks()
+            return TracksStore.existingCaptures(Array(changed), in: context).values.compactMap {
+                Self.item(of: $0, links: links, session: $0.session)
             }
         }
     }
 
+    /// Plays deleted or merged away here that the server may still have. One still held,
+    /// because the save that removed it didn't happen, stays.
+    public func removals() async throws -> [CloudRemoval] {
+        let pending = journal.pending(.plays)
+        guard !pending.isEmpty else { return [] }
+        let ids = pending.map(\.id)
+        let held = try await writer.read { context in Set(try Self.captures(ids, in: context).keys) }
+        return pending.filter { !held.contains($0.id) }
+    }
+
+    public func removalsSent(_ ids: Set<String>) async {
+        journal.forget(ids, for: .plays)
+    }
+
+    private static func item(of capture: Capture, links: CloudSessionLinks, session: Session? = nil) -> CloudLocalItem? {
+        guard let id = capture.playID, let fields = try? CloudJSON.fields(fields(of: capture, links: links, session: session)) else { return nil }
+        return CloudLocalItem(id: id, fields: fields, modifiedAt: capture.scrobbledAt ?? capture.addedToPlaylistAt ?? capture.capturedAt)
+    }
+
     public func apply(upserts: [CloudRecord], deletes: [CloudDeletion]) async throws -> [String: [String: JSONValue]] {
-        try await writer.write { context in
+        // A play removed here whose tombstone hasn't gone up yet isn't brought back.
+        let removed = Set(journal.pending(.plays).map(\.id))
+        let upserts = upserts.filter { !removed.contains($0.id) }
+        return try await writer.write { context in
             let ids = upserts.map(\.id) + deletes.map(\.id)
             let existing = try Self.captures(ids, in: context)
             for deletion in deletes {
@@ -41,6 +74,8 @@ public struct CloudPlaysStore: CloudEntityStore {
             let links = try CloudSessionLinks(context)
             var held: [String: [String: JSONValue]] = [:]
             for record in upserts {
+                // One this build can't read is left out: not kept, and so never sent back
+                // as deleted.
                 guard let incoming = try? CloudJSON.value(CloudPlayFields.self, from: record.fields) else { continue }
                 let capture: Capture
                 if let found = existing[record.id]?.first {
@@ -57,6 +92,9 @@ public struct CloudPlaysStore: CloudEntityStore {
             return held
         }
     }
+
+    /// A play sent without a kind, which the server allows: on demand, as Android reads one.
+    static let unstatedKind = CaptureKind.onDemand
 
     // MARK: - Fields
 
@@ -101,7 +139,7 @@ public struct CloudPlaysStore: CloudEntityStore {
     }
 
     static func insert(_ incoming: CloudPlayFields, id: String, deviceID: String?, in context: ModelContext) -> Capture {
-        let kind = CaptureKind(rawValue: incoming.kind) ?? .radio
+        let kind = incoming.kind.map { CaptureKind(rawValue: $0) ?? .radio } ?? Self.unstatedKind
         let capture = Capture(
             songID: incoming.catalogID ?? "",
             songKey: incoming.songKey ?? incoming.catalogID ?? SongIdentity.key(title: incoming.title, artistName: incoming.artistName),
@@ -121,7 +159,7 @@ public struct CloudPlaysStore: CloudEntityStore {
         // Kept as it came, so a source this build doesn't know stays what it was.
         capture.sourceRawValue = incoming.source
         // The play's own value for the kind, even one this build reads as radio.
-        capture.kindRawValue = incoming.kind
+        capture.kindRawValue = incoming.kind ?? kind.rawValue
         capture.scrobbledAt = incoming.scrobbledAtMs.map(CloudJSON.date(milliseconds:))
         capture.addedToPlaylistAt = incoming.addedToPlaylistAtMs.map(CloudJSON.date(milliseconds:))
         // Only the device that recorded a play writes it to the playlist, and only once.
@@ -155,6 +193,9 @@ struct CloudSessionLinks {
     private var byCapture: [PersistentIdentifier: Link] = [:]
     private var sessions: [String: Session] = [:]
 
+    /// None read: for a few plays, each asked for its own session.
+    init() {}
+
     init(_ context: ModelContext) throws {
         for session in try context.fetch(FetchDescriptor<Session>()) {
             let link = Self.link(for: session)
@@ -184,18 +225,29 @@ struct CloudSessionLinks {
 public struct CloudSessionsStore: CloudEntityStore {
     public let entity = CloudEntity.sessions
     let writer: HistoryWriter
+    private let mark = CloudHistoryMark(entity: Schema.entityName(for: Session.self))
 
     init(writer: HistoryWriter) {
         self.writer = writer
     }
 
     public func localItems() async throws -> [CloudLocalItem] {
-        try await writer.read { context in
-            try context.fetch(FetchDescriptor<Session>(predicate: #Predicate { $0.sessionID != nil })).compactMap { session in
-                guard let id = session.sessionID, let fields = try? CloudJSON.fields(Self.fields(of: session)) else { return nil }
-                return CloudLocalItem(id: id, fields: fields, modifiedAt: session.endedAt ?? session.lastActivityAt)
-            }
+        try await writer.read { [mark] context in
+            mark.start(in: context)
+            return try context.fetch(FetchDescriptor<Session>(predicate: #Predicate { $0.sessionID != nil })).compactMap(Self.item)
         }
+    }
+
+    public func changedItems() async throws -> [CloudLocalItem]? {
+        try await writer.read { [mark] context in
+            guard let changed = mark.changes(in: context) else { return nil }
+            return try ListeningHistoryReader.fetch(Session.self, ids: changed, in: context).compactMap(Self.item)
+        }
+    }
+
+    private static func item(_ session: Session) -> CloudLocalItem? {
+        guard let id = session.sessionID, let fields = try? CloudJSON.fields(fields(of: session)) else { return nil }
+        return CloudLocalItem(id: id, fields: fields, modifiedAt: session.endedAt ?? session.lastActivityAt)
     }
 
     public func apply(upserts: [CloudRecord], deletes: [CloudDeletion]) async throws -> [String: [String: JSONValue]] {
@@ -324,6 +376,51 @@ public struct CloudStationsStore: CloudEntityStore {
             }
         }
         return merged
+    }
+}
+
+/// Where a store's reading of the history for Trackside Cloud got to: the store's history
+/// since then names the rows that changed, so a sync reads only those.
+final class CloudHistoryMark: @unchecked Sendable {
+    private enum Place {
+        case unread
+        case at(DefaultHistoryToken?)
+    }
+
+    let entity: String
+    private let lock = NSLock()
+    private var place = Place.unread
+
+    init(entity: String) {
+        self.entity = entity
+    }
+
+    /// Called before every row is read: whatever saves after this is in the next changes.
+    func start(in context: ModelContext) {
+        let latest = try? ListeningHistoryReader.latestToken(in: context)
+        lock.withLock { place = .at(latest) }
+    }
+
+    /// The rows of this kind inserted or changed since the last read, deleted ones among
+    /// them. Nil when that can't be told, or is most of them: everything is read instead.
+    func changes(in context: ModelContext) -> Set<PersistentIdentifier>? {
+        guard case .at(let since) = lock.withLock({ place }) else { return nil }
+        guard let transactions = try? ListeningHistoryReader.transactions(after: since, in: context) else {
+            lock.withLock { place = .unread }
+            return nil
+        }
+        var changed = Set<PersistentIdentifier>()
+        for transaction in transactions {
+            for change in transaction.changes where change.changedPersistentIdentifier.entityName == entity {
+                changed.insert(change.changedPersistentIdentifier)
+            }
+        }
+        guard changed.count <= ListeningHistoryReader.incrementalLimit else {
+            lock.withLock { place = .unread }
+            return nil
+        }
+        if let latest = transactions.last?.token { lock.withLock { place = .at(latest) } }
+        return changed
     }
 }
 

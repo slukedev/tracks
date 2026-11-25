@@ -50,6 +50,9 @@ public struct CloudBlockedArtistsStore: CloudEntityStore {
 
     public init() {}
 
+    /// The list is the settings' own, always there: one gone from it was removed here.
+    public var removesByAbsence: Bool { true }
+
     public func localItems() async throws -> [CloudLocalItem] {
         CaptureSettings().blockedArtists.names.compactMap { name in
             let id = StatsCalculator.folded(name)
@@ -82,6 +85,9 @@ public struct CloudExcludedStationsStore: CloudEntityStore {
     public let entity = CloudEntity.excludedStations
 
     public init() {}
+
+    /// The list is the settings' own, always there: one gone from it was removed here.
+    public var removesByAbsence: Bool { true }
 
     public func localItems() async throws -> [CloudLocalItem] {
         Self.byKey(CaptureSettings().excludedStations).sorted { $0.key < $1.key }.compactMap { key, name in

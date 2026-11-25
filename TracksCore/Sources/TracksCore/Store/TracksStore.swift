@@ -24,6 +24,13 @@ public final class TracksStore {
     /// that can open it. See ``libraryOpensNow()``.
     public var isLibraryUnavailable: Bool { unsavedPlays != nil }
 
+    /// Whether the history is the one on disk, open for writing: not one held in memory for
+    /// a run that couldn't open it.
+    public var isOnDisk: Bool {
+        guard case .appGroup = backing else { return false }
+        return !isLibraryUnavailable
+    }
+
     public enum Backing: Sendable, Equatable, CustomStringConvertible {
         case appGroup(String, synced: Bool)
         case inMemory(reason: String)
@@ -93,7 +100,7 @@ public final class TracksStore {
                     backing = .appGroup(identifier, synced: true)
                     syncFailureReason = nil
                     unsavedPlays = nil
-                    if !readOnly { didOpenLibrary() }
+                    if !readOnly { didOpenLibrary(backfillingIDs: !sync) }
                     return
                 } catch {
                     // Sync can fail for ordinary reasons (no iCloud account, a container
@@ -109,7 +116,7 @@ public final class TracksStore {
                 backing = .appGroup(identifier, synced: false)
                 syncFailureReason = pendingSyncFailure
                 unsavedPlays = nil
-                if !readOnly { didOpenLibrary() }
+                if !readOnly { didOpenLibrary(backfillingIDs: !sync) }
                 return
             } catch {
                 // Fall back to in-memory, keeping the reason for the probe. A full disk, a
@@ -133,12 +140,14 @@ public final class TracksStore {
     }
 
     /// What a writable open of the library does first.
-    private func didOpenLibrary() {
+    private func didOpenLibrary(backfillingIDs: Bool) {
         stampLegacyCaptures()
         Task { [writer] in
             _ = await writer.saveUnsavedPlays(from: .standard)
-            // Plays and sessions from before lasting ids get theirs (see ``PlayID``).
-            _ = try? await writer.backfillLastingIDs()
+            // Plays and sessions from before lasting ids get theirs (see ``PlayID``), only
+            // where nothing mirrors to iCloud: written there, every device would upload its
+            // whole history again for ids each derives the same anyway.
+            if backfillingIDs { _ = try? await writer.backfillLastingIDs() }
         }
     }
 
@@ -710,7 +719,7 @@ public final class TracksStore {
         let rows = existingCaptures(ids).values.filter {
             SongIdentity.key(title: $0.title, artistName: $0.artistName) == identity
         }
-        for row in rows { context.delete(row) }
+        Self.removePlays(Array(rows), in: context)
         settings.noteForgotten(identity)
         if !rows.isEmpty { try context.save() }
         return rows.count
@@ -728,7 +737,7 @@ public final class TracksStore {
         let rows = try context.fetch(Self.possibleMatches(title: title, artistName: artistName)).filter {
             SongIdentity.key(title: $0.title, artistName: $0.artistName) == identity
         }
-        for row in rows { context.delete(row) }
+        Self.removePlays(Array(rows), in: context)
         settings.noteForgotten(identity)
         if !rows.isEmpty { try context.save() }
         return rows.count
@@ -759,8 +768,16 @@ public final class TracksStore {
     /// Deletes a single play. It stays on Last.fm if it was already scrobbled, since
     /// Last.fm has no public API for removing one.
     public func deletePlay(_ capture: Capture) throws {
-        context.delete(capture)
+        Self.removePlays([capture], in: context)
         try context.save()
+    }
+
+    /// Deletes plays you removed, noting each for Trackside Cloud, which deletes them on
+    /// every device.
+    nonisolated static func removePlays(_ rows: [Capture], in context: ModelContext) {
+        let now = Date()
+        CloudRemovalJournal.noteIfSyncing(rows.compactMap { row in row.playID.map { CloudRemoval(id: $0, at: now) } }, for: .plays)
+        for row in rows { context.delete(row) }
     }
 
     // MARK: - Sync reconciliation
@@ -883,6 +900,9 @@ public final class TracksStore {
         context: ModelContext
     ) -> Int {
         var merged = 0
+        var removals: [CloudRemoval] = []
+        let now = Date()
+        defer { CloudRemovalJournal.noteIfSyncing(removals, for: .plays) }
         for group in groups where group.count > 1 {
             var remaining = group
             // Again over what's left until nothing changes, so a second call finds nothing.
@@ -904,6 +924,9 @@ public final class TracksStore {
                     }
                     for duplicate in ranked.dropFirst() {
                         absorb(duplicate, into: survivor)
+                        if let id = duplicate.playID, id != survivor.playID {
+                            removals.append(CloudRemoval(id: id, at: now, mergedInto: survivor.playID))
+                        }
                         context.delete(duplicate)
                         mergedThisPass += 1
                     }

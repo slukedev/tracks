@@ -348,16 +348,40 @@ final class SpotifyService: SpotifySource {
         knownTracks[uri]
     }
 
+    /// What looking a song up on Spotify found.
+    enum Lookup {
+        case found(SpotifyTrack)
+        /// Spotify answered, and doesn't have it.
+        case missing
+        /// Spotify couldn't be asked: offline, a timeout, a rate limit. Worth asking again.
+        case unknown
+
+        var track: SpotifyTrack? {
+            if case .found(let track) = self { return track }
+            return nil
+        }
+    }
+
     /// The Spotify track for a song: by its URI when it has one, else by ISRC, else by title
-    /// and artist. Nil when Spotify doesn't have it.
+    /// and artist. Only Spotify's answers are kept: a lookup that couldn't reach it is asked
+    /// again next time.
+    func lookUp(_ lookup: SpotifyLookup) async -> Lookup {
+        if let uri = lookup.uri, let known = knownTracks[uri] { return .found(known) }
+        if let answer = found[lookup] { return answer.map(Lookup.found) ?? .missing }
+        guard let account else { return .unknown }
+        do {
+            let answer = try await SpotifyCall.run { try Self.find(lookup, in: account) }
+            found[lookup] = .some(answer)
+            if let answer { knownTracks[answer.uri] = answer }
+            return answer.map(Lookup.found) ?? .missing
+        } catch {
+            return .unknown
+        }
+    }
+
+    /// ``lookUp(_:)``'s track. Nil when Spotify doesn't have it or couldn't be asked.
     func track(for lookup: SpotifyLookup) async -> SpotifyTrack? {
-        if let uri = lookup.uri, let known = knownTracks[uri] { return known }
-        if let answer = found[lookup] { return answer }
-        guard let account else { return nil }
-        let answer = try? await SpotifyCall.run { try Self.find(lookup, in: account) }
-        found[lookup] = .some(answer)
-        if let answer { knownTracks[answer.uri] = answer }
-        return answer
+        await lookUp(lookup).track
     }
 
     /// A song found on Spotify by name, as the player takes it.
@@ -618,14 +642,21 @@ private struct SpotifyLists {
     var liked = Kept<[SpotifyTrack]>()
 }
 
-/// The engine's calls block for up to a minute, so they run on a queue of their own rather
-/// than on Swift's shared threads.
+/// The engine's calls block for up to a minute, so they run on threads of their own rather
+/// than on Swift's shared ones: a few at a time, the rest waiting their turn, so many pages
+/// loading at once can't take every thread there is.
 nonisolated enum SpotifyCall {
-    private static let queue = DispatchQueue(label: "com.luke.tracks.spotify", qos: .userInitiated, attributes: .concurrent)
+    private static let lanes: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "com.luke.tracks.spotify"
+        queue.qualityOfService = .userInitiated
+        queue.maxConcurrentOperationCount = 3
+        return queue
+    }()
 
     static func run<Value: Sendable>(_ work: @escaping @Sendable () throws -> Value) async throws -> Value {
         try await withCheckedThrowingContinuation { continuation in
-            queue.async {
+            lanes.addOperation {
                 continuation.resume(with: Result { try work() })
             }
         }

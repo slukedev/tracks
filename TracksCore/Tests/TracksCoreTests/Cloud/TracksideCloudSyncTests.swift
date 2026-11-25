@@ -163,8 +163,10 @@ final class FakeCloud: CloudSyncAPI {
 final class NameStore: CloudEntityStore {
     let entity = CloudEntity.blockedArtists
     let names = Mutex<[String: String]>([:])
+    let removesByAbsence: Bool
 
-    init(_ names: [String: String] = [:]) {
+    init(_ names: [String: String] = [:], removesByAbsence: Bool = true) {
+        self.removesByAbsence = removesByAbsence
         self.names.withLock { $0 = names }
     }
 
@@ -328,15 +330,18 @@ struct CloudSyncEngineTests {
         #expect(store.names.withLock { $0.isEmpty })
     }
 
-    @Test("changes are found by comparing with the ledger")
+    @Test("changes are found by comparing with the ledger, and only a whole list's absences are removals")
     func changes() {
         let local = [
             CloudLocalItem(id: "same", fields: ["name": .string("A")], modifiedAt: .distantPast),
             CloudLocalItem(id: "new", fields: ["name": .string("B")], modifiedAt: .distantPast),
         ]
         let ledger = ["same": CloudJSON.digest(["name": .string("A")]), "gone": "x"]
-        let items = CloudSyncEngine.changes(local: local, ledger: ledger, deviceID: "D1", now: Date(timeIntervalSince1970: 5))
-        #expect(items.map(\.id) == ["new", "gone"])
-        #expect(items[1].isTombstone)
+        let now = Date(timeIntervalSince1970: 5)
+        #expect(CloudSyncEngine.changes(local: local, ledger: ledger, deviceID: "D1", now: now).map(\.id) == ["new"])
+        let absent = CloudSyncEngine.absent(local: local, ledger: ledger, deviceID: "D1", now: now)
+        #expect(absent.map(\.id) == ["gone"])
+        let allTombstones = absent.allSatisfy(\.isTombstone)
+        #expect(allTombstones)
     }
 }

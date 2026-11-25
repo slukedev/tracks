@@ -40,8 +40,16 @@ final class Playlists {
         flushOnExit = NotificationCenter.default.addObserver(forName: exit, object: nil, queue: nil) { [record] _ in
             record.flush()
         }
-        all = StoredJSON.loadEach([TracksPlaylist].self, from: Self.recordURL) ?? []
+        if let loaded = StoredJSON.loadEach([TracksPlaylist].self, from: Self.recordURL) {
+            all = loaded
+        } else {
+            couldNotRead = FileManager.default.fileExists(atPath: Self.recordURL.path(percentEncoded: false))
+        }
     }
+
+    /// The playlists file is there but couldn't be read, as before the device's first unlock.
+    /// Trackside Cloud leaves them alone rather than read them as all deleted.
+    @ObservationIgnored private(set) var couldNotRead = false
 
     /// Most recently changed first, as Music lists them.
     var recent: [TracksPlaylist] { all.sorted { $0.updatedAt > $1.updatedAt } }

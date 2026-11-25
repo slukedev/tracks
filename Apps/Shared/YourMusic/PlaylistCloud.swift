@@ -35,6 +35,12 @@ final class PlaylistCloud {
         state = (try? Data(contentsOf: Self.url)).flatMap { try? JSONDecoder().decode(SavedState.self, from: $0) } ?? SavedState()
     }
 
+    /// Whether the playlists are there to read whole, so one missing was deleted here.
+    var isReadable: Bool {
+        guard let music else { return false }
+        return !music.playlists.couldNotRead
+    }
+
     /// The two stores Trackside Cloud syncs through.
     var stores: [any CloudEntityStore] {
         [CloudPlaylistsStore(cloud: self), CloudPlaylistEntriesStore(cloud: self)]
@@ -286,8 +292,12 @@ nonisolated struct CloudPlaylistsStore: CloudEntityStore {
     let cloud: PlaylistCloud
     var entity: CloudEntity { .playlists }
 
+    /// A playlist or song in one is only ever deleted here by you, from a list read whole.
+    var removesByAbsence: Bool { true }
+
     func localItems() async throws -> [CloudLocalItem] {
-        await cloud.playlistItems()
+        guard await cloud.isReadable else { throw CloudStoreUnavailable() }
+        return await cloud.playlistItems()
     }
 
     func apply(upserts: [CloudRecord], deletes: [CloudDeletion]) async throws -> [String: [String: JSONValue]] {
@@ -299,8 +309,12 @@ nonisolated struct CloudPlaylistEntriesStore: CloudEntityStore {
     let cloud: PlaylistCloud
     var entity: CloudEntity { .playlistEntries }
 
+    /// A playlist or song in one is only ever deleted here by you, from a list read whole.
+    var removesByAbsence: Bool { true }
+
     func localItems() async throws -> [CloudLocalItem] {
-        await cloud.entryItems()
+        guard await cloud.isReadable else { throw CloudStoreUnavailable() }
+        return await cloud.entryItems()
     }
 
     func apply(upserts: [CloudRecord], deletes: [CloudDeletion]) async throws -> [String: [String: JSONValue]] {

@@ -782,11 +782,20 @@ struct ServerForm: View {
                         Label(MusicServers.insecureAddressReason, systemImage: "lock.open")
                             .foregroundStyle(.ink(.red))
                             .fixedSize(horizontal: false, vertical: true)
+                    } else if keyNeedsHTTPS {
+                        Label("Use an https address to sign in with an API key.", systemImage: "lock.open")
+                            .foregroundStyle(.ink(.red))
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if isHomeOnly {
+                        Label("Works on your home network only.", systemImage: "house")
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Text(privacyLine)
                 }
                 .animation(SettingsMotion.fade, value: problem)
                 .animation(SettingsMotion.fade, value: isInsecure)
+                .animation(SettingsMotion.fade, value: isHomeOnly)
+                .animation(SettingsMotion.fade, value: keyNeedsHTTPS)
                 .animation(SettingsMotion.fade, value: isTrackside)
             }
             if !isTrackside {
@@ -971,7 +980,7 @@ struct ServerForm: View {
             if signIn == .code { return PairingPayload.typedCode(code) != nil }
         } else {
             if hasBadOtherAddress { return false }
-            if usesAPIKey { return !password.isEmpty }
+            if usesAPIKey { return !password.isEmpty && !keyNeedsHTTPS }
         }
         return !username.trimmingCharacters(in: .whitespaces).isEmpty && !password.isEmpty
     }
@@ -987,6 +996,24 @@ struct ServerForm: View {
     /// code or key over.
     private var isInsecure: Bool {
         SubsonicServer.address(from: address).map(ServerAddress.isExposed) ?? false
+    }
+
+    /// Whether the server has an https address among those typed.
+    private var hasHTTPSAddress: Bool {
+        ([address] + otherAddresses.map(\.text)).contains { SubsonicServer.address(from: $0)?.scheme?.lowercased() == "https" }
+    }
+
+    /// A Subsonic server reached only over plain http at home: its sign-in goes unencrypted,
+    /// so it's for the home network.
+    private var isHomeOnly: Bool {
+        guard !isTrackside, !isInsecure, let url = SubsonicServer.address(from: address), url.scheme?.lowercased() == "http" else { return false }
+        return !hasHTTPSAddress && !SubsonicCredentialRule.isLoopback(url)
+    }
+
+    /// An API key never crosses plain http beyond this device.
+    private var keyNeedsHTTPS: Bool {
+        guard !isTrackside, usesAPIKey, let url = SubsonicServer.address(from: address), url.scheme?.lowercased() == "http" else { return false }
+        return !hasHTTPSAddress && !SubsonicCredentialRule.isLoopback(url)
     }
 
     private func fillIn() {

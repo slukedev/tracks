@@ -117,13 +117,17 @@ nonisolated struct HistorySong: Equatable, Sendable {
     let artistName: String
     let albumTitle: String?
     let artworkURL: String?
+    /// Where it played from before, to play from there again where it still can: a queue
+    /// left across sources.
+    let source: MusicSource?
 
-    init(songID: String, title: String, artistName: String, albumTitle: String? = nil, artworkURL: String? = nil) {
+    init(songID: String, title: String, artistName: String, albumTitle: String? = nil, artworkURL: String? = nil, source: MusicSource? = nil) {
         self.songID = songID
         self.title = title
         self.artistName = artistName
         self.albumTitle = albumTitle
         self.artworkURL = artworkURL
+        self.source = source
     }
 
     init(_ song: MixSong) {

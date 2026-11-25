@@ -1160,9 +1160,9 @@ final class PlayerModel {
         let request: PlayRequest
         if session.isMixed {
             // Songs from more than one source, found again by name in each.
-            request = .history(tracks.map { track in
+            request = .history(tracks.enumerated().map { offset, track in
                 if let local = track.local { return HistorySong(local) }
-                return HistorySong(songID: track.song?.id.rawValue ?? "", title: track.title, artistName: track.artistName, albumTitle: track.albumTitle)
+                return HistorySong(songID: track.song?.id.rawValue ?? "", title: track.title, artistName: track.artistName, albumTitle: track.albumTitle, source: session.source(at: offset))
             }, startingAt: index)
         } else if session.isYourMusic {
             request = .local(tracks.compactMap(\.local), startingAt: index)
@@ -1265,12 +1265,15 @@ final class PlayerModel {
             return waiting
         }
         guard let current, context?.isStation != true else { return nil }
+        let tracks = [current] + upNext.prefix(LastSession.keptAhead)
+        let mixed = engine as? MixedQueueEngine
         return LastSession(
-            tracks: [current] + upNext.prefix(LastSession.keptAhead),
+            tracks: tracks,
             time: engine.lastKnownPlaybackTime,
             contextKind: context?.kind.storedName,
             contextTitle: context?.title,
-            savedAt: .now
+            savedAt: .now,
+            sources: mixed.map { mixed in tracks.map { mixed.source(of: $0.id)?.rawValue ?? "" } }
         )
     }
 

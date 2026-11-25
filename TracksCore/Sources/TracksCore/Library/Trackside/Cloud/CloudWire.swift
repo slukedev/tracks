@@ -610,7 +610,8 @@ public struct CloudPlayFields: Codable, Sendable, Hashable {
     public var albumTitle: String?
     public var artworkURL: String?
     public var playedAtMs: Int64
-    public var kind: String
+    /// Optional on the wire, as the server has it: only title, artist and time are required.
+    public var kind: String?
     public var source: String?
     public var songKey: String?
     public var catalogID: String?
@@ -629,7 +630,7 @@ public struct CloudPlayFields: Codable, Sendable, Hashable {
 
     public init(
         title: String, artistName: String, albumTitle: String? = nil, artworkURL: String? = nil,
-        playedAtMs: Int64, kind: String, source: String? = nil, songKey: String? = nil, catalogID: String? = nil,
+        playedAtMs: Int64, kind: String?, source: String? = nil, songKey: String? = nil, catalogID: String? = nil,
         serverSongID: String? = nil, spotifyID: String? = nil,
         stationID: String? = nil, sessionID: String? = nil, platform: String? = nil, recordedByDeviceID: String? = nil,
         playedMs: Int64? = nil, durationMs: Int64? = nil,

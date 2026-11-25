@@ -228,9 +228,26 @@ public enum TracksideCloudFolder {
         URL.applicationSupportDirectory.appending(path: "Tracks/Trackside Cloud", directoryHint: .isDirectory)
     }
 
+    /// Beside the folder rather than in it: a removal made here still counts after a move to
+    /// another server.
+    static var removalsURL: URL {
+        URL.applicationSupportDirectory.appending(path: "Tracks/Trackside Cloud Removals.json")
+    }
+
     /// Forgets everything kept for a server, so the next sync starts over: a move to another
     /// server, or back to iCloud.
     public static func clear() {
         try? FileManager.default.removeItem(at: url)
+    }
+}
+
+extension CloudRemovalJournal {
+    public static let shared = CloudRemovalJournal(url: TracksideCloudFolder.removalsURL)
+
+    /// Notes removals while Trackside Cloud is where history syncs this run. With iCloud,
+    /// its own mirror carries them.
+    static func noteIfSyncing(_ removals: [CloudRemoval], for entity: CloudEntity) {
+        guard !removals.isEmpty, CloudSync.tracksideServerID != nil else { return }
+        shared.record(removals, for: entity)
     }
 }

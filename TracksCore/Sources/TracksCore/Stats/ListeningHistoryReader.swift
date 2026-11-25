@@ -518,7 +518,7 @@ public actor ListeningHistoryReader {
         )
     }
 
-    private static func fetch<Model: PersistentModel>(
+    static func fetch<Model: PersistentModel>(
         _ type: Model.Type,
         ids: Set<PersistentIdentifier>,
         in context: ModelContext

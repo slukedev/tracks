@@ -245,6 +245,13 @@ See [README.md](README.md) for the legend and how to keep this current.
   loopback and 100.64/10 addresses, names without a dot, `.local`, `.lan`, `.internal`,
   `home.arpa`, `.ts.net`), the same rule Trackside uses (`NearbyAddress`). Credentials never
   cross plain HTTP to anything else. ATS allows only local networking plus those suffixes.
+- Subsonic over plain HTTP (`SubsonicCredentialRule`): an API key never, except to loopback.
+  A server that also has an https address gets credentials on its nearby http address only
+  on a network recorded as its home (`NetworkIdentity`: routers, IPv4 subnets and
+  unique-local IPv6 prefixes, as a digest), recorded when it's added there; elsewhere the
+  nearby address isn't raced and https is used. An entry from before this learns its home
+  once, where only the nearby address answers. A server with only an http address is marked
+  as working on the home network only when it's added.
 - Subsonic: every request is signed with a fresh salt. Cover addresses carry no credentials
   at all (they're cache keys, and reach Now Playing); `ArtworkImages` signs each one as it's
   fetched through `ServerMediaSigning`. Leave the username blank and enter an OpenSubsonic API
@@ -324,14 +331,22 @@ contain none of it and refuse an engine built with it. Spotify Premium is requir
   forgotten songs, blocked artists and excluded stations sync as items by lasting id, and
   settings through `PATCH /cloud/settings` by the same rules as iCloud's (`TracksideCloudSettings`
   stands in for the key-value store). Pulls follow an opaque cursor and start over from a full
-  snapshot on `410 sync_reset`; pushes go in batches of up to 1,000, idempotent by id, with
-  tombstones for what's gone. The server's `cloud` event, a save here, and coming to the front
-  start a sync. Works with Tracks on Android signed in to the same server.
+  snapshot on `410 sync_reset`; pushes go in batches of up to 1,000, idempotent by id. After
+  the first sync of a run only rows the store's history names as changed are compared
+  (`CloudHistoryMark`); every row is compared again after a reset, a failed push, or a day.
+  Tombstones go up only for plays deleted, forgotten or merged away here, kept in
+  `CloudRemovalJournal` until the server has them; a play merely missing here is never
+  deleted, and a record this build can't read is left as the server has it. Sync never starts
+  on a history held in memory for a run that couldn't open the store. The server's `cloud`
+  event, a save here, and coming to the front start a sync. Works with Tracks on Android
+  signed in to the same server.
 - Moving between them loses nothing: the first sync with a server takes what it has, sends up
   everything here, and the reconciler folds duplicates together. iCloud keeps what it had.
 - Every play has a lasting id (`Capture.playID`, schema V3): new plays get a UUID when they
   start, older ones a UUIDv5 of their history-index key (`PlayID`), so every device gives a
   synced row the same id. It's the history index's id, the server listen id and the cloud id.
+  Older rows are given theirs only where nothing mirrors to iCloud (Trackside Cloud, or sync
+  off): written through iCloud, every device would upload its whole history again.
 - Playlists over Trackside Cloud (`PlaylistCloud`, passed to `TracksideCloudSync` as extra
   stores): each playlist an item, each song in one an entry with a fractional order key
   (`FractionalKey`), so adds and moves on two devices both survive. Entries whose songs aren't

@@ -86,6 +86,9 @@ extension AppModel {
     /// when none can, the first there is, which the queue then shows as unavailable.
     func item(for song: HistorySong, catalog: Song?) -> MixedQueueEngine.Item? {
         let ranked = copies(of: song, catalog: catalog)
+        if let source = song.source, let kept = ranked.first(where: { $0.canPlay && $0.item.source == source }) {
+            return kept.item
+        }
         return (ranked.first { $0.canPlay } ?? ranked.first)?.item
     }
 
