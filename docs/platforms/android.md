@@ -219,8 +219,14 @@ See [README.md](README.md) for the legend and how to keep this current.
   picks (`/api/v1/me/picks`) start the shelves and the walk goes on from there; one from
   before picks answers 404 and gets the walk alone. Trackside only finds songs you have, so
   there an artist you have and have never played counts as new to you (Suggested songs).
-  A request that fails is logged, redacted, and the shelf says it found nothing only once
-  nothing is left to ask. With Octo, songs not
+  A server's shelves show while its first sync is still under way (picks don't need its
+  library) and don't wait for your listening to be read. A first load runs in the app's scope,
+  so scrolling or leaving Play doesn't end it; it goes on while a shelf is empty, for at most
+  40 seconds, then every shelf settles: songs, "didn't find anything" with Try again, or
+  "Couldn't reach" with Try again when every request failed. Each step is logged, redacted,
+  under the `Tracks` tag: `adb logcat -s Tracks` shows the servers' states, how many artists
+  the picks start from, whether the server picked songs itself, songs left out for want of a
+  cover, and each load's counts and requests. With Octo, songs not
   in your music have an Add button that has Octo fetch them. Keep exploring weaves in songs
   you've never played from `getRandomSongs`.
 - Recently played (your albums by when you last heard them), Your artists (only ones in your

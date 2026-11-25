@@ -3,15 +3,22 @@ package com.luke.tracks.ui.play
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.State
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.AppGraph
 import com.luke.tracks.engine.Engine
 import com.luke.tracks.graph
 import com.luke.tracks.library.LibraryAlbum
+import com.luke.tracks.net.Logs
 import com.luke.tracks.playback.PlayableSong
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import uniffi.tracks_engine.ArtistStats
 import uniffi.tracks_engine.ShuffleItem
 import uniffi.tracks_engine.dailySeed
@@ -49,6 +56,11 @@ data class PlayFeed(
 
     fun playable(mix: Mix): List<PlayableSong> = mix.songs.mapNotNull { playable[it.identity] }
 
+    companion object {
+        /** Your listening couldn't be read: nothing from it, and no "No mixes yet" either. */
+        val Unread = PlayFeed(MixSet(null, emptyList(), emptyList()), emptyMap(), emptyList(), emptyList(), hasHistory = true)
+    }
+
     /** The feed kept to songs that pass [keep]: one source's, when Play is filtered. */
     fun only(keep: (PlayableSong) -> Boolean): PlayFeed = copy(
         playable = playable.filterValues(keep),
@@ -61,20 +73,39 @@ private const val DAY = 86_400_000L
 
 /**
  * The Play tab's data, re-read whenever the history, the library or the songs you asked to
- * hear less of change. Null until the first read finishes.
+ * hear less of change. Null until the first read finishes. Each read finishes before the next
+ * starts, so a history that keeps changing (a sync bringing plays in) can't keep the page
+ * waiting, and a read that fails leaves the page with what it had, or an empty feed.
  */
 @Composable
 fun rememberPlayFeed(): State<PlayFeed?> {
     val graph = LocalContext.current.graph
-    val revision by graph.engine.revision.collectAsStateWithLifecycle()
-    val settings by graph.settings.settings.collectAsStateWithLifecycle(null)
-    val library by graph.library.snapshot.collectAsStateWithLifecycle()
-    val hidden = settings?.hiddenSongs
     val clock = com.luke.tracks.ui.components.LocalClock.current
-    return produceState<PlayFeed?>(null, revision, hidden, library) {
-        if (hidden == null) return@produceState
-        value = runCatching { loadFeed(graph, hidden, clock()) }.getOrNull() ?: value
-    }
+    val feed = remember(graph, clock) { playFeed(graph, clock) }
+    return feed.collectAsStateWithLifecycle(null)
+}
+
+fun playFeed(graph: AppGraph, clock: () -> Long): Flow<PlayFeed> = flow {
+    var last: PlayFeed? = null
+    combine(graph.engine.revision, graph.settings.settings.map { it.hiddenSongs }.distinctUntilChanged(), graph.library.snapshot) { _, hidden, _ -> hidden }
+        .conflate()
+        .collect { hidden ->
+            val started = System.currentTimeMillis()
+            val read = try {
+                loadFeed(graph, hidden, clock())
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Logs.w("Play: couldn't read your listening", error)
+                null
+            }
+            if (read != null && last == null) {
+                Logs.i("Play: read your listening in ${System.currentTimeMillis() - started} ms: ${read.shelfMixes.size} mixes, ${read.recentlyPlayed.size} albums lately" + if (read.hasHistory) "" else ", no plays yet")
+            }
+            val next = read ?: last ?: PlayFeed.Unread
+            last = next
+            emit(next)
+        }
 }
 
 suspend fun loadFeed(graph: AppGraph, hidden: Set<String>, nowMs: Long = System.currentTimeMillis()): PlayFeed =

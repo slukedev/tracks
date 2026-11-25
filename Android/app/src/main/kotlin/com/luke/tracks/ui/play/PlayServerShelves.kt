@@ -42,6 +42,7 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -64,6 +65,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.luke.tracks.discover.LocalServerPicks
 import com.luke.tracks.discover.ServerAlbum
+import com.luke.tracks.discover.ServerForYouState
 import com.luke.tracks.discover.ServerPicks
 import com.luke.tracks.discover.ServerSong
 import com.luke.tracks.discover.serverPicks
@@ -126,8 +128,13 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
     val scope = rememberCoroutineScope()
     LaunchedEffect(server.id, reloadKey) { picks.load(server.id) }
 
-    // Suggested songs needs artists to start from; without any, it isn't there.
-    if (state != null && from.isEmpty()) return
+    val view = ForYouShelfView.of(state, shelf)
+    if (view == ForYouShelfView.Hidden) return
+    val retry: () -> Unit = {
+        scope.launch {
+            if (state?.shelves?.canGoOn == true && state.problem == null) picks.loadMore(server.id, shelf, ROWS) else picks.load(server.id, force = true)
+        }
+    }
     val title = if (shelf == ForYouShelf.PICKS) "Picked for you" else "Suggested songs"
     Column(modifier) {
         Row(Modifier.padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -151,14 +158,13 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
             if (shelf == ForYouShelf.PICKS && songs.isNotEmpty()) PicksMenu(server, songs, onPickAgain = { scope.launch { picks.load(server.id, force = true) } })
         }
         Spacer(Modifier.height(8.dp))
-        when {
-            songs.isEmpty() && goesOn -> SongShelfLoading()
-            songs.isEmpty() -> Text(
+        when (view) {
+            ForYouShelfView.Loading -> SongShelfLoading()
+            ForYouShelfView.Problem -> ShelfMessage(state?.problem.orEmpty(), onRetry = retry)
+            ForYouShelfView.Empty -> ShelfMessage(
                 if (server.isTrackside) "${server.name} didn't find anything to suggest."
                 else "${server.name} didn't find anything to suggest. If it's Octo, it needs a Last.fm API key, set on its admin page.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp),
+                onRetry = retry,
             )
             else -> {
                 val grid = rememberLazyGridState()
@@ -181,6 +187,35 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
                 }
             }
         }
+    }
+}
+
+/** What a For You shelf shows: every state ends in songs, a word on why there are none, or nothing. */
+enum class ForYouShelfView {
+    Loading, Songs, Empty, Problem, Hidden;
+
+    companion object {
+        fun of(state: ServerForYouState?, shelf: ForYouShelf): ForYouShelfView {
+            if (state == null) return Loading
+            val songs = if (shelf == ForYouShelf.PICKS) state.shelves.picks else state.shelves.suggested
+            return when {
+                songs.isNotEmpty() -> Songs
+                state.isFilling -> Loading
+                state.problem != null -> Problem
+                // Nothing to start from yet (no plays, no songs synced): the shelf isn't there.
+                state.shelves.from.isEmpty() -> Hidden
+                else -> Empty
+            }
+        }
+    }
+}
+
+/** Why a shelf is empty, and a way to ask again. */
+@Composable
+private fun ShelfMessage(text: String, onRetry: () -> Unit) {
+    Column(Modifier.padding(horizontal = 24.dp)) {
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("Try again") }
     }
 }
 
@@ -374,7 +409,8 @@ fun ServerAlbumShelves(server: SubsonicServer, modifier: Modifier = Modifier) {
     val picks = rememberServerPicks()
     val all by picks.albums.collectAsState()
     val scope = rememberCoroutineScope()
-    LaunchedEffect(server.id) { picks.loadAlbums(server.id) }
+    val songCount = rememberLibraryIndex().snapshot.songs.size
+    LaunchedEffect(server.id, songCount) { picks.loadAlbums(server.id) }
     val shelves = all[server.id] ?: return
     Column(modifier, verticalArrangement = Arrangement.spacedBy(32.dp)) {
         if (shelves.mostPlayed.isNotEmpty()) AlbumShelf("Most played on ${server.name}", shelves.mostPlayed)
@@ -427,6 +463,7 @@ private fun AlbumShelf(title: String, albums: List<ServerAlbum>, action: (@Compo
  */
 @Composable
 fun KeepExploring(songs: List<ServerSong>, goesOn: Boolean, onEnd: suspend () -> Unit, modifier: Modifier = Modifier) {
+    val answers by rememberServerPicks().answers.collectAsState()
     Column(modifier.fillMaxWidth()) {
         SectionTitle("Keep exploring")
         Spacer(Modifier.height(4.dp))
@@ -434,8 +471,9 @@ fun KeepExploring(songs: List<ServerSong>, goesOn: Boolean, onEnd: suspend () ->
             ServerSongRow(song, songs, index, "Keep exploring", Modifier.padding(horizontal = 8.dp))
         }
         if (goesOn) {
-            // Composed once the page reaches it: finds more, then again after each lot.
-            LaunchedEffect(songs.size) { onEnd() }
+            // Composed once the page reaches it: finds more, then again after each answer, even one
+            // that found nothing, until the servers have nothing new three times running.
+            LaunchedEffect(songs.size, answers) { onEnd() }
             Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
                 LoadingIndicator(Modifier.size(40.dp))
             }

@@ -602,8 +602,11 @@ class ServerLibrary(
             return
         }
         if (songs.value[server.id] == null) setStatus(server.id, ServerStatus.Syncing)
+        val started = System.currentTimeMillis()
+        Logs.i("Servers: syncing ${server.name}" + if (songs.value[server.id] == null) " for the first time" else "")
         try {
             val all = connection.trackside?.let { syncTrackside(server, it) } ?: connection.client.allSongs()
+            Logs.i("Servers: ${server.name} synced ${all.size} songs in ${(System.currentTimeMillis() - started) / 1000} s")
             withContext(Dispatchers.IO) { writeCache(server.id, all) }
             syncedThisLaunch += server.id
             mutex.withLock {
@@ -703,6 +706,7 @@ class ServerLibrary(
 
     private fun setStatus(id: String, status: ServerStatus) {
         _entries.update { list -> list.map { if (it.server.id == id) it.copy(status = status) else it } }
+        if (status !is ServerStatus.Ready) Logs.i("Servers: ${_entries.value.firstOrNull { it.server.id == id }?.server?.name ?: "a server"} is ${status.javaClass.simpleName}")
     }
 
     private suspend fun publish() = withContext(Dispatchers.Default) {
