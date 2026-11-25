@@ -348,7 +348,9 @@ fun ServerSongRow(song: ServerSong, queue: List<ServerSong>, index: Int, from: S
             .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Artwork(ref.artworkUrl, ref.coverSeed + ref.artistName, Modifier.size(52.dp), shape = RoundedCornerShape(12.dp), showInitials = false)
+        // A new song has no cover on the server yet: Apple's catalog lends one, as in search.
+        val newCover by androidx.compose.runtime.produceState<String?>(null, song) { if (song.song.isNew) value = picks.newCover(song) }
+        Artwork(newCover ?: ref.artworkUrl, ref.coverSeed + ref.artistName, Modifier.size(52.dp), shape = RoundedCornerShape(12.dp), showInitials = false)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(

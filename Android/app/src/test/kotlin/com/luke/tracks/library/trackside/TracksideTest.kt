@@ -121,7 +121,7 @@ class TracksideWireTest {
         val notFound = TracksideClient.error(TracksideAnswer(404, fixture("error-not-found.json")))
         assertEquals(TracksideError.NotFound, notFound)
         val quota = TracksideClient.error(TracksideAnswer(429, fixture("error-quota.json")))
-        assertTrue(quota is TracksideError.Server && quota.code == "quota_exceeded")
+        assertTrue("quota_exceeded is its own error, with when it resets: $quota", quota is TracksideError.QuotaExceeded)
         val limited = TracksideClient.error(TracksideAnswer(429, """{"error":{"code":"rate_limited"}}""", retryAfter = " 12 "))
         assertEquals(12L, (limited as TracksideError.RateLimited).retryAfterSeconds)
         assertEquals(TracksideError.Unauthenticated, TracksideClient.error(TracksideAnswer(401, """{"error":{"code":"unauthenticated"}}""")))

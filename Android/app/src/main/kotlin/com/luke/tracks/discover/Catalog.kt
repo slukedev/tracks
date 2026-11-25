@@ -1,5 +1,6 @@
 package com.luke.tracks.discover
 
+import uniffi.tracks_engine.songIdentity
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
@@ -45,6 +46,18 @@ class ItunesSource(
     }
 
     suspend fun searchAlbums(text: String): List<CatalogAlbum> = fetch(itunes.search(text.trim(), CatalogSearchKind.ALBUM, 12u)).albums
+
+    /**
+     * The cover of a song the catalog has, for one shown before you have it: the same song by
+     * the same artist, else another of that artist's songs that came up. Null when neither did.
+     */
+    suspend fun songCover(title: String, artist: String): String? {
+        val wanted = songIdentity(title, artist)
+        val by = foldedName(artist)
+        val found = fetch(itunes.search("$artist $title", CatalogSearchKind.SONG, 10u)).songs
+        val song = found.firstOrNull { it.identity == wanted } ?: found.firstOrNull { foldedName(it.artistName) == by }
+        return song?.artworkUrl
+    }
 
     /** The catalog artist with this very name, if there is one. */
     suspend fun artistNamed(name: String): CatalogArtist? {

@@ -257,7 +257,9 @@ class RecommendationsLoadTest {
 
         val started = System.currentTimeMillis()
         val state = settled(picks)
-        assertTrue("Picked for you, from the server's picks: $state", state.shelves.picks.map { it.title }.containsAll(listOf("New from Artist 1", "New from Artist 2", "Somebody New")))
+        val shown = (state.shelves.picks + state.shelves.suggested).map { it.title }
+        assertTrue("both shelves get some of the server's picks: $state", state.shelves.picks.isNotEmpty() && state.shelves.suggested.isNotEmpty())
+        assertTrue("every one of the server's picks is shown: $state", shown.containsAll(listOf("New from Artist 1", "New from Artist 2", "Somebody New")))
         assertTrue("didn't wait for the load limit: ${System.currentTimeMillis() - started} ms", System.currentTimeMillis() - started < 7_000)
     }
 

@@ -162,6 +162,8 @@ interface ServerPicks {
     /** The song to play: the library's where it's synced, the server's stream otherwise. */
     fun playable(song: ServerSong): PlayableSong?
     fun coverUrl(song: ServerSong): String?
+    /** A cover for a new song the server doesn't have yet, looked up in Apple's catalog as search does. */
+    suspend fun newCover(song: ServerSong): String? = null
     /**
      * Whether the server can get [song] for you: any song not in your music where it fetches
      * (Octo), and new songs it suggests where Trackside gets songs. Only then is Add offered.
@@ -366,15 +368,12 @@ class ServerPicksService(
                     }
                     if (!picked.isNullOrEmpty()) {
                         val found = candidates(picked, server).let { list ->
-                            when {
-                                played.isNotEmpty() -> list
-                                // Before you've played anything no artist is yours yet. Where new songs
-                                // join Suggested songs, every other song the server picked does too, so
-                                // that shelf mixes what it has with what it can get; otherwise all of
-                                // them are Picked for you.
-                                offer == NewSongs.Offered -> list.mapIndexed { n, candidate -> candidate.copy(knownArtist = n % 2 == 0) }
-                                else -> list.map { it.copy(knownArtist = true) }
-                            }
+                            // The server chose these for you, so both shelves get some: songs by
+                            // artists you play are Picked for you, and the rest take turns, the first
+                            // to Suggested songs, so that shelf mixes what the server has with the new
+                            // songs it can get and Picked for you is never empty for want of plays.
+                            var turn = 0
+                            list.map { candidate -> if (candidate.knownArtist) candidate else candidate.copy(knownArtist = turn++ % 2 == 1) }
                         }
                         fresh.add(found, emptyList(), dailySeed("for-you-server"))
                     }
@@ -789,6 +788,18 @@ class ServerPicksService(
             durationMs = s.durationMs?.toLong(),
             identity = s.identity,
         )
+    }
+
+    override suspend fun newCover(song: ServerSong): String? {
+        if (!song.song.isNew) return null
+        return try {
+            graph.discovery.itunes.songCover(song.song.title, song.song.artist)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Logs.w("For You: couldn't find a cover for a new song", error)
+            null
+        }
     }
 
     override fun coverUrl(song: ServerSong): String? {
