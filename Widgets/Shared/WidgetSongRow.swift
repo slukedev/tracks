@@ -1,4 +1,6 @@
 import SwiftUI
+import WidgetKit
+import TracksCore
 
 /// One song in a widget list: its cover, its title, and who it is by.
 struct WidgetSongRow: View {
@@ -50,10 +52,15 @@ struct WidgetSongRow: View {
                     Text(capture.title)
                         .font(style.titleFont)
                         .lineLimit(1)
-                    Text(capture.artistName)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 3) {
+                        if capture.source == .spotify {
+                            SpotifyWidgetMark(size: 9)
+                        }
+                        Text(capture.artistName)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 // Redacted on a locked device when that's asked for. One line each either
                 // way, so the rows keep their height.
@@ -63,6 +70,30 @@ struct WidgetSongRow: View {
             .contentShape(.rect)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(capture.title) by \(capture.artistName)")
+        .accessibilityLabel(capture.source == .spotify ? Text("\(capture.title) by \(capture.artistName), Spotify") : Text("\(capture.title) by \(capture.artistName)"))
+    }
+}
+
+/// Spotify's mark on a play from Spotify, in its own colours, or tinted with the widget in
+/// accented and clear modes.
+struct SpotifyWidgetMark: View {
+    let size: CGFloat
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    var body: some View {
+        Group {
+            if renderingMode == .fullColor {
+                Image("SpotifyIcon")
+                    .resizable()
+            } else {
+                Image("SpotifyIconMono")
+                    .renderingMode(.template)
+                    .resizable()
+                    .widgetAccentable()
+            }
+        }
+        .scaledToFit()
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }

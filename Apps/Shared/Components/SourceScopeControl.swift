@@ -1,9 +1,9 @@
 import SwiftUI
 import TracksCore
 
-/// Whether the statistics count Apple Music and Your Music apart, and which one is on show.
+/// Whether the statistics count each source apart, and which one is on show.
 ///
-/// The choice is offered only once the setting is on and something has been played from Your
+/// The choice is offered only once the setting is on and plays came from more than Apple
 /// Music; until then everything counts together, whatever was chosen before.
 struct SourceScopeSetting: DynamicProperty {
     @AppStorage(SourceScope.separatesKey) private var separates = false
@@ -11,12 +11,17 @@ struct SourceScopeSetting: DynamicProperty {
     @Environment(AppModel.self) private var model
 
     var isOffered: Bool {
-        separates && model.library.history.hasYourMusic
+        separates && !offered.isEmpty
+    }
+
+    /// All, then each source with plays.
+    var offered: [SourceScope] {
+        SourceScope.offered(played: model.library.history.playedSources)
     }
 
     /// The plays to count.
     var scope: SourceScope {
-        SourceScope.effective(chosen, separates: separates, hasYourMusic: model.library.history.hasYourMusic)
+        SourceScope.effective(chosen, separates: separates, played: model.library.history.playedSources)
     }
 
     var selection: Binding<SourceScope> { $chosen }
@@ -25,9 +30,10 @@ struct SourceScopeSetting: DynamicProperty {
 extension SourceScope {
     var title: LocalizedStringKey {
         switch self {
-        case .all: "All Music"
+        case .all: "All Sources"
         case .appleMusic: "Apple Music"
-        case .yourMusic: "Your Music"
+        case .yourMusic: "Files and Servers"
+        case .spotify: "Spotify"
         }
     }
 
@@ -35,35 +41,38 @@ extension SourceScope {
     var symbol: String {
         switch self {
         case .all: "music.note.list"
-        case .appleMusic: "music.note"
-        case .yourMusic: "externaldrive.fill"
+        case .appleMusic: MusicSource.appleMusic.symbol
+        case .yourMusic: MusicSource.yourMusic.symbol
+        case .spotify: MusicSource.spotify.symbol
         }
     }
 
-    /// Radio stations are Apple Music's, so their sessions count everywhere but Your Music.
-    var includesStations: Bool { self != .yourMusic }
+    /// Radio stations are Apple Music's, so their sessions count only in All and Apple Music.
+    var includesStations: Bool { self == .all || self == .appleMusic }
 
     /// The scope as plain text, for a subtitle. Empty for everything.
     var subtitle: String {
         switch self {
         case .all: ""
         case .appleMusic: String(localized: "Apple Music")
-        case .yourMusic: String(localized: "Your Music")
+        case .yourMusic: MusicSource.ownMusicName
+        case .spotify: String(localized: "Spotify")
         }
     }
 }
 
-/// All Music, Apple Music or Your Music, for a statistics page's toolbar. A pop-up on the Mac;
-/// on iPhone a menu whose symbol is the scope on show.
+/// All Sources or one of them, for a statistics page's toolbar. A pop-up on the Mac; on iPhone
+/// a menu whose symbol is the scope on show.
 struct SourceScopeMenu: View {
     @Binding var scope: SourceScope
+    let offered: [SourceScope]
 
     var body: some View {
         #if os(macOS)
         picker
             .pickerStyle(.menu)
             .fixedSize()
-            .help("Count all your music, or Apple Music or Your Music alone")
+            .help("Count every source, or one alone")
         #else
         Menu {
             picker
@@ -75,7 +84,7 @@ struct SourceScopeMenu: View {
 
     private var picker: some View {
         Picker("Music", selection: $scope) {
-            ForEach(SourceScope.allCases) { scope in
+            ForEach(offered) { scope in
                 Label(scope.title, systemImage: scope.symbol).tag(scope)
             }
         }

@@ -185,8 +185,12 @@ public final class HistoryEngine: Sendable {
     /// gets its ordinal on the end of the key. A copy that arrives in a step is only known to
     /// be one when the index already holds more than one, so until the next full sync it can
     /// be counted once.
+    ///
+    /// A play with a lasting id (``PlayID``) is known by that instead, which stays the same
+    /// when its song is renamed and on every device and server.
     private static func key(_ capture: CaptureStat) -> String {
-        "\(milliseconds(capture.capturedAt))\u{1F}\(capture.kind.rawValue)\u{1F}\(capture.source.rawValue)\u{1F}\(capture.songIdentity)"
+        if let playID = capture.playID { return playID }
+        return PlayID.contentKey(capturedAt: capture.capturedAt, kind: capture.kind.rawValue, source: capture.source.rawValue, songIdentity: capture.songIdentity)
     }
 
     private static func id(_ key: String, copy: Int) -> String {
@@ -228,7 +232,7 @@ public final class HistoryEngine: Sendable {
             artworkUrl: capture.artworkURL,
             playedAtMs: milliseconds(capture.capturedAt),
             kind: kind(capture.kind),
-            source: capture.source == .yourMusic ? .yourMusic : .appleMusic,
+            source: Self.source(capture.source),
             stationName: capture.stationName
         )
     }
@@ -369,6 +373,16 @@ public final class HistoryEngine: Sendable {
         case .all: .all
         case .appleMusic: .appleMusic
         case .yourMusic: .yourMusic
+        case .spotify: .spotify
+        }
+    }
+
+    static func source(_ source: PlaySource) -> TracksEngine.PlaySource {
+        switch source {
+        case .appleMusic: .appleMusic
+        case .yourMusic: .yourMusic
+        case .spotify: .spotify
+        case .unknown(let stored): .unknown(stored: stored)
         }
     }
 

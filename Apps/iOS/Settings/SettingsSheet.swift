@@ -18,8 +18,12 @@ struct SettingsSheet: View {
                 }
 
                 Section {
+                    SourcesRow()
+                }
+
+                Section {
                     NavigationLink(value: SettingsPage.play) {
-                        SettingsRowLabel(title: "Play", systemImage: "play.fill", tint: .indigo, value: model.musicSource.name)
+                        SettingsRowLabel(title: "Play", systemImage: "play.fill", tint: .indigo, value: nil)
                     }
                     HistoryRow()
                     RadioRow()
@@ -28,23 +32,15 @@ struct SettingsSheet: View {
                 }
 
                 Section {
-                    NavigationLink(value: SettingsPage.appleMusic) {
-                        SettingsRowLabel(
-                            title: "Apple Music",
-                            systemImage: "music.note",
-                            tint: .pink,
-                            value: MusicAccessStatus(model.musicAuthorization).short
-                        )
-                    }
                     LastFMRow(connection: lastFM)
                     DevicesRow()
                     if let cloud {
                         NavigationLink(value: SettingsPage.iCloud) {
-                            SettingsRowLabel(title: "iCloud", systemImage: "icloud.fill", tint: .blue, value: cloud.status.short)
+                            SyncRowLabel(value: cloud.summary, asksForAction: cloud.summaryAsksForAction)
                         }
                     } else if model.isDemoLaunch {
                         NavigationLink(value: SettingsPage.iCloud) {
-                            SettingsRowLabel(title: "iCloud", systemImage: "icloud.fill", tint: .blue, value: CloudSyncStatus.unavailable.short)
+                            SyncRowLabel(value: CloudSyncStatus.unavailable.short, asksForAction: false)
                         }
                     }
                 } header: {
@@ -68,6 +64,8 @@ struct SettingsSheet: View {
             // Sample data has no real store to sync; its row says so instead.
             guard cloud == nil, let store = model.store, !model.isDemoLaunch else { return }
             let settings = CloudSyncSettings(store: store, monitor: model.syncMonitor)
+            let servers = model.yourMusic.servers
+            settings.tracksideCloud = { [weak servers] in servers?.cloudSync }
             cloud = settings
             await settings.refresh()
         }
@@ -77,6 +75,7 @@ struct SettingsSheet: View {
     @ViewBuilder
     private func destination(_ page: SettingsPage) -> some View {
         switch page {
+        case .sources: SourcesPage()
         case .play: PlaySettingsPage()
         case .history: HistorySettingsPage()
         case .radio: RadioSettingsPage()
@@ -96,13 +95,39 @@ struct SettingsSheet: View {
 
 /// A page of iPhone Settings. Also what `-TracksSettings <page>` opens on.
 enum SettingsPage: String, Hashable, CaseIterable {
-    case play, history, radio, appleMusic, lastFM, iCloud, devices
+    case sources, play, history, radio, lastFM, iCloud, devices
+    /// Inside Sources.
+    case appleMusic
     /// Inside Play.
     case louderAtSpeed
 
     /// The pages to push to reach this one.
     var path: [SettingsPage] {
-        self == .louderAtSpeed ? [.play, self] : [self]
+        switch self {
+        case .louderAtSpeed: [.play, self]
+        case .appleMusic: [.sources, self]
+        default: [self]
+        }
+    }
+}
+
+/// Sync's row: where it stands in a word, or how far history has got while it arrives.
+private struct SyncRowLabel: View {
+    let value: String
+    let asksForAction: Bool
+
+    var body: some View {
+        LabeledContent {
+            Text(value)
+                .foregroundStyle(asksForAction ? AnyShapeStyle(.ink(.orange)) : AnyShapeStyle(.secondary))
+                .contentTransition(.numericText())
+        } label: {
+            Label {
+                Text("Sync")
+            } icon: {
+                SettingsIconTile(systemImage: "arrow.triangle.2.circlepath", color: .blue)
+            }
+        }
     }
 }
 

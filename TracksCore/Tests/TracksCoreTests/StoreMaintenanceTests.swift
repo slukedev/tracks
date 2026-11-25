@@ -113,9 +113,10 @@ struct StoreMaintenanceTests {
 
     @Test("every container is opened on the versioned schema")
     func schemaIsVersioned() throws {
-        #expect(TracksStore.schema.version == TracksSchemaV2.versionIdentifier)
+        #expect(TracksStore.schema.version == TracksSchemaV3.versionIdentifier)
         #expect(TracksMigrationPlan.schemas.map(ObjectIdentifier.init)
-            == [ObjectIdentifier(TracksSchemaV1.self), ObjectIdentifier(TracksSchemaV2.self)])
+            == [ObjectIdentifier(TracksSchemaV1.self), ObjectIdentifier(TracksSchemaV2.self), ObjectIdentifier(TracksSchemaV3.self)])
+        #expect(TracksMigrationPlan.stages.count == 2)
         #expect(store.container.schema.entities.map(\.name).sorted()
             == ["Capture", "Session", "Station", "StatsSnapshot"])
     }

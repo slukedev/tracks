@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import OSLog
+import Synchronization
 import TracksCore
 #if os(iOS)
 import UIKit
@@ -28,7 +29,20 @@ final class MusicServers {
     }
 
     private(set) var servers: [SubsonicServer] = []
-    private(set) var status: [String: Status] = [:]
+    private(set) var status: [String: Status] = [:] {
+        didSet { noteOffline(was: oldValue) }
+    }
+    /// When each server out of reach stopped answering, for its page's "Offline since".
+    private(set) var offlineSince: [String: Date] = [:]
+    /// How far each server's first sync has got, where the server says how many songs it has.
+    private(set) var syncProgress: [String: SyncProgress] = [:]
+
+    struct SyncProgress: Equatable {
+        let done: Int
+        let total: Int
+
+        var fraction: Double { min(1, Double(done) / Double(max(total, 1))) }
+    }
     /// Every song on each server, as of its last sync.
     private(set) var catalogs: [String: [LocalTrack]] = [:] {
         didSet { catalogRevision &+= 1 }
@@ -66,6 +80,8 @@ final class MusicServers {
     @ObservationIgnored var onKeptArrived: (([LocalTrack]) -> Void)?
     /// Called with a server's id once it's removed.
     @ObservationIgnored var onRemoved: ((String) -> Void)?
+    /// What Trackside Cloud syncs beyond the history: the playlists. Set by the app.
+    @ObservationIgnored var cloudStores: () -> [any CloudEntityStore] = { [] }
     /// One sync at a time for each server, tied to the server as it was when it started.
     @ObservationIgnored private let syncs = ServerSyncs()
     /// For each Subsonic server asked for songs, what watches for them to arrive.
@@ -85,6 +101,8 @@ final class MusicServers {
     /// Whether Tracks is in front, which is when Trackside servers' events are listened to.
     @ObservationIgnored private var isForeground = true
     @ObservationIgnored private var lifecycle: [any NSObjectProtocol] = []
+    /// Trackside Cloud, while it's the sync backend and its server is connected.
+    private(set) var cloudSync: TracksideCloudSync?
 
     private static let storageKey = "musicServers"
     private static let quietKey = "musicServersNotToldOfPlays"
@@ -169,7 +187,9 @@ final class MusicServers {
         syncs.invalidate(server.id)
         switch server.kind {
         case .subsonic:
-            subsonic[server.id] = SubsonicClient(server: server, password: secret)
+            let client = SubsonicClient(server: server, password: secret, endpoints: SubsonicEndpoints(server: server))
+            subsonic[server.id] = client
+            ServerMediaSigning.shared.register(client, for: server.id)
             trackside.removeValue(forKey: server.id)?.stopEvents()
             TracksideMediaTrust.shared.release(server.id)
             if subsonicOutboxes[server.id] == nil {
@@ -180,10 +200,50 @@ final class MusicServers {
             subsonicOutboxes[server.id] = nil
             stopWatchingKeeps(server.id)
             trackside[server.id]?.stopEvents()
+            if cloudSync?.serverID == server.id {
+                // Its client is the old connection's; the next connect starts it again.
+                cloudSync?.stop()
+                cloudSync = nil
+            }
             let connection = TracksideConnection(server: server, apiKey: secret, mediaToken: Self.loadMediaToken(for: server))
             trackside[server.id] = connection
             TracksideMediaTrust.shared.hold(connection.endpoints.pins, for: server.id)
+            ServerMediaSigning.shared.register(connection.client, for: server.id)
         }
+    }
+
+    private func noteOffline(was old: [String: Status]) {
+        for (id, now) in status where now != old[id] {
+            switch now {
+            case .offline, .failed:
+                if offlineSince[id] == nil { offlineSince[id] = .now }
+            case .online:
+                offlineSince[id] = nil
+            case .connecting, .wrongPassword:
+                break
+            }
+        }
+        for id in offlineSince.keys where status[id] == nil { offlineSince[id] = nil }
+    }
+
+    /// Whether a server is being reached from away from home: at an address that isn't on
+    /// the local network.
+    func isAway(_ serverID: String) -> Bool {
+        guard let base = address(of: serverID) else { return false }
+        return !NearbyAddress.isNearby(base) || TracksideServerURL.Kind(guessingFrom: base) == .tailnet
+    }
+
+    /// The address requests go to now.
+    func address(of serverID: String) -> URL? {
+        trackside[serverID]?.endpoints.baseURL ?? subsonic[serverID]?.baseURL
+    }
+
+    /// Gives a server the name it goes by in Tracks.
+    func rename(_ serverID: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, var server = server(serverID), server.name != trimmed else { return }
+        server.name = trimmed
+        store(server)
     }
 
     /// The server's client, whichever kind it is.
@@ -225,15 +285,31 @@ final class MusicServers {
 
     /// Checks a Subsonic server and, if it answers, keeps it and its password. An entry that
     /// was Trackside goes back to being a Subsonic one.
+    ///
+    /// A server entered without a username is signed in to with an OpenSubsonic API key,
+    /// which can be revoked on the server without changing the password. Every other is
+    /// signed in to with a token made from the password, never the password itself.
     func add(_ server: SubsonicServer, password: String) async throws {
         var server = server
         let wasTrackside = server.isTrackside
         server.kind = .subsonic
         server.serverUUID = nil
-        server.candidateURLs = nil
         server.deviceID = nil
         server.deviceName = nil
-        let client = SubsonicClient(server: server, password: password)
+        server.urlsETag = nil
+        if wasTrackside { server.candidateURLs = nil }
+        server.authMethod = server.username.trimmingCharacters(in: .whitespaces).isEmpty ? .apiKey : .token
+        let client = SubsonicClient(server: server, password: password, endpoints: SubsonicEndpoints(server: server))
+        if server.usesAPIKey, !(try await client.openSubsonicExtensions()).contains("apiKeyAuthentication") {
+            throw SubsonicError.authMethodUnsupported
+        }
+        // Added or edited here, answering at a nearby plain http address: this network is its
+        // home. The only place a home is ever recorded.
+        if let homes = await client.endpoints?.recordHomeIfNearbyAnswers() {
+            server.homeNetworks = homes
+        }
+        await client.endpoints?.race()
+        server.url = client.baseURL
         try await client.ping()
         if wasTrackside || trackside[server.id] != nil { forgetTrackside(server) }
         if let previous = self.server(server.id), previous.url != server.url || previous.username != server.username {
@@ -303,6 +379,11 @@ final class MusicServers {
     }
 
     func remove(_ serverID: String) {
+        ServerMediaSigning.shared.remove(serverID)
+        if cloudSync?.serverID == serverID {
+            cloudSync?.stop()
+            cloudSync = nil
+        }
         if let server = server(serverID), server.isTrackside {
             // The key is no use to anyone once the entry is gone, so the server is told to
             // forget it. Best effort: an unreachable server keeps it until it's revoked there.
@@ -343,6 +424,7 @@ final class MusicServers {
     /// sync got to, its media token and any plays still to send.
     private func forgetTrackside(_ server: SubsonicServer) {
         trackside.removeValue(forKey: server.id)?.stopEvents()
+        ServerMediaSigning.shared.remove(server.id)
         TracksideMediaTrust.shared.release(server.id)
         songRequests[server.id] = nil
         awaitingSync[server.id] = nil
@@ -369,11 +451,16 @@ final class MusicServers {
         await withTaskGroup(of: Void.self) { group in
             for server in servers where client(for: server.id) != nil {
                 let endpoints = trackside[server.id]?.endpoints
+                let subsonicEndpoints = subsonic[server.id]?.endpoints
                 switch status[server.id] {
                 case .online:
                     group.addTask {
                         if let endpoints {
                             await endpoints.pathChanged()
+                            await self.noteAddress(server.id)
+                        }
+                        if let subsonicEndpoints {
+                            await subsonicEndpoints.pathChanged()
                             await self.noteAddress(server.id)
                         }
                         await self.recheck(server.id)
@@ -423,6 +510,11 @@ final class MusicServers {
         let isCurrent = { [weak self] in self?.syncs.isCurrent(serverID, generation) == true && self?.server(serverID) != nil }
         status[serverID] = .connecting
         do {
+            // Each of its addresses is asked first, without credentials, so the one that
+            // answers best on this network is the one signed in to.
+            await client.endpoints?.race()
+            guard isCurrent() else { return }
+            noteAddress(serverID)
             try await client.ping()
             guard isCurrent() else { return }
             status[serverID] = .online
@@ -464,6 +556,7 @@ final class MusicServers {
                     store(server)
                 }
             }
+            await refreshAddresses(serverID)
             updateRequests(serverID, features: me.features)
             await renewMediaTokenIfDue(serverID, connection)
             guard isCurrent() else { return }
@@ -471,6 +564,7 @@ final class MusicServers {
             await flushListens(serverID)
             await sync(serverID)
             if isForeground, isCurrent() { startEvents(serverID) }
+            startCloudSyncIfChosen(serverID)
         } catch {
             guard isCurrent() else { return }
             status[serverID] = Self.status(after: error)
@@ -478,10 +572,47 @@ final class MusicServers {
         onStatusChange?()
     }
 
+    /// Asks a Trackside server for its addresses, unless they're the ones last read: a new
+    /// public address is learned without pairing again. Read from an address that has proven
+    /// it is the server, and each new address is used only once it proves itself too.
+    private func refreshAddresses(_ serverID: String, knownETag: String? = nil) async {
+        guard let connection = trackside[serverID], let entry = server(serverID) else { return }
+        if let knownETag, knownETag == entry.urlsETag { return }
+        guard let answer = try? await connection.client.serverURLs(ifNoneMatch: entry.urlsETag),
+              trackside[serverID] === connection,
+              case .changed(let list, let etag) = answer
+        else { return }
+        let trusted = TracksideServerURLs.trusted(list.urls)
+        guard !trusted.isEmpty else { return }
+        await connection.endpoints.update(candidates: trusted)
+        guard var server = server(serverID) else { return }
+        server.candidateURLs = trusted
+        server.urlsETag = etag
+        store(server)
+    }
+
+    // MARK: - Trackside Cloud
+
+    /// Starts Trackside Cloud with a server once it's connected, when it's the backend chosen.
+    private func startCloudSyncIfChosen(_ serverID: String) {
+        guard !isDemo, CloudSync.tracksideServerID == serverID, let connection = trackside[serverID] else { return }
+        if let cloudSync, cloudSync.serverID == serverID {
+            cloudSync.syncSoon(after: .zero)
+            return
+        }
+        cloudSync?.stop()
+        // Only with the history on disk: one held in memory for a run that couldn't open it
+        // is nearly empty, and has nothing to say about what the server keeps.
+        guard let store = try? TracksStore.shared(), store.isOnDisk else { return }
+        let device = TracksideDeviceInfo.thisDevice
+        let sync = TracksideCloudSync(serverID: serverID, client: connection.client, store: store, deviceName: device.name, platform: device.platform, extraStores: cloudStores())
+        cloudSync = sync
+        sync.syncSoon(after: .zero)
+    }
+
     /// Keeps the address a race chose as the entry's, so the next launch starts there.
     private func noteAddress(_ serverID: String) {
-        guard let connection = trackside[serverID], var server = server(serverID) else { return }
-        let base = connection.endpoints.baseURL
+        guard let base = trackside[serverID]?.endpoints.baseURL ?? subsonic[serverID]?.baseURL, var server = server(serverID) else { return }
         guard server.url != base else { return }
         server.url = base
         store(server)
@@ -493,6 +624,7 @@ final class MusicServers {
               let server = server(serverID)
         else { return }
         connection.use(mediaToken: token)
+        ServerMediaSigning.shared.register(connection.client, for: serverID)
         Self.saveMediaToken(token, for: server)
     }
 
@@ -503,6 +635,8 @@ final class MusicServers {
             .failed(insecureAddressReason)
         case SubsonicError.wrongCredentials, TracksideError.unauthenticated:
             .wrongPassword
+        case SubsonicError.captivePortal:
+            .failed(captivePortalReason)
         case let error as SubsonicError:
             .failed(describe(error))
         case TracksideError.notTrackside, TracksideError.http, TracksideError.unproven:
@@ -544,13 +678,22 @@ final class MusicServers {
     private func performTracksideSync(_ serverID: String, isCurrent: @escaping @MainActor () -> Bool) async {
         guard let client = trackside[serverID]?.client else { return }
         syncing.insert(serverID)
-        defer { syncing.remove(serverID) }
+        defer {
+            syncing.remove(serverID)
+            syncProgress[serverID] = nil
+        }
+        let counted = CountedSyncSource(client) { [weak self] done, total in
+            Task { @MainActor in
+                guard let self, self.syncing.contains(serverID) else { return }
+                self.syncProgress[serverID] = SyncProgress(done: done, total: total)
+            }
+        }
         guard let synced = try? await Self.runSync(
             serverID: serverID,
             tracks: catalogs[serverID] ?? [],
             artists: artists[serverID] ?? [:],
             cursorFile: Self.cursorURL(serverID),
-            client: client
+            source: counted
         ), isCurrent(), trackside[serverID] != nil
         else { return }
         lastSynced[serverID] = .now
@@ -570,9 +713,9 @@ final class MusicServers {
     /// Brings the mirror up to date off the main actor: a big library takes a moment to file
     /// by id and back.
     @concurrent
-    nonisolated private static func runSync(serverID: String, tracks: [LocalTrack], artists: [String: ServerArtistRef], cursorFile: URL, client: TracksideClient) async throws -> SyncedMirror {
+    nonisolated private static func runSync(serverID: String, tracks: [LocalTrack], artists: [String: ServerArtistRef], cursorFile: URL, source: some TracksideSyncSource) async throws -> SyncedMirror {
         let before = TracksideMirror(serverID: serverID, tracks: tracks, artists: artists, cursor: TracksideCursorFile.load(from: cursorFile))
-        let after = try await TracksideSync.run(before, from: client)
+        let after = try await TracksideSync.run(before, from: source)
         return SyncedMirror(
             tracks: after.songs != before.songs ? after.tracks : nil,
             artists: after.artists != before.artists ? after.artists : nil,
@@ -591,7 +734,7 @@ final class MusicServers {
             found = try await Self.readCatalog(client)
         } catch {
             if !(error is CancellationError) {
-                Self.log.error("A sync of a server couldn't finish: \(error, privacy: .public)")
+                Self.log.error("A sync of a server couldn't finish: \(URLRedaction.describe(error), privacy: .public)")
             }
             return
         }
@@ -647,8 +790,17 @@ final class MusicServers {
 
     private func handle(_ event: TracksideEvent, from serverID: String) {
         switch event {
-        case .hello, .changed, .resync:
+        case .hello:
+            // A reconnect: catch up on everything that may have changed meanwhile.
             syncSoon(serverID)
+            Task { await refreshAddresses(serverID) }
+            if cloudSync?.serverID == serverID { cloudSync?.syncSoon() }
+        case .changed, .resync:
+            syncSoon(serverID)
+        case .serverURLs(let etag):
+            Task { await refreshAddresses(serverID, knownETag: etag) }
+        case .cloud:
+            if cloudSync?.serverID == serverID { cloudSync?.syncSoon() }
         case .acquisition(let acquisition):
             songRequests[serverID]?.update(acquisition)
             if acquisition.state == .done { syncSoon(serverID) }
@@ -671,7 +823,21 @@ final class MusicServers {
         lifecycle.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { [weak self] _ in
             Task { @MainActor in self?.setForeground(false) }
         })
+        // Passwords that couldn't be read before the first unlock can be now.
+        lifecycle.append(center.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in await self?.reopenLocked() }
+        })
         #endif
+    }
+
+    private func reopenLocked() async {
+        let locked = lockedKeychain
+        guard !locked.isEmpty else { return }
+        await withTaskGroup(of: Void.self) { group in
+            for id in locked where servers.contains(where: { $0.id == id }) {
+                group.addTask { await self.connect(id) }
+            }
+        }
     }
 
     private func setForeground(_ isForeground: Bool) {
@@ -687,7 +853,9 @@ final class MusicServers {
                 guard status[serverID] == .online else { continue }
                 startEvents(serverID)
                 syncSoon(serverID)
+                if cloudSync?.serverID == serverID { cloudSync?.syncSoon() }
                 Task {
+                    await refreshAddresses(serverID)
                     await renewMediaTokenIfDue(serverID, connection)
                     await flushListens(serverID)
                 }
@@ -1044,9 +1212,16 @@ final class MusicServers {
         String(localized: "Use an https address for a server outside your home network.")
     }
 
+    /// The network wants a sign-in before it lets anything through.
+    static var captivePortalReason: String {
+        String(localized: "This Wi-Fi network needs you to sign in first. Sign in, then try again.")
+    }
+
     static func describe(_ error: SubsonicError) -> String {
         switch error {
-        case .wrongCredentials: String(localized: "The username or password is wrong.")
+        case .wrongCredentials: String(localized: "The username, password or API key is wrong.")
+        case .authMethodUnsupported: String(localized: "This server doesn’t take that way of signing in. Use a username and password, or an API key with no username.")
+        case .captivePortal: captivePortalReason
         case .incompatible: String(localized: "This server is too old for Tracks.")
         case .notFound: String(localized: "The server couldn't find that.")
         case .server(_, let message): message.isEmpty ? String(localized: "The server couldn't answer.") : message
@@ -1081,6 +1256,8 @@ final class MusicServers {
             String(localized: "None of the server's addresses could prove it's your server, so Tracks didn't connect. Check you're on a network you trust, or pair again.")
         case .insecureAddress:
             insecureAddressReason
+        case .httpsRequired:
+            String(localized: "Your server only connects over https, and none of its https addresses answered. Check its public address.")
         case .mediaTokenExpired, .conflict, .syncReset, .candidateExpired, .preconditionFailed, .invalidState, .featureUnavailable:
             String(localized: "The server couldn't answer.")
         }
@@ -1270,20 +1447,10 @@ final class TracksideConnection {
     }
 }
 
-/// This device, as it introduces itself to a Trackside server when it's paired.
-enum TracksideDeviceIdentity {
-    private static let key = "tracksideClientDeviceID"
-
-    /// The same for as long as Tracks is installed, so pairing again replaces this device's
-    /// key on the server rather than adding another device.
-    static var clientDeviceID: String {
-        if let saved = UserDefaults.standard.string(forKey: key) { return saved }
-        let made = UUID().uuidString
-        UserDefaults.standard.set(made, forKey: key)
-        return made
-    }
-
-    static var current: TracksideDeviceInfo {
+extension TracksideDeviceInfo {
+    /// This device, as it introduces itself to a Trackside server: its name and platform,
+    /// under the app's one device id, the same one Trackside Cloud knows it by.
+    static var thisDevice: TracksideDeviceInfo {
         #if os(iOS)
         let name = UIDevice.current.name
         let platform = "ios"
@@ -1292,7 +1459,7 @@ enum TracksideDeviceIdentity {
         let platform = "macos"
         #endif
         return TracksideDeviceInfo(
-            clientDeviceID: clientDeviceID,
+            clientDeviceID: DeviceIdentity.current,
             name: name,
             platform: platform,
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -1312,4 +1479,54 @@ struct ServerSearchPage {
 /// Why a server couldn't be asked for a song, in words to show.
 struct SongRequestProblem: Error {
     let reason: String
+}
+
+/// A Trackside server's sync pages, counted on the way through: a snapshot names how many
+/// songs each library holds before the songs come, so a first sync can say how far it's got.
+nonisolated private final class CountedSyncSource: TracksideSyncSource {
+    private let base: TracksideClient
+    private let counts = Mutex((songs: 0, total: 0))
+    private let report: @Sendable (Int, Int) -> Void
+
+    init(_ base: TracksideClient, report: @escaping @Sendable (Int, Int) -> Void) {
+        self.base = base
+        self.report = report
+    }
+
+    func sync(cursor: String?, limit: Int) async throws -> TracksideSyncPage {
+        let page = try await base.sync(cursor: cursor, limit: limit)
+        guard page.mode == .snapshot else { return page }
+        let (songs, total) = counts.withLock { counts in
+            counts.total += (page.libraries ?? []).compactMap(\.songCount).reduce(0, +)
+            counts.songs += page.songs?.count ?? 0
+            return (counts.songs, counts.total)
+        }
+        if total > 0 { report(songs, total) }
+        return page
+    }
+}
+
+extension TracksideServerURL.Kind {
+    /// What an address typed by hand most likely is: Tailscale's own names and addresses,
+    /// the home network, or the internet.
+    init(guessingFrom url: URL) {
+        let host = url.host(percentEncoded: false)?.lowercased() ?? ""
+        let octets = host.split(separator: ".").compactMap { UInt8($0) }
+        if host.hasSuffix(".ts.net") || (octets.count == 4 && octets[0] == 100 && (64...127).contains(octets[1])) {
+            self = .tailnet
+        } else if NearbyAddress.isNearby(url) {
+            self = .lan
+        } else {
+            self = .public
+        }
+    }
+
+    /// The route's name, as a server's Addresses list shows it.
+    var routeName: String {
+        switch self {
+        case .lan: String(localized: "Home Network")
+        case .tailnet: String(localized: "Tailscale")
+        case .public, .unknown: String(localized: "Internet")
+        }
+    }
 }

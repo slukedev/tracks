@@ -31,7 +31,11 @@ import com.luke.tracks.ui.theme.TracksTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import com.luke.tracks.ui.components.LocalClock
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
+import java.util.TimeZone
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -43,6 +47,10 @@ import org.robolectric.shadows.ShadowLooper
  * Every song on Play, wherever it sits, has Go to album and Go to artist a press and hold (or
  * a TalkBack swipe) away, and they lead to your music's pages for songs you have and to the
  * server's for songs it found that you don't.
+ *
+ * Play follows the clock: the hour picks the mixes and the date shuffles the songs waiting to
+ * be heard, so which of those is on screen changed from day to day. The clock, the time zone
+ * and the sample history are pinned to one moment here.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -52,12 +60,21 @@ class PlaySongMenuTest {
 
     private val graph get() = (ApplicationProvider.getApplicationContext<TracksApplication>()).graph
     private val navigator = Navigator()
+    private val zone = TimeZone.getDefault()
+
+    @Before fun pinZone() = TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+    @After fun restoreZone() = TimeZone.setDefault(zone)
 
     private fun show(picks: FakeServerPicks? = null, content: @Composable () -> Unit) {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             TracksTheme(dark = false, dynamic = false, seed = TracksBrand) {
-                CompositionLocalProvider(LocalDiscovery provides NoDiscovery, LocalServerPicks provides picks, LocalNavigator provides navigator) { content() }
+                CompositionLocalProvider(
+                    LocalDiscovery provides NoDiscovery,
+                    LocalServerPicks provides picks,
+                    LocalNavigator provides navigator,
+                    LocalClock provides { NOW },
+                ) { content() }
             }
         }
         repeat(60) {
@@ -86,7 +103,7 @@ class PlaySongMenuTest {
 
     @Test
     fun everySongAlbumAndArtistOnPlayLeadsSomewhere() {
-        runBlocking { graph.history.replaceAll(SampleData.plays()) }
+        runBlocking { graph.history.replaceAll(SampleData.plays(nowMs = NOW)) }
         val library = SampleLibrary().also { graph.library = it }
         val picks = FakeServerPicks(library)
         show(picks) { PlayScreen() }
@@ -108,8 +125,9 @@ class PlaySongMenuTest {
         assertEquals("no Go to album on $withoutAlbum", emptyList<String>(), withoutAlbum)
 
         // Waiting to be heard: your own songs open your music's pages.
-        assertTrue(go("Paper Lanterns", "Go to album") is LibraryAlbumRoute)
-        assertTrue(go("Paper Lanterns", "Go to artist") is LibraryArtistRoute)
+        val waiting = library.songs.filter { it.albumTitle == "New Songs" }.first { song -> nodes.any { it.text == "${song.title} ${song.artistName}" } }
+        assertTrue(go(waiting.title, "Go to album") is LibraryAlbumRoute)
+        assertTrue(go(waiting.title, "Go to artist") is LibraryArtistRoute)
 
         // A song the server found that you don't have opens the server's album and artist.
         val found = picks.forYou.value.values.first().shelves.suggested.first { library.find(it.identity) == null }
@@ -127,7 +145,7 @@ class PlaySongMenuTest {
 
     @Test
     fun mixSongsLeadToYourMusicOrYourHistory() {
-        runBlocking { graph.history.replaceAll(SampleData.plays()) }
+        runBlocking { graph.history.replaceAll(SampleData.plays(nowMs = NOW)) }
         val library = SampleLibrary().also { graph.library = it }
         show { MixScreen("onRepeat") }
 
@@ -140,3 +158,6 @@ class PlaySongMenuTest {
         assertTrue(go(elsewhere, "Go to artist") is ArtistRoute)
     }
 }
+
+/** A Tuesday afternoon in March, so Play shows its afternoon mix and a fixed day's order. */
+private const val NOW = 1_773_756_000_000L

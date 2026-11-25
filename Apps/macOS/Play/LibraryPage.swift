@@ -2,8 +2,7 @@ import SwiftUI
 import MusicKit
 import TracksCore
 
-/// A library row of the sidebar: Apple Music's library, or your own music's, following the
-/// music source.
+/// A library row of the sidebar, for the source the filter is on.
 struct LibraryPage: View {
     let item: SidebarItem
     let source: MusicSource
@@ -13,6 +12,7 @@ struct LibraryPage: View {
 
     var body: some View {
         page
+            .sourceFilter()
             #if DEBUG
             .task(id: model.yourMusic.index.artists.count) {
                 CollectionScreenshotSetup.apply()
@@ -40,8 +40,13 @@ struct LibraryPage: View {
         case (.yourMusic, .songs): YourMusicList.songs.page
         case (.yourMusic, .downloads): YourMusicList.downloads.page
         case (.yourMusic, .lidarr): LidarrPage()
+        #if SPOTIFY
+        case (.spotify, .albums): SpotifyAlbumsPage().spotifyDestinations()
+        case (.spotify, .playlists): SpotifyPlaylistsPage().spotifyDestinations()
+        case (.spotify, .songs): SpotifyLikedSongsPage().spotifyDestinations()
+        #endif
         default:
-            ContentUnavailableView("Not in \(Text(source.title))", systemImage: item.symbol)
+            ContentUnavailableView("Nothing from \(Text(source.title)) yet", systemImage: item.symbol)
         }
     }
 }
@@ -185,18 +190,10 @@ struct LibrarySearchResults: View {
     }
 }
 
-/// Listen Now: the Play tab's page, for the music Play is on.
+/// Listen Now: Play's page, as the source filter has it.
 struct ListenNowPage: View {
-    @Environment(AppModel.self) private var model
-
     var body: some View {
-        Group {
-            if model.musicSource == .yourMusic {
-                YourMusicScreen()
-            } else {
-                PlayScreen()
-            }
-        }
-        .quickSourceSwitch()
+        PlayPage()
+            .sourceFilter()
     }
 }

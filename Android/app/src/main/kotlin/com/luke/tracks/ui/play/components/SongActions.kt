@@ -54,7 +54,7 @@ private fun SongSheetHeader(song: SongRef) {
     ActionSheetHeader(
         title = song.title,
         subtitle = listOfNotNull(song.artistName, song.albumTitle?.takeIf { it.isNotBlank() }).joinToString(" · "),
-        note = if (song.playable == null) "Not in your music on this phone" else null,
+        note = if (song.playable == null) "Not in your library" else null,
     ) {
         Artwork(song.artworkUrl, song.coverSeed, Modifier.size(64.dp), shape = RoundedCornerShape(16.dp))
     }
@@ -74,7 +74,7 @@ private fun songSheetActions(
         SheetAction("Add to queue", Icons.AutoMirrored.Rounded.PlaylistAdd) { actions.addToQueue(song) },
     )
     val more = listOfNotNull(
-        onAdd?.let { SheetAction("Add to your music", Icons.Rounded.Add, run = it) },
+        onAdd?.let { SheetAction("Add to library", Icons.Rounded.Add, run = it) },
         links.album?.let { SheetAction("Go to album", Icons.Rounded.Album) { actions.open(it) } },
         links.artist?.let { SheetAction("Go to artist", Icons.Rounded.Person) { actions.open(it) } },
         song.plays?.takeIf { it > 0 }?.let {

@@ -420,7 +420,7 @@ public actor ListeningHistoryReader {
 
     private static var captureProperties: [PartialKeyPath<Capture>] {[
         \.songKey, \.songID, \.title, \.artistName, \.albumTitle, \.artworkURL,
-        \.capturedAt, \.playedBackAt, \.kindRawValue, \.sourceRawValue,
+        \.capturedAt, \.playedBackAt, \.kindRawValue, \.sourceRawValue, \.playID,
     ]}
 
     /// The play as a value, its song shared with every other play of the same row content.
@@ -451,7 +451,8 @@ public actor ListeningHistoryReader {
             stationName: stationName.map(station),
             playedBackAt: capture.playedBackAt,
             kind: capture.kind,
-            source: capture.source
+            source: capture.source,
+            playID: capture.playID
         )
     }
 
@@ -517,7 +518,7 @@ public actor ListeningHistoryReader {
         )
     }
 
-    private static func fetch<Model: PersistentModel>(
+    static func fetch<Model: PersistentModel>(
         _ type: Model.Type,
         ids: Set<PersistentIdentifier>,
         in context: ModelContext

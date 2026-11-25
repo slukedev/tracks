@@ -15,6 +15,8 @@ struct LastFMSettingsPage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(CaptureSettings.scrobblesToLastFMKey, store: CaptureSettings.sharedDefaults)
     private var scrobbles = true
+    @AppStorage(CaptureSettings.scrobblesSpotifyKey, store: CaptureSettings.sharedDefaults)
+    private var scrobblesSpotify = false
     @State private var unsent = UnsentScrobbles()
     @State private var isRetrying = false
 
@@ -32,6 +34,15 @@ struct LastFMSettingsPage: View {
             #endif
             if let username = connectedUsername {
                 scrobblingSection
+                #if SPOTIFY
+                if scrobbles, model.spotify != nil {
+                    Section {
+                        Toggle("Scrobble Spotify", isOn: $scrobblesSpotify)
+                    } footer: {
+                        Text("Leave off if Spotify is linked to Last.fm, so songs aren’t counted twice.")
+                    }
+                }
+                #endif
                 if let history = model.lastFMHistory {
                     LastFMHistorySection(state: history.state, action: history.startOrStop)
                 }

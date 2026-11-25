@@ -101,10 +101,14 @@ struct LocalAlbumContent: View {
     @State private var deleting: LocalTrack?
     /// Its songs you don't have, where you own part of it and something can fetch the rest.
     @State private var gaps: GetMore.AlbumGaps?
+    /// The other sources that have it, with every source on.
+    @State private var elsewhere: [SourceID] = []
 
     #if os(iOS)
     private func row(_ track: LocalTrack, position: Int, playable: [LocalTrack], context: PlayContext) -> some View {
-        let isPlayable = music.isPlayable(track)
+        // A song whose own copy can't play now plays from another source's, named on its row.
+        let copy = model.playableCopy(of: track)
+        let isPlayable = music.isPlayable(track) || copy != nil
         return Button {
             play(track, in: playable, context: context)
         } label: {
@@ -114,7 +118,8 @@ struct LocalAlbumContent: View {
                 number: track.trackNumber ?? position + 1,
                 isCurrent: player.current?.local?.id == track.id,
                 localTrack: track,
-                isPlayable: isPlayable
+                isPlayable: isPlayable,
+                source: copy.map(model.sourceID(of:))
             )
         }
         .buttonStyle(.plain)
@@ -126,7 +131,8 @@ struct LocalAlbumContent: View {
 
     var body: some View {
         let context = PlayContext(kind: .album, title: album.title)
-        let playable = album.tracks.filter(music.isPlayable)
+        // With every source on, songs another source can play stand in for ones that can't.
+        let playable = album.tracks.filter { music.isPlayable($0) || model.playableCopy(of: $0) != nil }
         #if os(iOS)
         List {
             Section {
@@ -179,6 +185,9 @@ struct LocalAlbumContent: View {
         }
         .collectionPage(title: album.displayTitle)
         .task(id: gapsKey) { await loadGaps() }
+        .task(id: "\(album.id).\(model.mixesSources)") {
+            elsewhere = await AlbumElsewhere.sources(title: album.title, artist: album.artist, model: model, besides: .device)
+        }
         #if DEBUG
         // Screenshots reach a playlist through an album of yours, which a launch can open.
         .task { CollectionDemo.seedPlaylists(music: music, isDemo: model.isDemoLaunch, open: openPlayRoute) }
@@ -212,7 +221,7 @@ struct LocalAlbumContent: View {
                             plays: feed.facts[track.identity]?.plays ?? 0,
                             duration: track.duration ?? 0,
                             localID: track.id,
-                            isPlayable: music.isPlayable(track),
+                            isPlayable: playable.contains(track),
                             drag: SongDrag([track]).songs.first
                         )
                     },
@@ -266,6 +275,9 @@ struct LocalAlbumContent: View {
         }
         .navigationTitle(album.title)
         .task(id: gapsKey) { await loadGaps() }
+        .task(id: "\(album.id).\(model.mixesSources)") {
+            elsewhere = await AlbumElsewhere.sources(title: album.title, artist: album.artist, model: model, besides: .device)
+        }
         #if DEBUG
         .task { CollectionDemo.seedPlaylists(music: music, isDemo: model.isDemoLaunch, open: openPlayRoute) }
         #endif
@@ -301,6 +313,7 @@ struct LocalAlbumContent: View {
                 CollectionFacts.length(count: album.tracks.count, seconds: album.duration),
             ]),
             format: album.format,
+            sources: albumSources,
             tintCover: cover,
             canPlay: !playable.isEmpty,
             secondary: download,
@@ -311,6 +324,18 @@ struct LocalAlbumContent: View {
         } cover: { side in
             LocalCover(artwork: album.artwork, seed: album.title, size: side)
         }
+    }
+
+    /// Every source that has it: this device and your servers, from its songs, and Apple Music
+    /// and Spotify, as looked up.
+    private var albumSources: [SourceID] {
+        guard model.mixesSources else { return [] }
+        var sources: [SourceID] = []
+        for track in album.tracks {
+            let source = track.serverID.map(SourceID.server) ?? .device
+            if !sources.contains(source) { sources.append(source) }
+        }
+        return sources + elsewhere.filter { !sources.contains($0) }
     }
 
     /// A server's album downloads whole from beside Play, showing how far it's got.

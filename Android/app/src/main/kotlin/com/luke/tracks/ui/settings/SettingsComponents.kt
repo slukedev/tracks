@@ -75,6 +75,8 @@ fun SettingsScaffold(
     title: String,
     subtitle: String? = null,
     showBack: Boolean = true,
+    listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
+    actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
     content: LazyListScope.() -> Unit,
 ) {
     val navigator = currentNavigator()
@@ -94,6 +96,7 @@ fun SettingsScaffold(
                         }
                     }
                 },
+                actions = actions,
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -104,6 +107,7 @@ fun SettingsScaffold(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
@@ -193,6 +197,18 @@ fun GroupScope.link(
         colors = rowColors(),
     ) {
         Text(title)
+    }
+}
+
+/** A row that only tells: an address, a version. [ltr] keeps addresses and codes left to right. */
+fun GroupScope.info(title: String, summary: String? = null, ltr: Boolean = false) = row { index, count ->
+    val direction = if (ltr) androidx.compose.ui.text.style.TextDirection.Ltr else androidx.compose.ui.text.style.TextDirection.Content
+    SegmentedListItem(
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+        supportingContent = summary?.let { { Text(it) } },
+        colors = rowColors(),
+    ) {
+        Text(title, style = androidx.compose.material3.LocalTextStyle.current.copy(textDirection = direction))
     }
 }
 

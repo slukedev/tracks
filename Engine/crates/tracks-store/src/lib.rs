@@ -23,11 +23,11 @@ use std::sync::PoisonError;
 use rusqlite::Connection;
 
 pub use ingest::{IngestReport, PlayInput};
+pub use plays::PlayRow;
 pub use query::{
     ActivitySummary, AlbumRow, ArtistRow, Chart, ChartRow, HeatCell, Period, PeriodTotals, Scope,
     SearchResults, SongRow, SourceFilter, Streak, TimelineBucket,
 };
-pub use plays::PlayRow;
 pub use schema::DERIVATION_VERSION;
 
 use pool::ConnectionPool;

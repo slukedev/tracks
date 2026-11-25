@@ -8,7 +8,7 @@ import okhttp3.HttpUrl
  * albums, so they come from search. Every request is kept in [asked].
  */
 class FakeSubsonic(private val octo: Boolean = false, private val down: Boolean = false) : SubsonicTransport {
-    val server = SubsonicServer("s1", "Octo at home", "http://192.168.1.20:4533", "luke", "salt")
+    val server = SubsonicServer("s1", "Octo at home", "http://192.168.1.20:4533", "luke")
     val asked = mutableListOf<HttpUrl>()
 
     fun browse() = ServerBrowse(server, SubsonicClient(server, "sesame", this))

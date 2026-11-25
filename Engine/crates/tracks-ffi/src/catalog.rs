@@ -590,7 +590,10 @@ pub fn lidarr_parse_status(response: HttpResponse) -> Result<LidarrStatus> {
 pub fn lidarr_parse_profiles(response: HttpResponse) -> Result<Vec<LidarrProfile>> {
     Ok(core_lidarr::parse_profiles(&self::response(response))?
         .into_iter()
-        .map(|p| LidarrProfile { id: p.id, name: p.name })
+        .map(|p| LidarrProfile {
+            id: p.id,
+            name: p.name,
+        })
         .collect())
 }
 
@@ -677,7 +680,11 @@ pub fn lidarr_album_match(title: String, albums: Vec<LidarrAlbum>) -> Option<u32
 
 /// What Lidarr knows of a song, from its artist's albums and tracks.
 #[uniffi::export]
-pub fn lidarr_song_state(title: String, albums: Vec<LidarrAlbum>, tracks: Vec<LidarrTrack>) -> LidarrSongState {
+pub fn lidarr_song_state(
+    title: String,
+    albums: Vec<LidarrAlbum>,
+    tracks: Vec<LidarrTrack>,
+) -> LidarrSongState {
     let albums: Vec<core_lidarr::LidarrAlbum> = albums.iter().map(Into::into).collect();
     match core_lidarr::song_state(&title, &albums, &core_tracks(&tracks)) {
         core_lidarr::SongState::Collected { album } => LidarrSongState::Collected { album },

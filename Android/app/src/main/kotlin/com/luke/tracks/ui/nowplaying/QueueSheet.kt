@@ -61,6 +61,12 @@ import com.luke.tracks.playback.PlayerState
 import com.luke.tracks.ui.components.Artwork
 import com.luke.tracks.ui.play.components.pressable
 import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 
 private val RowHeight = 68.dp
 
@@ -92,6 +98,10 @@ fun QueueContent(state: PlayerState, player: PlayerController, modifier: Modifie
     val radioState by graph.radio.state.collectAsStateWithLifecycle()
     val radio = radioState.takeIf { state.origin?.kind == QueueOrigin.Kind.Radio }
     val settings by graph.settings.settings.collectAsStateWithLifecycle(AppSettings())
+    val registry = com.luke.tracks.ui.sources.rememberSources()
+    val sources by com.luke.tracks.ui.sources.sourceList()
+    // A queue can mix sources; with two or more, each row says which it plays from.
+    val mixed = sources.size >= 2 && upNext.mapNotNull { registry.sourceOf(it.mediaId) }.distinct().size > 1
 
     Column(modifier.fillMaxWidth().navigationBarsPadding()) {
         Text(
@@ -149,6 +159,9 @@ fun QueueContent(state: PlayerState, player: PlayerController, modifier: Modifie
                         QueueRow(
                             song = song,
                             reason = radio?.reason(song),
+                            source = if (mixed) registry.source(registry.sourceOf(song.mediaId)) else null,
+                            playable = sources.isEmpty() || registry.canPlay(song.mediaId),
+                            onRemove = { player.removeFromQueue(base + i) },
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                                 player.skipTo(base + i)
@@ -229,23 +242,55 @@ private fun NowRow(song: PlayableSong, reason: RadioReason?) {
     }
 }
 
+/**
+ * A song in Up next. One whose source can't play it now is dimmed, marked and says so to
+ * TalkBack, so the skip it's heading for is no surprise.
+ */
 @Composable
-private fun QueueRow(song: PlayableSong, reason: RadioReason?, onClick: () -> Unit, handle: Modifier) {
+private fun QueueRow(
+    song: PlayableSong,
+    reason: RadioReason?,
+    onClick: () -> Unit,
+    handle: Modifier,
+    source: com.luke.tracks.sources.Source? = null,
+    playable: Boolean = true,
+    onRemove: () -> Unit = {},
+) {
+    val dim by androidx.compose.animation.core.animateFloatAsState(
+        if (playable) 1f else 0.4f,
+        MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "dim",
+    )
     Row(
         Modifier
             .fillMaxWidth()
-            .height(RowHeight)
+            .heightIn(min = RowHeight)
             .pressable(onClick = onClick, pressedScale = 0.98f)
-            .padding(start = 28.dp, end = 8.dp),
+            .semantics(mergeDescendants = true) {
+                if (!playable) stateDescription = "Unavailable"
+                customActions = listOf(CustomAccessibilityAction("Remove") { onRemove(); true })
+            }
+            .padding(start = 28.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Artwork(song.artworkUri, song.albumTitle ?: song.title, Modifier.size(44.dp), shape = RoundedCornerShape(10.dp))
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(song.titleLabel, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(song.artistLabel, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (reason != null) PickReasonLabel(reason, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.padding(top = 2.dp))
+        Row(Modifier.weight(1f).graphicsLayer { alpha = dim }, verticalAlignment = Alignment.CenterVertically) {
+            Artwork(song.artworkUri, song.albumTitle ?: song.title, Modifier.size(44.dp), shape = RoundedCornerShape(10.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(song.titleLabel, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(song.artistLabel, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f, fill = false))
+                    if (source != null) {
+                        Spacer(Modifier.width(6.dp))
+                        com.luke.tracks.ui.sources.SourceMark(source, size = 14.dp)
+                    }
+                }
+                if (reason != null) PickReasonLabel(reason, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.padding(top = 2.dp))
+            }
+            if (!playable) {
+                Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp).size(20.dp))
+            }
         }
         Box(handle.size(48.dp), contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.DragHandle, "Move", tint = MaterialTheme.colorScheme.onSurfaceVariant)

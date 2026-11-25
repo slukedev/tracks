@@ -41,13 +41,14 @@ impl Period {
     }
 }
 
-/// Which plays count, when the person has asked to see Apple Music and their own music apart.
+/// Which plays count, when the person has asked to see one source on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SourceFilter {
     #[default]
     All,
     AppleMusic,
     YourMusic,
+    Spotify,
 }
 
 impl SourceFilter {
@@ -57,6 +58,7 @@ impl SourceFilter {
             Self::All => (0, u8::MAX),
             Self::AppleMusic => (0, 0),
             Self::YourMusic => (1, 1),
+            Self::Spotify => (2, 2),
         }
     }
 }

@@ -37,13 +37,21 @@ struct FullPlayer: View {
             if let track = player.current {
                 content(track)
                     .environment(\.colorScheme, ink(.trailing).colorScheme)
+                    .environment(\.nowPlayingNavigate, { destination in
+                        close()
+                        switch destination {
+                        case .play(let route): openPlayRoute(route)
+                        case .stats(let route): openPlayRoute(.stats(route))
+                        }
+                    })
                     .foregroundStyle(.primary)
                     // What's on lights in the type's colour, as on the iPhone's.
                     .tint(.primary)
             }
         }
         // Lit from the cover, wherever the window's size puts it.
-        .nowPlayingBackdrop(cover: player.current?.cover, tint: tint, isPlaying: player.isPlaying)
+        // Spotify's covers are never cropped: Full Cover shows them as Living Cover.
+        .nowPlayingBackdrop(cover: player.current?.cover, tint: tint, isPlaying: player.isPlaying, style: player.playingSource == .spotify && NowPlayingBackground.chosen == .fullCover ? .living : nil)
         .coverTint(of: player.current?.cover, into: $tint)
         .task(id: player.current?.cover) {
             guard let cover = player.current?.cover else { return }

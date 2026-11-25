@@ -4,22 +4,31 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
+import com.luke.tracks.applemusic.AppleMusicUris
+import com.luke.tracks.spotify.SpotifyUris
+import com.luke.tracks.library.ServerLibrary
+import com.luke.tracks.net.ServerLinks
 
 private const val IDENTITY = "tracks.identity"
 private const val DURATION = "tracks.durationMs"
 
 /**
  * The song as Media3 carries it. The address also rides in the request metadata, since a
- * MediaController's items reach the session without their local configuration.
+ * MediaController's items reach the session without their local configuration. A server's
+ * address is its [ServerLinks] link, so nothing a controller sees works as a credential.
  */
 fun PlayableSong.toMediaItem(): MediaItem = MediaItem.Builder()
     .setMediaId(mediaId)
     .setUri(uri)
+    .setMimeType(if (isSpotify || isAppleMusic) MimeTypes.AUDIO_WAV else null)
     .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(uri).build())
     .setMediaMetadata(
         MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(artistName)
+            // Android Auto shows the subtitle: Spotify's songs say where they come from.
+            .setSubtitle(if (isSpotify) "Spotify · $artistName" else null)
             .setAlbumTitle(albumTitle)
             .setArtworkUri(artworkUri)
             .setTrackNumber(trackNumber)
@@ -59,7 +68,19 @@ fun MediaItem.toPlayableSong(): PlayableSong {
 
 /** The item with its address put back from the request metadata, ready to play. */
 fun MediaItem.restored(): MediaItem? {
+    // A server's song always plays from its own link, whatever address came with it.
+    ServerLibrary.parseMediaId(mediaId)?.let { (server, song) ->
+        val link = ServerLinks.stream(server, song)
+        return buildUpon().setUri(link).setRequestMetadata(requestMetadata.buildUpon().setMediaUri(link).build()).build()
+    }
     if (localConfiguration != null) return this
     val address = requestMetadata.mediaUri ?: return null
-    return buildUpon().setUri(address).build()
+    val pcm = address.scheme == SpotifyUris.SCHEME || address.scheme == AppleMusicUris.SCHEME
+    return buildUpon().setUri(address).setMimeType(if (pcm) MimeTypes.AUDIO_WAV else null).build()
 }
+
+/** A Spotify song, played from its decoded audio ([SourceDataSource]). */
+val PlayableSong.isSpotify: Boolean get() = uri.scheme == SpotifyUris.SCHEME
+
+/** An Apple Music song, played by MusicKit beside its silent stand-in ([SourceDataSource]). */
+val PlayableSong.isAppleMusic: Boolean get() = uri.scheme == AppleMusicUris.SCHEME

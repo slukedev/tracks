@@ -4,7 +4,7 @@ import TracksCore
 /// Where to start, from launch arguments. Used for screenshots and UI checks, so a given
 /// screen can be reached without tapping through the app. Debug builds only.
 ///
-///     -TracksTab charts            Summary, Play, History, Charts or Search (iPhone)
+///     -TracksTab library           Play, Library, Summary, History or Search (iPhone); charts opens History's Charts
 ///     -TracksSearch YES            open the Search tab (iPhone)
 ///     -TracksDemoPlaying YES       with sample data, start the Play tab's first mix (iPhone);
 ///                                 "station" for Tracks Radio, or a mood such as "chill"
@@ -47,8 +47,8 @@ import TracksCore
 ///     -TracksPeriodsBack 1         start Summary that many weeks, months or years back
 ///     -chartSpan day              Top Charts' period: day, week, month, year or allTime
 ///     -TracksChartDate 2026-09-01  start Top Charts on the period holding this day
-///     -separatesMusicSources YES  count Apple Music and Your Music apart, and
-///     -statsSourceScope yourMusic show one of them: all, appleMusic or yourMusic
+///     -separatesMusicSources YES  count each source apart, and
+///     -statsSourceScope yourMusic show one of them: all, appleMusic, yourMusic or spotify
 ///     -TracksDemoDriving YES       Tracks Radio as if driving
 ///     -TracksRadioTunerAnchor moments  open the Tune sheet at Time and Driving
 ///     -TracksRadioTunerAnchor day  open the Tune sheet on Through the Day (iPhone)

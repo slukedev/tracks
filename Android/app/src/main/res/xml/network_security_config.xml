@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cleartext is decided by the app, not here. A network security config can name hosts but
+    not private address ranges, and home servers are most often reached at 192.168.x.x over
+    plain http. So the base allows cleartext, and every request the app makes goes through
+    net/Http.kt, whose CleartextGuard refuses plain http to anything but a nearby address
+    (private, link-local, Tailscale 100.64.0.0/10, .local, .home.arpa and the like), on every
+    hop including redirects. The services Tracks talks to by name are held to https here too.
+
+    Trust: the system's certificate authorities only. Certificates added by the user or a
+    device administrator are trusted in debug builds alone. A server with its own self-signed
+    certificate is trusted only once you confirm its fingerprint (net/Pinning.kt).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">last.fm</domain>
+        <domain includeSubdomains="true">audioscrobbler.com</domain>
+        <domain includeSubdomains="true">fastly.net</domain>
+        <domain includeSubdomains="true">apple.com</domain>
+        <domain includeSubdomains="true">mzstatic.com</domain>
+        <domain includeSubdomains="true">fanart.tv</domain>
+        <domain includeSubdomains="true">musicbrainz.org</domain>
+        <domain includeSubdomains="true">coverartarchive.org</domain>
+        <domain includeSubdomains="true">tracks-server.invalid</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

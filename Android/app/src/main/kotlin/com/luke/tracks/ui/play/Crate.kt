@@ -326,23 +326,11 @@ private fun CrateCaption(
             modifier = Modifier.weight(1f),
             label = "caption",
         ) { shown ->
-            val (eyebrow, title, line) = when (shown) {
-                CrateItem.Radio -> Triple("Your station", "Tracks Radio", RadioWords.summary(settings.radioDiscovery, settings.radioGenres))
-                is CrateItem.OfMix -> {
-                    val kind = shown.mix.kind
-                    Triple(
-                        if (kind is MixKind.RightNow) kind.part.moment(kind.isWeekend) else kind.tileLine,
-                        kind.title,
-                        kind.reason,
-                    )
-                }
+            val (title, line) = when (shown) {
+                CrateItem.Radio -> "Tracks Radio" to RadioWords.summary(settings.radioDiscovery, settings.radioGenres)
+                is CrateItem.OfMix -> shown.mix.kind.title to shown.mix.kind.reason
             }
             Column {
-                Text(
-                    eyebrow.uppercase(),
-                    style = MaterialTheme.typography.labelMediumEmphasized,
-                    color = MaterialTheme.colorScheme.primary,
-                )
                 Text(title, style = MaterialTheme.typography.headlineSmallEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     line,

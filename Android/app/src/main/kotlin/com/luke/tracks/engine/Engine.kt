@@ -89,8 +89,10 @@ fun PlayEntity.toEnginePlay(): Play = Play(
         PlayKindValue.LastFm -> PlayKind.LAST_FM
     },
     source = when (source) {
-        PlaySourceValue.Streaming -> PlaySource.APPLE_MUSIC
-        PlaySourceValue.YourMusic -> PlaySource.YOUR_MUSIC
+        PlaySourceValue.Streaming -> PlaySource.AppleMusic
+        PlaySourceValue.YourMusic -> PlaySource.YourMusic
+        PlaySourceValue.Spotify -> PlaySource.Spotify
+        PlaySourceValue.Other -> PlaySource.Unknown(com.luke.tracks.sync.CloudPlays.source(this))
     },
     stationName = stationName,
 )

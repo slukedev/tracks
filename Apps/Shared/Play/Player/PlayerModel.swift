@@ -88,6 +88,30 @@ final class PlayerModel {
     /// Sample data: the engine only pretends, and songs play without catalog ids.
     let isDemo: Bool
 
+    /// The player a request plays through when it isn't the one in use: an album from
+    /// Apple Music, your own songs, or with every source on, the first copy in Play From
+    /// order. Set by the app; nil keeps every request on the player in use. Asked with
+    /// `choosingCopy` false, it moves only what the player in use can't play at all.
+    @ObservationIgnored var routeEngine: ((_ request: PlayRequest, _ choosingCopy: Bool) -> (any PlayerEngine)?)?
+    /// The queue across sources, for a request whose songs play best from more than one. Set
+    /// by the app; nil leaves every request on one player.
+    @ObservationIgnored var mixing: ((PlayRequest) -> MixedQueueEngine?)?
+    /// The queue across sources, whenever one queue may mix them: every source on.
+    @ObservationIgnored var mixedEngine: (() -> MixedQueueEngine?)?
+    /// The sources a request's songs play best from, with every source on. Empty otherwise.
+    @ObservationIgnored var requestSources: ((PlayRequest) -> Set<MusicSource>)?
+    /// Why a song ahead can't play now from the source it's queued from; nil when it can.
+    @ObservationIgnored var availability: ((PlayerTrack, MusicSource?) -> Unavailable?)?
+    /// Another copy of a song ahead, from a source that can play it now.
+    @ObservationIgnored var otherCopy: ((MixedQueueEngine.Item) -> MixedQueueEngine.Item?)?
+    /// Whether there's anything here to play offline, and playing it.
+    @ObservationIgnored var downloads: (available: () -> Bool, play: () -> Void)?
+
+    /// Why a song can't play now, in a few words where there's one reason.
+    struct Unavailable: Equatable {
+        let reason: String?
+    }
+
     init(engine: any PlayerEngine, isDemo: Bool = false, signalsStore: SignalsStore = SignalsStore()) {
         self.engine = engine
         self.isDemo = isDemo
@@ -104,8 +128,26 @@ final class PlayerModel {
     /// car and the lock screen skip as the app's own buttons do.
     private func listen(to engine: any PlayerEngine) {
         engine.onChange = { [weak self] in self?.engineChanged() }
+        if let mixed = engine as? MixedQueueEngine {
+            mixed.onNotice = { [weak self] in self?.confirm($0) }
+            mixed.onSkipped = { [weak self] count, reason in self?.noteSkipped(count, reason: reason) }
+            mixed.onRemoteNext = { [weak self] in self?.skipToNext() }
+            mixed.onRemotePrevious = { [weak self] in self?.skipToPrevious() }
+            mixed.onAutoSkip = { [weak self] in self?.isAutoSkipping = true }
+            return
+        }
+        #if SPOTIFY
+        if let spotify = engine as? SpotifyPlayerEngine {
+            spotify.onNotice = { [weak self] in self?.confirm($0) }
+            spotify.onRemoteNext = { [weak self] in self?.skipToNext() }
+            spotify.onRemotePrevious = { [weak self] in self?.skipToPrevious() }
+            spotify.onAutoSkip = { [weak self] in self?.isAutoSkipping = true }
+            return
+        }
+        #endif
         guard let local = engine as? LocalPlayerEngine else { return }
         local.onNotice = { [weak self] in self?.confirm($0) }
+        local.onSkipped = { [weak self] count, reason in self?.noteSkipped(count, reason: reason) }
         local.onRemoteNext = { [weak self] in self?.skipToNext() }
         local.onRemotePrevious = { [weak self] in self?.skipToPrevious() }
         local.onAutoSkip = { [weak self] in self?.isAutoSkipping = true }
@@ -141,12 +183,16 @@ final class PlayerModel {
             return
         }
         if keepingWhatsPlaying, current != nil {
+            // With every source on, each request already picks its player, and songs added
+            // join the queue across sources: nothing waits to take over.
+            guard mixedEngine?() == nil else { return }
             nextEngine = engine
             return
         }
         nextEngine = nil
         // Your own songs can't wait on the Apple Music player, nor Apple Music's on yours.
-        if let waitingSession, waitingSession.isYourMusic != (engine is LocalPlayerEngine) {
+        if let waitingSession, !waitingSession.isMixed, !(engine is MixedQueueEngine),
+           waitingSession.isYourMusic != (engine is LocalPlayerEngine) {
             self.waitingSession = nil
             current = nil
             upNext = []
@@ -194,6 +240,15 @@ final class PlayerModel {
     /// and Shortcuts, which mustn't finish before the music does start.
     func start(_ request: PlayRequest, from context: PlayContext, shuffled: Bool = false) async {
         takeOverIfSwitched()
+        if let mixed = mixing?(request) {
+            // Its songs play best from more than one source: one queue across them.
+            if mixed !== engine { use(mixed) }
+        } else if engine is MixedQueueEngine, context.kind == .endless || routeEngine?(request, true) == nil {
+            // A live mix picks from every source, and the queue across them plays the rest.
+        } else if context.kind != .endless, let routed = routeEngine?(request, true), routed !== engine {
+            // A live mix has set itself up for the player in use, and picks only what it plays.
+            use(routed)
+        }
         intendsToPlay = true
         settleIntent()
         problem = nil
@@ -246,8 +301,16 @@ final class PlayerModel {
     /// Play Next and Play Later. Starts playing if nothing is queued, and replaces a station,
     /// which has no queue to add to: songs added to it would be kept as radio.
     func enqueue(_ request: PlayRequest, next: Bool, title: String) {
-        // Songs from the source switched to can't join the other's queue: they play instead.
-        guard hasQueue, context?.isStation != true, nextEngine == nil else {
+        // Songs from the source switched to, or that play through another player, can't join
+        // this one's queue: they play instead.
+        var isElsewhere = routeEngine?(request, false).map { $0 !== engine } ?? false
+        // With every source on, songs from another source join the queue across them.
+        let fromElsewhere = requestSources?(request).contains { $0 != engineSource } ?? false
+        if isElsewhere || fromElsewhere, hasQueue, waitingSession == nil, context?.isStation != true,
+           nextEngine == nil, mixIn() {
+            isElsewhere = false
+        }
+        guard hasQueue, context?.isStation != true, nextEngine == nil, !isElsewhere else {
             play(request, from: .songs(title))
             return
         }
@@ -316,7 +379,10 @@ final class PlayerModel {
 
     /// Whether Tracks plays the audio itself and can set its level: your own music, or the
     /// pretend player. Apple Music's level is the system's.
-    var setsOwnLevel: Bool { !(engine is MusicKitPlayerEngine) }
+    var setsOwnLevel: Bool {
+        if let mixed = engine as? MixedQueueEngine { return mixed.setsOwnLevel }
+        return !(engine is MusicKitPlayerEngine)
+    }
 
     func togglePlayPause() {
         guard waitingSession == nil else {
@@ -707,6 +773,71 @@ final class PlayerModel {
         }
     }
 
+    /// Songs left out of the queue because they can't play now, said quietly for a moment.
+    struct SkipNotice: Equatable {
+        let id = UUID()
+        let count: Int
+        let reason: String?
+        /// Nothing left in Up Next could play, so the music stopped.
+        var nothingLeft = false
+
+        var title: String {
+            if nothingLeft { return String(localized: "Nothing in Up Next can play right now.") }
+            return count == 1 ? String(localized: "Skipped 1 song") : String(localized: "Skipped \(count) songs")
+        }
+    }
+
+    private(set) var skipNotice: SkipNotice?
+    @ObservationIgnored private var skipNoticeTask: Task<Void, Never>?
+
+    func noteSkipped(_ count: Int, reason: String?) {
+        guard count > 0 else { return }
+        show(SkipNotice(count: count, reason: reason), for: .seconds(3))
+    }
+
+    private func show(_ notice: SkipNotice, for duration: Duration) {
+        skipNotice = notice
+        skipNoticeTask?.cancel()
+        skipNoticeTask = Task {
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            skipNotice = nil
+        }
+    }
+
+    /// Whether the notice can offer Play Downloads: there's something here to play offline.
+    var canPlayDownloads: Bool { downloads?.available() ?? false }
+
+    /// Plays everything here that plays offline, from the notice.
+    func playDownloads() {
+        dismissSkipNotice()
+        downloads?.play()
+    }
+
+    func dismissSkipNotice() {
+        skipNoticeTask?.cancel()
+        skipNotice = nil
+    }
+
+    /// Where the song on is playing from: Apple Music, Spotify, this device or a server.
+    var playingSource: SourceID? {
+        guard let current else { return nil }
+        if let mixed = engine as? MixedQueueEngine {
+            switch mixed.currentSource {
+            case .appleMusic: return .appleMusic
+            case .spotify: return .spotify
+            case .yourMusic: return current.local.map { $0.serverID.map(SourceID.server) ?? .device }
+            case nil: return nil
+            }
+        }
+        #if SPOTIFY
+        if engine is SpotifyPlayerEngine { return .spotify }
+        #endif
+        if let local = current.local { return local.serverID.map(SourceID.server) ?? .device }
+        if engine is MusicKitPlayerEngine { return .appleMusic }
+        return nil
+    }
+
     /// A short confirmation, shown over everything for a moment, like Music's.
     private(set) var confirmation: String?
     @ObservationIgnored private var confirmationTask: Task<Void, Never>?
@@ -807,6 +938,120 @@ final class PlayerModel {
         }
     }
 
+    // MARK: - One queue across sources
+
+    /// The player playing now, as a source.
+    private var engineSource: MusicSource? {
+        if engine is MusicKitPlayerEngine { return .appleMusic }
+        if engine is LocalPlayerEngine { return .yourMusic }
+        #if SPOTIFY
+        if engine is SpotifyPlayerEngine { return .spotify }
+        #endif
+        return nil
+    }
+
+    /// Where a song in the queue plays from.
+    func source(of track: PlayerTrack) -> MusicSource? {
+        (engine as? MixedQueueEngine)?.source(of: track.id) ?? engineSource
+    }
+
+    /// The source a song in the queue plays from, by name: this device, a server, Apple Music
+    /// or Spotify.
+    func sourceID(of track: PlayerTrack) -> SourceID? {
+        if let local = track.local { return local.serverID.map(SourceID.server) ?? .device }
+        switch source(of: track) {
+        case .appleMusic: return .appleMusic
+        case .spotify: return .spotify
+        case .yourMusic, nil: return nil
+        }
+    }
+
+    /// Whether Up Next holds songs from more than one source, so its rows name theirs.
+    var queueMixesSources: Bool {
+        (engine as? MixedQueueEngine)?.mixesSources ?? false
+    }
+
+    /// Whether a song ahead can't play now from where it's queued.
+    func isUnavailable(_ track: PlayerTrack) -> Bool {
+        availability?(track, source(of: track)) != nil
+    }
+
+    /// Hands the queue on now to the queue across sources, without stopping the song on, so
+    /// what comes next can be from any source. False where it can't: every source isn't on,
+    /// or a station is playing.
+    @discardableResult
+    private func mixIn() -> Bool {
+        if engine is MixedQueueEngine { return true }
+        guard let mixed = mixedEngine?(), let source = engineSource, current != nil, waitingSession == nil,
+              context?.isStation != true
+        else { return false }
+        let from = engine
+        mixed.adopt(from, as: source, context: context)
+        engine = mixed
+        mixed.setLevel(level)
+        listen(to: mixed)
+        engineChanged()
+        return true
+    }
+
+    /// Plays the song on from another copy, from where it's got to, keeping the rest of the
+    /// queue: Now Playing's Play From.
+    func playFrom(_ copy: MixedQueueEngine.Item) {
+        guard mixIn(), let mixed = engine as? MixedQueueEngine else { return }
+        let time = playbackTime
+        let wasPlaying = isPlaying
+        replacingQueueUntil = .now.addingTimeInterval(3)
+        Task {
+            do {
+                try await mixed.replaceCurrent(with: copy, playing: wasPlaying)
+                if time > 3 { seek(to: time) }
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    /// The song on before checking ahead, so each song checks once.
+    @ObservationIgnored private var checkedAheadOf: String?
+    /// Nothing ahead could play: when this song ends, the music stops, and the notice says why.
+    @ObservationIgnored private var nothingAfter: String?
+
+    /// Shortly before a song ends: songs next in Up Next that can't play now are played from
+    /// another copy where there is one, and otherwise left out, with a quiet word. Only the
+    /// run straight after the song on: songs further on may be back by then.
+    private func checkAhead() {
+        guard let availability, !upNext.isEmpty, !isDemo else { return }
+        let mixed = engine as? MixedQueueEngine
+        var gone = IndexSet()
+        var reasons = Set<String>()
+        var unexplained = false
+        for (offset, track) in upNext.enumerated() {
+            guard let missing = availability(track, source(of: track)) else { break }
+            if let mixed, let item = mixed.item(upNext: offset), let copy = otherCopy?(item) {
+                mixed.replace(upNext: offset, with: copy)
+                break
+            }
+            gone.insert(offset)
+            if let reason = missing.reason { reasons.insert(reason) } else { unexplained = true }
+        }
+        guard !gone.isEmpty else { return }
+        let reason = reasons.count == 1 && !unexplained ? reasons.first : nil
+        if gone.count == upNext.count, !picksLive {
+            nothingAfter = current?.id
+        } else {
+            noteSkipped(gone.count, reason: reason)
+        }
+        engine.removeUpNext(at: gone)
+    }
+
+    /// Says nothing ahead could play, once the song it waited behind has ended.
+    private func noteNothingLeftIfEnded() {
+        guard let nothingAfter, current?.id == nothingAfter, upNext.isEmpty else { return }
+        guard status != .playing, status != .loading, intendsToPlay != true else { return }
+        self.nothingAfter = nil
+        show(SkipNotice(count: 0, reason: nil, nothingLeft: true), for: .seconds(8))
+    }
+
     // MARK: - Following the engine
 
     private func engineChanged() {
@@ -877,6 +1122,9 @@ final class PlayerModel {
             skipIfNotAllowed(next)
             skipIfBlocked(next)
         }
+        if nothingAfter != nil {
+            if next?.id != nothingAfter || !upNext.isEmpty { nothingAfter = nil } else { noteNothingLeftIfEnded() }
+        }
         topUpLiveIfNeeded()
         startAutoplayIfNeeded()
         let onPick = next.map(isAutoplayPick) ?? false
@@ -895,7 +1143,7 @@ final class PlayerModel {
     /// Settings keeps it and it hasn't waited longer than Settings says to.
     func restoreLastSession() {
         guard !isDemo, current == nil, var session = LastSessionStore.load(),
-              session.isYourMusic == (engine is LocalPlayerEngine)
+              session.isMixed || session.isYourMusic == (engine is LocalPlayerEngine)
         else { return }
         session.time = ResumePoint.time(leftAt: session.time, duration: session.tracks.first?.duration)
         waitingSession = session
@@ -910,7 +1158,13 @@ final class PlayerModel {
         guard let session = waitingSession, session.tracks.indices.contains(index) else { return nil }
         let tracks = session.tracks
         let request: PlayRequest
-        if session.isYourMusic {
+        if session.isMixed {
+            // Songs from more than one source, found again by name in each.
+            request = .history(tracks.enumerated().map { offset, track in
+                if let local = track.local { return HistorySong(local) }
+                return HistorySong(songID: track.song?.id.rawValue ?? "", title: track.title, artistName: track.artistName, albumTitle: track.albumTitle, source: session.source(at: offset))
+            }, startingAt: index)
+        } else if session.isYourMusic {
             request = .local(tracks.compactMap(\.local), startingAt: index)
         } else if !engine.playsByName, tracks.allSatisfy({ $0.song != nil }) {
             request = .songs(tracks.compactMap(\.song), startingAt: index)
@@ -1011,12 +1265,15 @@ final class PlayerModel {
             return waiting
         }
         guard let current, context?.isStation != true else { return nil }
+        let tracks = [current] + upNext.prefix(LastSession.keptAhead)
+        let mixed = engine as? MixedQueueEngine
         return LastSession(
-            tracks: [current] + upNext.prefix(LastSession.keptAhead),
+            tracks: tracks,
             time: engine.lastKnownPlaybackTime,
             contextKind: context?.kind.storedName,
             contextTitle: context?.title,
-            savedAt: .now
+            savedAt: .now,
+            sources: mixed.map { mixed in tracks.map { mixed.source(of: $0.id)?.rawValue ?? "" } }
         )
     }
 
@@ -1252,6 +1509,8 @@ final class PlayerModel {
         // The source switched to takes over now, before the mix is set up for it: switching
         // after would end the mix.
         takeOverIfSwitched()
+        // With every source on, the mix picks from all of them, into one queue.
+        if let mixed = mixedEngine?(), engine !== mixed, !mixIn() { use(mixed) }
         var mix = mix
         // Before the first picks, which the rest follow.
         mix.blocked = signals.blocked
@@ -1811,6 +2070,11 @@ final class PlayerModel {
                 return
             }
             lastSample = (current.id, time)
+            // Half a minute before the next song, songs ahead are checked: see checkAhead().
+            if checkedAheadOf != current.id, let duration = current.duration, duration - time <= 30 {
+                checkedAheadOf = current.id
+                checkAhead()
+            }
             // Autoplay turned on or off in Settings takes effect while the song plays, not only
             // when the next one starts.
             if !isAutoplaying {

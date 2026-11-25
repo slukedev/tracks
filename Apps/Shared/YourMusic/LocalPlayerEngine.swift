@@ -51,6 +51,8 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     private var awaitingArrival: String?
     /// A moment's message for the person, shown by the player.
     var onNotice: ((String) -> Void)?
+    /// Songs left out because they can't play now, with why when they share one reason.
+    var onSkipped: ((_ count: Int, _ reason: String?) -> Void)?
     /// Next and Previous from the lock screen, CarPlay, the steering wheel or headphones. Set
     /// by the player, which does what its own buttons do: waits for a live mix's next pick,
     /// and doesn't take going back for a skip. Unset, the engine skips by itself.
@@ -58,6 +60,9 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     var onRemotePrevious: (() -> Void)?
     /// Called as a song that couldn't play is skipped, so the skip isn't taken for yours.
     var onAutoSkip: (() -> Void)?
+    /// The last song played through to its end, for a queue across sources to carry on in
+    /// another player.
+    var onRanOut: (() -> Void)?
     /// The queue ran out: the last song ended, or Next went past it. A song added now plays,
     /// rather than waiting behind a song that's over.
     private var ranOut = false
@@ -285,8 +290,17 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
     private func keepPlayable(_ tracks: [(offset: Int, track: LocalTrack)], start: Int) throws -> ([LocalTrack], Int) {
         let playable = tracks.filter { music.isPlayable($0.track) }
         guard !playable.isEmpty else { throw PlayerProblem.notInYourMusic }
+        let skipped = tracks.filter { !music.isPlayable($0.track) }.map(\.track)
+        if !skipped.isEmpty { onSkipped?(skipped.count, skipReason(skipped)) }
         let first = playable.firstIndex { $0.offset >= start } ?? 0
         return (playable.map(\.track), first)
+    }
+
+    /// "Home is offline", when every song left out is on one server out of reach.
+    private func skipReason(_ tracks: [LocalTrack]) -> String? {
+        let servers = Set(tracks.map(\.serverID))
+        guard servers.count == 1, let id = servers.first ?? nil, let server = music.servers.server(id) else { return nil }
+        return String(localized: "\(server.name) is offline")
     }
 
     func pause() {
@@ -634,6 +648,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             player.pause()
             loadItems(startPlaying: false)
             ranOut = true
+            onRanOut?()
             return
         }
         // The next song couldn't be queued behind this one, as it couldn't be reached then, or
@@ -965,7 +980,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             playbackState: status == .playing ? .playing : (status == .stopped ? .stopped : .paused),
             playerPosition: playbackTime,
             isStation: false,
-            rawFields: ["source": "Your Music", "origin": track.isFromServer ? "server" : "file"]
+            rawFields: ["source": "Your Music", "origin": track.isFromServer ? "server" : "file", PlayID.observationKey: playID(for: entries[index].id)]
         ))
     }
 
@@ -997,7 +1012,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
         serverScrobble = (entry.id, started.startedAt, true)
         let track = entry.track
         music.servers.recordListen(ServerListen(
-            id: UUID().uuidString,
+            id: playID(for: entry.id),
             songID: songID,
             startedAt: started.startedAt,
             played: playbackTime,
@@ -1006,6 +1021,17 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             album: track.album,
             duration: track.duration
         ), on: serverID)
+    }
+
+    /// One id for each time a song plays: its history row and the listen its server is told
+    /// of share it, so the play is counted once however many devices report it.
+    private var currentPlay: (entryID: String, id: String)?
+
+    private func playID(for entryID: String) -> String {
+        if let currentPlay, currentPlay.entryID == entryID { return currentPlay.id }
+        let id = PlayID.make()
+        currentPlay = (entryID, id)
+        return id
     }
 
     /// The lock screen's picture. Made off the main actor: MediaPlayer asks for it on a queue

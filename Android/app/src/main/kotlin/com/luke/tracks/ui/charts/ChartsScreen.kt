@@ -99,7 +99,7 @@ private val BottomRoom: androidx.compose.ui.unit.Dp
  * through the past, with how far each moved.
  */
 @Composable
-fun ChartsScreen() {
+fun ChartsScreen(modeSwitch: @Composable () -> Unit = {}) {
     var kind by rememberSaveable { mutableStateOf(ChartKind.Songs) }
     var period by rememberSaveable { mutableStateOf(PeriodKind.Week) }
     var offset by rememberSaveable { mutableIntStateOf(0) }
@@ -108,10 +108,15 @@ fun ChartsScreen() {
     val data by engineState(kind, period, offset, source) { loadCharts(it, kind, period, offset, source) }
     val navigator = LocalNavigator.current
     val graph = rememberGraph()
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     val snackbar = remember { SnackbarHostState() }
     val haptics = LocalHapticFeedback.current
     var filterOpen by remember { mutableStateOf(false) }
+    // The kinds of source with plays: the menu offers only those, and only when there are two.
+    val kinds by engineState("kinds") { engine ->
+        SourceChoice.entries.filter { choice -> choice == SourceChoice.All || engine.read { totals(com.luke.tracks.engine.Engine.allTime, choice.filter).plays } > 0u }
+    }
+    val choices = kinds.orEmpty()
 
     // Songs from Your Music for Play and Shuffle; nothing when none are playable.
     var playable by remember { mutableStateOf<List<PlayableSong>>(emptyList()) }
@@ -128,35 +133,31 @@ fun ChartsScreen() {
             contentWindowInsets = WindowInsets(0),
             snackbarHost = { SnackbarHost(snackbar, Modifier.padding(bottom = BottomRoom)) },
             topBar = {
-                LargeFlexibleTopAppBar(
-                    title = { Text("Charts") },
-                    subtitle = if (source != SourceChoice.All) ({ Text(source.label) }) else null,
-                    actions = {
-                        Box {
-                            IconButton(onClick = { filterOpen = true }) { Icon(Icons.Rounded.FilterList, "Which plays count") }
-                            DropdownMenu(
-                                expanded = filterOpen,
-                                onDismissRequest = { filterOpen = false },
-                                shape = RoundedCornerShape(20.dp),
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            ) {
-                                SourceChoice.entries.forEach { choice ->
-                                    DropdownMenuItem(
-                                        text = { Text(choice.label) },
-                                        trailingIcon = { if (choice == source) Icon(Icons.Rounded.Check, null) },
-                                        onClick = {
-                                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                                            source = choice
-                                            filterOpen = false
-                                        },
-                                    )
-                                }
+                com.luke.tracks.ui.history.HistoryBar(modeSwitch, scroll) {
+                    if (choices.size > 2 || source != SourceChoice.All) Box {
+                        IconButton(onClick = { filterOpen = true }) {
+                            Icon(Icons.Rounded.FilterList, if (source == SourceChoice.All) "Which plays count" else "Which plays count, ${source.label}")
+                        }
+                        DropdownMenu(
+                            expanded = filterOpen,
+                            onDismissRequest = { filterOpen = false },
+                            shape = RoundedCornerShape(20.dp),
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        ) {
+                            choices.ifEmpty { listOf(SourceChoice.All) }.forEach { choice ->
+                                DropdownMenuItem(
+                                    text = { Text(choice.label) },
+                                    trailingIcon = { if (choice == source) Icon(Icons.Rounded.Check, null) },
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                        source = choice
+                                        filterOpen = false
+                                    },
+                                )
                             }
                         }
-                        IconButton(onClick = { navigator.open(SearchRoute) }) { Icon(Icons.Rounded.Search, "Search") }
-                    },
-                    scrollBehavior = scroll,
-                )
+                    }
+                }
             },
         ) { inner ->
             val current = data
@@ -169,7 +170,6 @@ fun ChartsScreen() {
                         EmptyState(
                             icon = Icons.Rounded.BarChart,
                             title = "No charts yet",
-                            message = "Your top songs, artists and albums show up here once you've played a few songs in Tracks or imported your Last.fm history.",
                             action = "Import from Last.fm",
                             onAction = { navigator.open(SettingsPageRoute("lastfm")) },
                         )

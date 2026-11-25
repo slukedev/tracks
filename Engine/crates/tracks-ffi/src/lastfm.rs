@@ -28,7 +28,10 @@ impl From<tracks_lastfm::LastFmError> for LastFmError {
             E::NotConnected => Self::NotConnected,
             E::NotAuthorised => Self::NotAuthorised,
             E::Http { status } => Self::Http { status },
-            E::Service { code, message } => Self::Service { code, detail: message },
+            E::Service { code, message } => Self::Service {
+                code,
+                detail: message,
+            },
             E::MalformedResponse => Self::MalformedResponse,
         }
     }
@@ -158,7 +161,11 @@ pub struct ScrobbleSubmission {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum ScrobbleOutcome {
     Accepted,
-    Ignored { code: i64, message: String, retryable: bool },
+    Ignored {
+        code: i64,
+        message: String,
+        retryable: bool,
+    },
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -272,7 +279,12 @@ impl LastFmClient {
             .into()
     }
 
-    pub fn track_info(&self, title: String, artist: String, username: Option<String>) -> HttpRequest {
+    pub fn track_info(
+        &self,
+        title: String,
+        artist: String,
+        username: Option<String>,
+    ) -> HttpRequest {
         self.client
             .track_info(&title, &artist, username.as_deref())
             .into()
@@ -305,22 +317,24 @@ pub fn lastfm_parse_now_playing(response: HttpResponse) -> Result<()> {
 /// What Last.fm did with each scrobble sent, in order.
 #[uniffi::export]
 pub fn lastfm_parse_scrobbles(response: HttpResponse, sent: u32) -> Result<Vec<ScrobbleOutcome>> {
-    Ok(tracks_lastfm::parse_scrobbles(&response.into(), sent as usize)?
-        .into_iter()
-        .map(|outcome| {
-            let retryable = outcome.is_retryable();
-            match outcome {
-                tracks_lastfm::ScrobbleOutcome::Accepted => ScrobbleOutcome::Accepted,
-                tracks_lastfm::ScrobbleOutcome::Ignored { code, message } => {
-                    ScrobbleOutcome::Ignored {
-                        code,
-                        message,
-                        retryable,
+    Ok(
+        tracks_lastfm::parse_scrobbles(&response.into(), sent as usize)?
+            .into_iter()
+            .map(|outcome| {
+                let retryable = outcome.is_retryable();
+                match outcome {
+                    tracks_lastfm::ScrobbleOutcome::Accepted => ScrobbleOutcome::Accepted,
+                    tracks_lastfm::ScrobbleOutcome::Ignored { code, message } => {
+                        ScrobbleOutcome::Ignored {
+                            code,
+                            message,
+                            retryable,
+                        }
                     }
                 }
-            }
-        })
-        .collect())
+            })
+            .collect(),
+    )
 }
 
 #[uniffi::export]

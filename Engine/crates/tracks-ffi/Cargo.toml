@@ -11,6 +11,10 @@ publish.workspace = true
 crate-type = ["staticlib", "cdylib", "lib"]
 name = "tracks_engine"
 
+[features]
+# Spotify on librespot. Off by default: it adds a TLS stack and Tokio, and depends on a
+# reverse-engineered protocol Spotify does not permit.
+spotify = ["dep:tracks-spotify"]
 
 [dependencies]
 tracks-model.workspace = true
@@ -20,6 +24,7 @@ tracks-library.workspace = true
 tracks-mixes.workspace = true
 tracks-demo.workspace = true
 tracks-catalog.workspace = true
+tracks-spotify = { workspace = true, optional = true }
 jiff.workspace = true
 rustc-hash.workspace = true
 uniffi.workspace = true

@@ -215,8 +215,10 @@ extension CarPlaySceneDelegate {
         var rows: [CPListItem] = []
         // Room for SharePlay's row.
         let limit = max(0, Int(CPListTemplate.maximumItemCount) - 1)
+        // Spotify's songs carry its mark, as its terms ask.
+        let spotifyMark = player.playingSource == .spotify ? UIImage(named: "SpotifyIconMono") : nil
         for track in player.upNext.prefix(min(40, limit)) {
-            let row = CPListItem(text: track.title, detailText: track.artistName, image: standIn)
+            let row = CPListItem(text: track.title, detailText: track.artistName, image: standIn, accessoryImage: spotifyMark, accessoryType: .none)
             row.isExplicitContent = track.isExplicit
             row.handler = { [weak self] _, completion in
                 // By the song, not its place: the queue may have moved on since the list opened.

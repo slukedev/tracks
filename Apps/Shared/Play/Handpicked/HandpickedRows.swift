@@ -23,7 +23,7 @@ enum PickSection: Hashable, CaseIterable {
         case .history: "History"
         case .library: "Library"
         case .catalog: "Apple Music"
-        case .yours: "Your Music"
+        case .yours: "Your Library"
         case .servers: "Your Servers"
         case .playlist: "Songs"
         case .picked: "Picked"

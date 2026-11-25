@@ -20,6 +20,8 @@ enum PlaySettingsWords {
         var servers: Int
         /// The first server with a problem, by name.
         var troubledServer: TroubledServer?
+        /// Every source on, with more than one to play from: each song plays its best copy.
+        var mixes = false
     }
 
     struct TroubledServer: Equatable {
@@ -30,6 +32,12 @@ enum PlaySettingsWords {
     }
 
     static func status(_ standing: Standing) -> (line: String, tone: SettingsTone) {
+        if standing.mixes {
+            if let server = standing.troubledServer {
+                return (troubled(server), .attention)
+            }
+            return (String(localized: "Plays All Sources"), .plain)
+        }
         switch standing.source {
         case .appleMusic:
             guard standing.allowsAppleMusic else {
@@ -45,45 +53,25 @@ enum PlaySettingsWords {
             return (String(localized: "Plays Apple Music"), .plain)
         case .yourMusic:
             if let server = standing.troubledServer {
-                let name = quoted(server.name)
-                if server.needsPassword {
-                    return server.isTrackside
-                        ? (String(localized: "\(name) needs pairing again"), .attention)
-                        : (String(localized: "\(name) needs its password"), .attention)
-                }
-                return (String(localized: "\(name) can’t be reached"), .attention)
+                return (troubled(server), .attention)
             }
             guard standing.songs > 0 || standing.servers > 0 else {
                 return (String(localized: "Add songs or connect a server to start."), .attention)
             }
-            return (String(localized: "Plays Your Music"), .plain)
+            return (String(localized: "Plays Files and Servers"), .plain)
+        case .spotify:
+            return (String(localized: "Plays Spotify"), .plain)
         }
     }
 
-    // MARK: - Source
-
-    /// Only where to find Quick Switch, which its name doesn't say.
-    static func sourceFooter(quickSwitch: QuickSwitchState) -> String? {
-        #if os(macOS)
-        switch quickSwitch {
-        case .unavailable: nil
-        case .off: String(localized: "Quick Switch puts both in Listen Now’s title.")
-        case .on: String(localized: "Click Listen Now’s title to switch.")
+    private static func troubled(_ server: TroubledServer) -> String {
+        let name = quoted(server.name)
+        if server.needsPassword {
+            return server.isTrackside
+                ? String(localized: "\(name) needs pairing again")
+                : String(localized: "\(name) needs its password")
         }
-        #else
-        switch quickSwitch {
-        case .unavailable: nil
-        case .off: String(localized: "Quick Switch puts both in Play’s title.")
-        case .on: String(localized: "Tap Play’s title to switch.")
-        }
-        #endif
-    }
-
-    enum QuickSwitchState: Equatable {
-        /// Only offered with Apple Music allowed and music of your own.
-        case unavailable
-        case off
-        case on
+        return String(localized: "\(name) can’t be reached")
     }
 
     // MARK: - Around Tracks

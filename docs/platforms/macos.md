@@ -34,7 +34,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Listening clock and weekday and weekend averages.
 - Week-by-hour heat map (Mac only).
 - Top songs, artists and albums, with Top Albums always filling its rows.
-- Apple Music and Your Music together or apart.
+- Every source together or apart (Apple Music, files and servers, Spotify).
 
 ### Charts
 
@@ -80,7 +80,22 @@ See [README.md](README.md) for the legend and how to keep this current.
   Artists, New from Your Artists.
 - Moods, genres, Handpicked and Party.
 - Edit Listen Now's sections.
-- Quick Switch between Apple Music and Your Music.
+- Source filter in the toolbar of Listen Now and every Library page, once a second source
+  exists: All Sources, each source by its real name (Apple Music, Spotify, On This Mac, each
+  server's name), Manage Sources… (opens the Sources pane). Never touches the queue. The
+  sidebar keeps its shape; its Library group follows the filter's player. With All Sources
+  and more than one player, Listen Now is one page built from every source, one queue plays
+  songs from several sources, album pages show the glyphs of every source that has them and
+  artist pages a shelf per other source, as on iPhone (see the iPhone page, Tabs and
+  sources). Up Next's rows carry their source's glyph in a mixed queue and dim when they
+  can't play.
+- Sources pane in Settings (after General): Apple Music access, Spotify in builds with the
+  `SPOTIFY` flag, On This Mac, servers, and Play From (drag to reorder; synced).
+- Spotify (Debug builds with the `SPOTIFY` flag only; see the iPhone page): sign in, one
+  Quality, Sign Out… in the Sources pane; Listen Now and the sidebar's Albums, Songs (liked)
+  and Playlists show your Spotify library; Search searches Spotify. Same player and limits.
+- Settings › General › About › Acknowledgements: the engine's licenses, librespot and psst
+  with their notices in Spotify builds.
 - Play Songs In Tracks or Music; Explicit Songs; Open To.
 - Block artists; Reset Mix Suggestions.
 - Starting music in Tracks pauses Music.
@@ -99,20 +114,23 @@ See [README.md](README.md) for the legend and how to keep this current.
   only that (⌥⌘P). Opt-in: asked the first time, then Settings › Play › Now Playing › Hear the
   Music; the song's preview groove when it's off or macOS refuses. Code in `Apps/macOS/Audio/`.
 - Backgrounds: Full Cover, artwork, Living Colour, Pulse.
-- Play count and keep ring, sleep timer, favorite star, audio quality badge.
+- Play count and keep ring, sleep timer, favorite star, audio quality badge, and beside it
+  the source badge (two or more sources, always for Spotify) whose menu plays the song from
+  another source. Full Cover shows Spotify's covers as Living Cover. Songs that can't play
+  are dimmed in Up Next, and a queue that left some out says "Skipped 3 songs".
 - Pick Up Where You Left Off.
 - Gapless albums for your own music.
 - The song and controls in the Dock and the system's Now Playing; media keys.
 
-### Your Music
+### Files and servers
 
 - Play FLAC and other files: import songs or folders, or drop them in Tracks' Music folder
   (Show in Finder, Look for New Songs).
 - Subsonic-compatible servers, servers that find songs, Trackside, Picked for You and server
   discovery.
-- Get More, with a server that finds or gets songs, or Lidarr, as on iPhone: on Your Music, artist and album pages, search
+- Get More, with a server that finds or gets songs, or Lidarr, as on iPhone: on Listen Now, artist and album pages, search
   and Downloads, with right-click menus, help tags on Get, and the shelf's paging arrows.
-- Download for Apple Music and Your Music together (Settings, off by default): in song and album menus, the album header beside Shuffle. Apple Music adds to the library and opens Music to download, since MusicKit can't download.
+- Download for Apple Music and your server together (Settings, off by default): in song and album menus, the album header beside Shuffle. Apple Music adds to the library and opens Music to download, since MusicKit can't download.
 - Downloads with a sortable table: space used, what you play, what's coming down or failed.
 - Streaming quality and download quality (one setting for every network).
 - Tracks Radio's Downloaded Songs First and Delete After Playing.
@@ -120,22 +138,85 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Suggestions checked against what you have; Lidarr in the sidebar and Settings.
 - Tell Server About Plays.
 
+### Servers away from home
+
+- Addresses without a scheme get https unless they can only be nearby (private, link-local,
+  loopback and 100.64/10 addresses, names without a dot, `.local`, `.lan`, `.internal`,
+  `home.arpa`, `.ts.net`), the same rule Trackside uses (`NearbyAddress`). Credentials never
+  cross plain HTTP to anything else. ATS allows only local networking plus those suffixes.
+- Subsonic over plain HTTP (`SubsonicCredentialRule`): an API key never, except to loopback.
+  A server that also has an https address gets credentials on its nearby http address only
+  on a network recorded as its home (`NetworkIdentity`: routers, IPv4 subnets and
+  unique-local IPv6 prefixes, as a digest), recorded only when it's added or edited in the
+  form there and its nearby address answers; elsewhere the nearby address isn't raced and
+  https is used. An entry with no home recorded uses https only. A server with only an http
+  address works as before, and is marked as working on the home network when it's added.
+- Subsonic: every request is signed with a fresh salt. Cover addresses carry no credentials
+  at all (they're cache keys, and reach Now Playing); `ArtworkImages` signs each one as it's
+  fetched through `ServerMediaSigning`. Add Server offers Password or API Key where the server
+  lists OpenSubsonic's `apiKeyAuthentication`; a key is kept with no username.
+- A Subsonic server can have several addresses (home, Tailscale, public), typed under Other
+  Addresses in Add Server or its edit sheet. They're raced
+  without credentials (`SubsonicEndpoints`, `AddressRace`), the nearby one wins within 300 ms
+  of the first answer, and the race runs again when the network changes or two requests in a
+  row fail. Reads retry with backoff (3 tries); scrobbles and stars are sent once.
+- Redirects are followed only to the same server, so nothing that signs a request leaves it;
+  a Wi-Fi sign-in page shows as "This Wi-Fi network needs you to sign in first".
+- Trackside learns new addresses from `GET /server/urls` (conditional, with `If-None-Match`)
+  when it connects, comes to the front, reconnects its events, or gets a `server_urls` event.
+  The list is read only from a proven address and each new address must prove itself with
+  `/ping` before the key goes there. A `403 https_required` moves Tracks to a proven https
+  address and asks again, without asking for the password.
+- A download that breaks off picks up where it stopped (the system sends `Range` and
+  `If-Range`), on its own up to three times when the connection dropped.
+- Logs never hold a signed address: errors go through `URLRedaction.describe`.
+
 ### Scrobbling and Last.fm
 
 - Connect a Last.fm account (Connect… in a browser), key in the Keychain.
 - Scrobbles every kept song, radio included; Now Playing updates.
-- Import Last.fm history and Sync Now.
+- Import Last.fm history and Sync Now. Imported scrobbles get the same id as on iPhone and
+  Android (`PlayID.lastFM`).
+- Spotify plays are scrobbled only with Scrobble Spotify on (Last.fm pane, in builds with
+  Spotify); off by default, since Spotify sends its own.
 
 ### Sync and backup
 
-- History syncs through your private iCloud database with the iPhone.
-- Settings and removed songs sync through the iCloud key-value store. Every setting is listed
-  once in `SettingsRegistry` (TracksCore's `core`, the app's `AppSettingsRegistry.swift`), as
-  synced or kept on the device; renamed keys carry over through `formerKeys`, and a demo
-  launch's changes are undone on the next real launch.
-- A welcome the first time Tracks opens on the device, with Apple Music, Last.fm, Your Music
-  and the iCloud restore's progress (`Apps/Shared/Onboarding`).
-- Sync with iCloud on or off, with what syncs and what iCloud said.
+- Sync goes to iCloud or to Trackside Cloud on one of your Trackside servers (the Sync pane, Sync
+  With; `CloudSync.backend`). The choice applies the next time Tracks opens.
+- iCloud: history through your private iCloud database (CloudKit); settings and removed songs
+  through the iCloud key-value store.
+- Trackside Cloud (`TracksideCloudSync`, `CloudSyncEngine`): plays, sessions, stations,
+  forgotten songs, blocked artists and excluded stations sync as items by lasting id, and
+  settings through `PATCH /cloud/settings` by the same rules as iCloud's (`TracksideCloudSettings`
+  stands in for the key-value store). Pulls follow an opaque cursor and start over from a full
+  snapshot on `410 sync_reset`; pushes go in batches of up to 1,000, idempotent by id. After
+  the first sync of a run only rows the store's history names as changed are compared
+  (`CloudHistoryMark`); every row is compared again after a reset, a failed push, or a day.
+  Tombstones go up only for plays deleted, forgotten or merged away here, kept in
+  `CloudRemovalJournal` until the server has them; a play merely missing here is never
+  deleted, and a record this build can't read is left as the server has it. Sync never starts
+  on a history held in memory for a run that couldn't open the store. The server's `cloud`
+  event, a save here, and coming to the front start a sync. Works with Tracks on Android
+  signed in to the same server.
+- Moving between them loses nothing: the first sync with a server takes what it has, sends up
+  everything here, and the reconciler folds duplicates together. iCloud keeps what it had.
+- Every play has a lasting id (`Capture.playID`, schema V3): new plays get a UUID when they
+  start, older ones a UUIDv5 of their history-index key (`PlayID`), so every device gives a
+  synced row the same id. It's the history index's id, the server listen id and the cloud id.
+  Older rows are given theirs only where nothing mirrors to iCloud (Trackside Cloud, or sync
+  off): written through iCloud, every device would upload its whole history again.
+- Playlists over Trackside Cloud (`PlaylistCloud`): playlists and entries as items, each entry
+  with a fractional order key, so concurrent adds and moves all survive.
+- Not yet: likes over Trackside Cloud, and Nearby Devices pairing without iCloud (on Trackside
+  Cloud, Nearby Devices works only with devices that also share iCloud).
+- Every setting is listed once in `SettingsRegistry` (TracksCore's `core`, the app's
+  `AppSettingsRegistry.swift`), as synced or kept on the device; renamed keys carry over through
+  `formerKeys`, and a demo launch's changes are undone on the next real launch.
+- A welcome the first time Tracks opens on the device: Apple Music, Spotify (in builds with
+  it), On This Mac and Server, each with Add; Last.fm; and the iCloud restore's progress
+  (`Apps/Shared/Onboarding`).
+- Sync can be turned off; the Sync pane shows what syncs and where it stands.
 
 ### Devices, Play On and SharePlay
 
@@ -184,7 +265,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 ### Privacy
 
-- No account, no analytics; history on the Mac and in your private iCloud database.
+- No account, no analytics; history on the Mac and in your private iCloud database, or on your
+  own Trackside server when Sync goes there.
 - Last.fm only if you connect; Keychain storage.
 - Identify Song sends only a signature; Your Devices only connects your own devices.
 
@@ -192,8 +274,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 From the iPhone:
 
-- Song Transitions (crossfade). The pane says neither MusicKit's player nor Your Music's
-  crossfades on the Mac; Your Music's could, with its own audio engine.
+- Song Transitions (crossfade). The pane says none of Tracks' players crossfades on the Mac;
+  the one for files and servers could, with its own audio engine.
 - Offline Mode for downloaded Apple Music songs.
 - SharePlay as host. GroupActivities runs on macOS, so a Mac at a party could take requests;
   the car flow doesn't apply.
@@ -203,7 +285,7 @@ From the iPhone:
 
 From Android (planned there):
 
-- Open songs you don't have in another app (only matters with Your Music as the source).
+- Open songs you don't have in another app (only matters with files and servers as the source).
 
 Engine parity (no visible change):
 

@@ -138,7 +138,6 @@ fun SummaryScreen() {
                 LargeFlexibleTopAppBar(
                     title = { Text("Summary") },
                     actions = {
-                        IconButton(onClick = { navigator.open(SearchRoute) }) { Icon(Icons.Rounded.Search, "Search") }
                         IconButton(onClick = { navigator.open(SettingsRoute) }) { Icon(Icons.Rounded.Settings, "Settings") }
                     },
                     scrollBehavior = scroll,
@@ -152,7 +151,6 @@ fun SummaryScreen() {
                     EmptyState(
                         icon = Icons.Rounded.Headphones,
                         title = "No listening yet",
-                        message = "Your stats appear once you've played some music in Tracks or imported your Last.fm history.",
                         action = "Import from Last.fm",
                         onAction = { navigator.open(SettingsPageRoute("lastfm")) },
                     )
@@ -178,7 +176,7 @@ fun SummaryScreen() {
                         )
                     }
                     item(key = "tiles", contentType = "tiles") { Tiles(current, Modifier.padding(top = 12.dp)) }
-                    summaryLists(current, onSeeCharts = { navigator.select(Tab.Charts) })
+                    summaryLists(current, onSeeCharts = { navigator.open(com.luke.tracks.ui.navigation.ChartsRoute) })
                 }
             }
         }

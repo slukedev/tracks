@@ -35,7 +35,7 @@ class OkHttpWebTransport(private val http: OkHttpClient = defaultHttp) : WebTran
         val USER_AGENT = "Tracks/${BuildConfig.VERSION_NAME} (https://github.com/slukedev/tracks)"
 
         val defaultHttp: OkHttpClient by lazy {
-            OkHttpClient.Builder()
+            com.luke.tracks.net.Http.api.newBuilder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build()

@@ -420,6 +420,7 @@ struct TracksideFixtureTests {
         if has("search_id") { return read(TracksideAcquisitionSearch.self) { $0.inLibrary ?? [] } }
         if has("token"), has("title") { return read(TracksideCandidate.self) }
         if has("token"), has("expires_at") { return read(TracksideMediaToken.self) }
+        if has("server_id"), has("urls") { return read(TracksideServerURLs.self) }
         if has("server_id"), has("time") { return read(TracksidePing.self) }
         if has("state"), has("title"), has("artist") { return read(TracksideAcquisition.self) }
         if has("stream"), has("title"), has("artist") { return read(TracksideExternalPlay.self) }
@@ -429,7 +430,15 @@ struct TracksideFixtureTests {
         if has("artist"), has("albums") || has("top_songs") { return read(TracksideArtistPage.self) { $0.topSongs ?? [] } }
         if has("lyrics") { return read(TracksideLyrics.self) }
         if has("jobs") { return read(TracksidePrepareResponse.self) }
+        if let results = fields["results"] as? [[String: Any]], results.contains(where: { $0["key"] != nil }) { return read(CloudSettingResults.self) }
+        if let results = fields["results"] as? [[String: Any]], results.contains(where: { $0["id"] != nil }) { return read(CloudPushResponse.self) }
         if has("results") { return read(TracksideListensResponse.self) }
+        if has("upserts"), has("has_more") { return read(CloudPage.self) }
+        if has("settings") { return has("cursor") ? read(CloudSettingsPage.self) : read(CloudSettingsPatch.self) }
+        if let devices = fields["devices"] as? [[String: Any]], devices.contains(where: { $0["device_id"] != nil }) { return read(CloudDeviceList.self) }
+        if has("predecessors") { return read(CloudDeviceRegistration.self) }
+        if has("quota"), has("entities") { return read(CloudUsage.self) }
+        if let items = fields["items"] as? [[String: Any]], items.contains(where: { $0["client_modified_at"] != nil }) { return read(CloudPushRequest.self) }
         // A song has genres too, so its key is looked for first.
         if has("song_key") { return read(TracksideSong.self) { [$0] } }
         if has("genres"), fields["genres"] is [Any] { return read(TracksideGenres.self) }

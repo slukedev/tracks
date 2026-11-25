@@ -18,7 +18,7 @@ use std::collections::VecDeque;
 
 use jiff::civil::Weekday;
 use jiff::tz::TimeZone;
-use jiff::{Timestamp, ToSpan, Zoned};
+use jiff::{Timestamp, ToSpan, ZonedDateTime};
 pub use tracks_model::PlayKind;
 
 use catalog::{ALBUM_NAMES, ARTIST_NAMES, Artist, COLLABORATIONS, Catalog, GENRES, Song};
@@ -143,7 +143,7 @@ pub fn plays(now_ms: i64, zone: &TimeZone, days: u32, seed: u64) -> Vec<DemoPlay
     let Ok(now) = Timestamp::from_millisecond(now_ms) else {
         return Vec::new();
     };
-    let Ok(today) = now.to_zoned(zone.clone()).start_of_day() else {
+    let Ok(today) = now.to_zoned_datetime(zone.clone()).start_of_day() else {
         return Vec::new();
     };
     let mut random = Draw::new(seed);
@@ -271,7 +271,7 @@ struct Window {
     songs: usize,
 }
 
-fn listening_windows(day: &Zoned, random: &mut Draw) -> Vec<Window> {
+fn listening_windows(day: &ZonedDateTime, random: &mut Draw) -> Vec<Window> {
     let mut windows = Vec::with_capacity(4);
     if matches!(day.weekday(), Weekday::Saturday | Weekday::Sunday) {
         windows.push(window(day, random, 10.5, 2.0, (6, 14)));
@@ -295,7 +295,7 @@ fn listening_windows(day: &Zoned, random: &mut Draw) -> Vec<Window> {
 /// A session starting near `hour` on `day`, `hours` long, of between `songs.0` and
 /// `songs.1` songs.
 fn window(
-    day: &Zoned,
+    day: &ZonedDateTime,
     random: &mut Draw,
     hour: f64,
     hours: f64,
@@ -440,13 +440,13 @@ mod tests {
             .map(|p| {
                 Timestamp::from_millisecond(p.played_at_ms)
                     .expect("time")
-                    .to_zoned(zone.clone())
+                    .to_zoned_datetime(zone.clone())
                     .date()
             })
             .collect();
         let today = Timestamp::from_millisecond(NOW)
             .expect("time")
-            .to_zoned(zone)
+            .to_zoned_datetime(zone)
             .date();
         for offset in 0..14 {
             let day = today.checked_sub(offset.days()).expect("day");

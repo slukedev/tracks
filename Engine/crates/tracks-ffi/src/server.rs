@@ -95,7 +95,13 @@ pub struct ArtistStart {
 /// The artists picks start from: what you play leads, picked artists keep a place, and your
 /// library fills the rest.
 #[uniffi::export]
-pub fn server_seeds(picked: Vec<String>, played: Vec<String>, library: Vec<String>, limit: u32, rotation: u64) -> Vec<String> {
+pub fn server_seeds(
+    picked: Vec<String>,
+    played: Vec<String>,
+    library: Vec<String>,
+    limit: u32,
+    rotation: u64,
+) -> Vec<String> {
     core::seeds(&picked, &played, &library, limit as usize, rotation)
 }
 
@@ -127,7 +133,11 @@ pub fn server_wanted(showing: u32, per_column: u32) -> u32 {
 /// Picks kept from last time; None if they can't be read.
 #[uniffi::export]
 pub fn server_for_you_from_json(json: String) -> Option<Arc<ServerForYou>> {
-    core::ForYou::from_json(&json).map(|state| Arc::new(ServerForYou { inner: Mutex::new(state) }))
+    core::ForYou::from_json(&json).map(|state| {
+        Arc::new(ServerForYou {
+            inner: Mutex::new(state),
+        })
+    })
 }
 
 /// One server's walk through the artists you play and ones like them.
@@ -138,7 +148,9 @@ pub struct ServerForYou {
 
 impl ServerForYou {
     fn state(&self) -> MutexGuard<'_, core::ForYou> {
-        self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -214,6 +226,7 @@ impl ServerForYou {
     }
 
     pub fn place(&self, list: ForYouShelf, found: Vec<FoundSong>) {
-        self.state().place(list.into(), found.into_iter().map(Into::into).collect());
+        self.state()
+            .place(list.into(), found.into_iter().map(Into::into).collect());
     }
 }

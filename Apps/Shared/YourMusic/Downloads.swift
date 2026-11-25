@@ -79,6 +79,12 @@ final class Downloads {
     }
 
     @ObservationIgnored private var pending: [String: Pending] = [:]
+    /// Where each download that broke off got to, so trying again picks up there (the system
+    /// asks for the rest with `Range` and `If-Range`) rather than starting over. Kept in
+    /// memory only: it holds the request, credentials and all.
+    @ObservationIgnored private var resumable: [String: (data: Data, bitRate: Int?)] = [:]
+    /// How often each download has picked up again on its own after the connection dropped.
+    @ObservationIgnored private var resumes: [String: Int] = [:]
     /// Attempts stopped on purpose, whose cancellation isn't a failure.
     @ObservationIgnored private var stoppedAttempts: Set<String> = []
     @ObservationIgnored private lazy var session: URLSession = {
@@ -174,7 +180,12 @@ final class Downloads {
             request.allowsCellularAccess = allowsCellular
             request.allowsExpensiveNetworkAccess = allowsCellular
             let attempt = UUID().uuidString
-            let task = session.downloadTask(with: request)
+            let task: URLSessionDownloadTask
+            if let partial = resumable.removeValue(forKey: track.id), partial.bitRate == bitRate {
+                task = session.downloadTask(withResumeData: partial.data)
+            } else {
+                task = session.downloadTask(with: request)
+            }
             task.taskDescription = Self.describe(trackID: track.id, attempt: attempt)
             // Trackside makes its copies in AAC at its own rates, so that's what was asked for.
             let requested = servers.isTrackside(serverID) ? MusicServers.tracksideBitRate(for: bitRate) : bitRate
@@ -256,6 +267,7 @@ final class Downloads {
     }
 
     func retryFailed() {
+        resumes = [:]
         let tracks = failures.keys.compactMap { id in pending[id]?.track ?? catalogTrack(id) }
         failures = [:]
         start(tracks)
@@ -283,7 +295,7 @@ final class Downloads {
     /// When each download's progress last changed, for the limit above.
     @ObservationIgnored private var shownAt: [String: ContinuousClock.Instant] = [:]
 
-    fileprivate func didFinish(_ trackID: String, attempt: String, fileName: String?, bytes: Int64, outcome: Outcome) {
+    fileprivate func didFinish(_ trackID: String, attempt: String, fileName: String?, bytes: Int64, outcome: Outcome, resumeData: Data? = nil, droppedConnection: Bool = false) {
         let current = pending[trackID]
         // Stopped on purpose, or a newer attempt at the same song is under way: this one's
         // word is stale, and the file it landed isn't wanted.
@@ -300,6 +312,8 @@ final class Downloads {
         Self.save(pending, to: Self.pendingURL)
         switch outcome {
         case .finished:
+            resumes[trackID] = nil
+            resumable[trackID] = nil
             // After a relaunch the attempt may be gone from memory; the library still knows the song.
             guard let fileName else { return }
             guard let track = current?.track ?? catalogTrack(trackID) else {
@@ -314,6 +328,22 @@ final class Downloads {
             onDownloaded?(track)
             readFormat(of: trackID, fileName: fileName)
         case .failed(let reason):
+            if let resumeData {
+                resumable[trackID] = (resumeData, current?.requestedBitRate)
+            }
+            // A connection that dropped mid-song, on a train say, picks up again on its own a
+            // few times, a little later each time, before it's shown as failed.
+            let tries = resumes[trackID, default: 0]
+            if droppedConnection, resumeData != nil, tries < 3, let track = current?.track {
+                resumes[trackID] = tries + 1
+                progress[trackID] = 0
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(2 << tries))
+                    guard let self, self.progress[trackID] != nil, self.pending[trackID] == nil else { return }
+                    await self.start(claimed: [track])
+                }
+                return
+            }
             failures[trackID] = reason
         }
     }
@@ -477,7 +507,7 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
             let bytes = (try? manager.attributesOfItem(atPath: destination.path(percentEncoded: false))[.size] as? Int64) ?? 0
             Task { @MainActor in self.owner?.didFinish(id, attempt: attempt, fileName: name, bytes: bytes, outcome: .finished) }
         } catch {
-            Self.log.error("Couldn't keep a download: \(error, privacy: .public)")
+            Self.log.error("Couldn't keep a download: \(URLRedaction.describe(error), privacy: .public)")
             let reason = Downloads.failureReason(for: error)
             Task { @MainActor in self.owner?.didFinish(id, attempt: attempt, fileName: nil, bytes: 0, outcome: .failed(reason)) }
         }
@@ -488,12 +518,15 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
         guard let error, let (id, attempt) = Downloads.parse(task.taskDescription) else { return }
         // A cancel Tracks didn't ask for (the app was quit, say) is a failure, to try again; one it
         // did ask for is ignored by the owner, which knows the attempt was stopped.
-        Self.log.error("A download failed: \(error, privacy: .public)")
-        let reason = (error as? URLError)?.code == .cancelled
+        Self.log.error("A download failed: \(URLRedaction.describe(error), privacy: .public)")
+        let code = (error as? URLError)?.code
+        let reason = code == .cancelled
             ? String(localized: "Stopped before it finished.")
             : Downloads.failureReason(for: error)
+        let resumeData = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data
+        let dropped = code == .networkConnectionLost || code == .timedOut || code == .notConnectedToInternet
         Task { @MainActor in
-            self.owner?.didFinish(id, attempt: attempt, fileName: nil, bytes: 0, outcome: .failed(reason))
+            self.owner?.didFinish(id, attempt: attempt, fileName: nil, bytes: 0, outcome: .failed(reason), resumeData: resumeData, droppedConnection: dropped)
         }
     }
 

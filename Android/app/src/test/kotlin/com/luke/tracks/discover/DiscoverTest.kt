@@ -168,7 +168,7 @@ class LidarrServiceTest {
 
 class OctoServiceTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-    private val server = SubsonicServer("s1", "Octo at home", "http://octo.local:4533", "luke", "salt", "sealed")
+    private val server = SubsonicServer("s1", "Octo at home", "http://octo.local:4533", "luke", "sealed")
 
     @After fun tearDown() = scope.cancel()
 

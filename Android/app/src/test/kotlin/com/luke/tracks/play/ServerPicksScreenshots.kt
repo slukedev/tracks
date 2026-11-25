@@ -38,7 +38,7 @@ class FakeServerPicks(
 ) : ServerPicks {
     enum class Shape { Loaded, Loading, FoundNothing }
 
-    val server = SubsonicServer("s1", "Octo at home", "http://192.168.1.20:4533", "luke", "salt")
+    val server = SubsonicServer("s1", "Octo at home", "http://192.168.1.20:4533", "luke")
 
     private fun found(title: String, artist: String, album: String?, id: String) =
         FoundSong(id, songIdentity(title, artist), title, artist, album, null, 240_000uL)

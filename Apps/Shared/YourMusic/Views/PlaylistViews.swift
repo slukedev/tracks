@@ -894,7 +894,7 @@ struct AddSongsSheet: View {
                 }
             }
             .listStyle(.plain)
-            .searchable(text: $query, placement: .pageSearch(), prompt: "Your Music")
+            .searchable(text: $query, placement: .pageSearch(), prompt: "Your Library")
             .navigationTitle("Add Songs")
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
@@ -906,7 +906,7 @@ struct AddSongsSheet: View {
         #else
         CollectionSheetLayout(title: String(localized: "Add Songs"), subtitle: subtitle) {
             VStack(spacing: 10) {
-                CollectionSheetSearchField(prompt: "Search Your Music", text: $query)
+                CollectionSheetSearchField(prompt: "Search Your Library", text: $query)
                     .focused($isSearching)
                     .padding(.horizontal, 20)
                 List {

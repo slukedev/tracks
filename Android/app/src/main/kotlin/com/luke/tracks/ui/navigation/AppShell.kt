@@ -32,12 +32,12 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.PlayCircle
-import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -53,11 +53,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
-import com.luke.tracks.ui.charts.ChartsScreen
+import androidx.window.core.layout.WindowSizeClass
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import com.luke.tracks.ui.history.HistoryTab
+import com.luke.tracks.ui.sources.rememberSources
 import com.luke.tracks.ui.detail.AlbumScreen
 import com.luke.tracks.ui.detail.ArtistScreen
 import com.luke.tracks.ui.detail.SongScreen
-import com.luke.tracks.ui.history.HistoryScreen
 import com.luke.tracks.ui.library.LibraryAlbumScreen
 import com.luke.tracks.ui.library.LibraryArtistScreen
 import com.luke.tracks.ui.library.LibraryScreen
@@ -84,25 +87,27 @@ private data class TabItem(val tab: Tab, val label: String, val selected: ImageV
 
 private val tabs = listOf(
     TabItem(Tab.Play, "Play", Icons.Rounded.PlayCircle, Icons.Outlined.PlayCircle),
+    TabItem(Tab.Library, "Library", Icons.Rounded.LibraryMusic, Icons.Outlined.LibraryMusic),
     TabItem(Tab.Summary, "Summary", Icons.Rounded.Insights, Icons.Outlined.Insights),
-    TabItem(Tab.Charts, "Charts", Icons.Rounded.BarChart, Icons.Outlined.BarChart),
     TabItem(Tab.History, "History", Icons.Rounded.History, Icons.Outlined.History),
-    TabItem(Tab.Library, "Your Music", Icons.Rounded.LibraryMusic, Icons.Outlined.LibraryMusic),
+    TabItem(Tab.Search, "Search", Icons.Rounded.Search, Icons.Outlined.Search),
 )
 
 /**
- * The app's frame: a navigation bar on phones and a rail on wider screens (Material's
- * adaptive navigation suite), each tab's own back stack with predictive back, the mini player
- * above the bar, and the full player over everything.
+ * The app's frame: Material's adaptive navigation suite (the short bar on phones, the rail on
+ * mid-size windows and unfolded foldables, the expanded rail with labels beside the icons on
+ * tablets), each tab's own back stack with predictive back, the mini player above the bar,
+ * the player's one quiet message when it skips songs, and the full player over everything.
  */
 @Composable
 fun AppShell(navigator: Navigator) {
-    // The shorter Material 3 Expressive bar on phones, the wide rail on bigger screens.
     val adaptive = currentWindowAdaptiveInfo()
-    val layoutType = when (val standard = NavigationSuiteScaffoldDefaults.navigationSuiteType(adaptive)) {
-        NavigationSuiteType.NavigationBar -> NavigationSuiteType.ShortNavigationBarCompact
-        NavigationSuiteType.NavigationRail -> NavigationSuiteType.WideNavigationRailCollapsed
-        else -> standard
+    val width = adaptive.windowSizeClass
+    val layoutType = when {
+        NavigationSuiteScaffoldDefaults.navigationSuiteType(adaptive) == NavigationSuiteType.None -> NavigationSuiteType.None
+        width.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND) -> NavigationSuiteType.WideNavigationRailExpanded
+        width.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND) -> NavigationSuiteType.WideNavigationRailCollapsed
+        else -> NavigationSuiteType.ShortNavigationBarCompact
     }
     val isBar = layoutType == NavigationSuiteType.ShortNavigationBarCompact ||
         layoutType == NavigationSuiteType.ShortNavigationBarMedium
@@ -136,6 +141,18 @@ fun AppShell(navigator: Navigator) {
     val gestureInset by animateDpAsState(if (barHidden && isBar) systemBottom else 0.dp, label = "gesture")
     val clearance = (if (playing) MiniPlayerRoom else 24.dp) + gestureInset
 
+    // Songs the player passed over because their source couldn't play them: one quiet line.
+    val skips = remember { SnackbarHostState() }
+    val sources = rememberSources()
+    LaunchedEffect(sources) {
+        sources.skips.collect { skipped ->
+            // Now Playing says it itself while it's open.
+            if (navigator.nowPlayingOpen) return@collect
+            skips.currentSnackbarData?.dismiss()
+            skips.showSnackbar(listOfNotNull(skipped.message, skipped.reason).joinToString("\n"))
+        }
+    }
+
     SharedTransitionLayout {
     CompositionLocalProvider(LocalNavigator provides navigator, LocalSharedTransitionScope provides this) {
         Box(Modifier.fillMaxSize()) {
@@ -166,14 +183,15 @@ fun AppShell(navigator: Navigator) {
                         entryProvider = entryProvider {
                             entry<PlayRoute> { PlayScreen() }
                             entry<SummaryRoute> { SummaryScreen() }
-                            entry<ChartsRoute> { ChartsScreen() }
-                            entry<HistoryRoute> { HistoryScreen() }
+                            entry<ChartsRoute> { HistoryTab() }
+                            entry<HistoryRoute> { HistoryTab() }
                             entry<LibraryRoute> { LibraryScreen() }
                             entry<ArtistRoute> { ArtistScreen(it.identity, it.name) }
                             entry<AlbumRoute> { AlbumScreen(it.identity, it.title, it.artistName) }
                             entry<SongRoute> { SongScreen(it.identity, it.title, it.artistName) }
                             entry<MixRoute> { MixScreen(it.mixId) }
                             entry<SearchRoute> { SearchScreen() }
+                            entry<SpotifyLibraryRoute> { com.luke.tracks.spotify.Spotify.integration?.Library(onBack = { navigator.back() }) }
                             entry<SettingsRoute> { SettingsScreen() }
                             entry<SettingsPageRoute> { SettingsPageScreen(it.page) }
                             entry<LibraryAlbumRoute> { LibraryAlbumScreen(it.albumId) }
@@ -190,6 +208,12 @@ fun AppShell(navigator: Navigator) {
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = gestureInset),
+                    )
+                    SnackbarHost(
+                        skips,
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = clearance - 8.dp),
                     )
                 }
             }

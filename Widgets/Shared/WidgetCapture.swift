@@ -12,6 +12,8 @@ struct WidgetCapture: Identifiable, Sendable, Hashable {
     let artistName: String
     let capturedAt: Date
     let artwork: Data?
+    /// Where it played from: Spotify's plays carry its mark.
+    var source: PlaySource = .appleMusic
     /// Only worked out for a song shown on its own, over its colour.
     var coverColor: CoverColor?
 
@@ -21,6 +23,7 @@ struct WidgetCapture: Identifiable, Sendable, Hashable {
         self.artistName = snapshot.artistName
         self.capturedAt = snapshot.capturedAt
         self.artwork = artwork
+        self.source = snapshot.source
     }
 
     init(id: String, title: String, artistName: String, capturedAt: Date, artwork: Data? = nil) {

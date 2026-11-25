@@ -23,6 +23,9 @@ class Navigator(start: Tab = Tab.Play) {
         Tab.entries.forEach { put(it, listOf(it.root()).toMutableStateList()) }
     }
 
+    /** Plays or Charts, on the History tab. */
+    var historyMode by mutableStateOf(HistoryMode.Plays)
+
     /** Whether the full-screen player is showing. */
     var nowPlayingOpen by mutableStateOf(false)
 
@@ -42,6 +45,11 @@ class Navigator(start: Tab = Tab.Play) {
 
     fun open(route: Route) {
         nowPlayingOpen = false
+        if (route == ChartsRoute || route == HistoryRoute) {
+            historyMode = if (route == ChartsRoute) HistoryMode.Charts else HistoryMode.Plays
+            select(Tab.History)
+            return
+        }
         val tabRoot = Tab.entries.firstOrNull { it.root() == route }
         if (tabRoot != null) select(tabRoot) else backStack.add(route)
     }

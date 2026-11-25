@@ -33,7 +33,7 @@ struct MacRootView: View {
                     model: model,
                     opening: openingTab,
                     library: SidebarItem.library(for: model.musicSource, hasLidarr: model.lidarr.isSetUp),
-                    libraryTitle: model.musicSource == .yourMusic ? "Your Music" : "Library"
+                    libraryTitle: "Library"
                 )
                 .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 280)
             } detail: {
@@ -135,8 +135,12 @@ struct MacRootView: View {
             .onAppear { MacAppDelegate.openWindow = openWindow }
             .task { await model.playFeed.followSubscription() }
             .task { await model.lidarr.check() }
-            .task(id: model.musicSource) {
-                if model.musicSource == .yourMusic { model.prepareYourMusic() }
+            // Read once whatever the filter: Sources and Library list this Mac's songs.
+            .task { model.prepareYourMusic() }
+            // A source added or gone: Listen Now stays on one that has music.
+            .onChange(of: model.playableSources) {
+                model.followSources()
+                if !model.isDemoLaunch { TracksShortcuts.updateAppShortcutParameters() }
             }
             .modifier(FeedBuilt(model: model))
             .onPlayingChange(of: model.player) { model.tellNearby() }
@@ -192,7 +196,7 @@ struct MacRootView: View {
            !SidebarItem.library(for: source, hasLidarr: model.lidarr.isSetUp).contains(selection) {
             model.sidebarSelection = .listenNow
         }
-        if source == .yourMusic { model.prepareYourMusic() }
+        model.prepareYourMusic()
     }
 
     private var isShowingFullPlayer: Bool {
@@ -397,7 +401,7 @@ private struct FeedBuilt: ViewModifier {
 
     func body(content: Content) -> some View {
         content.onChange(of: model.playFeed.builtRevision) {
-            if model.musicSource == .yourMusic { model.prepareYourMusic() }
+            model.prepareYourMusic()
             LaunchScene.startDemoPlayback(model)
             LaunchScene.openMix(model)
         }
@@ -454,7 +458,7 @@ private struct SidebarPreview: View {
                 model: model,
                 opening: opening,
                 library: SidebarItem.library(for: source, hasLidarr: true),
-                libraryTitle: source == .yourMusic ? "Your Music" : "Library"
+                libraryTitle: "Library"
             )
             .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 280)
         } detail: {

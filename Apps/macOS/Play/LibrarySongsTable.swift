@@ -303,11 +303,11 @@ struct LibraryYourSongsTablePage: View {
         VStack(spacing: 0) {
             LibraryPageHeader(
                 title: String(localized: "Songs"),
-                subtitle: music.index.isEmpty ? nil : String(AttributedString(localized: "^[\(music.index.tracks.count) song](inflect: true)").characters),
+                subtitle: music.shown.isEmpty ? nil : String(AttributedString(localized: "^[\(music.shown.tracks.count) song](inflect: true)").characters),
                 play: rows.isEmpty ? nil : { play(from: nil, rows: rows, byID: byID) },
                 shuffle: rows.isEmpty ? nil : { player.play(.local(queue(rows, byID)), from: context, shuffled: true) }
             )
-            if music.index.isEmpty {
+            if music.shown.isEmpty {
                 if music.hasScanned || !music.servers.servers.isEmpty {
                     LibraryEmptyYourMusic(title: String(localized: "No Songs Yet"))
                 } else {
@@ -361,7 +361,7 @@ struct LibraryYourSongsTablePage: View {
                 guard !Task.isCancelled else { return }
             }
             let made = await YourSongsRows.make(
-                index: music.index,
+                index: music.shown,
                 revision: key.index,
                 query: key.query,
                 order: key.order,
@@ -382,7 +382,7 @@ struct LibraryYourSongsTablePage: View {
         YourSongsRows.Key(
             query: query,
             order: order,
-            index: music.indexRevision,
+            index: music.shownRevision,
             facts: feed.builtRevision,
             playability: YourSongsRows.Playability(music: music)
         )

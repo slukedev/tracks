@@ -33,8 +33,8 @@ enum HistoryFilter: String, CaseIterable, Identifiable {
     /// The lists used to query every play and filter and sort them in `body`. Sorting a
     /// hundred and fifty thousand plays by title took five seconds on the main actor.
     ///
-    /// - Parameter source: Apple Music or Your Music only, when the person has asked to see
-    ///   them apart. A play with no source is Apple Music's.
+    /// - Parameter source: one source only, when the person has asked to see them apart. A
+    ///   play with no source is Apple Music's.
     func descriptor(
         sortBy: [SortDescriptor<Capture>] = [SortDescriptor(\.capturedAt, order: .reverse)],
         in interval: DateInterval? = nil,
@@ -44,7 +44,13 @@ enum HistoryFilter: String, CaseIterable, Identifiable {
         let kind = self.kind?.rawValue
         let start = interval?.start ?? .distantPast
         let end = interval?.end ?? .distantFuture
-        let yourMusic: String? = PlaySource.yourMusic.rawValue
+        let appleMusic: String? = PlaySource.appleMusic.rawValue
+        let unmarked: String? = ""
+        let single: String? = switch source {
+        case .yourMusic: PlaySource.yourMusic.rawValue
+        case .spotify: PlaySource.spotify.rawValue
+        case .all, .appleMusic: nil
+        }
         var descriptor = FetchDescriptor<Capture>(sortBy: sortBy)
         // One predicate per shape rather than one with switches in it, so the store can use
         // the kind and date index for the lists that don't ask about the source.
@@ -53,28 +59,28 @@ enum HistoryFilter: String, CaseIterable, Identifiable {
             descriptor.predicate = #Predicate {
                 $0.kindRawValue == kind && $0.capturedAt >= start && $0.capturedAt < end
             }
-        case (let kind?, .yourMusic):
-            descriptor.predicate = #Predicate {
-                $0.kindRawValue == kind && $0.capturedAt >= start && $0.capturedAt < end
-                    && $0.sourceRawValue == yourMusic
-            }
         case (let kind?, .appleMusic):
             descriptor.predicate = #Predicate {
                 $0.kindRawValue == kind && $0.capturedAt >= start && $0.capturedAt < end
-                    && ($0.sourceRawValue == nil || $0.sourceRawValue != yourMusic)
+                    && ($0.sourceRawValue == nil || $0.sourceRawValue == appleMusic || $0.sourceRawValue == unmarked)
+            }
+        case (let kind?, .yourMusic), (let kind?, .spotify):
+            descriptor.predicate = #Predicate {
+                $0.kindRawValue == kind && $0.capturedAt >= start && $0.capturedAt < end
+                    && $0.sourceRawValue == single
             }
         case (nil, .all):
             if interval != nil {
                 descriptor.predicate = #Predicate { $0.capturedAt >= start && $0.capturedAt < end }
             }
-        case (nil, .yourMusic):
-            descriptor.predicate = #Predicate {
-                $0.capturedAt >= start && $0.capturedAt < end && $0.sourceRawValue == yourMusic
-            }
         case (nil, .appleMusic):
             descriptor.predicate = #Predicate {
                 $0.capturedAt >= start && $0.capturedAt < end
-                    && ($0.sourceRawValue == nil || $0.sourceRawValue != yourMusic)
+                    && ($0.sourceRawValue == nil || $0.sourceRawValue == appleMusic || $0.sourceRawValue == unmarked)
+            }
+        case (nil, .yourMusic), (nil, .spotify):
+            descriptor.predicate = #Predicate {
+                $0.capturedAt >= start && $0.capturedAt < end && $0.sourceRawValue == single
             }
         }
         descriptor.fetchLimit = limit

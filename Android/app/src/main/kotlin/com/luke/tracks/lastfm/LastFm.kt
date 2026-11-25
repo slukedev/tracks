@@ -1,5 +1,6 @@
 package com.luke.tracks.lastfm
 
+import kotlinx.coroutines.flow.flatMapLatest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -105,8 +106,27 @@ class LastFm internal constructor(private val context: Context, private val grap
     private var connecting: Job? = null
     private val poke = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
+    private val spotifyPrefs = context.getSharedPreferences("lastfm_spotify", Context.MODE_PRIVATE)
+    private val _scrobbleSpotify = MutableStateFlow(BuildConfig.SPOTIFY && spotifyPrefs.getBoolean("scrobbleSpotify", false))
+
+    /**
+     * Whether plays from Spotify go to Last.fm too. Off by default, since Spotify scrobbles
+     * them itself for anyone who linked it; only builds with Spotify offer it.
+     */
+    val scrobbleSpotify: StateFlow<Boolean> = _scrobbleSpotify.asStateFlow()
+
+    fun setScrobbleSpotify(on: Boolean) {
+        if (!BuildConfig.SPOTIFY) return
+        _scrobbleSpotify.value = on
+        spotifyPrefs.edit().putBoolean("scrobbleSpotify", on).apply()
+        if (on) ScrobbleWorker.enqueue(context)
+    }
+
     /** Plays still to go to Last.fm. */
-    fun owedCount(): Flow<Int> = graph.history.database.plays().owedScrobbleCount(owedSince())
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun owedCount(): Flow<Int> = scrobbleSpotify.flatMapLatest { spotify ->
+        graph.history.database.plays().owedScrobbleCount(owedSince(), spotify)
+    }
 
     /** Starts connecting: asks for a token and opens Last.fm's approval page. */
     fun connect(activity: Context) {
@@ -179,7 +199,7 @@ class LastFm internal constructor(private val context: Context, private val grap
         val session = session() ?: return null
         val dao = graph.history.database.plays()
         val queue = object : ScrobbleQueue {
-            override suspend fun owed(limit: Int) = dao.owedScrobbles(owedSince(), limit)
+            override suspend fun owed(limit: Int) = dao.owedScrobbles(owedSince(), limit, scrobbleSpotify.value)
             override suspend fun markScrobbled(ids: List<String>, at: Long) = dao.markScrobbled(ids, at)
             override suspend fun markFailed(id: String, reason: String) = dao.markScrobbleFailed(id, reason)
             override suspend fun noteAttempt(ids: List<String>) = dao.noteScrobbleAttempt(ids)
@@ -223,6 +243,8 @@ class LastFm internal constructor(private val context: Context, private val grap
                     graph.history.database.plays().all()
                         .groupBy({ importKey(it.title, it.artistName) }, { it.playedAt / 1000 })
                 }
+                // Songs forgotten on another device stay out, as far back as they were forgotten.
+                val forgotten = graph.history.forgottenSongs()
                 var before: Long? = null
                 var added = 0
                 var page = 1L
@@ -231,10 +253,11 @@ class LastFm internal constructor(private val context: Context, private val grap
                     if (result.scrobbles.isEmpty()) break
                     val plays = result.scrobbles.filter { track ->
                         known[importKey(track.title, track.artistName)].orEmpty()
-                            .none { kotlin.math.abs(it - track.playedAt) < SAME_PLAY_SECONDS }
+                            .none { kotlin.math.abs(it - track.playedAt) < SAME_PLAY_SECONDS } &&
+                            forgotten[uniffi.tracks_engine.songIdentity(track.title, track.artistName)]?.let { track.playedAt * 1000 <= it } != true
                     }.map { track ->
                         PlayEntity(
-                            id = "lastfm-${track.playedAt}-${importHash(importKey(track.title, track.artistName))}",
+                            id = com.luke.tracks.data.PlayIds.lastFm(track.playedAt, track.title, track.artistName),
                             title = track.title,
                             artistName = track.artistName,
                             albumTitle = track.albumTitle,
@@ -288,7 +311,7 @@ class LastFm internal constructor(private val context: Context, private val grap
         fun owedSince(now: Long = System.currentTimeMillis()): Long = now - 14 * 24 * 3600_000L + 3600_000L
 
         private val http by lazy {
-            OkHttpClient.Builder()
+            com.luke.tracks.net.Http.api.newBuilder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build()
@@ -341,7 +364,3 @@ private fun importKey(title: String, artist: String): String =
     (title.trim() + "\u0000" + artist.trim()).lowercase(java.util.Locale.ROOT).replace(spaces, " ")
 
 private val spaces = Regex("\\s+")
-
-/** A short stable id for an imported scrobble. */
-private fun importHash(text: String): String =
-    java.security.MessageDigest.getInstance("SHA-1").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }.take(24)

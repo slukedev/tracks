@@ -11,3 +11,8 @@ secrets.properties
 app/engine-bindings/
 app/src/test/resources/linux-*/
 app/src/test/resources/darwin-*/
+# Signing keys.
+*.jks
+*.keystore
+# Apple's MusicKit for Android AARs: from Apple's developer downloads, never committed.
+app/libs/apple-musickit/

@@ -73,6 +73,11 @@ public final class Capture {
     /// it existed migrates without a stage of its own.
     public var sourceRawValue: String?
 
+    /// The play's lasting id, the same on every device and server that knows it (see
+    /// ``PlayID``). Nil only for plays kept before ids existed, until they're given one.
+    /// Optional so CloudKit takes it as an additive change.
+    public var playID: String?
+
     @Relationship(inverse: \Session.captures)
     public var session: Session?
 
@@ -88,7 +93,8 @@ public final class Capture {
         platform: CapturePlatform = .current,
         deviceID: String = DeviceIdentity.current,
         source: PlaySource? = nil,
-        session: Session? = nil
+        session: Session? = nil,
+        playID: String? = nil
     ) {
         self.songID = songID
         self.songKey = songKey ?? songID
@@ -101,6 +107,7 @@ public final class Capture {
         self.platformRawValue = platform.rawValue
         self.capturedByDeviceID = deviceID
         self.sourceRawValue = source?.rawValue
+        self.playID = PlayID.normalized(playID) ?? PlayID.make()
         // Only radio captures are ever written to the playlist.
         self.needsPlaylistWrite = (kind == .radio)
         self.session = session

@@ -95,6 +95,8 @@ struct CollectionHeader<Cover: View, More: View>: View {
     var note: String?
     /// How a Your Music album is encoded.
     var format: AudioFormat?
+    /// The sources that have it, with every source on and more than one has it.
+    var sources: [SourceID] = []
     /// The cover the page takes its colour from.
     let tintCover: CoverArt?
     var canPlay = true
@@ -224,11 +226,16 @@ struct CollectionHeader<Cover: View, More: View>: View {
                     .accessibilityAddTraits(.isHeader)
                 subtitleView
                     .padding(.top, Design.Spacing.xxSmall)
-                if let facts {
-                    facts
-                        .font(.footnote)
-                        .foregroundStyle(ink.secondary)
-                        .padding(.top, Design.Spacing.xSmall)
+                if facts != nil || sources.count > 1 {
+                    HStack(spacing: Design.Spacing.small) {
+                        facts
+                        if sources.count > 1 {
+                            SourceGlyphRow(sources: sources)
+                        }
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(ink.secondary)
+                    .padding(.top, Design.Spacing.xSmall)
                 }
                 if let format {
                     FormatBadge(format: format, showsDetail: true)
@@ -348,12 +355,17 @@ struct CollectionHeader<Cover: View, More: View>: View {
                         CollectionSubtitleLink(title: subtitle, open: onSubtitle)
                             .padding(.top, 3)
                     }
-                    if let facts {
-                        facts
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .padding(.top, 10)
+                    if facts != nil || sources.count > 1 {
+                        HStack(spacing: Design.Spacing.small) {
+                            facts
+                                .lineLimit(1)
+                            if sources.count > 1 {
+                                SourceGlyphRow(sources: sources)
+                            }
+                        }
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 10)
                     }
                     if let format {
                         FormatBadge(format: format, onDark: false, showsDetail: true)

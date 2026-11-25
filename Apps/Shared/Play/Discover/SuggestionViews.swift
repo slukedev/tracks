@@ -50,6 +50,7 @@ extension ShelfHeader where Trailing == EmptyView {
 
 /// A suggested song in a list: its cover, name and artist, why it's here, and a way to keep it.
 struct SuggestionRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let suggestion: Suggestion
     var showsReason = true
     let play: () -> Void
@@ -150,7 +151,7 @@ struct SuggestionRow: View {
             withAnimation(PlayMotion.hover) { isHovered = hovering }
         }
         #endif
-        .animation(.snappy, value: isBlocked)
+        .animation(Design.Motion.reduced(Design.Motion.value, reduceMotion: reduceMotion), value: isBlocked)
         // Looked up again whenever answers may have changed, keeping the last one meanwhile.
         .task(id: "\(suggestion.id.rawValue).\(music.availabilityGeneration)") {
             guard model.musicSource == .yourMusic else { return }
@@ -495,6 +496,7 @@ struct SuggestedSongsSection: View {
 
 /// Keep Exploring, at the very end of Play: suggested songs for as long as you scroll.
 struct KeepExploringSection: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Whether the Suggested Songs shelf is above, which this carries on from.
     var followsShelf = true
     @Environment(Discovery.self) private var discovery
@@ -557,7 +559,7 @@ struct KeepExploringSection: View {
                     await discovery.expand()
                 }
             }
-            .animation(.snappy, value: songs.count)
+            .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: songs.count)
         }
     }
 }

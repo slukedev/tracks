@@ -21,6 +21,8 @@ mod library;
 mod mixes;
 mod radio;
 mod server;
+#[cfg(feature = "spotify")]
+mod spotify;
 
 /// Something the engine couldn't do.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -79,10 +81,14 @@ impl From<tracks_model::PlayKind> for PlayKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+/// Where a play's music came from. `Unknown` is a source a newer build stored; it keeps that
+/// value so it syncs back unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, uniffi::Enum)]
 pub enum PlaySource {
     AppleMusic,
     YourMusic,
+    Spotify,
+    Unknown { stored: String },
 }
 
 impl From<PlaySource> for tracks_model::PlaySource {
@@ -90,8 +96,34 @@ impl From<PlaySource> for tracks_model::PlaySource {
         match source {
             PlaySource::AppleMusic => Self::AppleMusic,
             PlaySource::YourMusic => Self::YourMusic,
+            PlaySource::Spotify => Self::Spotify,
+            PlaySource::Unknown { stored } => Self::from_stored(Some(&stored)),
         }
     }
+}
+
+impl From<tracks_model::PlaySource> for PlaySource {
+    fn from(source: tracks_model::PlaySource) -> Self {
+        match source {
+            tracks_model::PlaySource::AppleMusic => Self::AppleMusic,
+            tracks_model::PlaySource::YourMusic => Self::YourMusic,
+            tracks_model::PlaySource::Spotify => Self::Spotify,
+            tracks_model::PlaySource::Unknown(stored) => Self::Unknown { stored },
+        }
+    }
+}
+
+/// Reads the value a host stored for a play's source: nothing is Apple Music, and a value this
+/// build doesn't know comes back as `Unknown` with it intact.
+#[uniffi::export]
+pub fn play_source_from_stored(stored: Option<String>) -> PlaySource {
+    tracks_model::PlaySource::from_stored(stored.as_deref()).into()
+}
+
+/// The value to store for a play's source.
+#[uniffi::export]
+pub fn play_source_stored_value(source: PlaySource) -> String {
+    tracks_model::PlaySource::from(source).as_str().to_owned()
 }
 
 /// One play as the host has it.
@@ -169,6 +201,7 @@ pub enum SourceFilter {
     All,
     AppleMusic,
     YourMusic,
+    Spotify,
 }
 
 impl From<SourceFilter> for tracks_store::SourceFilter {
@@ -177,6 +210,7 @@ impl From<SourceFilter> for tracks_store::SourceFilter {
             SourceFilter::All => Self::All,
             SourceFilter::AppleMusic => Self::AppleMusic,
             SourceFilter::YourMusic => Self::YourMusic,
+            SourceFilter::Spotify => Self::Spotify,
         }
     }
 }
@@ -652,4 +686,40 @@ pub fn credits(artist: String, title: String) -> Vec<Credit> {
 #[uniffi::export]
 pub fn engine_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn play_sources_round_trip_through_their_stored_values() {
+        for source in [
+            PlaySource::AppleMusic,
+            PlaySource::YourMusic,
+            PlaySource::Spotify,
+            PlaySource::Unknown {
+                stored: "vinyl".into(),
+            },
+        ] {
+            let stored = play_source_stored_value(source.clone());
+            assert_eq!(play_source_from_stored(Some(stored)), source);
+        }
+    }
+
+    #[test]
+    fn a_missing_play_source_is_apple_music() {
+        assert_eq!(play_source_from_stored(None), PlaySource::AppleMusic);
+    }
+
+    #[test]
+    fn an_unknown_source_that_names_a_known_one_reads_as_it() {
+        let source = PlaySource::Unknown {
+            stored: "spotify".into(),
+        };
+        assert_eq!(
+            tracks_model::PlaySource::from(source),
+            tracks_model::PlaySource::Spotify
+        );
+    }
 }

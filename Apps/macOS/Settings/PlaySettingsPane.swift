@@ -2,10 +2,10 @@ import SwiftUI
 import AppKit
 import TracksCore
 
-/// The Mac's Play pane: where Listen Now's music comes from, Tracks Radio, where Tracks opens,
+/// The Mac's Play pane: downloads and streaming, Tracks Radio, where Tracks opens,
 /// explicit songs, Listen Now's sections and the memory behind the mixes. Only what applies on
 /// a Mac: no Shake to Play or Offline Mode, no cellular streaming, and no song transitions,
-/// since neither MusicKit's player nor Your Music's crossfades on the Mac.
+/// since none of Tracks’ players crossfades on the Mac.
 struct PlaySettingsPane: View {
     @AppStorage(OpeningTab.storageKey) private var openingTab: OpeningTab = .standard
     @AppStorage(PlayPreferences.allowsExplicitKey) private var allowsExplicit = true
@@ -21,7 +21,6 @@ struct PlaySettingsPane: View {
     @AppStorage(StreamQuality.downloadKey) private var downloadQuality = StreamQuality.original
     @AppStorage(PlayPreferences.radioDownloadsFirstKey) private var radioDownloadsFirst = true
     @AppStorage(PlayPreferences.radioDeletesAfterPlayingKey) private var radioDeletesAfterPlaying = false
-    @AppStorage(QuickSwitch.storageKey) private var quickSwitch = false
     @AppStorage(SuggestionMode.storageKey) private var suggestionMode = SuggestionMode.everything
     @Environment(AppModel.self) private var model
     @Environment(YourMusic.self) private var music
@@ -42,16 +41,16 @@ struct PlaySettingsPane: View {
         }
     }
     #endif
-    private var isYourMusic: Bool { model.musicSource == .yourMusic }
+    /// Files or a server are among the sources: their downloads come into Tracks Radio.
+    private var hasOwnMusic: Bool { model.playerSources.contains(.yourMusic) }
 
     var body: some View {
         let status = PlaySettingsWords.status(PlaySettingsWords.Standing(model: model, music: music))
         Form {
             SettingsHero("Play", subtitle: status.tone.apply(to: Text(status.line)), systemImage: "play.fill", tint: .indigo)
 
-            sourceSection
             DownloadChoiceSection()
-            if isYourMusic {
+            if music.hasMusic {
                 yourMusicSections
             }
             radioSection
@@ -60,13 +59,10 @@ struct PlaySettingsPane: View {
             NowPlayingBackdropSection()
             contentSection
             BlockedArtistsSection()
-            if !isYourMusic {
-                // Your Music has its own Listen Now, without these sections.
-                layoutSection
-            }
+            layoutSection
             PlaySettingsMixes()
         }
-        .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: model.musicSource)
+        .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: model.playerSources)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: isRadioOn)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: radioDownloadsFirst)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: radioFollowsTime)
@@ -83,62 +79,10 @@ struct PlaySettingsPane: View {
         .sheet(isPresented: $editsLayout) { PlayLayoutEditor() }
     }
 
-    // MARK: - Source
-
-    private var sourceSection: some View {
-        @Bindable var model = model
-        return Section {
-            Picker("Music Source", selection: $model.musicSource) {
-                ForEach(MusicSource.allCases) { source in
-                    Label(source.title, systemImage: source.symbol).tag(source)
-                }
-            }
-            if QuickSwitch.isAvailable(music) {
-                SettingsSwitch("Quick Switch", isOn: $quickSwitch)
-            }
-        } header: {
-            Text("Source")
-        } footer: {
-            if let footer = PlaySettingsWords.sourceFooter(quickSwitch: .init(music: music, isOn: quickSwitch)) {
-                Text(footer)
-                    .contentTransition(.opacity)
-            }
-        }
-    }
-
-    // MARK: - Your Music
+    // MARK: - Files and Servers
 
     @ViewBuilder
     private var yourMusicSections: some View {
-        Section {
-            LabeledContent("Songs on This Mac") {
-                Text(music.fileTracks.count, format: .number)
-                    .monospacedDigit()
-                    .contentTransition(.numericText(value: Double(music.fileTracks.count)))
-            }
-            // A size of nothing reads as a fault, not a fact.
-            if music.fileBytes > 0 {
-                LabeledContent("Space Used", value: LocalFormat.bytes(music.fileBytes))
-            }
-            LabeledContent("Music Folder") {
-                Button("Show in Finder", action: showMusicFolder)
-                    .help(LibraryFolders.music.path(percentEncoded: false))
-            }
-            LabeledContent("Look for New Songs") {
-                if music.isScanning {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: 80)
-                } else {
-                    Button("Look Now") { Task { await music.scan() } }
-                }
-            }
-        } header: {
-            Text("On This Mac")
-        }
-
-        ServersSection()
-
         Section {
             Picker("Suggest", selection: $suggestionMode) {
                 ForEach(SuggestionMode.allCases) { Text($0.title).tag($0) }
@@ -180,14 +124,7 @@ struct PlaySettingsPane: View {
         }
     }
 
-    /// The Music folder in Finder, made first, so there's always somewhere to put songs.
-    private func showMusicFolder() {
-        let folder = LibraryFolders.music
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        NSWorkspace.shared.activateFileViewerSelecting([folder])
-    }
-
-    /// Downloads live in the main window's sidebar, under Your Music.
+    /// Downloads live in the main window's sidebar, under Library.
     private func showDownloads() {
         model.sidebarSelection = .downloads
         MainWindow.bringForward(openWindow: openWindow)
@@ -215,7 +152,7 @@ struct PlaySettingsPane: View {
                         Button("Customize…") { showsRadioDay = true }
                     }
                 }
-                if isYourMusic {
+                if hasOwnMusic {
                     SettingsSwitch("Downloaded Songs First", isOn: $radioDownloadsFirst)
                     if radioDownloadsFirst {
                         SettingsSwitch(

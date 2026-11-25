@@ -3,7 +3,7 @@
 //! you skip, let play and love. A port of the Swift app's `LiveMix` and its Your Music builder
 //! (`LiveMix.tracksRadio(from tracks:…)`), so Android's radio decides as the iPhone's Your Music
 //! radio does, and iOS and the Mac can adopt it for Your Music stations later. Tracks Radio over
-//! Apple Music stays in Swift, with the MusicKit catalog; nothing here is Apple Music-specific.
+//! Apple Music stays in Swift, with the `MusicKit` catalog; nothing here is Apple Music-specific.
 //! Sans-IO: the host hands in its library, the history's plays, what it keeps between listens
 //! (habits and skips, as JSON) and the time, and plays what comes back.
 

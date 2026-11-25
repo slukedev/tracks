@@ -112,6 +112,11 @@ public enum TracksideEvent: Sendable, Equatable {
     case acquisition(TracksideAcquisition)
     /// This device's key was revoked, and the stream has ended.
     case revoked
+    /// The server's addresses changed: ask `/server/urls` again, unless `etag` (the new list's
+    /// ETag, made from its `version`) is the one already known.
+    case serverURLs(etag: String?)
+    /// Something synced through Trackside Cloud changed, such as `plays`: time to pull it.
+    case cloud(entity: String?)
     /// One this build doesn't know, or doesn't need.
     case other(String)
 
@@ -135,6 +140,10 @@ public enum TracksideEvent: Sendable, Equatable {
             self = .acquisition(acquisition)
         case "session":
             self = .revoked
+        case "server_urls":
+            self = .serverURLs(etag: (try? decoder.decode(TracksideServerURLsEvent.self, from: data))?.etag)
+        case "cloud":
+            self = .cloud(entity: (try? decoder.decode(CloudChange.self, from: data))?.entity)
         default:
             self = .other(event.event)
         }
@@ -148,6 +157,10 @@ public enum TracksideEvent: Sendable, Equatable {
             case seq
             case serverID = "server_id"
         }
+    }
+
+    private struct CloudChange: Decodable {
+        let entity: String?
     }
 
     private struct Changed: Decodable {

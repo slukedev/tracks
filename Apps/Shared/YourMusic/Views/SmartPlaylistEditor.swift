@@ -26,7 +26,7 @@ struct SmartPlaylistEditor: View {
                 Section {
                     Picker("Songs From", selection: $rules.source) {
                         Text("Downloaded").tag(SmartRules.Source.downloaded)
-                        Text("All Your Music").tag(SmartRules.Source.yourMusic)
+                        Text("Everything").tag(SmartRules.Source.yourMusic)
                     }
                     .pickerStyle(.segmented)
                     .listRowBackground(Color.clear)

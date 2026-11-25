@@ -54,7 +54,7 @@ fun LibraryArtistScreen(artistId: String) {
     val current by remember { graph.player.state.map { it.current?.mediaId } }.collectAsStateWithLifecycle(null)
     val artist = index.artist(artistId)
     if (artist == null) {
-        MissingPage(if (index.snapshot.isLoading) null else "This artist isn't in Your Music anymore")
+        MissingPage(if (index.snapshot.isLoading) null else "This artist isn't in your library anymore")
         return
     }
     val songs = remember(artist, index) { index.songsBy(artist) }

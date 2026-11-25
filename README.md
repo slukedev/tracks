@@ -87,7 +87,12 @@ All screenshots use the built-in sample data.
 - Now Playing with your play count for the song, a ring that fills until the song is kept,
   Up Next, Create Station, AirPlay and a sleep timer. Settings for explicit songs,
   crossfade (iPhone), the layout, and whether songs elsewhere play in Tracks or Apple Music.
-- Your Music: play the FLAC and other files you own, and your own Subsonic-compatible
+- Sources: add Apple Music, the music on your iPhone or Mac, and your servers, each by its
+  own name, in Settings › Sources. Once there are two, a filter under Play's and Library's
+  title narrows to one or opens to all, without touching what's playing, and Play From
+  decides which copy plays when a song is in several. On iPhone the tabs are Play, Library,
+  Summary and History (Plays and Charts), with Search.
+- Files and servers: play the FLAC and other files you own, and your own Subsonic-compatible
   server (Navidrome and others), with downloads for offline, discovery on your servers, and
   Tracks Radio, mixes and moods made from all of it. Suggestions are checked against what you
   have. With Trackside or Lidarr, Get More fetches what you don't, and artist and album pages
@@ -235,6 +240,26 @@ A device build, and any Mac build you intend to run, has to be signed with your 
 If you see `developerTokenRequestFailed`, MusicKit couldn't get a developer token. Check that
 the App ID is Explicit, that MusicKit is ticked for it, and that the build is signed with
 that team.
+
+## Spotify (your own builds only)
+
+Tracks can play Spotify itself, through [librespot](https://github.com/librespot-org/librespot)
+in the engine. It's experimental, needs Spotify Premium, and is against Spotify's terms, so it
+is off by default and never in App Store builds. To try it on your own device:
+
+```sh
+Engine/build-apple.sh --spotify
+```
+
+then build and run the **Debug** configuration. Debug builds define `SPOTIFY` whenever the
+engine has Spotify in it (`Config/Engine.xcconfig`, written by the script). Release builds
+stop with an error until you run `Engine/build-apple.sh` without `--spotify` again. Add
+Spotify in Settings › Sources.
+
+Since November 2026 Spotify refuses audio to clients like this for accounts it hasn't seen on
+one before ([librespot#1649](https://github.com/librespot-org/librespot/issues/1649)). Those
+accounts can sign in and browse but not play. Thanks to librespot and
+[psst](https://github.com/jpochyla/psst) (both MIT).
 
 ## Last.fm
 

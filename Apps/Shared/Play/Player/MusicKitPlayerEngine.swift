@@ -782,7 +782,26 @@ final class MusicKitPlayerEngine: PlayerEngine {
 
     /// History songs as Apple Music songs, in order, leaving out any that can't be found.
     private static func lookUp(_ songs: [HistorySong]) async throws -> [Song] {
-        let ids = songs.map(\.songID).filter { !$0.isEmpty }
+        var found = songs.map(\.songID)
+        // Known only by name, as one of your own songs played from Apple Music when its own
+        // copy can't play: found in the catalog by title and artist. A few at most, so a long
+        // queue never waits on a search for each song.
+        let unnamed = found.indices.filter { found[$0].isEmpty }
+        if !unnamed.isEmpty, unnamed.count <= Self.namedLookups {
+            await withTaskGroup(of: (Int, String?).self) { group in
+                for index in unnamed {
+                    let song = songs[index]
+                    group.addTask {
+                        let query = CatalogQuery(title: song.title, artistName: song.artistName, duration: nil, albumTitle: song.albumTitle)
+                        return (index, try? await CatalogLookup().resolve(query)?.id)
+                    }
+                }
+                for await (index, id) in group {
+                    if let id { found[index] = id }
+                }
+            }
+        }
+        let ids = found.filter { !$0.isEmpty }
         guard !ids.isEmpty else { return [] }
         do {
             return try await TimeLimit.run(within: lookupLimit) { try await MusicKitPlaybackService.songs(for: ids) }
@@ -790,6 +809,8 @@ final class MusicKitPlayerEngine: PlayerEngine {
             throw PlayerProblem(error)
         }
     }
+
+    private static let namedLookups = 25
 
     /// A queue of songs, in order or freshly shuffled. Throws when there's nothing left.
     private static func queue(of songs: [Song], startingAt start: Int?, shuffled: Bool) async throws -> ApplicationMusicPlayer.Queue {

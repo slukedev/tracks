@@ -142,12 +142,22 @@ private val libraries = listOf(
     Library("The Rust engine's crates (rusqlite, serde and others)", "MIT and Apache License 2.0"),
 )
 
+/** Spotify plays through these, in builds that have it; their notices are shown in full. */
+private val spotifyLibraries = listOf("librespot" to "licenses/librespot_MIT.txt", "psst" to "licenses/psst_MIT.txt")
+
 @Composable
 fun LicensesPage() {
     val context = LocalContext.current
     val font by produceState("") {
         value = withContext(Dispatchers.IO) {
             runCatching { context.assets.open("licenses/google_sans_flex_OFL.txt").bufferedReader().use { it.readText() } }.getOrDefault("")
+        }
+    }
+    val spotifyNotices by produceState(emptyList<Pair<String, String>>()) {
+        value = withContext(Dispatchers.IO) {
+            spotifyLibraries.mapNotNull { (name, path) ->
+                runCatching { context.assets.open(path).bufferedReader().use { it.readText() } }.getOrNull()?.let { name to it }
+            }
         }
     }
     SettingsScaffold(title = "Licenses") {
@@ -167,14 +177,17 @@ fun LicensesPage() {
             row { index, count -> Expandable("Google Sans Flex", "SIL Open Font License 1.1", font, index, count) }
         }
         group("Open-source libraries", key = "libraries") {
-            libraries.forEach { link(it.name, summary = it.license, onClick = {}) }
+            libraries.forEach { info(it.name, it.license) }
+            spotifyNotices.forEach { (name, text) ->
+                row { index, count -> Expandable(name, "MIT License", text, index, count, Icons.Rounded.Code) }
+            }
         }
     }
 }
 
 /** A row that opens in place to show a license's full text. */
 @Composable
-private fun Expandable(title: String, summary: String, text: String, index: Int, count: Int) {
+private fun Expandable(title: String, summary: String, text: String, index: Int, count: Int, icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Rounded.TextFields) {
     var open by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     val turn by animateFloatAsState(if (open) 180f else 0f, MaterialTheme.motionScheme.defaultSpatialSpec(), label = "chevron")
@@ -187,7 +200,7 @@ private fun Expandable(title: String, summary: String, text: String, index: Int,
                 .padding(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ToneIcon(Icons.Rounded.TextFields, Tone.Secondary)
+                ToneIcon(icon, Tone.Secondary)
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.bodyLarge)

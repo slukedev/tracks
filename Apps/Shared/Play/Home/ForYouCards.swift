@@ -217,7 +217,7 @@ struct ForYouCrate: View {
         let music = music
         return Supply(
             songs: reached.map { track in
-                CrateSong(track, reason: feed.facts[track.identity] == nil ? String(localized: "Waiting to Be Heard") : String(localized: "From Your Music"), music: music)
+                CrateSong(track, reason: feed.facts[track.identity] == nil ? String(localized: "Waiting to Be Heard") : String(localized: "From Your Library"), music: music)
             },
             goesOn: waiting.count > waitingReach,
             generation: waitingReach,

@@ -70,6 +70,7 @@ struct ArtistPage: View {
                         ArtistAlbumTile(album: album)
                     }
                 }
+                ArtistElsewhere(name: artist.name, page: .appleMusic)
                 ArtistGetSection(artist: artist.name, gets: gets)
                 let appearsOn = PlayPreferences.versions(of: Array(artist.appearsOnAlbums ?? []), allowsExplicit: allowsExplicit)
                 if !appearsOn.isEmpty {

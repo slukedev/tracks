@@ -18,7 +18,7 @@ class OnboardingScreenshots(dark: Boolean) : ScreenshotTest(dark) {
 
     @Test fun welcome() = step(OnboardingStep.Welcome)
 
-    @Test fun permissions() = step(OnboardingStep.Permissions)
+    @Test fun addMusic() = step(OnboardingStep.AddMusic)
 
     @Test fun lastFm() = step(OnboardingStep.LastFm)
 

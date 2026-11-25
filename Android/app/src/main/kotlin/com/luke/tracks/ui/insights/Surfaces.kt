@@ -276,7 +276,7 @@ fun InsightsLoading(modifier: Modifier = Modifier) {
 fun EmptyState(
     icon: ImageVector,
     title: String,
-    message: String,
+    message: String? = null,
     modifier: Modifier = Modifier,
     action: String? = null,
     onAction: (() -> Unit)? = null,
@@ -299,14 +299,16 @@ fun EmptyState(
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            message,
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.widthIn(max = 420.dp),
-        )
+        if (message != null) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.widthIn(max = 420.dp),
+            )
+        }
         if (action != null && onAction != null) {
             Spacer(Modifier.height(28.dp))
             val haptics = LocalHapticFeedback.current

@@ -20,7 +20,10 @@ pub struct Lidarr {
 
 impl std::fmt::Debug for Lidarr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Lidarr").field("base", &self.base).field("key", &"<redacted>").finish()
+        f.debug_struct("Lidarr")
+            .field("base", &self.base)
+            .field("key", &"<redacted>")
+            .finish()
     }
 }
 
@@ -105,7 +108,11 @@ impl Lidarr {
             metadata_profile_id: options.metadata_profile_id,
             root_folder_path: &options.root_folder_path,
             monitored: true,
-            monitor_new_items: if options.monitor == Monitor::None { "none" } else { "all" },
+            monitor_new_items: if options.monitor == Monitor::None {
+                "none"
+            } else {
+                "all"
+            },
             add_options: AddArtistOptions {
                 monitor: options.monitor.as_str(),
                 search_for_missing_albums: options.search_now,
@@ -160,7 +167,12 @@ impl Lidarr {
         let size = QUEUE_PAGE_SIZE.to_string();
         self.get(
             "queue",
-            &[("page", &page), ("pageSize", &size), ("includeArtist", "true"), ("includeAlbum", "true")],
+            &[
+                ("page", &page),
+                ("pageSize", &size),
+                ("includeArtist", "true"),
+                ("includeAlbum", "true"),
+            ],
         )
     }
 
@@ -171,14 +183,18 @@ impl Lidarr {
             url.push_str(&query(pairs));
         }
         let mut request = Request::get(url);
-        request.headers.push(("X-Api-Key".to_owned(), self.key.clone()));
+        request
+            .headers
+            .push(("X-Api-Key".to_owned(), self.key.clone()));
         request
     }
 
     fn send(&self, method: Method, path: &str, body: &impl Serialize) -> Request {
         let mut request = self.get(path, &[]);
         request.method = method;
-        request.headers.push(("Content-Type".to_owned(), "application/json".to_owned()));
+        request
+            .headers
+            .push(("Content-Type".to_owned(), "application/json".to_owned()));
         // Our own plain structs: serialising them can't fail.
         request.body = serde_json::to_vec(body).unwrap_or_default();
         request
@@ -216,7 +232,9 @@ pub fn base_url(text: &str) -> Option<String> {
     };
     let mut base = with_scheme.as_str();
     for suffix in ["/api/v1", "/api"] {
-        if base.len() > suffix.len() && base[base.len() - suffix.len()..].eq_ignore_ascii_case(suffix) {
+        if base.len() > suffix.len()
+            && base[base.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+        {
             base = &base[..base.len() - suffix.len()];
             break;
         }
@@ -498,7 +516,9 @@ struct RawQueueItem {
 impl From<RawQueueItem> for LidarrQueueItem {
     fn from(raw: RawQueueItem) -> Self {
         let progress = match (raw.size, raw.sizeleft) {
-            (Some(size), left) if size > 0.0 => ((size - left.unwrap_or(size)) / size).clamp(0.0, 1.0),
+            (Some(size), left) if size > 0.0 => {
+                ((size - left.unwrap_or(size)) / size).clamp(0.0, 1.0)
+            }
             _ => 0.0,
         };
         let album = raw.album.map(LidarrAlbum::from);
@@ -509,7 +529,10 @@ impl From<RawQueueItem> for LidarrQueueItem {
             progress,
             time_left: raw.timeleft,
             error_message: raw.error_message.filter(|m| !m.is_empty()),
-            artist_name: raw.artist.map(|a| a.artist_name).or_else(|| album.as_ref().and_then(|a| a.artist_name.clone())),
+            artist_name: raw
+                .artist
+                .map(|a| a.artist_name)
+                .or_else(|| album.as_ref().and_then(|a| a.artist_name.clone())),
             cover_url: album.as_ref().and_then(|a| a.cover_url.clone()),
             album_title: album.map(|a| a.title),
         }
@@ -623,7 +646,9 @@ pub fn parse_queue_page(response: &Response, asked: u32) -> Result<QueuePage> {
 pub fn followed_artist(name: &str, artists: &[LidarrArtist]) -> Option<usize> {
     artist_candidates(name).iter().find_map(|candidate| {
         let wanted = folded(candidate);
-        artists.iter().position(|a| a.id.is_some() && folded(&a.artist_name) == wanted)
+        artists
+            .iter()
+            .position(|a| a.id.is_some() && folded(&a.artist_name) == wanted)
     })
 }
 
@@ -632,7 +657,9 @@ pub fn followed_artist(name: &str, artists: &[LidarrArtist]) -> Option<usize> {
 pub fn lookup_match(name: &str, results: &[LidarrArtist]) -> Option<usize> {
     artist_candidates(name).iter().find_map(|candidate| {
         let wanted = folded(candidate);
-        results.iter().position(|a| folded(&a.artist_name) == wanted)
+        results
+            .iter()
+            .position(|a| folded(&a.artist_name) == wanted)
     })
 }
 
@@ -657,12 +684,18 @@ pub enum SongState {
 pub fn song_state(title: &str, albums: &[LidarrAlbum], tracks: &[LidarrTrack]) -> SongState {
     let wanted = folded(title);
     let album = |id: Option<i64>| id.and_then(|id| albums.iter().find(|a| a.id == id));
-    let matches: Vec<&LidarrTrack> = tracks.iter().filter(|t| folded(&t.title) == wanted).collect();
+    let matches: Vec<&LidarrTrack> = tracks
+        .iter()
+        .filter(|t| folded(&t.title) == wanted)
+        .collect();
     if let Some(track) = matches.iter().find(|t| t.has_file) {
         let name = album(track.album_id).map_or_else(|| title.to_owned(), |a| a.title.clone());
         return SongState::Collected { album: name };
     }
-    if matches.iter().any(|t| album(t.album_id).is_some_and(|a| a.monitored)) {
+    if matches
+        .iter()
+        .any(|t| album(t.album_id).is_some_and(|a| a.monitored))
+    {
         SongState::Wanted
     } else {
         SongState::Missing

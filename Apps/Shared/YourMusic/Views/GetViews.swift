@@ -52,7 +52,7 @@ struct GetButton: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.title3)
                     .foregroundStyle(.tint)
-                    .accessibilityLabel(Text("\(subject) Is in Your Music"))
+                    .accessibilityLabel(Text("\(subject) Is in Your Library"))
                     .transition(change)
             case .failed(let reason):
                 Button(action: tap) {
@@ -155,9 +155,9 @@ struct OwnershipBadge: View {
     /// For the item that carries the mark.
     static func spoken(_ state: AlbumHoldings.State) -> String {
         switch state {
-        case .owned: String(localized: "In Your Music")
-        case .partlyOwned: String(localized: "Partly in Your Music")
-        case .missing: String(localized: "Not in Your Music")
+        case .owned: String(localized: "In Your Library")
+        case .partlyOwned: String(localized: "Partly in Your Library")
+        case .missing: String(localized: "Not in Your Library")
         }
     }
 }

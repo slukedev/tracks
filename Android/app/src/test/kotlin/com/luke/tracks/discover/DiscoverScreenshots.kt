@@ -123,16 +123,23 @@ class DiscoverScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         CompositionLocalProvider(LocalNavigator provides Navigator(), LocalDiscovery provides discovery) { content() }
     }
 
-    private fun search(name: String, discovery: Discovery, query: String = "radiohead") = snap(name, settleMs = 2500) {
-        Frame(discovery) {
-            LibraryContent(
-                snapshot = Owned.index.snapshot,
-                index = { Owned.index },
-                servers = emptyList(),
-                currentMediaId = null,
-                onAllowAccess = {},
-                initialQuery = query,
-            )
+    /** The library as the Search tab finds it in. */
+    private fun useOwned() {
+        graph.library = object : com.luke.tracks.library.MusicLibrary {
+            override val snapshot = kotlinx.coroutines.flow.MutableStateFlow(Owned.index.snapshot)
+            override val index = kotlinx.coroutines.flow.MutableStateFlow(Owned.index)
+            override suspend fun refresh() = Unit
+            override fun find(identity: String) = null
+            override suspend fun search(text: String) = emptyList<com.luke.tracks.playback.PlayableSong>()
+        }
+    }
+
+    private fun search(name: String, discovery: Discovery, query: String = "radiohead") {
+        useOwned()
+        snap(name, settleMs = 2500) {
+            Frame(discovery) {
+                com.luke.tracks.ui.search.SearchScreen(initialQuery = query, initialScope = com.luke.tracks.ui.search.SearchScope.Library)
+            }
         }
     }
 
@@ -141,11 +148,14 @@ class DiscoverScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     @Test fun searchOffline() = search("discover-search-offline", FakeDiscovery(octo, failSearch = true))
     @Test fun searchOnlyBeyondYourMusic() = search("discover-search-catalog-only", FakeDiscovery(octo), query = "creep")
 
-    @Test fun searchPreviewing() = snap("discover-search-preview", settleMs = 2500) {
-        val previewing = catalogParse(Fixtures.ok("itunes_song")).songs.first()
-        CompositionLocalProvider(LocalPreviewOverride provides PreviewState("song:${previewing.id}", progress = 0.4f)) {
-            Frame(FakeDiscovery(octo)) {
-                LibraryContent(Owned.index.snapshot, { Owned.index }, emptyList(), null, {}, initialQuery = "creep")
+    @Test fun searchPreviewing() {
+        useOwned()
+        snap("discover-search-preview", settleMs = 2500) {
+            val previewing = catalogParse(Fixtures.ok("itunes_song")).songs.first()
+            CompositionLocalProvider(LocalPreviewOverride provides PreviewState("song:${previewing.id}", progress = 0.4f)) {
+                Frame(FakeDiscovery(octo)) {
+                    com.luke.tracks.ui.search.SearchScreen(initialQuery = "creep", initialScope = com.luke.tracks.ui.search.SearchScope.Library)
+                }
             }
         }
     }
@@ -166,7 +176,10 @@ class DiscoverScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     /** Your albums and nothing else, even where a server could get more: suggestions are Play's. */
     @Test fun yourAlbumsOnly() = snap("discover-library-albums", settleMs = 2500) {
         Frame(FakeDiscovery(octo)) {
-            LibraryContent(Owned.index.snapshot, { Owned.index }, emptyList(), null, {}, initialTab = LibraryTab.Albums)
+            LibraryContent(
+                Owned.index.snapshot, { Owned.index }, emptyList(), com.luke.tracks.sources.SourceSelection.All, {},
+                { com.luke.tracks.sources.SourceId.ofMediaId(it) }, null, initialTab = LibraryTab.Albums,
+            )
         }
     }
 
@@ -206,9 +219,9 @@ class DiscoverScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     }
 
     private val servers = listOf(
-        ServerEntry(SubsonicServer("s1", "Octo at home", "http://192.168.1.20:4533", "luke", "salt"), ServerStatus.Ready(2140)),
-        ServerEntry(SubsonicServer("s2", "Gonic", "https://gonic.example.net", "luke", "salt"), ServerStatus.Ready(800)),
-        ServerEntry(SubsonicServer("s3", "Music in the cloud", "https://music.example.com", "luke", "salt"), ServerStatus.Failed("The username or password isn't right.")),
+        ServerEntry(SubsonicServer("s1", "Octo at home", "http://192.168.1.20:4533", "luke"), ServerStatus.Ready(2140)),
+        ServerEntry(SubsonicServer("s2", "Gonic", "https://gonic.example.net", "luke"), ServerStatus.Ready(800)),
+        ServerEntry(SubsonicServer("s3", "Music in the cloud", "https://music.example.com", "luke"), ServerStatus.Failed("The username or password isn't right.")),
     )
 
     @Test fun getMusicPage() = snap("discover-getmusic") {

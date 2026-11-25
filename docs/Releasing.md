@@ -12,6 +12,12 @@ secret environment variables, so a release needs nothing on your Mac but a push.
 3. Add the release to `CHANGELOG.md`.
 4. Load the Privacy Policy, Support and Source links in Settings › About and check each one
    opens.
+5. When the SwiftData schema gained fields, deploy the CloudKit schema to production before
+   the build goes out: in the CloudKit Console, open the container, check the development
+   schema has the new fields (run a development build that syncs first), then Deploy Schema
+   Changes. Builds from the App Store sync only to production, and a record with a field
+   production lacks fails to save there. TracksSchemaV3 needs `CD_Capture.CD_playID` and
+   `CD_Session.CD_sessionID` deployed.
 
 ## Xcode Cloud
 

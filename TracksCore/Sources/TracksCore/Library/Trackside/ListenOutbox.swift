@@ -2,9 +2,9 @@ import Foundation
 
 /// A song that played, waiting to be told to its server.
 public struct ServerListen: Codable, Sendable, Hashable, Identifiable {
-    /// The play's own id in Tracks' history, which iCloud gives every device the same value
-    /// for. The server keeps one listen per id, so sending it twice, or from two devices,
-    /// counts it once.
+    /// The play's lasting id (``PlayID``), the same as its row in the history, which every
+    /// device that syncs the history knows it by. The server keeps one listen per id, so
+    /// sending it twice, or from two devices, counts it once.
     public let id: String
     /// The server's id for the song, when it's one of the server's.
     public var songID: String?

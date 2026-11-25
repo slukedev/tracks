@@ -23,6 +23,11 @@ enum NowPlayingBackground: String, CaseIterable, Identifiable {
     static let storageKey = "nowPlayingBackground"
     static let defaultValue = NowPlayingBackground.living
 
+    /// As chosen in Settings.
+    static var chosen: NowPlayingBackground {
+        UserDefaults.standard.string(forKey: storageKey).flatMap(NowPlayingBackground.init(rawValue:)) ?? defaultValue
+    }
+
     var title: LocalizedStringKey {
         switch self {
         case .fullCover: "Full Cover"

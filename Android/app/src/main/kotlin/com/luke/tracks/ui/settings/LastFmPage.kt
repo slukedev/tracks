@@ -75,6 +75,7 @@ fun LastFmPage() {
         previous = connection
     }
 
+    val scrobbleSpotify by lastFm.scrobbleSpotify.collectAsStateWithLifecycle()
     SettingsScaffold(title = "Last.fm") {
         item(key = "hero") {
             val state = connection
@@ -139,6 +140,14 @@ fun LastFmPage() {
             ) { on ->
                 scope.launch { graph.settings.update { it.copy(scrobbleEnabled = on) } }
                 if (on) ScrobbleWorker.enqueue(context)
+            }
+            if (com.luke.tracks.BuildConfig.SPOTIFY && settings.scrobbleEnabled) {
+                toggle(
+                    "Scrobble Spotify",
+                    checked = scrobbleSpotify,
+                    icon = Icons.Rounded.GraphicEq,
+                    tone = Tone.Secondary,
+                ) { on -> lastFm.setScrobbleSpotify(on) }
             }
             if (settings.scrobbleEnabled && owed > 0) {
                 link(

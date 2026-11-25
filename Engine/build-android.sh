@@ -1,15 +1,19 @@
 #!/bin/bash
-# Builds the Rust engine for Android and generates its Kotlin bindings:
+# Builds the Rust engine for Android and generates its Kotlin bindings, per variant:
 #
-#   Android/app/src/main/jniLibs/<abi>/libtracks_engine.so   the engine, per ABI
-#   Android/app/engine-bindings/uniffi/...                  generated Kotlin bindings
+#   Android/app/engine-bindings/<variant>/jniLibs/<abi>/libtracks_engine.so   the engine, per ABI
+#   Android/app/engine-bindings/<variant>/kotlin/uniffi/...                  generated Kotlin bindings
+#   Android/app/engine-bindings/<variant>/host/<platform>/                  the engine for this computer
 #
-# The Gradle build runs this before compiling, so it rarely needs running by hand. Needs the
-# Android NDK (ANDROID_NDK_HOME, or the newest under $ANDROID_HOME/ndk) and cargo-ndk
-# (`cargo install cargo-ndk`).
+# Two variants: "play", the store build, and "sideload", which adds Spotify (the engine's
+# `spotify` feature, on librespot). Gradle builds play unless asked for sideload with
+# `-Ptracks.sideload=true`. Needs the Android NDK (ANDROID_NDK_HOME, or the newest under
+# $ANDROID_HOME/ndk) and cargo-ndk (`cargo install cargo-ndk`).
 #
-#   Engine/build-android.sh            release build for arm64-v8a and x86_64
-#   Engine/build-android.sh --debug    unoptimized
+#   Engine/build-android.sh               play, release build for arm64-v8a and x86_64
+#   Engine/build-android.sh --sideload    sideload only
+#   Engine/build-android.sh --both        both variants
+#   Engine/build-android.sh --debug ...   unoptimized
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -17,10 +21,15 @@ ENGINE="$PWD"
 ANDROID_DIR="$ENGINE/../Android"
 PROFILE=release
 CARGO_PROFILE=(--release)
-if [ "${1:-}" = "--debug" ]; then
-  PROFILE=debug
-  CARGO_PROFILE=()
-fi
+VARIANTS=(play)
+for arg in "$@"; do
+  case "$arg" in
+    --debug) PROFILE=debug; CARGO_PROFILE=() ;;
+    --sideload) VARIANTS=(sideload) ;;
+    --both) VARIANTS=(play sideload) ;;
+    *) echo "✗ Unknown option $arg. Use --debug, --sideload or --both." >&2; exit 1 ;;
+  esac
+done
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ENGINE/target}"
 
 if [ -z "${ANDROID_NDK_HOME:-}" ]; then
@@ -33,29 +42,41 @@ if [ -z "$ANDROID_NDK_HOME" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
   exit 1
 fi
 
-rustup target add aarch64-linux-android x86_64-linux-android >/dev/null
-cargo ndk -t arm64-v8a -t x86_64 --platform 31 -o "$ANDROID_DIR/app/src/main/jniLibs" \
-  build -p tracks-ffi --lib "${CARGO_PROFILE[@]}" --locked
-
-OUT="$ANDROID_DIR/app/engine-bindings"
-rm -rf "$OUT"
-cargo run -q -p uniffi-bindgen --release --locked -- generate \
-  --library "$CARGO_TARGET_DIR/aarch64-linux-android/$PROFILE/libtracks_engine.so" \
-  --language kotlin --no-format --out-dir "$OUT" >/dev/null
-
-# The same engine for this computer, so Robolectric tests and screenshots run it on the JVM.
-cargo build -p tracks-ffi --lib "${CARGO_PROFILE[@]}" --locked
-HOST_LIB="$ANDROID_DIR/app/src/test/resources"
 case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64) JNA_DIR=linux-x86-64; LIB=libtracks_engine.so ;;
-  Linux-aarch64) JNA_DIR=linux-aarch64; LIB=libtracks_engine.so ;;
-  Darwin-arm64) JNA_DIR=darwin-aarch64; LIB=libtracks_engine.dylib ;;
-  Darwin-x86_64) JNA_DIR=darwin-x86-64; LIB=libtracks_engine.dylib ;;
-  *) JNA_DIR=""; LIB="" ;;
+  Linux-x86_64) JNA_DIR=linux-x86-64; HOST_LIB=libtracks_engine.so ;;
+  Linux-aarch64) JNA_DIR=linux-aarch64; HOST_LIB=libtracks_engine.so ;;
+  Darwin-arm64) JNA_DIR=darwin-aarch64; HOST_LIB=libtracks_engine.dylib ;;
+  Darwin-x86_64) JNA_DIR=darwin-x86-64; HOST_LIB=libtracks_engine.dylib ;;
+  *) JNA_DIR=""; HOST_LIB="" ;;
 esac
-if [ -n "$JNA_DIR" ]; then
-  mkdir -p "$HOST_LIB/$JNA_DIR"
-  cp "$CARGO_TARGET_DIR/$PROFILE/$LIB" "$HOST_LIB/$JNA_DIR/"
-fi
 
-echo "✓ TracksEngine $PROFILE built for Android (arm64-v8a, x86_64) and this computer"
+# Where earlier versions of this script put a single engine. Left there, Gradle would package
+# it twice.
+rm -rf "$ANDROID_DIR/app/src/main/jniLibs" "$ANDROID_DIR/app/engine-bindings/uniffi" \
+  "$ANDROID_DIR"/app/src/test/resources/linux-* "$ANDROID_DIR"/app/src/test/resources/darwin-*
+
+rustup target add aarch64-linux-android x86_64-linux-android >/dev/null
+
+for variant in "${VARIANTS[@]}"; do
+  FEATURES=()
+  [ "$variant" = sideload ] && FEATURES=(--features spotify)
+  OUT="$ANDROID_DIR/app/engine-bindings/$variant"
+  rm -rf "$OUT"
+  mkdir -p "$OUT"
+
+  cargo ndk -t arm64-v8a -t x86_64 --platform 31 -o "$OUT/jniLibs" \
+    build -p tracks-ffi --lib "${CARGO_PROFILE[@]}" "${FEATURES[@]}" --locked
+
+  cargo run -q -p uniffi-bindgen --release --locked -- generate \
+    --library "$CARGO_TARGET_DIR/aarch64-linux-android/$PROFILE/libtracks_engine.so" \
+    --language kotlin --no-format --config "$ENGINE/android-bindings.toml" --out-dir "$OUT/kotlin" >/dev/null
+
+  # The same engine for this computer, so Robolectric tests and screenshots run it on the JVM.
+  cargo build -p tracks-ffi --lib "${CARGO_PROFILE[@]}" "${FEATURES[@]}" --locked
+  if [ -n "$JNA_DIR" ]; then
+    mkdir -p "$OUT/host/$JNA_DIR"
+    cp "$CARGO_TARGET_DIR/$PROFILE/$HOST_LIB" "$OUT/host/$JNA_DIR/"
+  fi
+
+  echo "✓ TracksEngine $PROFILE built for Android ($variant: arm64-v8a, x86_64) and this computer"
+done

@@ -38,10 +38,10 @@ struct ServersSection: View {
             #if os(macOS)
             HStack {
                 Spacer()
-                Button("Connect a Server…") { addsServer = true }
+                Button("Add Server") { addsServer = true }
             }
             #else
-            Button("Connect a Server…", systemImage: "plus") { addsServer = true }
+            Button("Add Server", systemImage: "plus") { addsServer = true }
             #endif
         } header: {
             Text("Servers")
@@ -70,7 +70,7 @@ struct DownloadChoiceSection: View {
 
     private var section: some View {
         Section {
-            Toggle("Download to Apple Music or Your Music", isOn: $isOn.animation())
+            Toggle("Download to Apple Music or Your Server", isOn: $isOn.animation())
             if isOn {
                 Picker("Always Use", selection: $preferred) {
                     ForEach(DownloadDefault.allCases, id: \.self) { choice in
@@ -133,6 +133,7 @@ struct ServerRow: View {
         case .online:
             // Connected and empty reads differently from out of reach.
             guard count > 0 else { return String(localized: "Connected · No songs yet") }
+            if music.servers.isAway(server.id) { return String(localized: "Away · \(songs)") }
             #if os(macOS)
             return "\(songs) · \(server.url.host() ?? server.url.absoluteString)"
             #else
@@ -147,22 +148,28 @@ struct ServerRow: View {
     }
 }
 
-/// What removing a server takes with it, counted, for its confirmation.
-private struct ServerRemoval {
+/// What removing a server takes with it, counted, for its confirmation. Plays stay in
+/// History; downloads from it are deleted.
+struct ServerRemoval {
     let title: String
     let message: String
+    let button: String
     let downloadIDs: Set<String>
 
     @MainActor
     init(_ server: SubsonicServer, music: YourMusic) {
         downloadIDs = Set(music.downloads.items.values.filter { $0.track.serverID == server.id }.map(\.track.id))
-        let songs = music.servers.catalogs[server.id]?.count ?? 0
-        title = String(localized: "Remove \u{201C}\(server.name)\u{201D}?")
-        let songWords = String(AttributedString(localized: "^[\(songs) song](inflect: true)").characters)
-        let downloadWords = String(AttributedString(localized: "^[\(downloadIDs.count) download](inflect: true)").characters)
-        message = downloadIDs.isEmpty
-            ? String(localized: "Its \(songWords) leave Tracks. Your plays of them stay in your history.")
-            : String(localized: "Its \(songWords) and \(downloadWords) leave Tracks. Your plays of them stay in your history.")
+        title = String(localized: "Remove \(server.name)?")
+        let count = downloadIDs.count
+        if count == 0 {
+            message = String(localized: "Your plays stay in History.")
+            button = String(localized: "Remove")
+        } else {
+            message = count == 1
+                ? String(localized: "Your plays stay in History. 1 download is deleted.")
+                : String(localized: "Your plays stay in History. \(count.formatted()) downloads are deleted.")
+            button = String(localized: "Remove and Delete \(count)")
+        }
     }
 
     @MainActor
@@ -208,7 +215,7 @@ private struct MacServerRow: View {
             ServerForm(editing: server)
         }
         .confirmationDialog(removal.title, isPresented: $confirmsRemove, titleVisibility: .visible) {
-            Button("Remove Server", role: .destructive) { removal.perform(server.id, music: music) }
+            Button(removal.button, role: .destructive) { removal.perform(server.id, music: music) }
         } message: {
             Text(removal.message)
         }
@@ -235,33 +242,52 @@ private struct MacServerRow: View {
             set: { music.servers.setReportsPlays($0, to: server.id) }
         ))
         Divider()
-        Button("Remove Server…", systemImage: "trash", role: .destructive) { confirmsRemove = true }
+        Button("Remove…", systemImage: "trash", role: .destructive) { confirmsRemove = true }
     }
 }
 #endif
 
-/// One server: sync it, change its password or pair it again, or remove it.
+/// One server: where it stands, its name and addresses, syncing, telling it about plays,
+/// signing in again, and removing it.
 struct ServerDetailPage: View {
     let serverID: String
     @Environment(YourMusic.self) private var music
     @Environment(\.dismiss) private var dismiss
     @State private var editsServer = false
     @State private var confirmsRemove = false
+    @State private var name = ""
 
     var body: some View {
         if let server = music.servers.server(serverID) {
             let removal = ServerRemoval(server, music: music)
             let isSyncing = music.servers.syncing.contains(serverID)
             Form {
+                SettingsHero(
+                    "\(server.name)",
+                    subtitle: hero(server).apply(),
+                    systemImage: "server.rack",
+                    tint: SourceWords.tint(for: .server(serverID))
+                ) {
+                    if case .signedOut = hero(server) {
+                        Button(server.isTrackside ? "Pair Again" : "Sign In") { editsServer = true }
+                    }
+                }
                 Section {
-                    ServerRow(server: server)
-                    LabeledContent("Address", value: server.url.absoluteString)
-                    if server.isTrackside {
-                        if let device = server.deviceName {
-                            LabeledContent("Paired As", value: device)
+                    TextField("Name", text: $name, prompt: Text(verbatim: server.name))
+                        .titleEntry()
+                        .onSubmit { music.servers.rename(serverID, to: name) }
+                    NavigationLink {
+                        ServerAddressesPage(serverID: serverID)
+                    } label: {
+                        LabeledContent("Addresses") {
+                            Text(verbatim: music.servers.address(of: serverID)?.host() ?? server.url.host() ?? "")
+                                .lineLimit(1)
                         }
-                    } else {
-                        LabeledContent("Username", value: server.username)
+                    }
+                    if server.isTrackside, let device = server.deviceName {
+                        LabeledContent("Paired As", value: device)
+                    } else if !server.isTrackside {
+                        LabeledContent("Signed In With", value: server.usesAPIKey ? String(localized: "API Key") : server.username)
                     }
                 }
                 if music.servers.movedToTrackside.contains(serverID) {
@@ -269,6 +295,16 @@ struct ServerDetailPage: View {
                         MatchSongsRow(serverID: serverID)
                     } footer: {
                         Text("Songs you downloaded or put in playlists from the server this replaced are matched to the same songs here. Downloaded files stay as they are.")
+                    }
+                }
+                Section {
+                    Toggle("Tell Server About Plays", isOn: Binding(
+                        get: { music.servers.reportsPlays(to: serverID) },
+                        set: { music.servers.setReportsPlays($0, to: serverID) }
+                    ))
+                } footer: {
+                    if !server.isTrackside {
+                        Text("If your server sends plays to Last.fm and Tracks scrobbles too, turn one off.")
                     }
                 }
                 Section {
@@ -290,31 +326,13 @@ struct ServerDetailPage: View {
                     if server.isTrackside {
                         Button("Pair Again…", systemImage: "key") { editsServer = true }
                     } else {
-                        Button("Change Password or Address…", systemImage: "key") { editsServer = true }
-                    }
-                } footer: {
-                    if server.isTrackside {
-                        Text("Tracks keeps up with changes on your server as they happen, so Tracks Radio, your mixes and search reach all of it. The songs themselves stream as you play them, unless you download them.")
-                    } else {
-                        Text("Tracks syncs the list of songs on your server each day, so Tracks Radio, your mixes and search reach all of it. The songs themselves stream as you play them, unless you download them.")
+                        Button("Change Sign-In or Addresses…", systemImage: "key") { editsServer = true }
                     }
                 }
                 Section {
-                    Toggle("Tell Server About Plays", isOn: Binding(
-                        get: { music.servers.reportsPlays(to: serverID) },
-                        set: { music.servers.setReportsPlays($0, to: serverID) }
-                    ))
-                } footer: {
-                    if server.isTrackside {
-                        Text("Keeps your server’s play counts right. Songs played while it can’t be reached are sent once it can.")
-                    } else {
-                        Text("Keeps your server’s play counts right. If your server sends your plays on to Last.fm or ListenBrainz and Tracks scrobbles to Last.fm too, turn one of them off so songs aren’t counted twice.")
-                    }
-                }
-                Section {
-                    Button("Remove Server…", role: .destructive) { confirmsRemove = true }
+                    Button("Remove…", role: .destructive) { confirmsRemove = true }
                         .confirmationDialog(removal.title, isPresented: $confirmsRemove, titleVisibility: .visible) {
-                            Button("Remove Server", role: .destructive) {
+                            Button(removal.button, role: .destructive) {
                                 removal.perform(serverID, music: music)
                                 dismiss()
                             }
@@ -325,10 +343,92 @@ struct ServerDetailPage: View {
             }
             .navigationTitle(server.name)
             .toolbarTitleDisplayMode(.inline)
+            .onAppear { name = server.name }
+            .onDisappear { music.servers.rename(serverID, to: name) }
             .sheet(isPresented: $editsServer) {
                 ServerForm(editing: server)
             }
         }
+    }
+
+    private func hero(_ server: SubsonicServer) -> ServerHeroLine {
+        let servers = music.servers
+        if servers.status[serverID] == .wrongPassword { return .signedOut }
+        if servers.syncing.contains(serverID), let progress = servers.syncProgress[serverID] { return .syncing(progress) }
+        switch servers.status[serverID] {
+        case .online: return servers.isAway(serverID) ? .away : .home
+        case .offline, .failed: return .offline(since: servers.offlineSince[serverID])
+        case .connecting, .wrongPassword, nil: return .connecting
+        }
+    }
+}
+
+/// A server's page, in a line: how it's reached, since when it isn't, how far a sync has got.
+enum ServerHeroLine: Equatable {
+    case home
+    case away
+    case offline(since: Date?)
+    case syncing(MusicServers.SyncProgress)
+    case connecting
+    case signedOut
+
+    func apply() -> Text {
+        switch self {
+        case .home:
+            return Text("Connected at home")
+        case .away:
+            return Text("Connected away from home")
+        case .offline(let since?):
+            return SettingsTone.attention.apply(to: Text("Offline since \(since, format: .dateTime.hour().minute())"))
+        case .offline(nil):
+            return SettingsTone.attention.apply(to: Text("Offline"))
+        case .syncing(let progress):
+            return Text("Syncing \(progress.done.formatted()) of \(progress.total.formatted()) songs")
+        case .connecting:
+            return Text("Connecting…")
+        case .signedOut:
+            #if os(macOS)
+            return SettingsTone.attention.apply(to: Text("This Mac was signed out."))
+            #else
+            return SettingsTone.attention.apply(to: Text("This iPhone was signed out."))
+            #endif
+        }
+    }
+}
+
+/// Every address a server answers at, each with its route, and the one in use.
+private struct ServerAddressesPage: View {
+    let serverID: String
+    @Environment(YourMusic.self) private var music
+
+    var body: some View {
+        let server = music.servers.server(serverID)
+        let inUse = music.servers.address(of: serverID)
+        Form {
+            Section {
+                ForEach(server?.addresses ?? [], id: \.url) { address in
+                    let kind = address.kind == .unknown ? TracksideServerURL.Kind(guessingFrom: address.url) : address.kind
+                    LabeledContent {
+                        if address.url == inUse {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.tint)
+                                .accessibilityLabel("In Use")
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(kind.routeName)
+                            Text(verbatim: address.url.absoluteString)
+                                .font(.footnote.monospaced())
+                                .foregroundStyle(.secondary)
+                                .environment(\.layoutDirection, .leftToRight)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Addresses")
+        .toolbarTitleDisplayMode(.inline)
     }
 }
 
@@ -443,6 +543,9 @@ struct ServerForm: View {
     @State private var password = ""
     @State private var code = ""
     @State private var method = SignInMethod.code
+    @State private var subsonicMethod = SubsonicSignIn.password
+    /// A Subsonic server's other addresses: at home, over Tailscale, on the internet.
+    @State private var otherAddresses: [OtherAddress] = []
     @State private var detected: Detected?
     @State private var isConnecting = false
     @State private var problem: String?
@@ -464,14 +567,25 @@ struct ServerForm: View {
         case password
     }
 
+    enum SubsonicSignIn: Hashable {
+        case password
+        /// OpenSubsonic's API key, with no username: revocable on the server.
+        case apiKey
+    }
+
+    struct OtherAddress: Identifiable, Hashable {
+        let id = UUID()
+        var text: String
+    }
+
     /// What answers at the address typed, once it's been asked.
     enum Detected: Equatable {
         case trackside(TracksideCapabilities, address: URL)
-        case subsonic(address: URL)
+        case subsonic(address: URL, offersAPIKey: Bool)
 
         var url: URL {
             switch self {
-            case .trackside(_, let address), .subsonic(let address): address
+            case .trackside(_, let address), .subsonic(let address, _): address
             }
         }
     }
@@ -555,7 +669,7 @@ struct ServerForm: View {
 
     private var title: LocalizedStringKey {
         if let editing { return "Edit \u{201C}\(editing.name)\u{201D}" }
-        return "Connect a Server"
+        return "Add Server"
     }
 
     private var confirmTitle: LocalizedStringKey {
@@ -655,7 +769,7 @@ struct ServerForm: View {
                 if isTrackside {
                     tracksideSignIn
                 } else {
-                    passwordFields
+                    subsonicSignIn
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
@@ -668,12 +782,24 @@ struct ServerForm: View {
                         Label(MusicServers.insecureAddressReason, systemImage: "lock.open")
                             .foregroundStyle(.ink(.red))
                             .fixedSize(horizontal: false, vertical: true)
+                    } else if keyNeedsHTTPS {
+                        Label("Use an https address to sign in with an API key.", systemImage: "lock.open")
+                            .foregroundStyle(.ink(.red))
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if isHomeOnly {
+                        Label("Works on your home network only.", systemImage: "house")
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Text(privacyLine)
                 }
                 .animation(SettingsMotion.fade, value: problem)
                 .animation(SettingsMotion.fade, value: isInsecure)
+                .animation(SettingsMotion.fade, value: isHomeOnly)
+                .animation(SettingsMotion.fade, value: keyNeedsHTTPS)
                 .animation(SettingsMotion.fade, value: isTrackside)
+            }
+            if !isTrackside {
+                otherAddressesSection
             }
             Section {
                 TextField("Name", text: $name, prompt: Text(defaultName))
@@ -714,6 +840,75 @@ struct ServerForm: View {
                 #endif
         } else {
             passwordFields
+        }
+    }
+
+    /// A Subsonic server's way in: a username and password, or an API key where the server
+    /// offers one.
+    @ViewBuilder
+    private var subsonicSignIn: some View {
+        if offersAPIKey {
+            Picker("Sign In With", selection: $subsonicMethod) {
+                Text("Password").tag(SubsonicSignIn.password)
+                Text("API Key").tag(SubsonicSignIn.apiKey)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        }
+        if usesAPIKey {
+            SecureField("API Key", text: $password, prompt: Text("Required"))
+                .monospaced()
+                .focused($focus, equals: .password)
+                #if os(iOS)
+                .submitLabel(.go)
+                .onSubmit(connect)
+                #endif
+        } else {
+            passwordFields
+        }
+    }
+
+    private var offersAPIKey: Bool {
+        if case .subsonic(let url, let offers) = detected, url == SubsonicServer.address(from: address) { return offers }
+        return editing?.usesAPIKey == true
+    }
+
+    private var usesAPIKey: Bool { !isTrackside && offersAPIKey && subsonicMethod == .apiKey }
+
+    /// More addresses for the same server, raced with the first so the best one on each
+    /// network is used.
+    private var otherAddressesSection: some View {
+        Section {
+            ForEach($otherAddresses) { $entry in
+                TextField("Address", text: $entry.text, prompt: Text(verbatim: "100.64.0.2:4533"))
+                    .textContentType(.URL)
+                    .literalEntry(isAddress: true)
+            }
+            .onDelete { otherAddresses.remove(atOffsets: $0) }
+            Button("Add Address", systemImage: "plus") {
+                otherAddresses.append(OtherAddress(text: ""))
+            }
+        } header: {
+            Text("Other Addresses")
+        } footer: {
+            Text("Tracks uses whichever answers best.")
+        }
+    }
+
+    /// Every address typed, the first one first, each with its route.
+    private func candidates(primary: URL) -> [TracksideServerURL]? {
+        let others = otherAddresses.compactMap { SubsonicServer.address(from: $0.text) }.filter { $0 != primary }
+        guard !others.isEmpty else { return nil }
+        return ([primary] + others).map { TracksideServerURL(url: $0, kind: TracksideServerURL.Kind(guessingFrom: $0), tls: $0.scheme?.lowercased() == "https") }
+    }
+
+    /// An extra address typed that can't be one, or that would send the password in the clear.
+    private var hasBadOtherAddress: Bool {
+        otherAddresses.contains { entry in
+            let text = entry.text.trimmingCharacters(in: .whitespaces)
+            guard !text.isEmpty else { return false }
+            guard let url = SubsonicServer.address(from: text) else { return true }
+            return ServerAddress.isExposed(url)
         }
     }
 
@@ -764,6 +959,7 @@ struct ServerForm: View {
                 ? String(localized: "Your password goes to your server once, to pair this Mac. Tracks keeps only the key it gets back, in this Mac’s keychain.")
                 : String(localized: "Tracks keeps the key your server gives this Mac in its keychain.")
         }
+        if usesAPIKey { return String(localized: "Tracks keeps the API key in this Mac’s keychain.") }
         return String(localized: "Tracks sends a token made from your password, never the password itself, and keeps the password in this Mac’s keychain.")
         #else
         if isTrackside {
@@ -771,6 +967,7 @@ struct ServerForm: View {
                 ? String(localized: "Your password goes to your server once, to pair this iPhone. Tracks keeps only the key it gets back, in this iPhone’s keychain.")
                 : String(localized: "Tracks keeps the key your server gives this iPhone in its keychain.")
         }
+        if usesAPIKey { return String(localized: "Tracks keeps the API key in this iPhone’s keychain.") }
         return String(localized: "Tracks sends a token made from your password, never the password itself, and keeps the password in this iPhone’s keychain.")
         #endif
     }
@@ -781,6 +978,9 @@ struct ServerForm: View {
             if capabilities?.setupRequired == true { return false }
             if signIn == .approval { return approval == nil }
             if signIn == .code { return PairingPayload.typedCode(code) != nil }
+        } else {
+            if hasBadOtherAddress { return false }
+            if usesAPIKey { return !password.isEmpty && !keyNeedsHTTPS }
         }
         return !username.trimmingCharacters(in: .whitespaces).isEmpty && !password.isEmpty
     }
@@ -798,6 +998,24 @@ struct ServerForm: View {
         SubsonicServer.address(from: address).map(ServerAddress.isExposed) ?? false
     }
 
+    /// Whether the server has an https address among those typed.
+    private var hasHTTPSAddress: Bool {
+        ([address] + otherAddresses.map(\.text)).contains { SubsonicServer.address(from: $0)?.scheme?.lowercased() == "https" }
+    }
+
+    /// A Subsonic server reached only over plain http at home: its sign-in goes unencrypted,
+    /// so it's for the home network.
+    private var isHomeOnly: Bool {
+        guard !isTrackside, !isInsecure, let url = SubsonicServer.address(from: address), url.scheme?.lowercased() == "http" else { return false }
+        return !hasHTTPSAddress && !SubsonicCredentialRule.isLoopback(url)
+    }
+
+    /// An API key never crosses plain http beyond this device.
+    private var keyNeedsHTTPS: Bool {
+        guard !isTrackside, usesAPIKey, let url = SubsonicServer.address(from: address), url.scheme?.lowercased() == "http" else { return false }
+        return !hasHTTPSAddress && !SubsonicCredentialRule.isLoopback(url)
+    }
+
     private func fillIn() {
         if let editing {
             name = editing.name
@@ -807,6 +1025,8 @@ struct ServerForm: View {
                 method = .code
                 focus = .code
             } else {
+                subsonicMethod = editing.usesAPIKey ? .apiKey : .password
+                otherAddresses = (editing.candidateURLs ?? []).map(\.url).filter { $0 != editing.url }.map { OtherAddress(text: $0.absoluteString) }
                 focus = .password
             }
         } else if pairing == nil {
@@ -846,7 +1066,9 @@ struct ServerForm: View {
                     ? String(localized: "Finish setting up your server in its dashboard, then pair this device.")
                     : nil
             case .subsonic:
-                detected = .subsonic(address: url)
+                let offers = await Self.offersAPIKey(at: url)
+                guard !Task.isCancelled else { return }
+                detected = .subsonic(address: url, offersAPIKey: offers)
             }
         } catch {
             // Not reachable yet, or still being typed: Connect asks again.
@@ -865,7 +1087,7 @@ struct ServerForm: View {
             let serverName = trimmedName.isEmpty ? defaultName : trimmedName
             do {
                 if isTrackside {
-                    let device = TracksideDeviceIdentity.current
+                    let device = TracksideDeviceInfo.thisDevice
                     let result: TracksidePairResult
                     if signIn == .approval {
                         guard let approved = try await waitForApproval(at: url, device: device) else { return }
@@ -880,7 +1102,8 @@ struct ServerForm: View {
                     var server = editing ?? SubsonicServer(name: "", url: url, username: "")
                     server.name = serverName
                     server.url = url
-                    server.username = username.trimmingCharacters(in: .whitespaces)
+                    server.username = usesAPIKey ? "" : username.trimmingCharacters(in: .whitespaces)
+                    server.candidateURLs = candidates(primary: url)
                     try await music.servers.add(server, password: password)
                 }
                 dismiss()
@@ -888,6 +1111,13 @@ struct ServerForm: View {
                 problem = describe(error)
             }
         }
+    }
+
+    /// Whether a Subsonic server takes OpenSubsonic API keys, asked without signing in.
+    private static func offersAPIKey(at url: URL) async -> Bool {
+        let probe = SubsonicServer(name: "", url: url, username: "")
+        let client = SubsonicClient(server: probe, password: "")
+        return (try? await client.openSubsonicExtensions())?.contains("apiKeyAuthentication") == true
     }
 
     /// Shows a code for someone signed in to the dashboard to approve, and waits for them.
@@ -949,7 +1179,7 @@ struct ServerForm: View {
         }
         address = chosen.url.absoluteString
         do {
-            let result = try await TracksideClient.claim(at: chosen.url, code: payload.code, device: TracksideDeviceIdentity.current, transport: transport)
+            let result = try await TracksideClient.claim(at: chosen.url, code: payload.code, device: TracksideDeviceInfo.thisDevice, transport: transport)
             let trimmed = name.trimmingCharacters(in: .whitespaces)
             let serverName = trimmed.isEmpty ? (payload.name ?? chosen.url.host() ?? String(localized: "Home Server")) : trimmed
             await music.servers.pair(result, at: chosen.url, name: serverName, replacing: editing)

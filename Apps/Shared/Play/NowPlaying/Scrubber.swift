@@ -100,7 +100,13 @@ struct Scrubber: View {
                 Text(verbatim: "0")
                     .font(.caption.weight(.medium))
                     .hidden()
-                    .overlay { AudioQualityBadge(track: track).fixedSize() }
+                    .overlay {
+                        HStack(spacing: 8) {
+                            SourceBadge()
+                            AudioQualityBadge(track: track)
+                        }
+                        .fixedSize()
+                    }
             }
         }
     }

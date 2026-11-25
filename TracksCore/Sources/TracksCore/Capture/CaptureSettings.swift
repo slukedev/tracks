@@ -20,6 +20,7 @@ public struct CaptureSettings: Sendable {
     public static let forgottenSongsKey = "forgottenSongs"
     public static let forgottenSongDatesKey = "forgottenSongDates"
     public static let scrobblesToLastFMKey = "scrobblesToLastFM"
+    public static let scrobblesSpotifyKey = "scrobblesSpotifyToLastFM"
     public static let menuBarLabelStyleKey = "menuBarLabelStyle"
     public static let menuBarLabelFormatKey = "menuBarLabelFormat"
     public static let animatesMenuBarKey = "animatesMenuBar"
@@ -229,6 +230,13 @@ public struct CaptureSettings: Sendable {
     public var scrobblesToLastFM: Bool {
         get { defaults.object(forKey: Self.scrobblesToLastFMKey) as? Bool ?? true }
         nonmutating set { defaults.set(newValue, forKey: Self.scrobblesToLastFMKey) }
+    }
+
+    /// Whether plays from Spotify go to Last.fm too. Off by default: Spotify sends them itself
+    /// once it's linked to Last.fm, and twice would count them twice.
+    public var scrobblesSpotify: Bool {
+        get { defaults.object(forKey: Self.scrobblesSpotifyKey) as? Bool ?? false }
+        nonmutating set { defaults.set(newValue, forKey: Self.scrobblesSpotifyKey) }
     }
 
     /// Songs the catalog had no cover for, by song ID, with when to ask again.

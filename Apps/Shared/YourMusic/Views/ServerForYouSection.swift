@@ -10,6 +10,7 @@ import TracksCore
 /// listening history and no library, only artists to start from, which Picked for You asks for
 /// when there are none.
 struct ServerForYouSection: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let server: SubsonicServer
     var shelf: ServerDiscovery.Shelf = .picks
     /// Off where Tracks Radio leads the crate above instead.
@@ -65,7 +66,7 @@ struct ServerForYouSection: View {
                     shelf([], columns: [], goesOn: true)
                 }
             }
-            .animation(.snappy, value: songs.count)
+            .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: songs.count)
             .sheet(isPresented: $picksArtists) { SeedArtistPicker() }
             .task(id: LoadKey(serverID: server.id, picked: music.discover.pickedArtists, played: feed.tasteArtists)) {
                 await load(force: false)

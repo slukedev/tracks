@@ -21,15 +21,9 @@ extension PlaySettingsWords.Standing {
             offlineSongs: offlineSongs,
             songs: music.index.tracks.count,
             servers: servers.servers.count,
-            troubledServer: troubled
+            troubledServer: troubled,
+            mixes: model.mixesSources
         )
-    }
-}
-
-extension PlaySettingsWords.QuickSwitchState {
-    @MainActor
-    init(music: YourMusic, isOn: Bool) {
-        self = QuickSwitch.isAvailable(music) ? (isOn ? .on : .off) : .unavailable
     }
 }
 

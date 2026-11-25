@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 import TracksCore
 
 /// What your servers have to find: songs picked for you, their newest albums, their most
@@ -162,7 +163,10 @@ final class ServerDiscovery {
         self.heard = heard
         let picked = pickedArtists
         let library = ServerMix.libraryArtists(music.index.tracks)
-        let known = Set((picked + library).map(StatsCalculator.folded))
+        // A Trackside server only ever finds what you have, so an artist you have and have never
+        // played is new to you there; anywhere else, your library's artists are ones you know.
+        let isTrackside = music.servers.isTrackside(serverID)
+        let known = Set((picked + (isTrackside ? [] : library)).map(StatsCalculator.folded))
         self.knowsArtist = { known.contains(StatsCalculator.folded($0)) || knowsArtist($0) }
         if !force, let loaded = forYou[serverID], !loaded.songs.isEmpty || !loaded.suggested.isEmpty || loaded.isFilling,
            (loaded.picked ?? []) == picked,
@@ -199,6 +203,10 @@ final class ServerDiscovery {
             defer { if forYouLoads[serverID]?.id == id { forYouLoads[serverID] = nil } }
             // What's on show stays until the new picks are ready; an empty shelf fills as they come.
             var fresh = ForYou(from: Array(seeds.prefix(ServerMix.seedCount)), queue: seeds, loadedAt: .now, picked: picked)
+            // A server that picks for you (Trackside) starts the shelves; the walk goes on from there.
+            if let picks = await serverPicks(serverID: serverID), !picks.isEmpty {
+                add(picks, from: "server", includingYours: false, to: &fresh, serverID: serverID)
+            }
             let replaces = forYou[serverID].map { !$0.songs.isEmpty || !$0.suggested.isEmpty } ?? false
             if !replaces {
                 fresh.isFilling = true
@@ -305,6 +313,20 @@ final class ServerDiscovery {
         if publishing { forYou[serverID] = feed }
         return feed
     }
+
+    /// The server's own picks, or nil when it doesn't make any. A failure is logged, and the
+    /// walk from similar songs still fills the shelves.
+    private func serverPicks(serverID: String) async -> [SubsonicSong]? {
+        guard let client = music.servers.client(for: serverID) else { return nil }
+        do {
+            return try await music.servers.lookups(for: serverID).run { try await client.serverPicks(count: 40) }
+        } catch {
+            Self.log.warning("For You: a server couldn't pick songs: \(URLRedaction.redact(text: String(describing: error)), privacy: .public)")
+            return nil
+        }
+    }
+
+    nonisolated private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Tracks", category: "ServerDiscovery")
 
     /// Songs each shelf starts with: a column of four, twice.
     private static let columnSize = 8
@@ -437,7 +459,13 @@ final class ServerDiscovery {
         }
         let theirs = found.filter(isTheirs)
         guard let start = theirs.first ?? found.first else { return [] }
-        let like = (try? await music.servers.lookups(for: serverID).run { try await client.similarSongs(to: start.id, count: 15) }) ?? []
+        let like: [SubsonicSong]
+        do {
+            like = try await music.servers.lookups(for: serverID).run { try await client.similarSongs(to: start.id, count: 15) }
+        } catch {
+            Self.log.warning("For You: a server couldn't find similar songs: \(URLRedaction.redact(text: String(describing: error)), privacy: .public)")
+            like = []
+        }
         return Array(theirs.prefix(4)) + like
     }
 

@@ -38,7 +38,7 @@ private struct PlayerFeedback: ViewModifier {
                     }
                     Button("Not Now", role: .cancel) {}
                 case .needsAppleMusic:
-                    Button("Use Apple Music") { model.musicSource = .appleMusic }
+                    Button("Use Apple Music") { model.chooseSources(.only(.appleMusic)) }
                     Button("Not Now", role: .cancel) {}
                 case .blockedArtist(let name):
                     // Stopped for being theirs: unblocked, it plays on from where it stopped.
@@ -59,10 +59,25 @@ private struct PlayerFeedback: ViewModifier {
                     ConfirmationHUD(message: player.confirmation)
                 }
             }
+            .overlay(alignment: .bottom) {
+                if isActive {
+                    SkipNoticeCapsule()
+                        .padding(.bottom, Self.skipNoticeInset)
+                }
+            }
             // "Added to Library" is felt as it shows; a problem, as its alert comes up.
             .sensoryFeedback(.success, trigger: player.confirmation) { _, message in isActive && message != nil }
             .sensoryFeedback(.error, trigger: player.isShowingProblem) { _, showing in isActive && showing }
     }
+}
+
+extension PlayerFeedback {
+    /// Clear of the tab bar and the mini player above it.
+    #if os(iOS)
+    static let skipNoticeInset: CGFloat = 132
+    #else
+    static let skipNoticeInset: CGFloat = 24
+    #endif
 }
 
 /// "Added to Library", over everything for a moment, as Music confirms.

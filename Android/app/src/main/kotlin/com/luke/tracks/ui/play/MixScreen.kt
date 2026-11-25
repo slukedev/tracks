@@ -120,7 +120,7 @@ private fun MixPage(mix: Mix, feed: PlayFeed) {
     val scrolledPast by remember { derivedStateOf { list.firstVisibleItemIndex > 0 } }
 
     val unplayable: () -> Unit = {
-        scope.launch { snackbar.showSnackbar("None of these songs are in your music on this phone yet") }
+        scope.launch { snackbar.showSnackbar("None of these songs are in your library yet") }
     }
     val hearLess: (SongRef) -> Unit = { song ->
         actions.hearLess(song.identity)
@@ -190,7 +190,7 @@ private fun MixPage(mix: Mix, feed: PlayFeed) {
                         FilterChip(
                             selected = onlyPlayable,
                             onClick = { onlyPlayable = !onlyPlayable },
-                            label = { Text("In your music") },
+                            label = { Text("In library") },
                             leadingIcon = if (onlyPlayable) {
                                 { Icon(Icons.Rounded.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
                             } else null,
@@ -274,8 +274,8 @@ private fun MixHeader(
         Text(
             when (playableCount) {
                 total -> if (total == 1) "1 song" else "$total songs"
-                0 -> "None in your music on this phone yet"
-                else -> "$playableCount of $total in your music"
+                0 -> "None in your library yet"
+                else -> "$playableCount of $total in your library"
             },
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurfaceVariant,

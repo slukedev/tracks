@@ -115,9 +115,9 @@ extension PlayMusicIntent {
 
         static let typeDisplayRepresentation: TypeDisplayRepresentation = "Source"
         static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-            .automatic: DisplayRepresentation(title: "Anywhere", subtitle: "The source that's on, then the other"),
+            .automatic: DisplayRepresentation(title: "Anywhere", subtitle: "The source that's on, then the others"),
             .appleMusic: "Apple Music",
-            .yourMusic: "Your Music",
+            .yourMusic: "Files and Servers",
         ]
 
         var source: MusicSource? { MusicSource(rawValue: rawValue) }

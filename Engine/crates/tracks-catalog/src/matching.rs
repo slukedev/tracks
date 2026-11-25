@@ -13,15 +13,41 @@ use tracks_model::{credits_by_name, folded};
 /// Words in a trailing bracket that mean a different recording. "(Live)" stays when
 /// comparing; "(Remastered)" and "(feat. …)" go.
 const VERSION_QUALIFIERS: &[&str] = &[
-    "live", "remix", "rework", "mixed", "mix", "acoustic", "demo", "instrumental", "edit",
-    "version", "reprise", "cover", "karaoke", "sped up", "slowed", "extended", "dub", "bootleg",
-    "flip", "session",
+    "live",
+    "remix",
+    "rework",
+    "mixed",
+    "mix",
+    "acoustic",
+    "demo",
+    "instrumental",
+    "edit",
+    "version",
+    "reprise",
+    "cover",
+    "karaoke",
+    "sped up",
+    "slowed",
+    "extended",
+    "dub",
+    "bootleg",
+    "flip",
+    "session",
 ];
 
 /// Words in a trailing bracket that only name an edition of the same album.
 const EDITIONS: &[&str] = &[
-    "deluxe", "remaster", "expanded", "anniversary", "bonus track", "special edition", "edition",
-    "explicit", "clean", "mono", "stereo",
+    "deluxe",
+    "remaster",
+    "expanded",
+    "anniversary",
+    "bonus track",
+    "special edition",
+    "edition",
+    "explicit",
+    "clean",
+    "mono",
+    "stereo",
 ];
 
 /// A song's name, as the matcher reads it.
@@ -150,36 +176,60 @@ mod tests {
     use super::*;
 
     fn names<'a>(list: &'a [(&'a str, &'a str)]) -> Vec<SongName<'a>> {
-        list.iter().map(|(title, artist)| SongName { title, artist }).collect()
+        list.iter()
+            .map(|(title, artist)| SongName { title, artist })
+            .collect()
     }
 
     #[test]
     fn exact_names_win_over_looser_ones() {
-        let list = [("Havana (feat. Young Thug)", "Camila Cabello"), ("Havana", "Camila Cabello")];
-        assert_eq!(best_match("Havana", "Camila Cabello", &names(&list)), Some(1));
+        let list = [
+            ("Havana (feat. Young Thug)", "Camila Cabello"),
+            ("Havana", "Camila Cabello"),
+        ];
+        assert_eq!(
+            best_match("Havana", "Camila Cabello", &names(&list)),
+            Some(1)
+        );
     }
 
     #[test]
     fn features_remasters_and_shared_credits_match() {
         let list = [("Havana (feat. Young Thug)", "Camila Cabello & Young Thug")];
-        assert_eq!(best_match("Havana", "Camila Cabello", &names(&list)), Some(0));
+        assert_eq!(
+            best_match("Havana", "Camila Cabello", &names(&list)),
+            Some(0)
+        );
         let list = [("Let Down - Remastered 2017", "Radiohead")];
         assert_eq!(best_match("Let Down", "Radiohead", &names(&list)), Some(0));
     }
 
     #[test]
     fn other_recordings_and_artists_never_match() {
-        let list = [("Creep (Live)", "Radiohead"), ("Creep (Acoustic)", "Radiohead"), ("Creep", "TLC")];
+        let list = [
+            ("Creep (Live)", "Radiohead"),
+            ("Creep (Acoustic)", "Radiohead"),
+            ("Creep", "TLC"),
+        ];
         assert_eq!(best_match("Creep", "Radiohead", &names(&list)), None);
     }
 
     #[test]
     fn album_editions_fold_but_versions_stay() {
         assert_eq!(album_key("Coastlines (Deluxe Edition)"), "coastlines");
-        assert_eq!(album_key("OK Computer OKNOTOK 1997 2017"), "ok computer oknotok 1997 2017");
+        assert_eq!(
+            album_key("OK Computer OKNOTOK 1997 2017"),
+            "ok computer oknotok 1997 2017"
+        );
         assert_eq!(album_key("Lift - Single"), "lift");
-        assert_eq!(album_key("1989 (Taylor's Version)"), "1989 (taylor's version)");
-        assert_eq!(album_key("Abbey Road (Remastered) [Super Deluxe]"), "abbey road");
+        assert_eq!(
+            album_key("1989 (Taylor's Version)"),
+            "1989 (taylor's version)"
+        );
+        assert_eq!(
+            album_key("Abbey Road (Remastered) [Super Deluxe]"),
+            "abbey road"
+        );
     }
 
     #[test]
@@ -192,7 +242,10 @@ mod tests {
 
     #[test]
     fn credited_names_fall_back_to_their_lead() {
-        assert_eq!(artist_candidates("Drake & 21 Savage"), vec!["Drake & 21 Savage", "Drake"]);
+        assert_eq!(
+            artist_candidates("Drake & 21 Savage"),
+            vec!["Drake & 21 Savage", "Drake"]
+        );
         assert_eq!(artist_candidates("Radiohead"), vec!["Radiohead"]);
     }
 }

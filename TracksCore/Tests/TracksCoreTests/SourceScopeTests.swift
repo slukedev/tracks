@@ -31,8 +31,8 @@ struct SourceScopeTests {
         #expect(PlaySource(observation: music) == .appleMusic)
     }
 
-    @Test("a play with no source, or one this version doesn't know, is Apple Music", arguments: [nil, "", "vinyl"])
-    func unknownIsAppleMusic(stored: String?) {
+    @Test("a play with no source is Apple Music", arguments: [nil, ""] as [String?])
+    func missingIsAppleMusic(stored: String?) {
         #expect(PlaySource(stored: stored) == .appleMusic)
     }
 
@@ -145,8 +145,9 @@ struct SourceScopeTests {
 
     @Test("the scope applies only with the setting on and Your Music plays to tell apart")
     func effectiveScope() {
-        #expect(SourceScope.effective(.yourMusic, separates: false, hasYourMusic: true) == .all)
-        #expect(SourceScope.effective(.yourMusic, separates: true, hasYourMusic: false) == .all)
-        #expect(SourceScope.effective(.yourMusic, separates: true, hasYourMusic: true) == .yourMusic)
+        #expect(SourceScope.effective(.yourMusic, separates: false, played: [.appleMusic, .yourMusic]) == .all)
+        #expect(SourceScope.effective(.yourMusic, separates: true, played: [.appleMusic]) == .all)
+        #expect(SourceScope.effective(.yourMusic, separates: true, played: [.appleMusic, .yourMusic]) == .yourMusic)
+        #expect(SourceScope.effective(.spotify, separates: true, played: [.appleMusic, .yourMusic]) == .all)
     }
 }

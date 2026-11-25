@@ -60,6 +60,7 @@ extension SettingsRegistry {
 
         // Last.fm
         .everyDevice(CaptureSettings.scrobblesToLastFMKey),
+        .everyDevice(CaptureSettings.scrobblesSpotifyKey),
         .thisDevice(LastFMSessionStore.usernameKey),
         .thisDevice(CaptureSettings.lastFMHistoryKey),
 

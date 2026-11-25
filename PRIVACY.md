@@ -38,6 +38,16 @@ What doesn't sync: your Last.fm sign-in, your music servers and their passwords,
 
 You can turn sync off in the Tracks settings ("Sync with iCloud"); the change takes effect the next time Tracks opens. It stops both your history and your settings syncing. You can also stop Tracks using iCloud entirely in your device's iCloud settings.
 
+## Trackside Cloud
+
+If you run your own Trackside server, you can choose it instead of iCloud under Sync › Sync With. Your listening history, sessions, stations, settings, the songs you've deleted, the artists you've blocked and the stations you've excluded then sync through that server, so Tracks on any device signed in to it (Android included) sees the same history. It all stays on your server: nothing goes to me or to anyone else. Each item carries the Tracks device identifier described above, and the key your devices use to find each other for Your Devices is never sent to the server.
+
+Tracks talks to your server only over https, or over plain HTTP to addresses on your home network or Tailscale, and only after the server has proven, with your device's key, that it is your server. Moving from iCloud to Trackside Cloud leaves what iCloud holds where it is; moving back leaves your server's copy where it is. Removing the server from your Trackside account or deleting its data removes that copy.
+
+On Android, where there's no iCloud, Sync is Off or Trackside Cloud. Android also syncs the songs you like and its own appearance and Tracks Radio settings, so your other Android devices match. When you play a song from a Trackside server, Tracks tells that server about the play (kept on your device until the server has it) and what's playing now, as Trackside's own dashboard shows it.
+
+Scanning a Trackside pairing code on Android uses Google Play services' code scanner, which reads the code on your device and gives Tracks only the text in it; Tracks never gets camera access. Like any app's use of it, Google Play services may send Google its own diagnostics about the scanner, never the image. To find Trackside servers on your home network, Tracks listens for them on that network and contacts nothing else.
+
 ## Apple Music
 
 With your permission, Tracks uses Apple's MusicKit to:
@@ -59,7 +69,7 @@ You can turn off Apple Music access for Tracks at any time in Settings → Priva
 If you choose Your Music as the music source, Tracks plays audio files you add to it and songs from music servers you connect yourself, such as Navidrome.
 
 - **Your files** are copied into the app’s own storage on the device. On iPhone, the Files app can see them as On My iPhone › Tracks. Tracks reads their tags and covers to show them, and doesn't send them anywhere.
-- **Your servers.** Tracks connects only to the servers you add, directly from your device. The address and username are stored with your settings on the device; the password is stored in the device's Keychain and is never sent: each request carries a token made from it, as the Subsonic API asks. When you play a song from a server, Tracks tells that server, so it can count your plays. Server details aren't synced to iCloud.
+- **Your servers.** Tracks connects only to the servers you add, directly from your device. The address and username are stored with your settings on the device; the password, or the API key you use instead, is stored in the device's Keychain. The password is never sent: each request carries a token made from it with a fresh random salt, as the Subsonic API asks. Cover addresses carry no sign-in at all, so none ends up in an image cache, on the lock screen or in a log. When you play a song from a server, Tracks tells that server, so it can count your plays. Server details aren't synced to iCloud.
 - **Downloads** from your servers are kept on your device, left out of iCloud backup, and can be removed at any time in Tracks.
 - If a server is on your home network, your device asks your permission for Tracks to reach the local network. You can change your answer in Settings → Privacy & Security → Local Network on iPhone, or System Settings → Privacy & Security → Local Network on Mac.
 

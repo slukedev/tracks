@@ -117,13 +117,17 @@ nonisolated struct HistorySong: Equatable, Sendable {
     let artistName: String
     let albumTitle: String?
     let artworkURL: String?
+    /// Where it played from before, to play from there again where it still can: a queue
+    /// left across sources.
+    let source: MusicSource?
 
-    init(songID: String, title: String, artistName: String, albumTitle: String? = nil, artworkURL: String? = nil) {
+    init(songID: String, title: String, artistName: String, albumTitle: String? = nil, artworkURL: String? = nil, source: MusicSource? = nil) {
         self.songID = songID
         self.title = title
         self.artistName = artistName
         self.albumTitle = albumTitle
         self.artworkURL = artworkURL
+        self.source = source
     }
 
     init(_ song: MixSong) {
@@ -243,7 +247,7 @@ enum PlayerProblem: Error, Equatable {
         case .nothingToPlay: String(localized: "Couldn't Find These Songs")
         case .onlyExplicit: String(localized: "Only Explicit Versions")
         case .explicitSong: String(localized: "Explicit Song")
-        case .notInYourMusic: String(localized: "Not in Your Music")
+        case .notInYourMusic: String(localized: "Can't Play These Songs")
         case .needsAppleMusic: String(localized: "This Is Apple Music")
         case .blockedArtist(let name): String(localized: "You Blocked \(name)")
         case .failed(_, let title): title ?? String(localized: "Couldn't Play")
@@ -265,9 +269,9 @@ enum PlayerProblem: Error, Equatable {
         case .explicitSong:
             String(localized: "Turn on Explicit Songs in Settings to play it.")
         case .notInYourMusic:
-            String(localized: "These songs aren't in your music, or their server can't be reached. Download songs to play them anywhere.")
+            String(localized: "They may have been removed, or their server can't be reached. Downloaded songs play anywhere.")
         case .needsAppleMusic:
-            String(localized: "Tracks is playing your own music. Switch Music Source to Apple Music in Settings to play this.")
+            String(localized: "Choose Apple Music as the source to play it.")
         case .blockedArtist:
             String(localized: "Tracks doesn't play or suggest artists you've blocked. Unblock them to play this.")
         case .failed(let detail, _):

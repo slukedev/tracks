@@ -39,7 +39,7 @@ struct HistoryScreen: View {
                     if sources.isOffered {
                         Section("Music") {
                             Picker("Music", selection: sources.selection) {
-                                ForEach(SourceScope.allCases) { scope in
+                                ForEach(sources.offered) { scope in
                                     Label(scope.title, systemImage: scope.symbol).tag(scope)
                                 }
                             }

@@ -126,6 +126,8 @@ public struct ScrobblePolicy: Sendable, Equatable {
     /// Also how a row held back by this policy is told from one Last.fm refused.
     public static let tooShortReason = "Last.fm doesn’t count tracks of 30 seconds or less."
     public static let notPlayedEnoughReason = "Last.fm counts a song once half of it or four minutes has played."
+    /// A Spotify play while Scrobble Spotify is off: Spotify sends its own.
+    public static let spotifyReason = "Spotify sends its own plays to Last.fm."
 }
 
 extension Capture {
@@ -134,7 +136,8 @@ extension Capture {
     public var isHeldFromScrobbling: Bool {
         scrobbledAt == nil
             && (lastScrobbleError == ScrobblePolicy.tooShortReason
-                || lastScrobbleError == ScrobblePolicy.notPlayedEnoughReason)
+                || lastScrobbleError == ScrobblePolicy.notPlayedEnoughReason
+                || lastScrobbleError == ScrobblePolicy.spotifyReason)
     }
 
     /// Keeps the play out of the scrobble queue, which skips rows that have used up their

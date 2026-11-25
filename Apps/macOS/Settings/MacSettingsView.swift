@@ -3,7 +3,7 @@ import TracksCore
 
 /// A pane of the Mac's Settings window, stored so Settings reopens where it was left.
 enum MacSettingsPane: String {
-    case general, play, history, radio, lastFM, iCloud, devices, menuBar
+    case general, sources, play, history, radio, lastFM, iCloud, devices, menuBar
     static let storageKey = "settingsPane"
 }
 
@@ -19,6 +19,11 @@ struct MacSettingsView: View {
         TabView(selection: $pane) {
             Tab("General", systemImage: "gearshape", value: .general) {
                 GeneralSettingsPane()
+            }
+            Tab("Sources", systemImage: "square.stack", value: .sources) {
+                SourcesSettingsPane()
+                    .environment(model.yourMusic)
+                    .environment(model.lidarr)
             }
             Tab("Play", systemImage: "play.circle", value: .play) {
                 // The Settings scene is its own root, so Play's models go in again here.
@@ -38,7 +43,7 @@ struct MacSettingsView: View {
             }
             // Sample data has no real store to sync; its pane says so instead.
             if cloud != nil || model.isDemoLaunch {
-                Tab("iCloud", systemImage: "icloud", value: .iCloud) {
+                Tab("Sync", systemImage: "arrow.triangle.2.circlepath", value: .iCloud) {
                     if let cloud {
                         CloudSyncPage(sync: cloud)
                     } else {
@@ -57,7 +62,10 @@ struct MacSettingsView: View {
         .environment(model)
         .onAppear {
             if cloud == nil, let store = model.store, !model.isDemoLaunch {
-                cloud = CloudSyncSettings(store: store, monitor: model.syncMonitor)
+                let settings = CloudSyncSettings(store: store, monitor: model.syncMonitor)
+                let servers = model.yourMusic.servers
+                settings.tracksideCloud = { [weak servers] in servers?.cloudSync }
+                cloud = settings
             }
             // A pane that isn't there this run falls back to General.
             if pane == .iCloud, cloud == nil, !model.isDemoLaunch { pane = .general }

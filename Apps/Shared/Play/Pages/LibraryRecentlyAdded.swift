@@ -107,6 +107,7 @@ struct LibraryRecentlyAddedPage: View {
 /// The library on Play, as Music's Library tab begins: its parts as rows, then what came into
 /// it lately as a two-column grid.
 struct LibraryOverview: View {
+    var showsTitle = true
     @State private var albums = LibraryPager<Album>()
     @State private var playlists = LibraryPager<Playlist>()
     @Environment(AppModel.self) private var model
@@ -117,9 +118,11 @@ struct LibraryOverview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: Design.Margin.header) {
-                Text("Library")
-                    .font(.sectionTitle)
-                    .accessibilityAddTraits(.isHeader)
+                if showsTitle {
+                    Text("Library")
+                        .font(.sectionTitle)
+                        .accessibilityAddTraits(.isHeader)
+                }
                 categories
             }
             if isOpen {

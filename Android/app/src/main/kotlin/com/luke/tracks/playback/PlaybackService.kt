@@ -2,10 +2,11 @@ package com.luke.tracks.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
+import android.os.Process
 import android.os.SystemClock
-import android.util.Log
 import android.widget.Toast
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -13,7 +14,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
@@ -22,6 +25,7 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
@@ -36,7 +40,18 @@ import com.luke.tracks.data.PlayKindValue
 import com.luke.tracks.data.PlaySourceValue
 import com.luke.tracks.graph
 import com.luke.tracks.library.CombinedLibrary
-import com.luke.tracks.library.ServerLibrary
+import com.luke.tracks.net.Http
+import com.luke.tracks.net.Logs
+import com.luke.tracks.sources.SkippedSongs
+import com.luke.tracks.sources.SongCopies
+import com.luke.tracks.sources.SourceSelection
+import com.luke.tracks.sources.sources
+import com.luke.tracks.applemusic.AppleMusic
+import com.luke.tracks.applemusic.AppleMusicUris
+import com.luke.tracks.applemusic.appleMusicProblem
+import com.luke.tracks.spotify.Spotify
+import com.luke.tracks.spotify.SpotifyUris
+import com.luke.tracks.spotify.spotifyProblem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,6 +61,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.tracks_engine.Listen
 import uniffi.tracks_engine.radioListen
 import kotlin.math.PI
@@ -100,6 +116,26 @@ class PlaybackService : MediaLibraryService() {
     private var sleepJob: Job? = null
     private var failuresInARow = 0
 
+    // Copies across sources.
+    private val copies = SongCopies {
+        (graph.library as? CombinedLibrary)?.let { listOf(it.device.tracks.value, it.servers.tracks.value) }.orEmpty() +
+            listOfNotNull(AppleMusic.service?.library?.value)
+    }
+    /** The song whose copies have been tried after failing, by identity, and the ones tried. */
+    private var triedFor: String? = null
+    private val tried = mutableSetOf<String>()
+    /** The song on when songs ahead were last checked, so each song checks once. */
+    private var checkedAheadOf: String? = null
+    /** Nothing ahead could play: when this song ends the music stops, and the message says why. */
+    private var nothingAfter: String? = null
+    private var nothingAfterCount = 0
+
+    /** Files on the phone, and server songs signed only as each request goes out ([com.luke.tracks.net.ServerLinks]). */
+    private val dataSources by lazy { DefaultDataSource.Factory(this, OkHttpDataSource.Factory(Http.media)) }
+
+    /** The above, plus Spotify's decoded audio in builds that have it. */
+    private val songSources by lazy { SourceDataSource.Factory(dataSources, appleMusic = { AppleMusic.service?.playback }) { Spotify.integration?.audio } }
+
     override fun onCreate() {
         super.onCreate()
         memory = QueueMemory(this)
@@ -111,10 +147,16 @@ class PlaybackService : MediaLibraryService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, OkHttpDataSource.Factory(ServerLibrary.defaultHttp))))
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(songSources)
+                    // A dropped connection resumes from where the song broke off, a few times over.
+                    .setLoadErrorHandlingPolicy(SourceLoadErrorPolicy(LOAD_RETRIES)),
+            )
             .build()
         player = FreshShufflePlayer(exo)
         player.addListener(listener)
+        // Apple Music's songs play through MusicKit, following this player.
+        AppleMusic.service?.playback?.attach(exo)
 
         val open = PendingIntent.getActivity(
             this, 0,
@@ -123,6 +165,7 @@ class PlaybackService : MediaLibraryService() {
         )
         session = MediaLibrarySession.Builder(this, player, callback)
             .setSessionActivity(open)
+            .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader.Builder(this).setDataSourceFactory(dataSources).build()))
             .setMediaButtonPreferences(buttons())
             .build()
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build().apply { setSmallIcon(R.drawable.ic_launcher_monochrome) })
@@ -152,6 +195,7 @@ class PlaybackService : MediaLibraryService() {
         PlaybackBridge.sleepAtMs.value = null
         session?.release()
         session = null
+        AppleMusic.service?.playback?.detach()
         exo.release()
         scope.cancel()
         super.onDestroy()
@@ -161,6 +205,12 @@ class PlaybackService : MediaLibraryService() {
 
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val identity = mediaItem?.toPlayableSong()?.identity
+            if (identity != triedFor) {
+                triedFor = null
+                tried.clear()
+            }
+            if (mediaItem?.mediaId != nothingAfter) nothingAfter = null
             noteLeaving(reason)
             finishPlay()
             startPlay(mediaItem)
@@ -187,7 +237,16 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        override fun onPlayerError(error: PlaybackException) = skipUnplayable(error)
+        override fun onPlayerError(error: PlaybackException) {
+            if (!playAnotherCopy()) skipUnplayable(error)
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED && nothingAfter != null && nothingAfter == player.currentMediaItem?.mediaId) {
+                graph.sources.reportSkipped(SkippedSongs(nothingAfterCount, nothingLeft = true))
+                nothingAfter = null
+            }
+        }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) {
@@ -209,15 +268,138 @@ class PlaybackService : MediaLibraryService() {
      * queue's worth of failures rather than spinning.
      */
     private fun skipUnplayable(error: PlaybackException) {
-        Log.w("Tracks", "Couldn't play ${player.currentMediaItem?.mediaId}", error)
+        Logs.w("Couldn't play ${player.currentMediaItem?.mediaId}", error)
         val title = player.currentMediaItem?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "that song"
         failuresInARow++
         val moveOn = player.hasNextMediaItem() && failuresInARow < player.mediaItemCount
-        say(if (moveOn) "Couldn't play $title. Playing the next song." else "Couldn't play $title.")
+        val spotify = error.spotifyProblem()
+        val appleMusic = error.appleMusicProblem()
+        val mediaId = player.currentMediaItem?.mediaId.orEmpty()
+        when {
+            // Its source can't play now (a server offline): the same quiet message as songs skipped ahead.
+            moveOn && spotify == null && !graph.sources.canPlay(mediaId) ->
+                graph.sources.reportSkipped(SkippedSongs(1, graph.sources.whyUnavailable(mediaId)))
+            appleMusic != null -> {
+                if (!appleMusic.accountWide || failuresInARow == 1) say(appleMusic.message)
+                AppleMusic.service?.playbackFailed(appleMusic)
+            }
+            spotify == null -> say(if (moveOn) "Couldn't play $title. Playing the next song." else "Couldn't play $title.")
+            // Said once for a run of songs that fail for the same account-wide reason.
+            spotify.accountWide -> {
+                if (failuresInARow == 1) say(spotify.message)
+                Spotify.integration?.playbackFailed(spotify)
+            }
+            else -> say(spotify.message)
+        }
         if (!moveOn) return
         player.seekToNextMediaItem()
         player.prepare()
         player.play()
+    }
+
+    // MARK: Copies across sources
+
+    /**
+     * The copy of a song to queue. With every source on, the first in the Play From order that
+     * can play now; filtered to one source, the one asked for, unless it can't play.
+     */
+    private fun preferred(item: MediaItem): MediaItem {
+        val song = item.toPlayableSong()
+        val all = copies.of(song)
+        if (all.size < 2) return item
+        val registry = graph.sources
+        if (registry.selection.value != SourceSelection.All && registry.canPlay(song.mediaId)) return item
+        val best = registry.ranked(all) { it.mediaId }.firstOrNull { registry.canPlay(it.mediaId) } ?: return item
+        return if (best.mediaId == song.mediaId) item else best.toMediaItem()
+    }
+
+    private suspend fun preferred(items: List<MediaItem>): List<MediaItem> = withContext(Dispatchers.Default) { items.map(::preferred) }
+
+    /** Another copy of a song that can play now, in the Play From order, other than the ones in [besides]. */
+    private fun otherCopy(song: PlayableSong, besides: Set<String>): PlayableSong? {
+        val registry = graph.sources
+        return registry.ranked(copies.of(song)) { it.mediaId }
+            .firstOrNull { it.mediaId !in besides && it.mediaId != song.mediaId && registry.canPlay(it.mediaId) }
+    }
+
+    /**
+     * The song on failed: plays it from its next copy, from where it had got to. False when
+     * every copy has been tried, or it's one of Tracks Radio's picks, which the station
+     * replaces itself.
+     */
+    private fun playAnotherCopy(): Boolean {
+        val item = player.currentMediaItem ?: return false
+        if (item.mediaId in graph.radio.state.value.picks) return false
+        val song = item.toPlayableSong()
+        if (triedFor != song.identity) {
+            triedFor = song.identity
+            tried.clear()
+        }
+        tried += song.mediaId
+        val copy = otherCopy(song, tried) ?: return false
+        Logs.w("Couldn't play ${song.mediaId}; playing ${copy.mediaId}")
+        tried += copy.mediaId
+        val position = player.currentPosition
+        player.replaceMediaItem(player.currentMediaItemIndex, copy.toMediaItem())
+        player.seekTo(player.currentMediaItemIndex, position)
+        player.prepare()
+        player.play()
+        return true
+    }
+
+    /**
+     * Half a minute before the song on ends: songs next in Up Next that can't play now are
+     * played from another copy where there is one, and otherwise left out, with one quiet
+     * message. Only the run straight after the song on: songs further on may be back by then.
+     */
+    private fun checkAhead() {
+        val registry = graph.sources
+        val ahead = upNextIndices()
+        val gone = mutableListOf<Int>()
+        val reasons = mutableSetOf<String?>()
+        for (index in ahead) {
+            val item = player.getMediaItemAt(index)
+            if (registry.canPlay(item.mediaId)) break
+            val isPick = item.mediaId in graph.radio.state.value.picks
+            val copy = if (isPick) null else otherCopy(item.toPlayableSong(), emptySet())
+            if (copy != null) {
+                player.replaceMediaItem(index, copy.toMediaItem())
+                break
+            }
+            gone += index
+            reasons += registry.whyUnavailable(item.mediaId)
+        }
+        if (gone.isEmpty()) return
+        val reason = reasons.singleOrNull()
+        val everything = gone.size == ahead.size && !isRadio()
+        gone.sortedDescending().forEach { index ->
+            player.getMediaItemAt(index).toPlayableSong().takeIf { it.mediaId in graph.radio.state.value.picks }?.let(graph.radio::release)
+            player.removeMediaItem(index)
+        }
+        if (everything) {
+            nothingAfter = player.currentMediaItem?.mediaId
+            nothingAfterCount = gone.size
+        } else {
+            graph.sources.reportSkipped(SkippedSongs(gone.size, reason))
+        }
+    }
+
+    /** The queue after the song on, in the order it will play, shuffled or not. */
+    private fun upNextIndices(): List<Int> {
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty) return emptyList()
+        fun after(index: Int) = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, player.shuffleModeEnabled).takeIf { it != C.INDEX_UNSET }
+        return generateSequence(after(player.currentMediaItemIndex), ::after).toList()
+    }
+
+    private fun checkAheadIfDue() {
+        val current = player.currentMediaItem ?: return
+        val key = "${player.currentMediaItemIndex}:${current.mediaId}"
+        if (checkedAheadOf == key) return
+        val length = ListenCounter.knownLength(exo.duration) ?: return
+        if (length - exo.currentPosition > AHEAD_MS) return
+        checkedAheadOf = key
+        checkAhead()
     }
 
     private fun say(message: String) {
@@ -250,6 +432,7 @@ class PlaybackService : MediaLibraryService() {
             while (isActive) {
                 delay(500)
                 tick()
+                checkAheadIfDue()
             }
         }
     }
@@ -293,7 +476,12 @@ class PlaybackService : MediaLibraryService() {
             durationMs = ListenCounter.knownLength(song.durationMs) ?: ListenCounter.knownLength(exo.duration),
             listenedMs = count.listenedMs,
             kind = PlayKindValue.OnDemand,
-            source = PlaySourceValue.YourMusic,
+            source = when {
+                SpotifyUris.isSpotify(song.mediaId) -> PlaySourceValue.Spotify
+                // Kept as the engine's Apple Music source, "appleMusic" in History and Trackside Cloud.
+                AppleMusicUris.isAppleMusic(song.mediaId) -> PlaySourceValue.Streaming
+                else -> PlaySourceValue.YourMusic
+            },
             appPackage = packageName,
             appName = "Tracks",
             stationName = if (isRadio() && graph.radio.state.value.picks.containsKey(item.mediaId)) "Tracks Radio" else null,
@@ -381,7 +569,7 @@ class PlaybackService : MediaLibraryService() {
     /** Tracks Radio's first songs, opening on [startingWith] when given, set as what plays. */
     private suspend fun radioSongs(startingWith: PlayableSong? = null): List<PlayableSong> {
         val songs = runCatching { graph.radio.start(startingWith) }
-            .onFailure { Log.w("Tracks", "Tracks Radio didn't start", it) }
+            .onFailure { Logs.w("Tracks Radio didn't start", it) }
             .getOrDefault(emptyList())
         if (songs.isEmpty()) {
             say("Add some music, and Tracks Radio will have something to play.")
@@ -531,14 +719,36 @@ class PlaybackService : MediaLibraryService() {
         return future
     }
 
-    private suspend fun resolve(item: MediaItem): MediaItem? {
-        item.restored()?.let { return it }
-        item.requestMetadata.searchQuery?.let { query -> return tree.search(query).firstOrNull()?.toMediaItem() }
-        return tree.song(item.mediaId)?.toMediaItem()
-    }
+    private suspend fun resolve(item: MediaItem, controller: MediaSession.ControllerInfo): MediaItem? = ControllerAccess.resolve(
+        item,
+        own = ControllerAccess.isOwn(describe(controller), packageName, Process.myUid()),
+        restore = { it.restored() },
+        search = { query -> tree.search(query).firstOrNull()?.toMediaItem() },
+        lookup = { id -> tree.song(id)?.toMediaItem() },
+    )
+
+    private fun describe(controller: MediaSession.ControllerInfo) = ControllerAccess.Controller(
+        packageName = controller.packageName,
+        uid = controller.uid,
+        systemTrusted = controller.isTrusted,
+        systemRole = session?.isMediaNotificationController(controller) == true,
+        systemPackage = isSystemPackage(controller.packageName, controller.uid),
+    )
+
+    private fun isSystemPackage(name: String, uid: Int): Boolean = runCatching {
+        val owns = packageManager.getPackagesForUid(uid)?.contains(name) == true
+        val flags = packageManager.getApplicationInfo(name, 0).flags
+        owns && flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+    }.getOrDefault(false)
 
     private val callback = object : MediaLibrarySession.Callback {
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+            if (!ControllerAccess.trusts(describe(controller), packageName, Process.myUid())) {
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    .setAvailableSessionCommands(SessionCommands.EMPTY)
+                    .setAvailablePlayerCommands(ControllerAccess.PLAYBACK_ONLY)
+                    .build()
+            }
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
             TracksCommands.all.forEach { commands.add(it) }
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -588,7 +798,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
         override fun onAddMediaItems(mediaSession: MediaSession, controller: MediaSession.ControllerInfo, mediaItems: MutableList<MediaItem>): ListenableFuture<MutableList<MediaItem>> =
-            future { mediaItems.mapNotNull { resolve(it) }.toMutableList() }
+            future { preferred(mediaItems.mapNotNull { resolve(it, controller) }).toMutableList() }
 
         override fun onSetMediaItems(
             mediaSession: MediaSession,
@@ -606,15 +816,15 @@ class PlaybackService : MediaLibraryService() {
                     query != null -> {
                         val songs = tree.search(query)
                         if (songs.isNotEmpty()) PlaybackBridge.origin.value = QueueOrigin(query, QueueOrigin.Kind.Search)
-                        return@future MediaSession.MediaItemsWithStartPosition(songs.map { it.toMediaItem() }, 0, 0)
+                        return@future MediaSession.MediaItemsWithStartPosition(preferred(songs.map { it.toMediaItem() }), 0, 0)
                     }
                     else -> tree.expand(single.mediaId)?.let { (songs, start, origin) ->
                         PlaybackBridge.origin.value = origin
-                        return@future MediaSession.MediaItemsWithStartPosition(songs.map { it.toMediaItem() }, start, 0)
+                        return@future MediaSession.MediaItemsWithStartPosition(preferred(songs.map { it.toMediaItem() }), start, 0)
                     }
                 }
             }
-            val resolved = mediaItems.mapNotNull { resolve(it) }
+            val resolved = preferred(mediaItems.mapNotNull { resolve(it, controller) })
             MediaSession.MediaItemsWithStartPosition(resolved, startIndex.coerceIn(0, (resolved.size - 1).coerceAtLeast(0)), startPositionMs)
         }
 
@@ -640,6 +850,9 @@ class PlaybackService : MediaLibraryService() {
 
     private companion object {
         const val FADE_MS = 10_000L
+        /** How long before a song ends the songs after it are checked, as on the iPhone. */
+        const val AHEAD_MS = 30_000L
+        const val LOAD_RETRIES = 6
         /** How far into a song Previous starts it over, as Media3 has it. */
         const val RESTARTS_AFTER_MS = 3_000L
 

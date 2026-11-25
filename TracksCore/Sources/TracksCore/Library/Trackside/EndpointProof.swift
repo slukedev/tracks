@@ -76,68 +76,14 @@ public enum TracksideEndpointProof {
         return "\(written):\(port)"
     }
 
-    /// Whether an address names something only reachable nearby: a private, link-local or
-    /// Tailscale address, a name without a dot, or one under `.local`, `.lan`, `.internal`,
-    /// `.home.arpa` or `.ts.net`. The server decides the same way.
+    /// Whether an address names something only reachable nearby. See ``NearbyAddress``.
     public static func isNearby(_ url: URL) -> Bool {
-        guard let raw = url.host(percentEncoded: false)?.lowercased(), !raw.isEmpty else { return false }
-        let host = raw.hasPrefix("[") ? String(raw.dropFirst().dropLast()) : raw
-        if let v4 = IPv4(host) { return v4.isNearby }
-        if host.contains(":") { return IPv6Prefix(host)?.isNearby ?? false }
-        guard let dot = host.lastIndex(of: ".") else { return true }
-        let tld = host[host.index(after: dot)...]
-        return ["local", "lan", "internal"].contains(tld) || host.hasSuffix(".home.arpa") || host.hasSuffix(".ts.net")
+        NearbyAddress.isNearby(url)
     }
 
     /// Credentials go over TLS, or over plain HTTP only to a nearby address.
     public static func allowsCredentials(to url: URL) -> Bool {
-        switch url.scheme?.lowercased() {
-        case "https": true
-        case "http": isNearby(url)
-        default: false
-        }
-    }
-
-    private struct IPv4 {
-        let octets: [UInt8]
-
-        init?(_ text: String) {
-            let parts = text.split(separator: ".", omittingEmptySubsequences: false)
-            guard parts.count == 4 else { return nil }
-            let octets = parts.compactMap { UInt8($0) }
-            guard octets.count == 4 else { return nil }
-            self.octets = octets
-        }
-
-        var isNearby: Bool {
-            switch (octets[0], octets[1]) {
-            case (10, _), (127, _): true
-            case (172, 16...31), (192, 168), (169, 254): true
-            case (100, 64...127): true
-            default: false
-            }
-        }
-    }
-
-    /// The first 16 bits of an IPv6 address, which is all the nearby ranges need.
-    private struct IPv6Prefix {
-        let first: UInt16
-        let isLoopback: Bool
-
-        init?(_ text: String) {
-            let address = text.split(separator: "%").first.map(String.init) ?? text
-            isLoopback = address == "::1"
-            if address.hasPrefix("::") {
-                first = 0
-                return
-            }
-            guard let head = address.split(separator: ":").first, let value = UInt16(head, radix: 16) else { return nil }
-            first = value
-        }
-
-        var isNearby: Bool {
-            isLoopback || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80
-        }
+        NearbyAddress.allowsCredentials(to: url)
     }
 }
 

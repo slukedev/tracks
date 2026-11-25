@@ -22,13 +22,19 @@ enum SearchScope: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The title where the library is your own music rather than Apple Music's.
+    /// The title where the library is your own music rather than Apple Music's, or Spotify,
+    /// which searches all of Spotify.
     func title(for source: MusicSource) -> LocalizedStringKey {
-        self == .library && source == .yourMusic ? "Your Music" : title
+        guard self == .library else { return title }
+        switch source {
+        case .appleMusic: return title
+        case .yourMusic: return "Your Library"
+        case .spotify: return "Spotify"
+        }
     }
 
     func prompt(for source: MusicSource) -> Text {
-        self == .library && source == .yourMusic ? Text("Songs, Albums and Artists") : prompt
+        self == .library && source != .appleMusic ? Text("Songs, Albums and Artists") : prompt
     }
 
     /// Where the scope's recent searches are kept. Apple Music's catalog and library share
@@ -36,14 +42,19 @@ enum SearchScope: String, CaseIterable, Identifiable {
     func recentsKey(for source: MusicSource) -> String {
         switch self {
         case .appleMusic: "recentMusicSearches"
-        case .library: source == .yourMusic ? "recentYourMusicSearches" : "recentMusicSearches"
+        case .library:
+            switch source {
+            case .appleMusic: "recentMusicSearches"
+            case .yourMusic: "recentYourMusicSearches"
+            case .spotify: "recentSpotifySearches"
+            }
         case .history: "recentHistorySearches"
         }
     }
 
-    /// The scopes Play offers: Apple Music's catalog isn't one when your own music is what
-    /// plays.
+    /// The scopes Play offers: Apple Music's catalog isn't one when your own music or Spotify
+    /// is what plays. For Spotify, the library scope searches Spotify.
     static func scopes(for source: MusicSource) -> [SearchScope] {
-        source == .yourMusic ? [.library, .history] : allCases
+        source == .appleMusic ? allCases : [.library, .history]
     }
 }

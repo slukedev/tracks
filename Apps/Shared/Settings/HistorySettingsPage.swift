@@ -109,11 +109,11 @@ struct HistorySettingsPage: View {
 
     @ViewBuilder
     private var statisticsSection: some View {
-        // Nothing to tell apart until something plays from Your Music. Left on, it stays, so
-        // it can still be turned off.
-        if model?.library.history.hasYourMusic == true || separatesSources {
+        // Nothing to tell apart until something plays from another source. Left on, it stays,
+        // so it can still be turned off.
+        if model.map({ !SourceScope.offered(played: $0.library.history.playedSources).isEmpty }) == true || separatesSources {
             Section {
-                SettingsSwitch("Separate Your Music", isOn: $separatesSources)
+                SettingsSwitch("Separate Sources", isOn: $separatesSources)
             } header: {
                 Text("Statistics")
             }

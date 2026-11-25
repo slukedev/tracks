@@ -70,6 +70,9 @@ public struct CaptureStat: Sendable, Equatable {
     public let kind: CaptureKind
     /// Apple Music or Your Music.
     public let source: PlaySource
+    /// The play's lasting id (``PlayID``), the history index's id for it. Nil for a play
+    /// that hasn't been given one yet.
+    public let playID: String?
 
     public var songKey: String { song.songKey }
     /// Catalog id, if the song was resolved. Lets a row in a chart be played.
@@ -107,7 +110,8 @@ public struct CaptureStat: Sendable, Equatable {
         stationName: String? = nil,
         playedBackAt: Date? = nil,
         kind: CaptureKind = .radio,
-        source: PlaySource = .appleMusic
+        source: PlaySource = .appleMusic,
+        playID: String? = nil
     ) {
         self.init(
             song: Song(songKey: songKey, songID: songID, title: title, artistName: artistName, albumTitle: albumTitle, artworkURL: artworkURL),
@@ -115,23 +119,25 @@ public struct CaptureStat: Sendable, Equatable {
             stationName: stationName,
             playedBackAt: playedBackAt,
             kind: kind,
-            source: source
+            source: source,
+            playID: playID
         )
     }
 
-    init(song: Song, capturedAt: Date, stationName: String?, playedBackAt: Date?, kind: CaptureKind, source: PlaySource) {
+    init(song: Song, capturedAt: Date, stationName: String?, playedBackAt: Date?, kind: CaptureKind, source: PlaySource, playID: String? = nil) {
         self.song = song
         self.capturedAt = capturedAt
         self.stationName = stationName
         self.playedBackAt = playedBackAt
         self.kind = kind
         self.source = source
+        self.playID = playID
     }
 
     public static func == (lhs: CaptureStat, rhs: CaptureStat) -> Bool {
         lhs.capturedAt == rhs.capturedAt && lhs.stationName == rhs.stationName
             && lhs.playedBackAt == rhs.playedBackAt && lhs.kind == rhs.kind
-            && lhs.source == rhs.source && lhs.song.isSame(as: rhs.song)
+            && lhs.source == rhs.source && lhs.playID == rhs.playID && lhs.song.isSame(as: rhs.song)
     }
 
     /// Every credited artist's identity, main artists first.
@@ -170,7 +176,7 @@ public struct CaptureStat: Sendable, Equatable {
     /// can touch thousands of plays at once.
     public func with(stationName: String?) -> CaptureStat {
         guard stationName != self.stationName else { return self }
-        return CaptureStat(song: song, capturedAt: capturedAt, stationName: stationName, playedBackAt: playedBackAt, kind: kind, source: source)
+        return CaptureStat(song: song, capturedAt: capturedAt, stationName: stationName, playedBackAt: playedBackAt, kind: kind, source: source, playID: playID)
     }
 
     /// The same play credited otherwise, as Apple Music's list of the song's artists says.
@@ -181,7 +187,7 @@ public struct CaptureStat: Sendable, Equatable {
 
     /// The same play of another copy of its song.
     func with(song: Song) -> CaptureStat {
-        CaptureStat(song: song, capturedAt: capturedAt, stationName: stationName, playedBackAt: playedBackAt, kind: kind, source: source)
+        CaptureStat(song: song, capturedAt: capturedAt, stationName: stationName, playedBackAt: playedBackAt, kind: kind, source: source, playID: playID)
     }
 }
 

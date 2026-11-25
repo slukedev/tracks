@@ -154,7 +154,8 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
         when {
             songs.isEmpty() && goesOn -> SongShelfLoading()
             songs.isEmpty() -> Text(
-                "${server.name} didn't find anything to suggest. If it's Octo, it needs a Last.fm API key, set on its admin page.",
+                if (server.isTrackside) "${server.name} didn't find anything to suggest."
+                else "${server.name} didn't find anything to suggest. If it's Octo, it needs a Last.fm API key, set on its admin page.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 24.dp),
@@ -227,11 +228,11 @@ private fun PicksMenu(server: SubsonicServer, songs: List<ServerSong>, onPickAga
             MenuItem(Icons.Rounded.Refresh, "Pick again") { open = false; onPickAgain() }
             val toAdd = songs.filter { picks.canKeep(it.serverId) && context.graph.library.find(it.song.identity) == null }
             if (toAdd.isNotEmpty()) {
-                MenuItem(Icons.Rounded.Add, "Add all to your music") {
+                MenuItem(Icons.Rounded.Add, "Add all to library") {
                     open = false
                     scope.launch {
                         toAdd.forEach { picks.keep(it) }
-                        tell(context, snackbar, scope, if (toAdd.size == 1) "Adding 1 song to your music" else "Adding ${toAdd.size} songs to your music")
+                        tell(context, snackbar, scope, if (toAdd.size == 1) "Adding 1 song to your library" else "Adding ${toAdd.size} songs to your library")
                     }
                 }
             }
@@ -362,7 +363,7 @@ private fun AddFoundSong(song: ServerSong) {
                 },
                 shapes = IconButtonDefaults.shapes(),
                 modifier = Modifier.size(40.dp),
-            ) { Icon(Icons.Rounded.Add, "Add ${song.song.title} to your music", modifier = Modifier.size(20.dp)) }
+            ) { Icon(Icons.Rounded.Add, "Add ${song.song.title} to library", modifier = Modifier.size(20.dp)) }
         }
     }
 }

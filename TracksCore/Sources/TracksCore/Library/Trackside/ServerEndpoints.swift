@@ -96,14 +96,45 @@ public actor ServerEndpoints {
     }
 
     private func isFresh(_ provenAt: Duration) -> Bool {
-        baseURL.scheme?.lowercased() == "https" || elapsed() - provenAt < plainHTTPProofLifetime
+        let isHTTPS = baseURL.scheme?.lowercased() == "https"
+        if requiresHTTPS && !isHTTPS { return false }
+        return isHTTPS || elapsed() - provenAt < plainHTTPProofLifetime
     }
 
-    /// Takes the server's latest list of addresses, as `/me` gives them on each connect.
+    /// Set once the server refused the key over plain HTTP (`https_required`): from then on
+    /// only its https addresses are used.
+    public private(set) var requiresHTTPS = false
+
+    /// Takes the server's latest list of addresses, as `/me` and `/server/urls` give them.
+    /// Only addresses Tracks may send the key to are kept (``TracksideServerURLs/trusted(_:)``),
+    /// and none of them is used before it proves itself in a race.
     public func update(candidates: [TracksideServerURL]) {
-        guard !candidates.isEmpty else { return }
-        self.candidates = candidates
-        pins.set(candidates)
+        let trusted = TracksideServerURLs.trusted(candidates)
+        guard !trusted.isEmpty else { return }
+        self.candidates = trusted
+        pins.set(trusted)
+    }
+
+    /// Adds addresses the server named, behind the ones known. None is used before it proves
+    /// itself.
+    public func add(_ more: [TracksideServerURL]) {
+        update(candidates: candidates + more)
+    }
+
+    /// Puts addresses the server named ahead of the known ones; one on both lists takes what
+    /// the server just said of it. None is used before it proves itself.
+    public func prefer(_ named: [TracksideServerURL]) {
+        update(candidates: named + candidates)
+    }
+
+    /// The server asked for https. Switches to one of its https addresses that proves
+    /// itself, without asking anyone for a password again.
+    /// - Returns: the address chosen, or nil when the server has no https address that answers.
+    @discardableResult
+    public func requireHTTPS() async -> TracksideServerURL? {
+        requiresHTTPS = true
+        provenAt = nil
+        return await race()
     }
 
     /// Asks every address and switches to the best one that proves it is the server. A race
@@ -113,8 +144,9 @@ public actor ServerEndpoints {
     public func race() async -> TracksideServerURL? {
         if let racing { return await racing.value }
         provenAt = nil
-        let task = Task { [candidates, serverUUID, proofKey, localGrace, timeout, sleep, probe] in
-            await Self.pick(from: candidates, serverUUID: serverUUID, proofKey: proofKey, localGrace: localGrace, timeout: timeout, sleep: sleep, probe: probe)
+        let usable = requiresHTTPS ? candidates.filter { $0.url.scheme?.lowercased() == "https" } : candidates
+        let task = Task { [serverUUID, proofKey, localGrace, timeout, sleep, probe] in
+            await Self.pick(from: usable, serverUUID: serverUUID, proofKey: proofKey, localGrace: localGrace, timeout: timeout, sleep: sleep, probe: probe)
         }
         racing = task
         let chosen = await task.value
@@ -148,13 +180,6 @@ public actor ServerEndpoints {
         failures = 0
     }
 
-    private enum Outcome: Sendable {
-        case answered(TracksideServerURL)
-        case failed(TracksideServerURL)
-        case graceOver
-        case timeUp
-    }
-
     static func pick(
         from candidates: [TracksideServerURL],
         serverUUID: String,
@@ -165,54 +190,45 @@ public actor ServerEndpoints {
         probe: @escaping @Sendable (TracksideServerURL, Duration, [URLQueryItem]) async throws -> TracksidePing
     ) async -> TracksideServerURL? {
         let usable = candidates.filter { TracksideEndpointProof.allowsCredentials(to: $0.url) }
-        guard !usable.isEmpty else { return nil }
-        return await withTaskGroup(of: Outcome.self) { group in
-            for candidate in usable {
-                group.addTask {
-                    let nonce = TracksideEndpointProof.nonce()
-                    guard let query = TracksideEndpointProof.query(key: proofKey, nonce: nonce, for: candidate.url),
-                          let ping = try? await probe(candidate, timeout, query),
-                          ping.serverID.caseInsensitiveCompare(serverUUID) == .orderedSame,
-                          TracksideEndpointProof.verify(ping.proof, key: proofKey, serverID: ping.serverID, url: candidate.url, nonce: nonce)
-                    else { return .failed(candidate) }
-                    return .answered(candidate)
-                }
-            }
-            group.addTask {
-                try? await sleep(timeout)
-                return .timeUp
-            }
-            var waiting = usable.count
-            var localWaiting = usable.count(where: { $0.kind == .lan })
-            var fastest: TracksideServerURL?
-            for await outcome in group {
-                switch outcome {
-                case .answered(let candidate):
-                    waiting -= 1
-                    if candidate.kind == .lan {
-                        group.cancelAll()
-                        return candidate
-                    }
-                    if fastest == nil {
-                        fastest = candidate
-                        group.addTask {
-                            try? await sleep(localGrace)
-                            return .graceOver
-                        }
-                    }
-                case .failed(let candidate):
-                    waiting -= 1
-                    if candidate.kind == .lan { localWaiting -= 1 }
-                case .graceOver, .timeUp:
-                    group.cancelAll()
-                    return fastest
-                }
-                if waiting == 0 || (fastest != nil && localWaiting == 0) {
-                    group.cancelAll()
-                    return fastest
-                }
-            }
-            return fastest
+        return await AddressRace.pick(from: usable, isLocal: { $0.kind == .lan }, localGrace: localGrace, timeout: timeout, sleep: sleep) { candidate in
+            await proves(candidate, serverUUID: serverUUID, proofKey: proofKey, timeout: timeout, probe: probe)
         }
+    }
+
+    /// Whether an address answers as this server, with the proof only it can give.
+    static func proves(
+        _ candidate: TracksideServerURL,
+        serverUUID: String,
+        proofKey: TracksideEndpointProof.Key,
+        timeout: Duration,
+        probe: @Sendable (TracksideServerURL, Duration, [URLQueryItem]) async throws -> TracksidePing
+    ) async -> Bool {
+        let nonce = TracksideEndpointProof.nonce()
+        guard let query = TracksideEndpointProof.query(key: proofKey, nonce: nonce, for: candidate.url),
+              let ping = try? await probe(candidate, timeout, query),
+              ping.serverID.caseInsensitiveCompare(serverUUID) == .orderedSame
+        else { return false }
+        return TracksideEndpointProof.verify(ping.proof, key: proofKey, serverID: ping.serverID, url: candidate.url, nonce: nonce)
+    }
+}
+
+extension TracksideServerURLs {
+    /// The addresses Tracks may send this device's key to, in the server's order, each once:
+    /// https anywhere, plain HTTP only nearby, nothing else.
+    public static func trusted(_ urls: [TracksideServerURL]) -> [TracksideServerURL] {
+        var seen: Set<String> = []
+        return urls.filter { candidate in
+            guard TracksideEndpointProof.allowsCredentials(to: candidate.url),
+                  candidate.url.host(percentEncoded: false)?.isEmpty == false
+            else { return false }
+            let scheme = candidate.url.scheme?.lowercased() ?? ""
+            let key = scheme + "://" + (TracksideEndpointProof.authority(of: candidate.url) ?? "") + candidate.url.path(percentEncoded: true)
+            return seen.insert(key).inserted
+        }
+    }
+
+    /// Whether `urls` differs from what's known, beyond order.
+    public static func differs(_ urls: [TracksideServerURL], from known: [TracksideServerURL]?) -> Bool {
+        Set(trusted(urls)) != Set(known ?? [])
     }
 }

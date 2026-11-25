@@ -1,0 +1,13 @@
+[package]
+name = "sysinfo"
+# Stands in for sysinfo 0.36, which librespot-core 0.8 needs only for the OS and kernel
+# versions it reports to Spotify. The real crate does not build for iOS with current libc.
+version = "0.36.1"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+description = "The two sysinfo calls librespot-core makes, with the OS version supplied by the host."
+
+[features]
+default = []
+system = []

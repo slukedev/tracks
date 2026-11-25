@@ -66,30 +66,69 @@ impl fmt::Display for PlayKind {
 }
 
 /// Where a play's music came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum PlaySource {
     /// Apple Music, and every play kept before Tracks knew the difference.
     #[default]
-    AppleMusic = 0,
+    AppleMusic,
     /// Files and servers Tracks plays itself.
-    YourMusic = 1,
+    YourMusic,
+    Spotify,
+    /// A source from a newer build, kept exactly as stored so it syncs back unchanged and is
+    /// never counted as one of the others.
+    Unknown(String),
 }
 
 impl PlaySource {
-    /// Reads a stored value: nothing, or anything this version doesn't know, is Apple Music.
+    /// The index's code for a source this build doesn't know; its stored value is kept
+    /// alongside.
+    pub const UNKNOWN_CODE: u8 = u8::MAX;
+
+    /// Reads a stored value. Nothing stored means Apple Music, as it did before there was a
+    /// choice; anything this build doesn't know stays as it was.
     pub fn from_stored(raw: Option<&str>) -> Self {
         match raw {
+            None | Some("" | "appleMusic") => Self::AppleMusic,
             Some("yourMusic") => Self::YourMusic,
-            _ => Self::AppleMusic,
+            Some("spotify") => Self::Spotify,
+            Some(other) => Self::Unknown(other.to_owned()),
         }
     }
 
-    pub const fn as_str(self) -> &'static str {
+    /// The value the hosts store.
+    pub fn as_str(&self) -> &str {
         match self {
             Self::AppleMusic => "appleMusic",
             Self::YourMusic => "yourMusic",
+            Self::Spotify => "spotify",
+            Self::Unknown(raw) => raw,
         }
+    }
+
+    /// The index's code. Apple Music and Your Music keep the codes they always had.
+    pub const fn code(&self) -> u8 {
+        match self {
+            Self::AppleMusic => 0,
+            Self::YourMusic => 1,
+            Self::Spotify => 2,
+            Self::Unknown(_) => Self::UNKNOWN_CODE,
+        }
+    }
+
+    /// Reads a source back from the index's code and, for an unknown one, its stored value.
+    pub fn from_code(code: u8, stored: Option<&str>) -> Self {
+        match code {
+            0 => Self::AppleMusic,
+            1 => Self::YourMusic,
+            2 => Self::Spotify,
+            _ => Self::Unknown(stored.unwrap_or_default().to_owned()),
+        }
+    }
+}
+
+impl fmt::Display for PlaySource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -107,15 +146,49 @@ mod tests {
     }
 
     #[test]
-    fn unknown_sources_count_as_apple_music() {
+    fn missing_sources_are_apple_music() {
         assert_eq!(PlaySource::from_stored(None), PlaySource::AppleMusic);
-        assert_eq!(
-            PlaySource::from_stored(Some("vinyl")),
+        assert_eq!(PlaySource::from_stored(Some("")), PlaySource::AppleMusic);
+    }
+
+    #[test]
+    fn known_sources_round_trip_through_their_stored_values() {
+        for source in [
+            PlaySource::AppleMusic,
+            PlaySource::YourMusic,
+            PlaySource::Spotify,
+        ] {
+            assert_eq!(PlaySource::from_stored(Some(source.as_str())), source);
+            assert_eq!(PlaySource::from_code(source.code(), None), source);
+        }
+    }
+
+    #[test]
+    fn existing_stored_values_and_codes_are_unchanged() {
+        assert_eq!(PlaySource::AppleMusic.as_str(), "appleMusic");
+        assert_eq!(PlaySource::YourMusic.as_str(), "yourMusic");
+        assert_eq!(PlaySource::AppleMusic.code(), 0);
+        assert_eq!(PlaySource::YourMusic.code(), 1);
+    }
+
+    #[test]
+    fn unknown_sources_keep_their_stored_value() {
+        let source = PlaySource::from_stored(Some("vinyl"));
+        assert_eq!(source, PlaySource::Unknown("vinyl".into()));
+        assert_eq!(source.as_str(), "vinyl");
+        assert_eq!(source.code(), PlaySource::UNKNOWN_CODE);
+        assert_eq!(PlaySource::from_code(source.code(), Some("vinyl")), source);
+    }
+
+    #[test]
+    fn unknown_sources_are_never_counted_as_known_ones() {
+        assert_ne!(
+            PlaySource::from_stored(Some("AppleMusic")),
             PlaySource::AppleMusic
         );
-        assert_eq!(
-            PlaySource::from_stored(Some("yourMusic")),
-            PlaySource::YourMusic
+        assert_ne!(
+            PlaySource::from_stored(Some("Spotify")),
+            PlaySource::Spotify
         );
     }
 }

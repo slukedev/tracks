@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use proptest::prelude::*;
 use support::{MINUTE, of_kind, on_album, play};
-use tracks_model::PlayKind;
+use tracks_model::{PlayKind, PlaySource};
 use tracks_store::{Period, PlayInput, SourceFilter, Store};
 
 #[derive(Debug, Clone)]
@@ -19,40 +19,48 @@ enum Op {
 }
 
 fn arb_play() -> impl Strategy<Value = PlayInput> {
-    (0u8..30, 0u8..6, 0u8..3, 0i64..400, 0u8..10).prop_map(|(id, song, artist, minute, kind)| {
-        // Spellings differ by case, so the name an artist shows can change as plays come and go.
-        let artist = if artist == 2 && song % 2 == 0 {
-            "ARTIST 1".to_owned()
-        } else {
-            format!("Artist {artist}")
-        };
-        // The same song spelled, filed and resolved differently from play to play, so what it
-        // shows depends on which of its plays is newest.
-        let title = if id % 4 == 0 {
-            format!("SONG {song}")
-        } else {
-            format!("Song {song}")
-        };
-        let mut p = on_album(
-            play(&id.to_string(), &title, &artist, minute * MINUTE / 2),
-            &format!("Album {}", (song + id % 2) % 3),
-        );
-        p.artwork_url = (id % 3 != 0).then(|| format!("https://example.com/{id}.jpg"));
-        p.catalog_id = if id % 5 == 0 {
-            String::new()
-        } else {
-            format!("{song}")
-        };
-        // Mostly on demand, sometimes an import, which the estimate skips.
-        of_kind(
-            p,
-            if kind == 0 {
-                PlayKind::Imported
+    (0u8..30, 0u8..6, 0u8..3, 0i64..400, 0u8..10, 0u8..4).prop_map(
+        |(id, song, artist, minute, kind, source)| {
+            // Spellings differ by case, so the name an artist shows can change as plays come and go.
+            let artist = if artist == 2 && song % 2 == 0 {
+                "ARTIST 1".to_owned()
             } else {
-                PlayKind::OnDemand
-            },
-        )
-    })
+                format!("Artist {artist}")
+            };
+            // The same song spelled, filed and resolved differently from play to play, so what it
+            // shows depends on which of its plays is newest.
+            let title = if id % 4 == 0 {
+                format!("SONG {song}")
+            } else {
+                format!("Song {song}")
+            };
+            let mut p = on_album(
+                play(&id.to_string(), &title, &artist, minute * MINUTE / 2),
+                &format!("Album {}", (song + id % 2) % 3),
+            );
+            p.artwork_url = (id % 3 != 0).then(|| format!("https://example.com/{id}.jpg"));
+            p.catalog_id = if id % 5 == 0 {
+                String::new()
+            } else {
+                format!("{song}")
+            };
+            p.source = match source {
+                0 => PlaySource::AppleMusic,
+                1 => PlaySource::YourMusic,
+                2 => PlaySource::Spotify,
+                _ => PlaySource::Unknown("vinyl".into()),
+            };
+            // Mostly on demand, sometimes an import, which the estimate skips.
+            of_kind(
+                p,
+                if kind == 0 {
+                    PlayKind::Imported
+                } else {
+                    PlayKind::OnDemand
+                },
+            )
+        },
+    )
 }
 
 fn arb_op() -> impl Strategy<Value = Op> {
@@ -69,6 +77,7 @@ type Fingerprint = (
     Vec<(String, u64)>,
     Vec<(String, u64)>,
     tracks_store::PeriodTotals,
+    Vec<tracks_store::PeriodTotals>,
 );
 
 fn fingerprint(store: &Store) -> Fingerprint {
@@ -123,7 +132,19 @@ fn fingerprint(store: &Store) -> Fingerprint {
             )
         })
         .collect();
-    (songs, artists, bounded, albums, totals)
+    let per_source = [
+        SourceFilter::AppleMusic,
+        SourceFilter::YourMusic,
+        SourceFilter::Spotify,
+    ]
+    .into_iter()
+    .map(|filter| {
+        store
+            .totals(Period::between(0, 200 * MINUTE), filter)
+            .expect("totals")
+    })
+    .collect();
+    (songs, artists, bounded, albums, totals, per_source)
 }
 
 proptest! {

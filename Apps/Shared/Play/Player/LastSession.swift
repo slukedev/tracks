@@ -11,6 +11,8 @@ nonisolated struct LastSession: Codable, Sendable {
     var contextKind: String?
     var contextTitle: String?
     var savedAt: Date
+    /// Where each of ``tracks`` played from, for a queue across sources. Nil for one source.
+    var sources: [String]?
 
     /// Songs after the one on that are worth keeping: a long queue from a playlist of
     /// thousands would make every save slow for songs rarely reached.
@@ -32,6 +34,17 @@ nonisolated struct LastSession: Codable, Sendable {
 
     /// Whether the songs are from your own music, which only its player can play.
     var isYourMusic: Bool { tracks.first?.local != nil }
+    /// Songs from more than one source, in one queue.
+    var isMixed: Bool {
+        if Set((sources ?? []).filter { !$0.isEmpty }).count > 1 { return true }
+        return tracks.contains { $0.local != nil } && tracks.contains { $0.local == nil }
+    }
+
+    /// Where the song at `index` played from, when the queue was across sources.
+    func source(at index: Int) -> MusicSource? {
+        guard let sources, sources.indices.contains(index) else { return nil }
+        return MusicSource(rawValue: sources[index])
+    }
 }
 
 extension PlayContext.Kind {

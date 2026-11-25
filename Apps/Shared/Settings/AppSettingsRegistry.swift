@@ -20,7 +20,7 @@ extension SettingsRegistry {
         .everyDevice(PlayPreferences.volumeFollowsSpeedKey, in: .app),
         .everyDevice(PlayPreferences.speedVolumeAmountKey, in: .app),
         .everyDevice(OpeningTab.storageKey, in: .app),
-        .everyDevice(QuickSwitch.storageKey, in: .app),
+        .everyDevice(PlayFromOrder.storageKey, in: .app),
         .everyDevice(SuggestionMode.storageKey, in: .app),
         .everyDevice(LastSessionStore.resumesKey, in: .app),
         .everyDevice(LastSessionStore.windowKey, in: .app),
@@ -56,12 +56,13 @@ extension SettingsRegistry {
         .everyDevice(NearbyDevices.bringsQueueKey, in: .app),
         .everyDevice(NowPlayingHandoff.storageKey, in: .app),
 
-        // Your Music. Servers, their passwords and what's downloaded belong to the device.
+        // Sources. Servers, their passwords and what's downloaded belong to the device.
         .everyDevice(PlaylistMerge.storageKey, in: .app),
         .everyDevice(DownloadChoice.isOnKey, in: .app),
         .everyDevice(DownloadChoice.defaultKey, in: .app),
         .thisDevice(DownloadChoice.lastKey, in: .app),
         .thisDevice(MusicSource.storageKey, in: .app),
+        .thisDevice(SourceSelection.storageKey, in: .app),
         .thisDevice(AutomaticDownloads.storageKey, in: .app),
         .thisDevice(StreamQuality.wiFiKey, in: .app),
         .thisDevice(StreamQuality.cellularKey, in: .app),

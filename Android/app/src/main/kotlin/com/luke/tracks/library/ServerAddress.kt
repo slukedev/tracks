@@ -1,5 +1,6 @@
 package com.luke.tracks.library
 
+import com.luke.tracks.net.Nearby
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
@@ -8,10 +9,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  * as on iPhone and Mac.
  *
  * Home servers rarely have https, and people type what their browser shows without the
- * scheme: "192.168.1.223:5274". So an address without one gains http when it can only be on
- * the home network (an IP address, `localhost`, a `.local` name, a one-word name like "nas")
- * or names a port other than 443. Anything else gains https. Spaces around it and slashes
- * after it go. An address that says its scheme keeps it.
+ * scheme: "192.168.1.223:5274". So an address without one gains http only when it can be on
+ * the home network alone ([Nearby]: a private, link-local or Tailscale address, `localhost`, a
+ * `.local` name, a one-word name like "nas"), whatever its port. Anything else gains https:
+ * "music.example.com:4533" is on the internet, where the password's token must not cross in
+ * the clear. Spaces around it and slashes after it go. An address that says its scheme keeps it.
  */
 object ServerAddress {
     fun url(text: String): HttpUrl? {
@@ -36,18 +38,16 @@ object ServerAddress {
         return "$scheme://$trimmed".toHttpUrlOrNull()?.tidy()
     }
 
-    /** Whether an address without a scheme is most likely a home server's, reached over http. */
-    fun isAtHome(host: String, port: Int?): Boolean {
-        if (port != null) return port != 443
-        val name = host.lowercase().trim('[', ']')
-        if (name == "localhost" || name.endsWith(".local") || name.endsWith(".home.arpa")) return true
-        if (name.contains(":")) return true
-        if (name.split('.').all { part -> part.isNotEmpty() && part.all { it.isDigit() } }) return true
-        return !name.contains('.')
-    }
+    /** Whether an address typed without a scheme is a home server's, reached over http. */
+    fun isAtHome(host: String, port: Int?): Boolean = port != 443 && Nearby.isNearby(host)
 
     /** Whether the address travels unencrypted somewhere other than this device. */
     fun isUnencrypted(url: HttpUrl): Boolean = !url.isHttps && url.host != "localhost" && url.host != "127.0.0.1"
+
+    /** Host and port, as the pairing prompt shows where it would connect: "nas.local:4747". */
+    fun hostPort(url: HttpUrl): String = (if (url.host.contains(':')) "[${url.host}]" else url.host) + ":" + url.port
+
+    fun hostPort(url: String): String = url(url)?.let(::hostPort) ?: display(url)
 
     /** As people read it: no scheme, no trailing slash. */
     fun display(url: String): String = url.substringAfter("://").trimEnd('/')
