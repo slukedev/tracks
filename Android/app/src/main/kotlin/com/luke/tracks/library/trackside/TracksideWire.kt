@@ -334,7 +334,12 @@ internal data class TracksideSongList(val songs: List<TracksideSong> = emptyList
 
 /** A song Last.fm suggests that this server doesn't have. */
 @Serializable
-data class TracksideSuggestion(val title: String, val artist: String)
+data class TracksideSuggestion(
+    val title: String,
+    val artist: String,
+    /** The server's cover for it, through `GET /art/{id}`; left out when it has none. */
+    @SerialName("artwork_id") val artworkId: String? = null,
+)
 
 /** Songs the server picked from what you play, and ones it suggests that it doesn't have. */
 @Serializable
@@ -361,6 +366,8 @@ data class TracksideCandidate(
     val token: String = "",
     val title: String,
     val artist: String,
+    /** The server's cover for it, through `GET /art/{id}`; left out when it has none. */
+    @SerialName("artwork_id") val artworkId: String? = null,
     val album: String? = null,
     @SerialName("duration_ms") val durationMs: Long? = null,
     /** "lossless", "high" or "standard". */

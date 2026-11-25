@@ -189,7 +189,7 @@ class TracksidePicksTest {
         // An artist you have but have never played is new to you, and the server gets songs, so
         // the song Last.fm suggests that it doesn't have joins them: once, though picks and
         // similar songs both suggest it.
-        assertEquals("Suggested songs: $shelves", setOf("Don't Stop Me Now", "Irreplaceable"), shelves.suggested.map { it.title }.toSet())
+        assertEquals("Suggested songs: $shelves", setOf("Don't Stop Me Now", "Irreplaceable", "Run the World (Girls)"), shelves.suggested.map { it.title }.toSet())
         assertEquals(shelves.suggested.size, shelves.suggested.map { it.id }.toSet().size)
         assertTrue(titles(shelves).containsAll(listOf("Halo", "Single Ladies (Put a Ring on It)", "Don't Stop Me Now")))
         assertTrue("Trackside never sends a stand-in cover, so its songs show without fetching one first: $asked", asked.none { it.startsWith("art/") })
@@ -236,7 +236,9 @@ class TracksidePicksTest {
     @Test fun aNewSongIsAddedWithARequestAndShowsOnItsWayUntilItsDone(): Unit = runBlocking {
         val (picks, song) = suggestedNewSong()
         assertEquals(NewSongs.Offered, picks.forYou.value.getValue(server.id).newSongs)
-        assertTrue("not on the server yet: it isn't played", song.song.isNew && picks.playable(song) == null && song.song.cover == null)
+        assertTrue("not on the server yet: it isn't played", song.song.isNew && picks.playable(song) == null)
+        assertEquals("the server's own cover for it", "etz1d2ggyk95rs0cjhnde", song.song.cover)
+        assertTrue("its cover comes through the server: ${picks.coverUrl(song)}", picks.coverUrl(song)!!.startsWith("https://media.tracks-server.invalid/"))
         assertTrue("it can be added", picks.canKeep(song))
         val library = ServerSong(server.id, picks.forYou.value.getValue(server.id).shelves.picks.first())
         assertTrue("songs the server has aren't requested", !picks.canKeep(library))
@@ -422,7 +424,8 @@ class TracksidePicksTest {
         val decode = { name: String -> com.luke.tracks.library.trackside.TracksideJson.decodeFromString(com.luke.tracks.library.trackside.TracksideSuggestedSongs.serializer(), fixture(name)) }
         val picked = decode("picks.json")
         assertEquals(listOf("Single Ladies (Put a Ring on It)", "Don't Stop Me Now"), picked.songs.map { it.title })
-        assertEquals("Irreplaceable", picked.external!!.single().title)
+        assertEquals(listOf("Irreplaceable", "Run the World (Girls)"), picked.external!!.map { it.title })
+        assertEquals(listOf("etz1d2ggyk95rs0cjhnde", null), picked.external!!.map { it.artworkId })
         assertEquals(1, decode("get-more.json").songs.size)
         assertEquals(listOf("Halo"), decode("mix.json").songs.map { it.title })
         assertEquals(2, decode("top-songs.json").songs.size)

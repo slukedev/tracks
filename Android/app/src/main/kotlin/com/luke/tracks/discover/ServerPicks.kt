@@ -111,9 +111,9 @@ const val NEW_SONG_ID = "new:"
 val FoundSong.isNew: Boolean get() = id.startsWith(NEW_SONG_ID)
 
 /** A suggested song the server doesn't have, as a shelf shows it: no cover, an id from its identity so a shelf's keys stay unique. */
-fun newSong(title: String, artist: String, album: String? = null, durationMs: Long? = null): FoundSong {
+fun newSong(title: String, artist: String, album: String? = null, durationMs: Long? = null, cover: String? = null): FoundSong {
     val identity = songIdentity(title, artist)
-    return FoundSong(NEW_SONG_ID + identity, identity, title, artist, album?.takeIf { it.isNotBlank() }, null, durationMs?.takeIf { it > 0 }?.toULong())
+    return FoundSong(NEW_SONG_ID + identity, identity, title, artist, album?.takeIf { it.isNotBlank() }, cover?.takeIf { it.isNotEmpty() }, durationMs?.takeIf { it > 0 }?.toULong())
 }
 
 /**
@@ -438,11 +438,11 @@ class ServerPicksService(
                     val picked = serverPicked?.songs
                     if (offer == NewSongs.Offered && client is TracksideMusicServer) {
                         // New songs the server suggests and could get: from its picks, and from Get More once you've listened.
-                        addNew(fresh, serverPicked?.external.orEmpty().map { newSong(it.title, it.artist) })
+                        addNew(fresh, serverPicked?.external.orEmpty().map { newSong(it.title, it.artist, cover = it.artworkId) })
                         if (played.isNotEmpty()) {
                             // A list from what's stored, like picks: not counted against the budget.
                             val more = ask(tally, "For You: ${server.name} couldn't suggest more") { client.client.getMore(GET_MORE).external }
-                            addNew(fresh, more.orEmpty().map { newSong(it.title, it.artist) })
+                            addNew(fresh, more.orEmpty().map { newSong(it.title, it.artist, cover = it.artworkId) })
                         }
                         Logs.i("For You: ${server.name} suggested ${pending(fresh).size} new songs it can get")
                     }
@@ -716,7 +716,7 @@ class ServerPicksService(
             // None of the artist's songs on the server: ones it could get stand in.
             budget(server.id).take()
             val could = ask(tally, "For You: ${server.name} couldn't look for songs to get") { trackside.searchExternal(artist, ARTIST_SONGS) }
-            addNew(walk, could?.candidates.orEmpty().map { newSong(it.title, it.artist, it.album, it.durationMs) })
+            addNew(walk, could?.candidates.orEmpty().map { newSong(it.title, it.artist, it.album, it.durationMs, it.artworkId) })
         }
         val start = serverArtistStart(artist, found)
         val like = start.start?.let { index ->
@@ -724,7 +724,7 @@ class ServerPicksService(
                 val id = found[index.toInt()].id
                 if (trackside == null) client.similarSongs(id, 15).map { it.found() }
                 else trackside.similar(id, 15).let { answer ->
-                    addNew(walk, answer.external.orEmpty().map { newSong(it.title, it.artist) })
+                    addNew(walk, answer.external.orEmpty().map { newSong(it.title, it.artist, cover = it.artworkId) })
                     answer.songs.filter { it.missing != true }.map { it.subsonic.found() }
                 }
             }.orEmpty()
@@ -944,7 +944,8 @@ class ServerPicksService(
     }
 
     override suspend fun newCover(song: ServerSong): String? {
-        if (!song.song.isNew) return null
+        // The server's own cover comes first (coverUrl); Apple's catalog only where it has none.
+        if (!song.song.isNew || song.song.cover != null) return null
         return try {
             graph.discovery.itunes.songCover(song.song.title, song.song.artist)
         } catch (error: CancellationException) {
@@ -1117,7 +1118,7 @@ class ServerPicksService(
         val s = song.song
         if (!s.isNew || server(song.serverId) == null) return null
         if (!canKeep(song) && !octo.isWaiting(s.identity)) return null
-        return SongsToGet.song(song.serverId, s.identity, s.title, s.artist, s.album, s.durationMs?.toLong(), cover?.let(Uri::parse))
+        return SongsToGet.song(song.serverId, s.identity, s.title, s.artist, s.album, s.durationMs?.toLong(), (cover ?: coverUrl(song))?.let(Uri::parse))
     }
 
     override suspend fun getToPlay(song: PlayableSong, status: (String) -> Unit): ToPlay {
@@ -1354,7 +1355,7 @@ class ServerPicksService(
             title = song.title,
             artistName = song.artist,
             albumTitle = song.album,
-            artworkUri = newCover(ServerSong(server.id, song))?.let(Uri::parse),
+            artworkUri = ServerSong(server.id, song).let { coverUrl(it) ?: newCover(it) }?.let(Uri::parse),
             durationMs = durationMs ?: song.durationMs?.toLong(),
             identity = song.identity,
         )

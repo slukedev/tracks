@@ -117,6 +117,15 @@ class TracksideWireTest {
         assertEquals("https://cdn.example.net/a", TracksideClient.resolve("https://cdn.example.net/a", base).toString())
     }
 
+    @Test fun suggestedSongsTheServerDoesntHaveCarryItsCoverWhenThereIsOne() {
+        val picks = TracksideJson.decodeFromString(TracksideSuggestedSongs.serializer(), fixture("picks.json"))
+        val external = picks.external.orEmpty()
+        assertEquals("etz1d2ggyk95rs0cjhnde", external.first { it.title == "Irreplaceable" }.artworkId)
+        assertEquals(null, external.first { it.title == "Run the World (Girls)" }.artworkId)
+        val search = TracksideJson.decodeFromString(TracksideAcquisitionSearch.serializer(), fixture("acquisition-search.json"))
+        assertTrue("candidates decode with or without a cover: $search", search.candidates.isNotEmpty())
+    }
+
     @Test fun errorsReadByTheirStableCode() {
         val notFound = TracksideClient.error(TracksideAnswer(404, fixture("error-not-found.json")))
         assertEquals(TracksideError.NotFound, notFound)
