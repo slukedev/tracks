@@ -40,6 +40,10 @@ object Redact {
 
 /** Logging that can't leak a credential: messages and errors pass through [Redact]. */
 object Logs {
+    fun i(message: String) {
+        runCatching { Log.i(TAG, Redact.text(message)) }
+    }
+
     fun w(message: String, error: Throwable? = null) {
         runCatching { Log.w(TAG, line(message, error)) }
     }

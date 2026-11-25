@@ -17,8 +17,12 @@ import com.luke.tracks.net.ServerLinks
 import com.luke.tracks.library.SubsonicServer
 import com.luke.tracks.library.SubsonicSong
 import com.luke.tracks.playback.PlayableSong
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -33,6 +37,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import uniffi.tracks_engine.FoundCandidate
@@ -54,8 +59,11 @@ import java.time.LocalDate
 import java.util.WeakHashMap
 import java.util.concurrent.TimeUnit
 
-/** What one server picks for you: its For You shelves, and whether it's still looking. */
-data class ServerForYouState(val shelves: ForYouShelves, val isFilling: Boolean = false)
+/**
+ * What one server picks for you: its For You shelves, whether it's still looking, and why it
+ * found nothing when every request to it failed.
+ */
+data class ServerForYouState(val shelves: ForYouShelves, val isFilling: Boolean = false, val problem: String? = null)
 
 /** A server's own shelves of albums. */
 data class ServerAlbums(
@@ -137,6 +145,9 @@ class ServerPicksService(
     private val octo: OctoService,
     private val scope: CoroutineScope,
     private val now: () -> Long = System::currentTimeMillis,
+    private val newBudget: () -> RequestBudget = { RequestBudget(3, 8_000) },
+    /** How long a first load goes on finding songs before the shelves show what it has. */
+    private val loadLimitMs: Long = 40_000,
 ) : ServerPicks {
     private val dir = File(context.cacheDir, "for-you")
     private val serverLibrary: ServerLibrary get() = library.servers
@@ -165,39 +176,117 @@ class ServerPicksService(
     private val exploringSeen = HashSet<String>()
     private var randomFound = emptyList<ServerSong>()
     private var failuresInARow = 0
+    /** Each server's first load, run here so a shelf scrolled away or a tab left doesn't end it. */
+    private val loads = java.util.concurrent.ConcurrentHashMap<String, Deferred<Unit>>()
 
     fun start() {
         scope.launch {
+            var before = emptyMap<String, ServerStatus>()
             serverLibrary.entries.collect { entries ->
-                _servers.value = entries.filter { it.status is ServerStatus.Ready }.map { it.server }
+                // A server still syncing its songs picks for you already: picks don't need its library.
+                _servers.value = entries.filter { it.status is ServerStatus.Ready || it.status is ServerStatus.Syncing }.map { it.server }
+                val statuses = entries.associate { it.server.id to it.status }
+                if (statuses.mapValues { it.value.javaClass } != before.mapValues { it.value.javaClass }) {
+                    Logs.i("For You: servers ${entries.joinToString { "${it.server.name} ${describe(it.status)}" }.ifEmpty { "none" }}")
+                }
                 withContext(Dispatchers.IO) {
                     for (entry in entries) if (!walks.containsKey(entry.server.id)) restore(entry.server.id)
                 }
+                // Its songs just arrived: picks made without them start again.
+                for (entry in entries) {
+                    if (entry.status !is ServerStatus.Ready || before[entry.server.id] !is ServerStatus.Syncing) continue
+                    val shown = walks[entry.server.id]?.shelves()
+                    if (shown == null || (shown.picks.isEmpty() && shown.suggested.isEmpty())) scope.launch { load(entry.server.id, force = true) }
+                }
+                before = statuses
             }
         }
     }
 
+    private fun describe(status: ServerStatus) = when (status) {
+        ServerStatus.Syncing -> "syncing"
+        is ServerStatus.Ready -> "ready with ${status.songCount} songs"
+        is ServerStatus.Failed -> "unreachable, so its shelves are hidden"
+        ServerStatus.NeedsPassword -> "signed out, so its shelves are hidden"
+        is ServerStatus.NeedsTrust -> "waiting for its certificate to be trusted, so its shelves are hidden"
+    }
+
     // MARK: - For You
 
+    /**
+     * Makes a server's picks, or joins the load already under way. The load runs in the app's
+     * scope, ends within [loadLimitMs] and always leaves the shelves settled: songs, nothing
+     * found, or why the server couldn't be asked.
+     */
     override suspend fun load(serverId: String, force: Boolean) {
-        val server = server(serverId) ?: return
-        lock(serverId).withLock {
-            if (!force && walks[serverId]?.stands(PICKED, now()) == true) return
-            val seeds = serverSeeds(PICKED, playedArtists(), libraryArtists(), QUEUE_START, dailySeed("for-you-seeds"))
-            val fresh = ServerForYou(seeds, PICKED, now())
-            val client = serverLibrary.client(server)
-            // A server that picks for you (Trackside) starts the shelves; the walk goes on from there.
-            val picked = client?.let { serverPicks(it, server) }
-            if (seeds.isEmpty() && picked.isNullOrEmpty()) return publish(serverId, fresh, filling = false)
-            // What's on show stays until the new picks are ready; an empty shelf fills as they come.
-            val replaces = walks[serverId]?.shelves()?.let { it.picks.isNotEmpty() || it.suggested.isNotEmpty() } == true
-            if (!picked.isNullOrEmpty()) fresh.add(candidates(picked, server), emptyList(), dailySeed("for-you-server"))
-            if (!replaces) publish(serverId, fresh, filling = true)
-            // A column for each shelf at a time, Suggested songs first as it leads the page.
-            for (shelf in listOf(ForYouShelf.SUGGESTED, ForYouShelf.PICKS, ForYouShelf.SUGGESTED, ForYouShelf.PICKS)) {
-                goOn(fresh, shelf, server, publishing = !replaces, want = COLUMN)
+        val job = synchronized(loads) {
+            loads[serverId]?.takeIf { it.isActive } ?: scope.async(start = CoroutineStart.LAZY) {
+                try {
+                    loadNow(serverId, force)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Logs.w("For You: picks stopped", error)
+                    // Never left loading: an empty walk settles the shelves.
+                    if (_forYou.value[serverId]?.isFilling != false) publish(serverId, walks[serverId] ?: ServerForYou(emptyList(), PICKED, now()), filling = false)
+                }
+            }.also { job ->
+                loads[serverId] = job
+                job.invokeOnCompletion { loads.remove(serverId, job) }
+                job.start()
             }
-            publish(serverId, fresh, filling = false)
+        }
+        job.await()
+    }
+
+    private suspend fun loadNow(serverId: String, force: Boolean) {
+        val server = server(serverId) ?: return Logs.i("For You: that server isn't set up anymore")
+        lock(serverId).withLock {
+            val previous = walks[serverId]
+            if (!force && previous?.stands(PICKED, now()) == true) return Logs.i("For You: ${server.name}: picks from earlier still stand")
+            val started = now()
+            val played = playedArtists()
+            val library = libraryArtists()
+            val seeds = serverSeeds(PICKED, played, library, QUEUE_START, dailySeed("for-you-seeds"))
+            val fresh = ServerForYou(seeds, PICKED, now())
+            val tally = Tally()
+            // What's on show stays until the new picks are ready; an empty shelf fills as they come.
+            val replaces = previous?.shelves()?.let { it.picks.isNotEmpty() || it.suggested.isNotEmpty() } == true
+            if (!replaces) publish(serverId, fresh, filling = true)
+            Logs.i("For You: ${server.name}: picking from ${seeds.size} artists (${played.size} you play, ${library.size} in your library)")
+            try {
+                withTimeoutOrNull(loadLimitMs) {
+                    val client = serverLibrary.client(server)
+                    if (client == null) Logs.i("For You: ${server.name}: its sign-in can't be opened on this phone")
+                    // A server that picks for you (Trackside) starts the shelves; the walk goes on from there.
+                    val picked = client?.let { serverPicks(it, server, tally) }
+                    if (seeds.isEmpty() && picked.isNullOrEmpty()) {
+                        Logs.i("For You: ${server.name}: nothing to start from yet: no plays, no songs synced and no picks from the server")
+                        return@withTimeoutOrNull
+                    }
+                    if (!picked.isNullOrEmpty()) fresh.add(candidates(picked, server), emptyList(), dailySeed("for-you-server"))
+                    // A column for each shelf at a time, Suggested songs first as it leads the page,
+                    // and on while a shelf is still empty and there's more to find.
+                    var round = 0
+                    while (!tally.unreachable && (round < FIRST_ROUNDS || (round < MAX_ROUNDS && fresh.canGoOn() && fresh.shelves().let { it.picks.isEmpty() || it.suggested.isEmpty() }))) {
+                        goOn(fresh, if (round % 2 == 0) ForYouShelf.SUGGESTED else ForYouShelf.PICKS, server, publishing = !replaces, want = COLUMN, tally = tally)
+                        round++
+                    }
+                } ?: Logs.i("For You: ${server.name}: stopped looking after ${loadLimitMs / 1000} s; showing what was found")
+            } finally {
+                withContext(NonCancellable) {
+                    val shelves = fresh.shelves()
+                    val foundNothing = shelves.picks.isEmpty() && shelves.suggested.isEmpty()
+                    val kept = if (replaces && foundNothing) previous!! else fresh
+                    publish(serverId, kept, filling = false, problem = tally.problem(server).takeIf { foundNothing && kept === fresh })
+                    Logs.i(
+                        "For You: ${server.name}: ${shelves.picks.size} picked for you, ${shelves.suggested.size} suggested, " +
+                            "${tally.asked} requests (${tally.failed} failed) in ${(now() - started) / 100 / 10.0} s" +
+                            (if (fresh.canGoOn()) ", more to find as you scroll" else ", nothing more to find") +
+                            (if (kept !== fresh) "; earlier picks stay" else ""),
+                    )
+                }
+            }
         }
     }
 
@@ -206,11 +295,45 @@ class ServerPicksService(
         lock(serverId).withLock {
             val walk = walks[serverId] ?: return
             if (!walk.canGoOn()) return
+            val tally = Tally()
             publish(serverId, walk, filling = true)
-            goOn(walk, shelf, server, publishing = true, want = want.coerceAtLeast(1))
-            publish(serverId, walk, filling = false)
+            try {
+                goOn(walk, shelf, server, publishing = true, want = want.coerceAtLeast(1), tally = tally)
+            } finally {
+                withContext(NonCancellable) {
+                    val shelves = walk.shelves()
+                    val empty = (if (shelf == ForYouShelf.PICKS) shelves.picks else if (shelf == ForYouShelf.SUGGESTED) shelves.suggested else shelves.further).isEmpty()
+                    publish(serverId, walk, filling = false, problem = tally.problem(server).takeIf { empty })
+                }
+            }
         }
         _answers.update { it + 1 }
+    }
+
+    /** Requests asked of a server, and how many failed: all of them failing is worth saying. */
+    private class Tally {
+        @Volatile var asked = 0
+        @Volatile var failed = 0
+
+        /** Every one of the first few failed: the server isn't there, so asking more only waits longer. */
+        val unreachable get() = asked >= 3 && failed == asked
+
+        fun problem(server: SubsonicServer): String? =
+            if (asked > 0 && failed == asked) "Couldn't reach ${server.name}. Check your connection and try again." else null
+    }
+
+    /** [block], counted in [tally]; a failure is logged and comes back as null. Cancelling still cancels. */
+    private suspend fun <T> ask(tally: Tally?, what: String, block: suspend () -> T): T? {
+        tally?.let { it.asked++ }
+        return try {
+            block()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            tally?.let { it.failed++ }
+            Logs.w(what, error)
+            null
+        }
     }
 
     /**
@@ -218,18 +341,19 @@ class ServerPicksService(
      * found, going on from the next artist only when those run out, from at most two artists a
      * call so songs without covers can't keep it asking.
      */
-    private suspend fun goOn(walk: ServerForYou, shelf: ForYouShelf, server: SubsonicServer, publishing: Boolean, want: Int) {
+    private suspend fun goOn(walk: ServerForYou, shelf: ForYouShelf, server: SubsonicServer, publishing: Boolean, want: Int, tally: Tally? = null) {
         var shown = 0
         var goneOn = 0
         while (shown < want) {
             if (walk.waiting(shelf) == 0u) {
                 if (goneOn >= 2 || !walk.hasQueue()) break
-                findMore(walk, server)
+                findMore(walk, server, tally)
                 goneOn++
                 continue
             }
             val batch = walk.takeWaiting(shelf, (want - shown).toUInt())
             val kept = withCovers(server, batch)
+            if (kept.size < batch.size) Logs.i("For You: ${server.name}: ${batch.size - kept.size} of ${batch.size} songs left out for want of a cover")
             walk.place(shelf, kept)
             shown += kept.size
             if (publishing && kept.isNotEmpty()) publish(server.id, walk, filling = true)
@@ -237,17 +361,16 @@ class ServerPicksService(
     }
 
     /** Goes on from the next artist: a few of their songs, then songs like the first, as the server's budget allows. */
-    private suspend fun findMore(walk: ServerForYou, server: SubsonicServer) {
+    private suspend fun findMore(walk: ServerForYou, server: SubsonicServer, tally: Tally?) {
         val client = serverLibrary.client(server) ?: return
         val artist = walk.nextArtist() ?: return
         budget(server.id).take()
-        val found = runCatching { client.search(artist, artists = 0, albums = 0, songs = ARTIST_SONGS).songs }
-            .onFailure { Logs.w("For You: ${server.name} couldn't search", it) }.getOrNull()?.map { it.found() } ?: return
+        val found = ask(tally, "For You: ${server.name} couldn't search") { client.search(artist, artists = 0, albums = 0, songs = ARTIST_SONGS).songs }
+            ?.map { it.found() } ?: return
         val start = serverArtistStart(artist, found)
         val like = start.start?.let { index ->
-            runCatching { client.similarSongs(found[index.toInt()].id, 15) }
-                .onFailure { Logs.w("For You: ${server.name} couldn't find similar songs", it) }
-                .getOrDefault(emptyList()).map { it.found() }
+            ask(tally, "For You: ${server.name} couldn't find similar songs") { client.similarSongs(found[index.toInt()].id, 15) }
+                .orEmpty().map { it.found() }
         }.orEmpty()
         val songs = start.theirs.map { found[it.toInt()] } + like
         val yours = yoursBy(artist)
@@ -257,11 +380,15 @@ class ServerPicksService(
     }
 
     /** The server's own picks, or null when it doesn't make any; a failure says why in the log. */
-    private suspend fun serverPicks(client: MusicServerClient, server: SubsonicServer): List<FoundSong>? {
+    private suspend fun serverPicks(client: MusicServerClient, server: SubsonicServer, tally: Tally): List<FoundSong>? {
         budget(server.id).take()
-        return runCatching { client.picks(SERVER_PICKS) }
-            .onFailure { Logs.w("For You: ${server.name} couldn't pick songs", it) }
-            .getOrNull()?.map { it.found() }
+        val picked = ask(tally, "For You: ${server.name} couldn't pick songs") { client.picks(SERVER_PICKS) }
+        when {
+            picked == null && server.isTrackside -> Logs.i("For You: ${server.name} made no picks (a Trackside from before picks, or the request failed); going on from similar songs")
+            picked == null -> Logs.i("For You: ${server.name} doesn't pick songs itself; going on from similar songs")
+            else -> Logs.i("For You: ${server.name} picked ${picked.size} songs")
+        }
+        return picked?.map { it.found() }
     }
 
     private suspend fun candidates(songs: List<FoundSong>, server: SubsonicServer, also: List<String> = emptyList()): List<FoundCandidate> {
@@ -310,7 +437,8 @@ class ServerPicksService(
     // MARK: - Shelves of albums
 
     override suspend fun loadAlbums(serverId: String) {
-        _albums.value[serverId]?.let { if (now() - it.loadedAt < ALBUMS_KEEP_MS) return }
+        // Shelves that came back empty, while the library was still syncing, are asked again.
+        _albums.value[serverId]?.let { if (now() - it.loadedAt < ALBUMS_KEEP_MS && (it.mostPlayed.isNotEmpty() || it.random.isNotEmpty())) return }
         val server = server(serverId) ?: return
         val client = serverLibrary.client(server) ?: return
         coroutineScope {
@@ -341,12 +469,20 @@ class ServerPicksService(
     override suspend fun exploreMore() {
         val servers = _servers.value
         if (servers.isEmpty()) return
+        try {
+            exploreMoreFrom(servers)
+        } finally {
+            _answers.update { it + 1 }
+        }
+    }
+
+    private suspend fun exploreMoreFrom(servers: List<SubsonicServer>) {
         for (server in servers) loadMore(server.id, ForYouShelf.FURTHER, COLUMN)
         exploringMutex.withLock {
             if (exploringWaiting.size < PAGE) {
                 val server = servers.random()
                 val client = serverLibrary.client(server)
-                val songs = client?.let { runCatching { it.randomSongs(40) }.onFailure { e -> Logs.w("Keep exploring: ${server.name} couldn't pick songs", e) }.getOrNull() }
+                val songs = client?.let { ask(null, "Keep exploring: ${server.name} couldn't pick songs") { it.randomSongs(40) } }
                 if (songs == null) {
                     failuresInARow++
                 } else {
@@ -356,6 +492,7 @@ class ServerPicksService(
                     exploringWaiting.addAll(fresh.map { ServerSong(server.id, it) })
                     failuresInARow = if (fresh.isEmpty()) failuresInARow + 1 else 0
                 }
+                if (failuresInARow >= 3) Logs.i("Keep exploring: stopped after ${server.name} found nothing new three times in a row")
             }
             repeat(minOf(PAGE, exploringWaiting.size)) { randomFound = randomFound + exploringWaiting.removeFirst() }
             publishExploring()
@@ -436,9 +573,9 @@ class ServerPicksService(
 
     // MARK: - Keeping state
 
-    private fun publish(serverId: String, walk: ServerForYou, filling: Boolean) {
+    private fun publish(serverId: String, walk: ServerForYou, filling: Boolean, problem: String? = null) {
         walks[serverId] = walk
-        _forYou.update { it + (serverId to ServerForYouState(walk.shelves(), filling)) }
+        _forYou.update { it + (serverId to ServerForYouState(walk.shelves(), filling, problem)) }
         publishExploring()
         val json = walk.toJson()
         scope.launch(Dispatchers.IO) { runCatching { dir.mkdirs(); File(dir, "$serverId.json").writeText(json) } }
@@ -446,6 +583,8 @@ class ServerPicksService(
 
     private fun restore(serverId: String) {
         val walk = runCatching { File(dir, "$serverId.json").readText() }.getOrNull()?.let(::serverForYouFromJson) ?: return
+        // Picks that found nothing aren't worth showing again: the shelf waits for new ones.
+        if (walk.shelves().let { it.picks.isEmpty() && it.suggested.isEmpty() }) return
         walks[serverId] = walk
         _forYou.update { it + (serverId to ServerForYouState(walk.shelves())) }
     }
@@ -454,7 +593,7 @@ class ServerPicksService(
 
     private fun lock(serverId: String) = synchronized(locks) { locks.getOrPut(serverId) { Mutex() } }
 
-    private fun budget(serverId: String) = synchronized(budgets) { budgets.getOrPut(serverId) { RequestBudget(3, 8_000) } }
+    private fun budget(serverId: String) = synchronized(budgets) { budgets.getOrPut(serverId, newBudget) }
 
     private fun dailySeed(salt: String): ULong {
         val today = LocalDate.now()
@@ -472,6 +611,9 @@ class ServerPicksService(
         val PICKED = emptyList<String>()
         const val QUEUE_START = 40u
         const val COLUMN = 4
+        /** A column for each shelf twice over, and up to this many goes while a shelf is still empty. */
+        const val FIRST_ROUNDS = 4
+        const val MAX_ROUNDS = 10
         const val PAGE = 8
         const val ARTIST_SONGS = 20
         const val SERVER_PICKS = 40

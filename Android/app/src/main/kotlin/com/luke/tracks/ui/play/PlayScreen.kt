@@ -38,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -135,6 +136,10 @@ fun PlayScreen() {
         val id = com.luke.tracks.sources.SourceId.Server(server.id)
         selection.includes(id) && registry.source(id)?.status?.canPlay != false
     }
+    LaunchedEffect(servers.map { it.id }, shownServers.map { it.id }) {
+        val hidden = servers.filter { server -> shownServers.none { it.id == server.id } }
+        if (hidden.isNotEmpty()) com.luke.tracks.net.Logs.i("Play: ${hidden.joinToString { it.name }} hidden by the source filter, or because it can't play now")
+    }
     // Picks are made again when the artists you play change, not for every song played.
     val taste = remember(current?.topArtists) { current?.topArtists.orEmpty().take(8).map { it.identity }.toSet() }
 
@@ -189,31 +194,34 @@ fun PlayScreen() {
                             modifier = Modifier.padding(top = 8.dp),
                         )
                     }
+                    // Your servers' shelves don't wait for your listening to be read: each settles on its own.
                     if (current == null) {
                         item(key = "loading") {
                             Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
                                 LoadingIndicator(Modifier.size(56.dp))
                             }
                         }
-                        return@LazyColumn
+                    } else if (!current.hasHistory) {
+                        item(key = "empty") { EmptyPlay(Modifier.animateItem()) }
                     }
-                    if (!current.hasHistory) item(key = "empty") { EmptyPlay(Modifier.animateItem()) }
                     shownServers.forEach { server ->
                         item(key = "suggested-${server.id}", contentType = "server-songs") {
                             ServerForYouShelf(server, ForYouShelf.SUGGESTED, taste, Modifier.animateItem())
                         }
                     }
-                    if (current.recentlyPlayed.isNotEmpty()) {
-                        item(key = "recent", contentType = "shelf") { RecentlyPlayed(current.recentlyPlayed, Modifier.animateItem()) }
-                    }
-                    if (current.topArtists.isNotEmpty()) {
-                        item(key = "artists", contentType = "artists") { ArtistRail(current.topArtists, actions, Modifier.animateItem()) }
-                    }
-                    if (current.shelfMixes.isNotEmpty()) {
-                        item(key = "mixes", contentType = "shelf") { MixShelf(current, actions, openMix, unplayable, Modifier.animateItem()) }
-                    }
-                    if (current.waiting.isNotEmpty()) {
-                        item(key = "waiting", contentType = "shelf") { WaitingToBeHeard(current.waiting, actions, Modifier.animateItem()) }
+                    if (current != null) {
+                        if (current.recentlyPlayed.isNotEmpty()) {
+                            item(key = "recent", contentType = "shelf") { RecentlyPlayed(current.recentlyPlayed, Modifier.animateItem()) }
+                        }
+                        if (current.topArtists.isNotEmpty()) {
+                            item(key = "artists", contentType = "artists") { ArtistRail(current.topArtists, actions, Modifier.animateItem()) }
+                        }
+                        if (current.shelfMixes.isNotEmpty()) {
+                            item(key = "mixes", contentType = "shelf") { MixShelf(current, actions, openMix, unplayable, Modifier.animateItem()) }
+                        }
+                        if (current.waiting.isNotEmpty()) {
+                            item(key = "waiting", contentType = "shelf") { WaitingToBeHeard(current.waiting, actions, Modifier.animateItem()) }
+                        }
                     }
                     shownServers.forEach { server ->
                         item(key = "picks-${server.id}", contentType = "server-songs") {
