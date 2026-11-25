@@ -22,10 +22,12 @@ import java.io.InterruptedIOException
  * Apple Music song is on, MusicKit has the audio focus; when it pauses or resumes on its own (a
  * call, unplugged headphones), ExoPlayer follows it.
  *
- * Unverified on a device: written against MusicKit for Android 1.1.4 as documented.
+ * Unverified on a device: built against MusicKit for Android 1.1.4's classes, never run here.
  */
 class AppleMusicPlayback(
     private val player: () -> AppleMusicPlayer?,
+    /** Whether [player] would give one, without making it off the main thread. */
+    private val canPlay: () -> Boolean = { player() != null },
     private val clock: () -> Long = SystemClock::elapsedRealtime,
 ) : PcmOpener {
     private val gate = StartGate(clock)
@@ -42,7 +44,7 @@ class AppleMusicPlayback(
     override fun open(uri: Uri): PcmSource {
         val id = AppleMusicUris.catalogId(uri.toString()) ?: throw AppleMusicException(AppleMusicProblem.Unavailable)
         val length = AppleMusicUris.durationMs(uri) ?: throw AppleMusicException(AppleMusicProblem.Unavailable)
-        if (player() == null) throw AppleMusicException(AppleMusicProblem.SignedOut)
+        if (!canPlay()) throw AppleMusicException(AppleMusicProblem.SignedOut)
         return StandIn(id, length)
     }
 
@@ -119,8 +121,14 @@ class AppleMusicPlayback(
             val id = loaded ?: return
             Logs.w("Apple Music couldn't play $id: $problem")
             gate.fail(id, problem)
+            if (!heard) return
+            // Another device took the stream: stop here, as skipping would take it back.
+            if (problem == AppleMusicProblem.OtherDevice) {
+                exo?.pause()
+                return
+            }
             // Already under way, past the stand-in's wait: move on rather than play silence.
-            if (heard) exo?.let { if (it.hasNextMediaItem()) it.seekToNextMediaItem() else it.pause() }
+            exo?.let { if (it.hasNextMediaItem()) it.seekToNextMediaItem() else it.pause() }
         }
     }
 

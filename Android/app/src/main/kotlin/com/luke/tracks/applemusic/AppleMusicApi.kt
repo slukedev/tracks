@@ -29,6 +29,10 @@ enum class AppleMusicProblem(val message: String, val retryable: Boolean) {
     /** The developer token was refused or ran out: only a new build or server token fixes it. */
     Expired("Apple Music access in this build has expired.", false),
     Unavailable("This song isn't available on Apple Music.", false),
+    /** Neither a paired Trackside server nor the build has a developer token to sign in with. */
+    NoKey("Sign-in needs your server's Apple Music key.", true),
+    OtherDevice("Apple Music is playing on another device.", true),
+    AgeRestricted("Confirm your age in Apple Music to play this.", false),
     ;
 
     /** Whether it's about the account rather than one song. */

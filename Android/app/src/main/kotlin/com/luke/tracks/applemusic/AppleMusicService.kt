@@ -8,8 +8,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -64,18 +67,34 @@ class AppleMusicService(
 
     val storefront: String? get() = (state.value as? AppleMusicState.Connected)?.storefront ?: vault.storefront
 
+    /** Whether a developer token can be had, from a paired server or the build; sign-in needs one. */
+    val keyAvailable: StateFlow<Boolean> = tokens.availabilityChanges
+        .map { tokens.available }
+        .stateIn(scope, SharingStarted.Eagerly, tokens.available)
+
+    private val musicKitTokens = object : AppleMusicSdk.Tokens {
+        override fun developerToken() = tokens.cached()?.jwt
+        override fun userToken() = vault.userToken()
+        override fun playbackStorefront() = vault.playbackStorefront
+    }
+
     private var musicKit: AppleMusicPlayer? = null
 
     /** MusicKit's player, made on first use; null in builds without the SDK or while signed out. */
+    @Synchronized
     fun player(): AppleMusicPlayer? {
-        if (sdk == null || vault.userToken() == null) return null
-        return musicKit ?: sdk.player(object : AppleMusicSdk.Tokens {
-            override fun developerToken() = tokens.cached()?.jwt
-            override fun userToken() = vault.userToken()
-        }).also { musicKit = it }
+        val sdk = sdk ?: return null
+        if (vault.userToken() == null) return null
+        musicKit?.let { return it }
+        return runCatching { sdk.player(musicKitTokens) }
+            .onFailure { Logs.w("MusicKit's player didn't start", it) }
+            .getOrNull()
+            ?.also { musicKit = it }
     }
 
-    val playback = AppleMusicPlayback(::player)
+    val playback = AppleMusicPlayback(::player, canPlay = { sdk != null && vault.userToken() != null })
+
+    private var renewing: Job? = null
 
     private var refreshing: Job? = null
 
@@ -102,7 +121,7 @@ class AppleMusicService(
         }
         val token = tokens.token()
         if (token == null) {
-            _state.value = AppleMusicState.Failed(AppleMusicProblem.Expired)
+            _state.value = AppleMusicState.Failed(if (tokens.available) AppleMusicProblem.Expired else AppleMusicProblem.NoKey)
             return null
         }
         _state.value = AppleMusicState.SigningIn
@@ -121,6 +140,8 @@ class AppleMusicService(
         when (result) {
             is SignInResult.Token -> {
                 vault.save(result.musicUserToken)
+                vault.playbackStorefront = result.playbackStorefront
+                musicKit?.tokensChanged()
                 _state.value = AppleMusicState.Checking
                 scope.launch { verify(quiet = false) }
             }
@@ -143,6 +164,12 @@ class AppleMusicService(
     /** The problem was read; the page goes back to signing in. */
     fun dismissProblem() {
         if (_state.value is AppleMusicState.Failed) _state.value = AppleMusicState.SignedOut
+    }
+
+    /** Asks the paired servers again for a developer token, as after adding a MusicKit key. */
+    fun findKey() {
+        tokens.refresh()
+        dismissProblem()
     }
 
     /** Asks Apple for the account's storefront, which proves the token, then the library. */
@@ -171,9 +198,28 @@ class AppleMusicService(
         }
     }
 
-    /** A song or request failed in a way that says something about the account. */
+    /**
+     * A song or request failed in a way that says something about the account. A refused Music
+     * User Token is renewed with Apple first, as MusicKit's guide asks; only if that fails does
+     * the source ask to sign in again.
+     */
     fun playbackFailed(problem: AppleMusicProblem) {
-        if (problem.accountWide) accountProblem(problem)
+        if (!problem.accountWide) return
+        if (problem != AppleMusicProblem.SignedOut || sdk == null || vault.userToken() == null) {
+            accountProblem(problem)
+            return
+        }
+        if (renewing?.isActive == true) return
+        renewing = scope.launch {
+            when (val renewed = runCatching { sdk.refreshUserToken(musicKitTokens) }.getOrElse { SignInResult.Failed(AppleMusicProblem.SignedOut) }) {
+                is SignInResult.Token -> {
+                    vault.save(renewed.musicUserToken)
+                    musicKit?.tokensChanged()
+                }
+                is SignInResult.Failed -> accountProblem(renewed.problem.takeIf { it.accountWide } ?: AppleMusicProblem.SignedOut)
+                SignInResult.Cancelled -> accountProblem(AppleMusicProblem.SignedOut)
+            }
+        }
     }
 
     private fun accountProblem(problem: AppleMusicProblem) {
@@ -184,9 +230,18 @@ class AppleMusicService(
 
     fun signOut() {
         refreshing?.cancel()
-        musicKit?.let { runCatching { it.stop() }; runCatching { it.release() } }
-        musicKit = null
+        renewing?.cancel()
         vault.clear()
+        // MusicKit's guide: stop, hand it the now empty tokens, then drop its kept queue and state.
+        synchronized(this) {
+            musicKit?.let {
+                runCatching { it.stop() }
+                runCatching { it.tokensChanged() }
+                runCatching { it.release() }
+            }
+            musicKit = null
+        }
+        sdk?.let { runCatching { it.forget() } }
         _library.value = emptyList()
         scope.launch(Dispatchers.IO) { cache?.delete() }
         _state.value = AppleMusicState.SignedOut

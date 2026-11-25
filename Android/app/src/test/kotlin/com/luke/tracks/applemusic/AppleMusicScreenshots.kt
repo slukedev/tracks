@@ -10,9 +10,9 @@ import org.junit.Test
 
 /** Settings > Sources > Apple Music in each state. */
 class AppleMusicScreenshots(dark: Boolean) : ScreenshotTest(dark) {
-    private fun page(name: String, state: AppleMusicState) = snap("apple-music-$name") {
+    private fun page(name: String, state: AppleMusicState, needsKey: Boolean = false) = snap("apple-music-$name") {
         Framed {
-            AppleMusicSourcePageContent(state = state, onSignIn = {}, onDone = {}, onTryAgain = {}, onGetApp = {}, onLibrary = {}, onRemove = {})
+            AppleMusicSourcePageContent(state = state, needsKey = needsKey, onSignIn = {}, onDone = {}, onTryAgain = {}, onGetApp = {}, onLibrary = {}, onRemove = {})
         }
     }
 
@@ -27,5 +27,6 @@ class AppleMusicScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     @Test fun noSubscription() = page("no-subscription", AppleMusicState.Failed(AppleMusicProblem.NoSubscription))
     @Test fun offline() = page("offline", AppleMusicState.Failed(AppleMusicProblem.Offline))
     @Test fun signedOut() = page("signed-out", AppleMusicState.NeedsSignIn(AppleMusicProblem.SignedOut))
+    @Test fun needsKey() = page("needs-key", AppleMusicState.SignedOut, needsKey = true)
     @Test fun connected() = page("connected", AppleMusicState.Connected("gb"))
 }

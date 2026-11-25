@@ -14,18 +14,28 @@ interface AppleMusicSdk {
     /** What the sign-in screen came back with. */
     fun signInResult(data: Intent?): SignInResult
 
+    /** A new Music User Token from Apple's servers, without the sign-in screen. */
+    suspend fun refreshUserToken(tokens: Tokens): SignInResult
+
     /** A player that asks [tokens] for the tokens it sends. */
     fun player(tokens: Tokens): AppleMusicPlayer
+
+    /** Drops what MusicKit keeps of the account: its queue and playback state. */
+    fun forget()
 
     /** The tokens MusicKit asks for on its own threads. */
     interface Tokens {
         fun developerToken(): String?
         fun userToken(): String?
+
+        /** The encoded storefront MusicKit plays from, as sign-in gave it. */
+        fun playbackStorefront(): String?
     }
 }
 
 sealed interface SignInResult {
-    data class Token(val musicUserToken: String) : SignInResult
+    /** Signed in. [playbackStorefront] is the encoded storefront MusicKit's player needs. */
+    data class Token(val musicUserToken: String, val playbackStorefront: String? = null) : SignInResult
     data object Cancelled : SignInResult
     data class Failed(val problem: AppleMusicProblem) : SignInResult
 }
@@ -41,6 +51,10 @@ interface AppleMusicPlayer {
     fun pause()
     fun seekTo(positionMs: Long)
     fun stop()
+
+    /** The tokens changed (signed in again, refreshed, signed out): MusicKit takes them again. */
+    fun tokensChanged()
+
     fun release()
 
     var listener: Listener?

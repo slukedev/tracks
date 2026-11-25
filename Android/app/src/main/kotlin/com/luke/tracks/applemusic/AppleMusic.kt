@@ -21,13 +21,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import uniffi.tracks_engine.songIdentity
 
 /**
- * Apple Music, present when the build has Apple's MusicKit SDK and offered in Sources while
- * there's a developer token to be had.
+ * Apple Music, present when the build has Apple's MusicKit SDK, and then always offered in
+ * Sources. Signing in needs a developer token from a paired Trackside server or the build.
  */
 object AppleMusic {
     @Volatile
@@ -40,8 +39,7 @@ object AppleMusic {
 
     /**
      * Sets Apple Music up when the build has the SDK. Developer tokens come from a paired
-     * Trackside server that offers them, then the one built in; Apple Music is offered in
-     * Sources while either has one.
+     * Trackside server that offers them, then the one built in.
      */
     fun install(context: Context, scope: CoroutineScope, servers: ServerLibrary) {
         if (service != null) return
@@ -88,9 +86,9 @@ class AppleMusicSourceProvider(private val service: AppleMusicService, scope: Co
     override val sources: StateFlow<List<Source>> = combine(service.state, service.library) { state, library -> sources(state, library.size) }
         .stateIn(scope, SharingStarted.Eagerly, sources(service.state.value, service.library.value.size))
 
-    override val offersAdd: StateFlow<Boolean> = combine(sources, service.tokens.availabilityChanges.onStart { emit(Unit) }) { listed, _ ->
-        listed.isEmpty() && service.tokens.available
-    }.stateIn(scope, SharingStarted.Eagerly, sources.value.isEmpty() && service.tokens.available)
+    /** Offered whenever the build has MusicKit; without a developer token its page says what's missing. */
+    override val offersAdd: StateFlow<Boolean> = sources.map { it.isEmpty() }
+        .stateIn(scope, SharingStarted.Eagerly, sources.value.isEmpty())
 
     override fun sourceOf(mediaId: String): SourceId? = if (AppleMusicUris.isAppleMusic(mediaId)) SourceId.AppleMusic else null
 

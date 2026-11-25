@@ -12,6 +12,8 @@ interface AppleMusicVault {
     fun userToken(): String?
     fun save(userToken: String)
     var storefront: String?
+    /** The encoded storefront MusicKit's player needs, from sign-in. */
+    var playbackStorefront: String?
     /** Forgets the token, keeping the storefront. */
     fun forgetToken()
     /** Forgets everything. */
@@ -40,6 +42,10 @@ class SealedAppleMusicVault(private val prefs: SharedPreferences, private val bo
         get() = prefs.getString(STOREFRONT, null)
         set(value) = prefs.edit { if (value == null) remove(STOREFRONT) else putString(STOREFRONT, value) }
 
+    override var playbackStorefront: String?
+        get() = prefs.getString(PLAYBACK_STOREFRONT, null)
+        set(value) = prefs.edit { if (value == null) remove(PLAYBACK_STOREFRONT) else putString(PLAYBACK_STOREFRONT, value) }
+
     override fun forgetToken() {
         opened = null
         prefs.edit { remove(TOKEN) }
@@ -54,5 +60,6 @@ class SealedAppleMusicVault(private val prefs: SharedPreferences, private val bo
         const val PREFS = "appleMusic"
         private const val TOKEN = "userToken"
         private const val STOREFRONT = "storefront"
+        private const val PLAYBACK_STOREFRONT = "playbackStorefront"
     }
 }

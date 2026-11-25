@@ -79,6 +79,9 @@ interface DeveloperTokenProvider {
 
     /** Emits when [available] may have changed. */
     val availabilityChanges: Flow<Unit> get() = emptyFlow()
+
+    /** Asks again whether a token can be had, as after adding a MusicKit key to a server. */
+    fun refresh() = Unit
 }
 
 /** A token signed ahead of time and built into a personal build (secrets.properties). */
@@ -110,6 +113,8 @@ class FirstDeveloperToken(private val providers: List<DeveloperTokenProvider>) :
     override suspend fun replaced(token: DeveloperToken): Boolean = providers.any { it.replaced(token) }
 
     override val availabilityChanges: Flow<Unit> = providers.map { it.availabilityChanges }.merge()
+
+    override fun refresh() = providers.forEach { it.refresh() }
 }
 
 /**
@@ -158,7 +163,7 @@ class TracksideDeveloperTokens(
     }
 
     /** Asks every server again whether it offers tokens, as when the app comes back. */
-    fun refresh() {
+    override fun refresh() {
         scope.launch { ask(paired.value.filter { it !in gone.value }) }
     }
 

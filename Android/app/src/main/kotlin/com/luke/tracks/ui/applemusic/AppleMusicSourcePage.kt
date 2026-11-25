@@ -76,6 +76,7 @@ fun AppleMusicSourcePage(service: AppleMusicService, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val registry = rememberSources()
     val state by service.state.collectAsStateWithLifecycle()
+    val keyAvailable by service.keyAvailable.collectAsStateWithLifecycle()
     var confirmRemove by remember { mutableStateOf(false) }
 
     val signIn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -85,6 +86,8 @@ fun AppleMusicSourcePage(service: AppleMusicService, onDone: () -> Unit) {
     LifecycleResumeEffect(state) {
         val now = state
         if (now is AppleMusicState.Failed && now.problem == AppleMusicProblem.NeedsApp && AppleMusic.isAppInstalled(context)) service.dismissProblem()
+        // Back from adding the MusicKit key to the server: ask it again.
+        if (!keyAvailable) service.tokens.refresh()
         onPauseOrDispose {}
     }
     var previous by remember { mutableStateOf(state) }
@@ -97,6 +100,8 @@ fun AppleMusicSourcePage(service: AppleMusicService, onDone: () -> Unit) {
 
     AppleMusicSourcePageContent(
         state = state,
+        needsKey = !keyAvailable,
+        onFindKey = service::findKey,
         onSignIn = {
             scope.launch {
                 val intent = service.beginSignIn() ?: return@launch
@@ -139,6 +144,9 @@ fun AppleMusicSourcePage(service: AppleMusicService, onDone: () -> Unit) {
 fun AppleMusicSourcePageContent(
     state: AppleMusicState,
     onSignIn: () -> Unit,
+    /** No developer token to sign in with: the page says so instead of offering sign-in. */
+    needsKey: Boolean = false,
+    onFindKey: () -> Unit = {},
     onDone: () -> Unit,
     onTryAgain: () -> Unit,
     onGetApp: () -> Unit,
@@ -148,7 +156,8 @@ fun AppleMusicSourcePageContent(
     val connected = state is AppleMusicState.Connected
     SettingsScaffold(title = "Apple Music") {
         item(key = "hero") {
-            Hero(state, onSignIn, onDone, onTryAgain, onGetApp, onRemove, Modifier.animateItem())
+            val shown = if (needsKey && state == AppleMusicState.SignedOut) AppleMusicState.Failed(AppleMusicProblem.NoKey) else state
+            Hero(shown, onSignIn, onDone, onTryAgain, onGetApp, onRemove, onFindKey, Modifier.animateItem())
         }
         if (connected) {
             group(key = "library") {
@@ -183,6 +192,7 @@ private fun Hero(
     onTryAgain: () -> Unit,
     onGetApp: () -> Unit,
     onRemove: () -> Unit,
+    onFindKey: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val fade = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
@@ -213,7 +223,7 @@ private fun Hero(
                 }
                 when (step) {
                     Step.Idle, Step.SigningIn -> SignInButton(signingIn = step == Step.SigningIn, onClick = onSignIn)
-                    Step.Problem -> Actions(shown, onSignIn, onDone, onTryAgain, onGetApp, onRemove)
+                    Step.Problem -> Actions(shown, onSignIn, onDone, onTryAgain, onGetApp, onRemove, onFindKey)
                     else -> Unit
                 }
             }
@@ -228,7 +238,7 @@ private fun AppleMusicState.problem(): AppleMusicProblem? = when (this) {
 }
 
 @Composable
-private fun Actions(state: AppleMusicState, onSignIn: () -> Unit, onDone: () -> Unit, onTryAgain: () -> Unit, onGetApp: () -> Unit, onRemove: () -> Unit) {
+private fun Actions(state: AppleMusicState, onSignIn: () -> Unit, onDone: () -> Unit, onTryAgain: () -> Unit, onGetApp: () -> Unit, onRemove: () -> Unit, onFindKey: () -> Unit) {
     val problem = state.problem() ?: return
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         when {
@@ -237,6 +247,7 @@ private fun Actions(state: AppleMusicState, onSignIn: () -> Unit, onDone: () -> 
                 OutlinedButton(onClick = onRemove) { Text("Remove") }
             }
             problem == AppleMusicProblem.NeedsApp -> Button(onClick = onGetApp) { Text("Get Apple Music") }
+            problem == AppleMusicProblem.NoKey -> Button(onClick = onFindKey) { Text("Try again") }
             problem.retryable -> Button(onClick = onSignIn) { Text("Try again") }
             else -> Button(onClick = onDone) { Text("Done") }
         }
