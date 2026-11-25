@@ -38,23 +38,35 @@ class MemoryVault : AppleMusicVault {
         token = userToken
     }
     override var storefront: String? = null
+    override var playbackStorefront: String? = null
     override fun forgetToken() {
         token = null
     }
     override fun clear() {
         token = null
         storefront = null
+        playbackStorefront = null
     }
 }
 
 class FakeSdk(var result: SignInResult = SignInResult.Token("music-user-token")) : AppleMusicSdk {
     var opened = 0
+    var refreshed: SignInResult = SignInResult.Failed(AppleMusicProblem.SignedOut)
+    var refreshes = 0
+    var forgotten = 0
     override fun signInIntent(developerToken: String): Intent {
         opened++
         return Intent("sign-in").putExtra("developerToken", developerToken)
     }
     override fun signInResult(data: Intent?) = result
+    override suspend fun refreshUserToken(tokens: AppleMusicSdk.Tokens): SignInResult {
+        refreshes++
+        return refreshed
+    }
     override fun player(tokens: AppleMusicSdk.Tokens): AppleMusicPlayer = error("not in these tests")
+    override fun forget() {
+        forgotten++
+    }
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -79,8 +91,7 @@ class AppleMusicServiceTest {
         cache.delete()
     }
 
-    private fun service(): AppleMusicService {
-        val tokens = BuildTimeDeveloperToken(jwt(now, now + 86_400))
+    private fun service(tokens: DeveloperTokenProvider = BuildTimeDeveloperToken(jwt(now, now + 86_400))): AppleMusicService {
         return AppleMusicService(
             tokens = tokens,
             vault = vault,
@@ -180,6 +191,55 @@ class AppleMusicServiceTest {
         assertNull(vault.token)
         assertNull(vault.storefront)
         assertTrue(AppleMusicSourceProvider.sources(music.state.value).isEmpty())
+        assertEquals("MusicKit's kept queue goes too", 1, sdk.forgotten)
+    }
+
+    @Test fun signingInKeepsTheStorefrontMusicKitPlaysFrom() = runBlocking {
+        server.enqueue(MockResponse(body = fixture("storefront.json")))
+        server.enqueue(MockResponse(body = fixture("library-songs-last.json")))
+        sdk.result = SignInResult.Token("music-user-token", playbackStorefront = "143444-2,31")
+        val music = service()
+        music.beginSignIn()
+        music.signInFinished(null as Intent?)
+        await(music.state) { it is AppleMusicState.Connected }
+        assertEquals("143444-2,31", vault.playbackStorefront)
+    }
+
+    @Test fun withoutADeveloperTokenAppleMusicIsStillOfferedAndSaysWhatsMissing() = runBlocking {
+        val music = service(BuildTimeDeveloperToken(""))
+        assertFalse(music.keyAvailable.value)
+        assertTrue(AppleMusicSourceProvider(music, scope).offersAdd.value)
+        assertNull(music.beginSignIn())
+        assertEquals(AppleMusicState.Failed(AppleMusicProblem.NoKey), music.state.value)
+        assertEquals(0, sdk.opened)
+        music.findKey()
+        assertEquals(AppleMusicState.SignedOut, music.state.value)
+    }
+
+    @Test fun aRefusedUserTokenIsRenewedBeforeAskingToSignInAgain() = runBlocking {
+        vault.token = "old"
+        vault.storefront = "gb"
+        sdk.refreshed = SignInResult.Token("renewed")
+        val music = service()
+        music.playbackFailed(AppleMusicProblem.SignedOut)
+        assertEquals(1, sdk.refreshes)
+        assertEquals("renewed", vault.token)
+        assertEquals(AppleMusicState.Connected("gb"), music.state.value)
+
+        sdk.refreshed = SignInResult.Failed(AppleMusicProblem.SignedOut)
+        music.playbackFailed(AppleMusicProblem.SignedOut)
+        assertEquals(AppleMusicState.NeedsSignIn(AppleMusicProblem.SignedOut), await(music.state) { it is AppleMusicState.NeedsSignIn })
+        assertNull(vault.token)
+    }
+
+    @Test fun aLapsedSubscriptionFoundWhileRenewingSaysSo() = runBlocking {
+        vault.token = "old"
+        vault.storefront = "gb"
+        sdk.refreshed = SignInResult.Failed(AppleMusicProblem.NoSubscription)
+        val music = service()
+        music.playbackFailed(AppleMusicProblem.SignedOut)
+        assertEquals(AppleMusicState.NeedsSignIn(AppleMusicProblem.NoSubscription), await(music.state) { it is AppleMusicState.NeedsSignIn })
+        assertEquals("the token itself wasn't refused", "old", vault.token)
     }
 }
 
@@ -284,6 +344,7 @@ private object NoopPlayer : AppleMusicPlayer {
     override fun pause() = Unit
     override fun seekTo(positionMs: Long) = Unit
     override fun stop() = Unit
+    override fun tokensChanged() = Unit
     override fun release() = Unit
     override var listener: AppleMusicPlayer.Listener? = null
 }
