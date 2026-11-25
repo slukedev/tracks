@@ -878,11 +878,26 @@ mod tests {
             let _ = crate::album_key(&title, &artist);
             let _ = crate::is_near(&title, &artist);
         }
+    }
 
+    // `folded` trims before it strips diacritics, as Foundation does, so a mark sitting on an
+    // edge space ("x \u{301}") goes and leaves that space behind, and a second pass trims
+    // it. Keys must match Foundation byte for byte, so this order stays; what does hold is
+    // that the second pass only trims, and the third changes nothing.
+    proptest! {
         #[test]
-        fn folding_is_settled_after_one_pass(name in awkward_text()) {
+        fn a_second_fold_only_trims_what_the_first_exposed(name in awkward_text()) {
             let once = crate::folded(&name);
-            prop_assert_eq!(crate::folded(&once), once);
+            let twice = crate::folded(&once);
+            prop_assert_eq!(&twice, trim_whitespace_and_newlines(&once));
+            prop_assert_eq!(crate::folded(&twice), twice);
         }
+    }
+
+    #[test]
+    fn a_mark_on_an_edge_space_leaves_the_space_behind() {
+        let once = crate::folded(" & \u{301}");
+        assert_eq!(once, "& ");
+        assert_eq!(crate::folded(&once), "&");
     }
 }
