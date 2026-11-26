@@ -1,0 +1,82 @@
+{
+  "data": [
+    {
+      "id": "6-27s5hU6azhJY",
+      "type": "personal-recommendation",
+      "href": "/v1/me/recommendations/6-27s5hU6azhJY",
+      "attributes": {
+        "isGroupRecommendation": false,
+        "kind": "music-recommendations",
+        "nextUpdateDate": "2026-11-27T07:00:00Z",
+        "resourceTypes": ["playlists", "stations"],
+        "title": {"stringForDisplay": "Made for You"}
+      },
+      "relationships": {
+        "contents": {
+          "href": "/v1/me/recommendations/6-27s5hU6azhJY/contents",
+          "data": [
+            {
+              "id": "pl.pm-20e9f373919da1ac5d17deb5c3b55c3a",
+              "type": "playlists",
+              "href": "/v1/catalog/gb/playlists/pl.pm-20e9f373919da1ac5d17deb5c3b55c3a",
+              "attributes": {
+                "name": "Favourites Mix",
+                "curatorName": "Apple Music for Me",
+                "artwork": {"url": "https://is1-ssl.mzstatic.com/image/thumb/Features/{w}x{h}bb.{f}"},
+                "playParams": {"id": "pl.pm-20e9f373919da1ac5d17deb5c3b55c3a", "kind": "playlist"}
+              }
+            },
+            {
+              "id": "ra.q-GAI6IDcyYjY0YmQ4",
+              "type": "stations",
+              "href": "/v1/catalog/gb/stations/ra.q-GAI6IDcyYjY0YmQ4",
+              "attributes": {"name": "Your Station"}
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6-27s5hU6azhJZ",
+      "type": "personal-recommendation",
+      "attributes": {
+        "isGroupRecommendation": true,
+        "kind": "music-recommendations",
+        "title": {"stringForDisplay": "More to Explore"}
+      },
+      "relationships": {
+        "recommendations": {
+          "data": [
+            {
+              "id": "6-27s5hU6azhK0",
+              "type": "personal-recommendation",
+              "attributes": {"title": {"stringForDisplay": "Because You Listened to Beach Bunny"}},
+              "relationships": {
+                "contents": {
+                  "data": [
+                    {
+                      "id": "1613600183",
+                      "type": "albums",
+                      "attributes": {
+                        "name": "Emotional Creature",
+                        "artistName": "Beach Bunny",
+                        "releaseDate": "2022-07-22",
+                        "artwork": {"url": "https://is1-ssl.mzstatic.com/image/thumb/Music/{w}x{h}bb.jpg"}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6-27s5hU6azhK1",
+      "type": "personal-recommendation",
+      "attributes": {"title": {"stringForDisplay": "Recently Played"}},
+      "relationships": {"contents": {"data": [{"id": "l.abc", "type": "library-albums", "attributes": {"name": "Happier Than Ever", "artistName": "Billie Eilish"}}]}}
+    }
+  ]
+}

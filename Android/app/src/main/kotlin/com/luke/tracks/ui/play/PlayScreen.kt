@@ -140,6 +140,18 @@ fun PlayScreen() {
         val hidden = servers.filter { server -> shownServers.none { it.id == server.id } }
         if (hidden.isNotEmpty()) com.luke.tracks.net.Logs.i("Play: ${hidden.joinToString { it.name }} hidden by the source filter, or because it can't play now")
     }
+    // Apple Music's shelves, when it's signed in and the source filter takes it in.
+    val amShelves = com.luke.tracks.applemusic.AppleMusic.shelves
+    val appleMusicState = amShelves?.state?.collectAsState()?.value ?: com.luke.tracks.applemusic.AppleMusicShelvesState.Off
+    val showsAppleMusic = selection.includes(com.luke.tracks.sources.SourceId.AppleMusic)
+    LaunchedEffect(amShelves, showsAppleMusic) {
+        when {
+            amShelves == null -> com.luke.tracks.net.Logs.i("Play: no Apple Music shelves, Apple Music isn't in this build")
+            !showsAppleMusic -> com.luke.tracks.net.Logs.i("Play: Apple Music shelves hidden by the source filter")
+            // Coming back to Play asks again once they're more than a few minutes old.
+            else -> amShelves.load()
+        }
+    }
     // Picks are made again when the artists you play change, not for every song played.
     val taste = remember(current?.topArtists) { current?.topArtists.orEmpty().take(8).map { it.identity }.toSet() }
 
@@ -223,6 +235,7 @@ fun PlayScreen() {
                             item(key = "waiting", contentType = "shelf") { WaitingToBeHeard(current.waiting, actions, Modifier.animateItem()) }
                         }
                     }
+                    if (amShelves != null && showsAppleMusic) appleMusicShelves(appleMusicState, amShelves)
                     shownServers.forEach { server ->
                         item(key = "picks-${server.id}", contentType = "server-songs") {
                             ServerForYouShelf(server, ForYouShelf.PICKS, taste, Modifier.animateItem())

@@ -249,7 +249,7 @@ enum class ForYouShelfView {
 
 /** Why a shelf is empty, and a way to ask again. */
 @Composable
-private fun ShelfMessage(text: String, onRetry: () -> Unit) {
+internal fun ShelfMessage(text: String, onRetry: () -> Unit) {
     Column(Modifier.padding(horizontal = 24.dp)) {
         Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("Try again") }

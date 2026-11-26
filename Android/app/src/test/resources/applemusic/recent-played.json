@@ -1,0 +1,8 @@
+{
+  "next": "/v1/me/recent/played?offset=10",
+  "data": [
+    {"id": "1613600183", "type": "albums", "attributes": {"name": "Emotional Creature", "artistName": "Beach Bunny", "releaseDate": "2022-07-22"}},
+    {"id": "ra.978194965", "type": "stations", "attributes": {"name": "Apple Music 1"}},
+    {"id": "p.ZOAXxZ6CVjL2ez", "type": "library-playlists", "attributes": {"name": "Road Trip"}}
+  ]
+}

@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -126,10 +127,31 @@ class TracksideDeveloperTokensTest {
         server.close()
     }
 
-    private fun tokens(): TracksideDeveloperTokens {
+    private fun tokens(
+        servers: kotlinx.coroutines.flow.Flow<List<String>> = MutableStateFlow(listOf("home")),
+        ready: suspend () -> Unit = {},
+    ): TracksideDeveloperTokens {
         val base = server.url("/")
         val client = TracksideClient(ServerEndpoints(listOf(Endpoint(base, Endpoint.Kind.Lan)), base, scope, { _, _ -> true }), "tsk_device", "d1", null)
-        return TracksideDeveloperTokens(scope, MutableStateFlow(listOf("home")), { id -> client.takeIf { id == "home" } }, now = { clock })
+        return TracksideDeveloperTokens(scope, servers, { id -> client.takeIf { id == "home" } }, now = { clock }, ready = ready)
+    }
+
+    @Test fun aTokenAskedForAsTheAppStartsWaitsForTheServersToBeReadAndAsked() = runBlocking {
+        // Before the fix, the account check at start found no server offering a token yet
+        // and Apple Music went to "needs sign-in" with an expired-access message.
+        val servers = MutableStateFlow<List<String>>(emptyList())
+        val loaded = MutableStateFlow(false)
+        val trackside = tokens(servers, ready = { loaded.first { it } })
+        val first = FirstDeveloperToken(listOf(trackside, BuildTimeDeveloperToken("")))
+        assertFalse(first.available)
+        scope.launch {
+            delay(200)
+            servers.value = listOf("home")
+            loaded.value = true
+        }
+        val token = withTimeout(5_000) { first.token() }
+        assertNotNull(token)
+        assertEquals(1, tokenRequests.get())
     }
 
     private suspend fun TracksideDeveloperTokens.offered() = withTimeout(5_000) { availabilityChanges.first { available } }

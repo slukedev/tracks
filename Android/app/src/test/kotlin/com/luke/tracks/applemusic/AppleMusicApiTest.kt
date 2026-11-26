@@ -136,6 +136,61 @@ class AppleMusicApiTest {
         assertProblem(AppleMusicProblem.Expired) { api.storefront() }
     }
 
+    @Test fun recommendationsAreRowsOfAlbumsAndPlaylistsWithoutStations() = runBlocking {
+        server.enqueue(MockResponse(body = fixture("recommendations.json")))
+        val rows = api.recommendations()
+        val request = server.takeRequest()
+        assertEquals("/v1/me/recommendations", request.url.encodedPath)
+        assertEquals("Bearer ${tokens.cached()!!.jwt}", request.headers["Authorization"])
+        assertEquals("music-user-token", request.headers["Music-User-Token"])
+        assertEquals(listOf("Made for You", "Because You Listened to Beach Bunny", "Recently Played"), rows.map { it.title })
+        val mix = rows.first().items.single()
+        assertEquals("pl.pm-20e9f373919da1ac5d17deb5c3b55c3a", mix.id)
+        assertEquals(AppleMusicCollection.Kind.Playlist, mix.kind)
+        assertEquals("Apple Music for Me", mix.subtitle)
+        assertEquals(AppleMusicCollection.Kind.Album, rows[1].items.single().kind)
+        assertEquals(AppleMusicCollection.Kind.LibraryAlbum, rows[2].items.single().kind)
+    }
+
+    @Test fun recentlyPlayedReadsTwoPagesAndLeavesOutStations() = runBlocking {
+        server.enqueue(MockResponse(body = fixture("recent-played.json")))
+        server.enqueue(MockResponse(body = fixture("recent-played-last.json")))
+        val recent = api.recentlyPlayed()
+        val first = server.takeRequest()
+        assertEquals("/v1/me/recent/played", first.url.encodedPath)
+        assertEquals("10", first.url.queryParameter("limit"))
+        assertEquals("music-user-token", first.headers["Music-User-Token"])
+        assertEquals("10", server.takeRequest().url.queryParameter("offset"))
+        assertEquals(listOf("Emotional Creature", "Road Trip", "Today's Hits"), recent.map { it.title })
+        assertEquals(AppleMusicCollection.Kind.LibraryPlaylist, recent[1].kind)
+    }
+
+    @Test fun topAlbumsComeFromTheStorefrontsChartWithoutAUserToken() = runBlocking {
+        server.enqueue(MockResponse(body = fixture("charts-albums.json")))
+        val albums = api.topAlbums("gb")
+        val request = server.takeRequest()
+        assertEquals("/v1/catalog/gb/charts", request.url.encodedPath)
+        assertEquals("albums", request.url.queryParameter("types"))
+        assertNull(request.headers["Music-User-Token"])
+        assertEquals(listOf("Abbey Road", "Un Verano Sin Ti"), albums.map { it.title })
+    }
+
+    @Test fun aPlaylistMadeForYouIsReadWithTheUserToken() = runBlocking {
+        server.enqueue(MockResponse(body = fixture("library-songs-last.json")))
+        val mix = AppleMusicCollection("pl.pm-20e9", AppleMusicCollection.Kind.Playlist, "Favourites Mix", null)
+        api.songs(mix, "gb")
+        val request = server.takeRequest()
+        assertEquals("/v1/catalog/gb/playlists/pl.pm-20e9/tracks", request.url.encodedPath)
+        assertEquals("music-user-token", request.headers["Music-User-Token"])
+    }
+
+    @Test fun noDeveloperTokenAtAllIsntCalledExpired() = runBlocking {
+        val none = AppleMusicApi(OkHttpClient(), BuildTimeDeveloperToken(""), { userToken }, server.url("/"))
+        assertProblem(AppleMusicProblem.NoToken) { none.recommendations() }
+        assertFalse("not about the account", AppleMusicProblem.NoToken.accountWide)
+        assertEquals(0, server.requestCount)
+    }
+
     @Test fun eachFailureSaysWhatHappened() = runBlocking {
         server.enqueue(MockResponse(code = 403))
         assertProblem(AppleMusicProblem.SignedOut) { api.librarySongs() }

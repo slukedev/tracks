@@ -66,7 +66,10 @@ import com.luke.tracks.applemusic.AppleMusicResults
 import com.luke.tracks.applemusic.AppleMusicService
 import com.luke.tracks.applemusic.AppleMusicSong
 import com.luke.tracks.applemusic.toAppleMusicProblem
+import com.luke.tracks.applemusic.shelfMessage
 import com.luke.tracks.graph
+import com.luke.tracks.net.Logs
+import com.luke.tracks.ui.navigation.AppleMusicCollectionRoute
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.ui.components.Artwork
@@ -171,6 +174,29 @@ fun AppleMusicLibraryScreen(service: AppleMusicService, onBack: () -> Unit) {
         }
     }
 }
+
+/** An Apple Music album or playlist opened from Play. */
+@Composable
+fun AppleMusicCollectionScreen(route: AppleMusicCollectionRoute, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val service = com.luke.tracks.applemusic.AppleMusic.service ?: return
+    val collection = remember(route) {
+        AppleMusicCollection(
+            id = route.id,
+            kind = AppleMusicCollection.Kind.entries.firstOrNull { it.name == route.kind } ?: AppleMusicCollection.Kind.Album,
+            title = route.title,
+            subtitle = route.subtitle,
+            artworkTemplate = route.artworkTemplate,
+        )
+    }
+    CollectionPage(service, collection, onBack) { list, index, origin, shuffle ->
+        val (queue, start) = playableQueue(list, index)
+        if (queue.isNotEmpty()) context.graph.player.play(queue, start, origin, shuffle)
+    }
+}
+
+/** The route that opens [collection]. */
+fun AppleMusicCollection.route() = AppleMusicCollectionRoute(id, kind.name, title, subtitle, artworkTemplate)
 
 /** The songs that can play here, and where the one tapped landed among them. */
 internal fun playableQueue(list: List<AppleMusicSong>, index: Int, identity: (String, String) -> String = ::songIdentity): Pair<List<PlayableSong>, Int> {
@@ -305,9 +331,11 @@ private fun CollectionPage(
         problem = null
         try {
             songs = service.api.songs(collection, service.storefront)
+            Logs.i("Apple Music: ${collection.kind.name} ${collection.id} has ${songs?.size} songs")
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            problem = error.toAppleMusicProblem().message
+            Logs.w("Apple Music: ${collection.kind.name} ${collection.id} didn't load", error)
+            problem = error.toAppleMusicProblem().shelfMessage()
         }
     }
     val origin = QueueOrigin(collection.title, if (collection.isAlbum) QueueOrigin.Kind.Album else QueueOrigin.Kind.Playlist)
