@@ -470,6 +470,24 @@ class TracksidePicksTest {
         assertEquals(null, picks.queueable(ServerSong(server.id, newSong("Formation", "Beyoncé"))))
     }
 
+    @Test fun aSongWhoseInstantStreamStoppedIsWaitedOnAndPlaysFromYourLibraryWithoutAskingAgain(): Unit = runBlocking {
+        meWith(instant = true, external = true)
+        instantCandidate()
+        val (picks, song) = suggestedNewSong()
+        val first = picks.getToPlay(queued(picks, song)) { }
+        assertTrue("streamed while it downloads: $first", first is com.luke.tracks.playback.ToPlay.Ready)
+        assertEquals(1, requests.size)
+
+        // The stream stopped (the server finished it): the player puts the song back to loading.
+        status = { json(fixture("acquisition-done.json")) }
+        val heard = CopyOnWriteArrayList<String>()
+        val again = picks.getToPlay(queued(picks, song)) { heard += it }
+        val ready = (again as com.luke.tracks.playback.ToPlay.Ready).song
+        assertEquals("not asked for a second time: ${requests.size}", 1, requests.size)
+        assertTrue("plays the library's copy: ${ready.mediaId}", ready.mediaId.startsWith("subsonic:"))
+        assertTrue("$heard", heard.contains("Adding it to your library"))
+    }
+
     @Test fun withInstantPlayATappedSongIsKeptAndStreamsWhileItDownloads(): Unit = runBlocking {
         meWith(instant = true, external = true)
         instantCandidate()

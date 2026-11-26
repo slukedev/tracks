@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
+import com.luke.tracks.library.ServerLibrary
 import com.luke.tracks.MainActivity
 import com.luke.tracks.R
 import com.luke.tracks.data.HistoryRepository
@@ -295,6 +296,7 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun skipUnplayable(error: PlaybackException) {
         Logs.w("Couldn't play ${player.currentMediaItem?.mediaId}", error)
+        if (waitForNewSongInstead()) return
         val title = player.currentMediaItem?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "that song"
         failuresInARow++
         val moveOn = player.hasNextMediaItem() && failuresInARow < player.mediaItemCount
@@ -322,6 +324,29 @@ class PlaybackService : MediaLibraryService() {
         player.prepare()
         player.play()
     }
+
+    /**
+     * A new song streamed from its download as it came in (instant play) that stopped playing:
+     * the server likely finished it and is adding it to your library. It goes back to loading
+     * in place, so the request already made is waited on and the library's copy plays, once
+     * per song. Not Tracks Radio's picks, which the station replaces itself.
+     */
+    private fun waitForNewSongInstead(): Boolean {
+        val item = player.currentMediaItem ?: return false
+        if (item.mediaId in graph.radio.state.value.picks) return false
+        val serverId = ServerLibrary.parseNewSongMediaId(item.mediaId) ?: return false
+        val song = item.toPlayableSong()
+        if (!waitedForNew.add(song.identity)) return false
+        Logs.i("Waiting for a new song to reach your library after its stream stopped")
+        val standIn = SongsToGet.song(serverId, song.identity, song.title, song.artistName, song.albumTitle, song.durationMs, song.artworkUri)
+        player.replaceMediaItem(player.currentMediaItemIndex, standIn.toMediaItem())
+        player.prepare()
+        player.play()
+        return true
+    }
+
+    /** New songs already put back to loading after their stream stopped, so one can't loop. */
+    private val waitedForNew = HashSet<String>()
 
     // MARK: Copies across sources
 

@@ -332,6 +332,12 @@ class ServerPicksService(
     private val playModes = java.util.concurrent.ConcurrentHashMap<String, NewPlays>()
     /** Requests being followed, by their id. */
     private val following = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+    /**
+     * The request behind each new song played from its download as it came in (instant play),
+     * by identity: if that stream stops working, the request is waited on and the library's
+     * copy played, rather than asking for the song again.
+     */
+    private val streamedFrom = java.util.concurrent.ConcurrentHashMap<String, OctoService.Request>()
     /** Songs arriving (a sync bringing them in), by request id, so a request is synced for once. */
     private val arriving = java.util.concurrent.ConcurrentHashMap<String, Deferred<Unit>>()
 
@@ -1139,6 +1145,13 @@ class ServerPicksService(
         index.find(s.identity)?.let { return ToPlay.Ready(it) }
         val server = server(song.serverId) ?: return ToPlay.Failed("The server for “${s.title}” isn't set up in Tracks anymore.")
         val client = serverLibrary.tracksideClient(server.id) ?: return ToPlay.Failed("Sign in to ${server.name} again to get “${s.title}”.")
+        // Played from its download before and that stopped (the download finished, say): the
+        // same request is waited on until the song's in your library, never asked for again.
+        streamedFrom.remove(s.identity)?.let { request ->
+            Logs.i("Getting a song to play: its stream from ${server.name} stopped, so it plays from your library once it's there")
+            status("Adding it to your library")
+            return waitFor(server, client, request, s, status, streams = false)
+        }
         val offer = newSongs(server, null)
         val plays = playModes[server.id] ?: NewPlays()
         // Already on its way: that request is waited on rather than asking again.
@@ -1252,7 +1265,10 @@ class ServerPicksService(
                     octo.noLongerWaiting(request.identity)
                     return ToPlay.Failed(failureMessage(server, song, state.failure))
                 }
-                stream != null -> return ToPlay.Ready(newPlayable(server, song, stream, candidateMs))
+                stream != null -> {
+                    streamedFrom[song.identity] = request
+                    return ToPlay.Ready(newPlayable(server, song, stream, candidateMs))
+                }
                 else -> status(progress(server, state))
             }
             if (now() - started >= limitMs) {
