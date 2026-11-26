@@ -148,9 +148,11 @@ class TracksidePicksTest {
             override suspend fun sync(server: SubsonicServer) = Unit
         }, graph.scope, { false }).also { octo = it },
         graph.scope,
+        newBudget = { RequestBudget(100, 1) },
         followEveryMs = 50,
         playCheckMs = 20,
         playWaitMs = playWaitMs,
+        backoffMs = 20,
     ).also { it.start() }
 
     private var playWaitMs = 10_000L
@@ -200,8 +202,7 @@ class TracksidePicksTest {
         picks.loadAlbums(server.id)
         assertTrue(asked.contains("albums"))
         picks.exploreMore()
-        assertTrue(asked.contains("songs/random"))
-        assertTrue("Keep exploring: ${picks.exploring.value}", picks.exploring.value.isNotEmpty())
+        assertTrue("Keep exploring holds only new songs to get: ${picks.exploring.value}", picks.exploring.value.all { it.song.isNew })
     }
 
     @Test fun aServerFromBeforePicksStillFillsThemFromSimilarSongs(): Unit = runBlocking {
@@ -333,7 +334,7 @@ class TracksidePicksTest {
         // Keep exploring goes on with new ones among the server's own, none already on show.
         repeat(3) { picks.exploreMore() }
         val exploringNew = picks.exploring.value.filter { it.song.isNew }.map { it.song.identity }
-        assertTrue("Keep exploring: ${picks.exploring.value}", exploringNew.isNotEmpty())
+        assertTrue("Keep exploring: ${picks.exploring.value}", exploringNew.isNotEmpty() && exploringNew.size == picks.exploring.value.size)
         assertTrue(exploringNew.intersect((suggestedNew + picksNew).toSet()).isEmpty())
         assertEquals(picks.exploring.value.size, picks.exploring.value.map { it.serverId + it.song.id }.toSet().size)
     }

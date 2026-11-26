@@ -121,6 +121,7 @@ fun PlayScreen() {
     val servers by picks.servers.collectAsState()
     val exploring by picks.exploring.collectAsState()
     val canExploreMore by picks.canExploreMore.collectAsState()
+    val exploreNote by picks.exploreNote.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -244,10 +245,8 @@ fun PlayScreen() {
                             ServerAlbumShelves(server, Modifier.animateItem())
                         }
                     }
-                    if (shownServers.isNotEmpty() && (exploring.isNotEmpty() || canExploreMore)) {
-                        item(key = "keep-exploring", contentType = "explore") {
-                            KeepExploring(exploring, goesOn = canExploreMore, onEnd = { picks.exploreMore() }, Modifier.animateItem())
-                        }
+                    if (shownServers.isNotEmpty() && (exploring.isNotEmpty() || canExploreMore || exploreNote != null)) {
+                        keepExploring(exploring, goesOn = canExploreMore, note = exploreNote, onEnd = { picks.exploreMore() })
                     }
                 }
             }

@@ -130,6 +130,10 @@ class TracksideClient(
     suspend fun topSongs(artistId: String, count: Int = 20): List<TracksideSong> =
         get("artists/$artistId/top-songs", TracksideSongList.serializer(), mapOf("count" to "$count")).songs
 
+    /** An artist's top songs, and with acquisition, ones by them the server doesn't have in `external`. */
+    suspend fun artistTopSongs(artistId: String, count: Int = 20): TracksideSuggestedSongs =
+        get("artists/$artistId/top-songs", TracksideSuggestedSongs.serializer(), mapOf("count" to "$count"))
+
     suspend fun similarSongs(songId: String, count: Int = 20): List<TracksideSong> = similar(songId, count).songs
 
     /** Songs like one, and with acquisition, ones the server doesn't have in `external`. */

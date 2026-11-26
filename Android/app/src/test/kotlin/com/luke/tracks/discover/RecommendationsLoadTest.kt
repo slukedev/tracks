@@ -76,6 +76,10 @@ class RecommendationsLoadTest {
     private var acquires = false
     /** Whether the server's library has no songs at all. */
     private var emptyLibrary = false
+    /** A server that answers `/me` but doesn't get songs (no `features.acquisition`). */
+    private var refusesRequests = false
+    /** Picks name a new song for every four asked for, so asking for more always finds more. */
+    private var endless = false
 
     /** Songs Last.fm suggests that the server doesn't have: what it could get. */
     private fun external(prefix: String, count: Int) = buildJsonArray {
@@ -132,7 +136,11 @@ class RecommendationsLoadTest {
                         put("songs", JsonArray(if (emptyLibrary) emptyList() else artists.map(::yours)))
                     }.toString(),
                 )
-                path == "me" -> if (acquires) json(me) else json(notFound, 404)
+                path == "me" -> when {
+                    acquires -> json(me)
+                    refusesRequests -> json(me.replace(Regex(",\\s*\"features\":\\{.*\\}\\}\\}\\s*$"), "}"))
+                    else -> json(notFound, 404)
+                }
                 path == "me/get-more" -> if (acquires) json(buildJsonObject { put("songs", JsonArray(emptyList())); put("external", external("More", 2)) }.toString()) else json(notFound, 404)
                 path == "sync" -> {
                     if (syncing) syncGate.await(20, TimeUnit.SECONDS)
@@ -144,7 +152,7 @@ class RecommendationsLoadTest {
                     else -> json(
                         buildJsonObject {
                             put("songs", JsonArray(listOf(theirs("Artist 1"), theirs("Artist 2"), stranger)))
-                            if (acquires) put("external", external("Picked", 6))
+                            if (acquires) put("external", external("Picked", if (endless) (url.queryParameter("count")?.toIntOrNull() ?: 40) / 4 else 6))
                         }.toString(),
                     )
                 }
@@ -220,6 +228,7 @@ class RecommendationsLoadTest {
             graph.scope,
             newBudget = { RequestBudget(100, 1) },
             loadLimitMs = 8_000,
+            backoffMs = 20,
         ).also { it.start() }
         return library to picks
     }
@@ -351,9 +360,71 @@ class RecommendationsLoadTest {
         assertEquals(ForYouShelfView.Empty, ForYouShelfView.of(state, ForYouShelf.PICKS))
         assertEquals(null, state.problem)
 
-        // Keep exploring stops asking once the server has nothing new three times running.
+        // Keep exploring never gives up for want of new songs: it backs off and asks again.
         repeat(3) { picks.exploreMore() }
+        assertTrue(picks.canExploreMore.value)
+        assertTrue(picks.exploring.value.isEmpty())
+    }
+
+    @Test fun keepExploringSaysSoWhereTheServerDoesntGetSongs(): Unit = runBlocking {
+        refusesRequests = true
+        start(https = false)
+        val (library, picks) = picks()
+        withTimeout(15_000) { library.servers.entries.first { entries -> entries.any { it.status is ServerStatus.Ready } } }
+        settled(picks)
+
+        picks.exploreMore()
+        assertTrue("never songs you have instead: ${picks.exploring.value}", picks.exploring.value.isEmpty())
+        val note = picks.exploreNote.value
+        assertTrue("$note", note != null && note.contains("Home can't get songs for you") && note.contains("Requests page"))
         assertTrue(!picks.canExploreMore.value)
+    }
+
+    @Test fun shelvesGoOnPastTheWalkWithoutShowingASongTwice(): Unit = runBlocking {
+        acquires = true
+        endless = true
+        start(https = false)
+        val (library, picks) = picks()
+        withTimeout(15_000) { library.servers.entries.first { entries -> entries.any { it.status is ServerStatus.Ready } } }
+        val first = settled(picks).shelves
+        val picksAsked = asked.count { it == "me/picks" }
+
+        var shelves = first
+        var rounds = 0
+        while (rounds < 30 && shelves.suggested.size < first.suggested.size + 24) {
+            picks.loadMore(server.id, ForYouShelf.SUGGESTED, 4)
+            picks.loadMore(server.id, ForYouShelf.PICKS, 4)
+            shelves = picks.forYou.value.getValue(server.id).shelves
+            rounds++
+        }
+        assertTrue("Suggested songs went on: ${first.suggested.size} to ${shelves.suggested.size} in $rounds rounds; $asked", shelves.suggested.size >= first.suggested.size + 24)
+        assertTrue("Picked for you went on too: ${first.picks.size} to ${shelves.picks.size}", shelves.picks.size > first.picks.size)
+        assertTrue("asked the server's picks again, for more: $asked", asked.count { it == "me/picks" } > picksAsked)
+        val all = shelves.picks + shelves.suggested
+        assertEquals("never the same song twice: $all", all.size, all.map { it.identity }.toSet().size)
+        assertEquals(shelves.suggested.size, shelves.suggested.map { it.id }.toSet().size)
+        assertEquals(shelves.picks.size, shelves.picks.map { it.id }.toSet().size)
+    }
+
+    @Test fun keepExploringStartsWithAFewNewSongsAndGoesOnAsItsScrolled(): Unit = runBlocking {
+        acquires = true
+        endless = true
+        start(https = false)
+        val (library, picks) = picks()
+        withTimeout(15_000) { library.servers.entries.first { entries -> entries.any { it.status is ServerStatus.Ready } } }
+        settled(picks)
+
+        picks.exploreMore()
+        val start = picks.exploring.value
+        assertTrue("a few to start: $start", start.size in 1..4)
+        repeat(3) { picks.exploreMore() }
+        val more = picks.exploring.value
+        assertTrue("more as it's scrolled: $more", more.size > start.size)
+        assertTrue("all new songs to get: $more", more.all { it.song.isNew && picks.canKeep(it) })
+        val shelves = picks.forYou.value.getValue(server.id).shelves
+        val onShelves = (shelves.picks + shelves.suggested).map { it.identity }.toSet()
+        assertTrue("none already on a shelf: $more", more.none { it.song.identity in onShelves })
+        assertEquals(more.size, more.map { it.song.identity }.toSet().size)
     }
 
     @Test fun aSlowServerStillSettlesInBoundedTime(): Unit = runBlocking {
