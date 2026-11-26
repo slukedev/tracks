@@ -1,0 +1,15 @@
+{
+  "results": {
+    "albums": [
+      {
+        "chart": "most-played",
+        "name": "Top Albums",
+        "href": "/v1/catalog/gb/charts?chart=most-played&types=albums",
+        "data": [
+          {"id": "1440857781", "type": "albums", "attributes": {"name": "Abbey Road", "artistName": "The Beatles", "releaseDate": "1969-09-26"}},
+          {"id": "1622045624", "type": "albums", "attributes": {"name": "Un Verano Sin Ti", "artistName": "Bad Bunny", "releaseDate": "2022-05-06"}}
+        ]
+      }
+    ]
+  }
+}

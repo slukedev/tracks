@@ -43,6 +43,14 @@ enum class HistoryMode { Plays, Charts }
 /** An artist or album from the catalog, which you may not have: by name, and its catalog id. */
 @Serializable data class CatalogArtistRoute(val name: String, val catalogId: Long? = null) : Route
 @Serializable data class CatalogAlbumRoute(val catalogId: Long, val title: String, val artistName: String) : Route
+/** An Apple Music album or playlist, from the catalog or your library, as Play shows it. */
+@Serializable data class AppleMusicCollectionRoute(
+    val id: String,
+    val kind: String,
+    val title: String,
+    val subtitle: String? = null,
+    val artworkTemplate: String? = null,
+) : Route
 
 fun Tab.root(): Route = when (this) {
     Tab.Play -> PlayRoute

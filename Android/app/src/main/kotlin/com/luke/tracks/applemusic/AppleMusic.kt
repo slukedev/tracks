@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import uniffi.tracks_engine.songIdentity
@@ -37,17 +38,26 @@ object AppleMusic {
     var provider: AppleMusicSourceProvider? = null
         private set
 
+    /** Apple Music's shelves on Play. */
+    @Volatile
+    var shelves: AppleMusicShelves? = null
+        private set
+
     /**
      * Sets Apple Music up when the build has the SDK. Developer tokens come from a paired
      * Trackside server that offers them, then the one built in.
      */
     fun install(context: Context, scope: CoroutineScope, servers: ServerLibrary) {
         if (service != null) return
-        val sdk = AppleMusicSdkFlavor.create(context.applicationContext) ?: return
+        val sdk = AppleMusicSdkFlavor.create(context.applicationContext) ?: run {
+            com.luke.tracks.net.Logs.i("Apple Music: off, this build has no MusicKit SDK (or this phone can't run it)")
+            return
+        }
         val trackside = TracksideDeveloperTokens(
             scope = scope,
             servers = servers.entries.map { entries -> entries.filter { it.server.isTrackside }.map { it.server.id } },
             clientFor = servers::tracksideClient,
+            ready = { servers.loading.first { !it } },
         )
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = trackside.refresh()
@@ -69,6 +79,7 @@ object AppleMusic {
         service = created
         provider = AppleMusicSourceProvider(created, scope)
         created.start()
+        shelves = AppleMusicShelves(created, scope)
     }
 
     /** The Apple Music app, which MusicKit's sign-in goes through. */

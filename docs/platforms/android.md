@@ -684,6 +684,18 @@ What the real SDK settled (it differed from what the code first guessed):
   x86_64 emulator Apple Music stays out. Native libraries are extracted at install (legacy
   packaging) while the SDK is in, as Apple's sample does.
 
+Play's Apple Music shelves (`applemusic/AppleMusicShelves.kt`, `ui/play/PlayAppleMusicShelves.kt`)
+follow the iPhone's: Recently played on Apple Music (`/v1/me/recent/played`), then up to three
+rows of Apple Music's recommendations (`/v1/me/recommendations`, stations left out, its own
+Recently Played row dropped), topped up with the storefront's most played albums
+(`/v1/catalog/{storefront}/charts`). They show while Apple Music is signed in and the source
+filter takes it in, load in the app scope, and always settle: covers, "nothing to recommend
+yet", or the problem with Try again. Tapping one opens the album or playlist to play. A
+developer token asked for at start waits for the paired servers to be read and asked, so the
+account check no longer finds none and marks Apple Music as needing sign-in; having no token
+at all is "Couldn't get Apple Music access from your server", not expired access. Every step
+logs under the Tracks tag (`adb logcat -s Tracks`, lines starting "Apple Music").
+
 Still needs a phone: sign-in through the Apple Music app and its return, playback and the
 stand-in staying in step, seeking, a refreshed token, and another device taking over.
 

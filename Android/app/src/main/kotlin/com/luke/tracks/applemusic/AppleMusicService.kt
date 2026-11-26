@@ -73,7 +73,9 @@ class AppleMusicService(
         .stateIn(scope, SharingStarted.Eagerly, tokens.available)
 
     private val musicKitTokens = object : AppleMusicSdk.Tokens {
-        override fun developerToken() = tokens.cached()?.jwt
+        override fun developerToken() = tokens.cached()?.jwt.also {
+            if (it == null) Logs.w("MusicKit asked for the developer token and none is held yet")
+        }
         override fun userToken() = vault.userToken()
         override fun playbackStorefront() = vault.playbackStorefront
     }
@@ -105,6 +107,7 @@ class AppleMusicService(
 
     /** Loads the kept library and checks with Apple again. */
     fun start() {
+        Logs.i("Apple Music: starting " + describe(_state.value) + ", Music User Token " + (if (vault.userToken() != null) "kept" else "not kept"))
         if (_state.value !is AppleMusicState.Connected) return
         scope.launch {
             readCache()?.let { (_, songs) -> _library.value = tracks(songs) }
@@ -175,13 +178,16 @@ class AppleMusicService(
     /** Asks Apple for the account's storefront, which proves the token, then the library. */
     private suspend fun verify(quiet: Boolean) {
         try {
+            Logs.i("Apple Music: checking the account (storefront)")
             val storefront = api.storefront()
             vault.storefront = storefront
             _state.value = AppleMusicState.Connected(storefront)
+            Logs.i("Apple Music: connected, storefront $storefront")
             refreshLibrary(force = !quiet)
         } catch (error: Exception) {
             if (error is kotlinx.coroutines.CancellationException) throw error
             val problem = error.toAppleMusicProblem()
+            Logs.w("Apple Music: the account check failed (${problem.name})" + if (quiet) ", at start" else "", error)
             when {
                 problem.accountWide -> accountProblem(problem)
                 // Offline at start: stays connected, and works once there's a connection.
@@ -223,6 +229,7 @@ class AppleMusicService(
     }
 
     private fun accountProblem(problem: AppleMusicProblem) {
+        Logs.w("Apple Music: account problem ${problem.name}" + if (problem == AppleMusicProblem.SignedOut) ", the Music User Token is let go" else "")
         if (problem == AppleMusicProblem.SignedOut) vault.forgetToken()
         val listed = vault.storefront != null
         _state.value = if (listed) AppleMusicState.NeedsSignIn(problem) else AppleMusicState.Failed(problem)
@@ -305,6 +312,16 @@ class AppleMusicService(
     }
 
     companion object {
+        /** A state for the log, without anything secret. */
+        fun describe(state: AppleMusicState): String = when (state) {
+            is AppleMusicState.Connected -> "connected (storefront ${state.storefront})"
+            is AppleMusicState.NeedsSignIn -> "needing sign-in (${state.problem.name})"
+            is AppleMusicState.Failed -> "failed (${state.problem.name})"
+            AppleMusicState.Checking -> "checking"
+            AppleMusicState.SigningIn -> "signing in"
+            AppleMusicState.SignedOut -> "signed out"
+        }
+
         /** How long a kept library is used before it's fetched again. */
         const val LIBRARY_FRESH_MS = 6 * 60 * 60_000L
 

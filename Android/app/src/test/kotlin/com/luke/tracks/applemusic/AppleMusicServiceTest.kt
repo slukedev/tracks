@@ -232,6 +232,83 @@ class AppleMusicServiceTest {
         assertNull(vault.token)
     }
 
+    @Test fun aStartWithNoDeveloperTokenYetStaysConnected() = runBlocking {
+        // No token could be had (the server not answering yet): not "needs sign-in", not "expired".
+        vault.token = "kept"
+        vault.storefront = "gb"
+        val music = service(BuildTimeDeveloperToken(""))
+        music.start()
+        Thread.sleep(200)
+        assertEquals(AppleMusicState.Connected("gb"), music.state.value)
+        assertEquals("kept", vault.token)
+    }
+
+    private fun answer(routes: Map<String, () -> MockResponse>) {
+        server.dispatcher = object : mockwebserver3.Dispatcher() {
+            override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse =
+                routes[request.url.encodedPath]?.invoke() ?: MockResponse(code = 500)
+        }
+    }
+
+    @Test fun playsShelvesShowWhatYouPlayedAndApplesPicksToppedUpWithTopAlbums() = runBlocking {
+        vault.token = "kept"
+        vault.storefront = "gb"
+        answer(
+            mapOf(
+                "/v1/me/recent/played" to { MockResponse(body = fixture("recent-played-last.json")) },
+                "/v1/me/recommendations" to { MockResponse(body = fixture("recommendations.json")) },
+                "/v1/catalog/gb/charts" to { MockResponse(body = fixture("charts-albums.json")) },
+            ),
+        )
+        val music = service()
+        val shelves = AppleMusicShelves(music, scope)
+        val ready = withTimeout(5_000) { shelves.state.first { it is AppleMusicShelvesState.Ready } } as AppleMusicShelvesState.Ready
+        assertEquals(listOf("Today's Hits"), ready.recent.map { it.title })
+        assertEquals(
+            "Apple's own Recently Played row is left out, and the chart fills the third row",
+            listOf("Made for You", "Because You Listened to Beach Bunny", "Top albums on Apple Music"),
+            ready.picks.map { it.title },
+        )
+        assertNull(ready.note)
+    }
+
+    @Test fun playsShelvesThatCantLoadSayWhyAndTryAgain() = runBlocking {
+        vault.token = "kept"
+        vault.storefront = "gb"
+        answer(emptyMap())
+        val music = service()
+        val shelves = AppleMusicShelves(music, scope)
+        val problem = withTimeout(5_000) { shelves.state.first { it is AppleMusicShelvesState.Problem } } as AppleMusicShelvesState.Problem
+        assertEquals(AppleMusicProblem.Busy.message, problem.message)
+
+        answer(
+            mapOf(
+                "/v1/me/recent/played" to { MockResponse(body = fixture("recent-played-last.json")) },
+                "/v1/me/recommendations" to { MockResponse(body = "{\"data\":[]}") },
+                "/v1/catalog/gb/charts" to { MockResponse(body = "{\"results\":{}}") },
+            ),
+        )
+        shelves.retry()
+        val ready = withTimeout(5_000) { shelves.state.first { it is AppleMusicShelvesState.Ready } } as AppleMusicShelvesState.Ready
+        assertEquals(1, ready.recent.size)
+        assertTrue(ready.picks.isEmpty())
+    }
+
+    @Test fun playsShelvesWithoutADeveloperTokenSayWhereItComesFrom() = runBlocking {
+        vault.token = "kept"
+        vault.storefront = "gb"
+        val music = service(BuildTimeDeveloperToken(""))
+        val shelves = AppleMusicShelves(music, scope)
+        val problem = withTimeout(5_000) { shelves.state.first { it is AppleMusicShelvesState.Problem } } as AppleMusicShelvesState.Problem
+        assertEquals(AppleMusicProblem.NoToken.message, problem.message)
+        assertEquals(AppleMusicState.Connected("gb"), music.state.value)
+    }
+
+    @Test fun aSignedOutAppleMusicHasNoShelves() {
+        val shelves = AppleMusicShelves(service(), scope)
+        assertEquals(AppleMusicShelvesState.Off, shelves.state.value)
+    }
+
     @Test fun aLapsedSubscriptionFoundWhileRenewingSaysSo() = runBlocking {
         vault.token = "old"
         vault.storefront = "gb"
