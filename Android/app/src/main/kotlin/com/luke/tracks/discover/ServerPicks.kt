@@ -89,6 +89,12 @@ data class ServerForYouState(
     val problem: String? = null,
     /** For Trackside, whether Suggested songs can hold new songs to add; null for other servers or not known yet. */
     val newSongs: NewSongs? = null,
+    /**
+     * Shelves that found nothing new the last few times they were scrolled to the end. They
+     * are still asked again, less often, when scrolled to the end; meanwhile they show every
+     * song they have rather than whole columns only.
+     */
+    val spent: Set<ForYouShelf> = emptySet(),
 )
 
 /**
@@ -192,9 +198,11 @@ interface ServerPicks {
     val servers: StateFlow<List<SubsonicServer>>
     val forYou: StateFlow<Map<String, ServerForYouState>>
     val albums: StateFlow<Map<String, ServerAlbums>>
-    /** Keep exploring: songs you've never played, woven with new ones by artists new to you. */
+    /** Keep exploring: new songs your servers could get for you, more each time it's scrolled to the end. */
     val exploring: StateFlow<List<ServerSong>>
     val canExploreMore: StateFlow<Boolean>
+    /** Why Keep exploring has no new songs to show: none of your servers gets songs. Null otherwise. */
+    val exploreNote: StateFlow<String?> get() = NoExploreNote
     /** Counts answers to going on, even ones that found nothing, so a shelf asks again. */
     val answers: StateFlow<Int>
 
@@ -250,6 +258,23 @@ interface ServerPicks {
     suspend fun getToPlay(song: PlayableSong, status: (String) -> Unit = {}): ToPlay = ToPlay.Failed("Couldn't get “${song.title}”.")
 }
 
+private val NoExploreNote: StateFlow<String?> = MutableStateFlow(null)
+
+/**
+ * What Keep exploring says when none of [servers] gets songs for you, so it has no new songs
+ * to show: the first reason a Trackside server gives, or that none of them is one that can.
+ */
+fun exploreNote(servers: List<Pair<SubsonicServer, NewSongs?>>): String {
+    val said = "Keep exploring shows new songs to get"
+    servers.firstOrNull { it.second == NewSongs.TurnedOff }?.let { (server, _) ->
+        return "$said, and ${server.name} can't get songs for you yet. Its admin can turn on requests on the Requests page of the Trackside dashboard."
+    }
+    servers.firstOrNull { it.second == NewSongs.NotAllowed }?.let { (server, _) ->
+        return "$said, and your account on ${server.name} isn't allowed to request songs. Its admin can allow it under People on the Trackside dashboard."
+    }
+    return "$said, and none of your servers can get songs for you. A Trackside server with requests turned on can."
+}
+
 /** No servers: what screenshots and previews start from. */
 object NoServerPicks : ServerPicks {
     override val servers: StateFlow<List<SubsonicServer>> = MutableStateFlow(emptyList())
@@ -292,6 +317,8 @@ class ServerPicksService(
     /** How often a song being got to play is checked on, and how long it's waited for before the next song plays. */
     private val playCheckMs: Long = 2_000,
     private val playWaitMs: Long = 5 * 60_000,
+    /** How long a shelf that found nothing new waits before it's asked again, doubling each time up to two minutes. */
+    private val backoffMs: Long = 8_000,
 ) : ServerPicks {
     private val dir = File(context.cacheDir, "for-you")
     private val serverLibrary: ServerLibrary get() = library.servers
@@ -307,6 +334,8 @@ class ServerPicksService(
     override val exploring: StateFlow<List<ServerSong>> = _exploring.asStateFlow()
     private val _canExploreMore = MutableStateFlow(true)
     override val canExploreMore: StateFlow<Boolean> = _canExploreMore.asStateFlow()
+    private val _exploreNote = MutableStateFlow<String?>(null)
+    override val exploreNote: StateFlow<String?> = _exploreNote.asStateFlow()
     private val _answers = MutableStateFlow(0)
     override val answers: StateFlow<Int> = _answers.asStateFlow()
 
@@ -316,10 +345,12 @@ class ServerPicksService(
     private val locks = HashMap<String, Mutex>()
     private val budgets = HashMap<String, RequestBudget>()
     private val exploringMutex = Mutex()
-    private val exploringWaiting = ArrayDeque<ServerSong>()
-    private val exploringSeen = HashSet<String>()
-    private var randomFound = emptyList<ServerSong>()
-    private var failuresInARow = 0
+    /** Every song shown on a shelf or in Keep exploring since the app started, by identity: none is shown twice. */
+    private val shownThisSession: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    /** Where each server looks once its walk runs dry, this session. */
+    private val further = java.util.concurrent.ConcurrentHashMap<String, Further>()
+    /** How each shelf, and Keep exploring, backs off after finding nothing new. */
+    private val backoffs = java.util.concurrent.ConcurrentHashMap<String, Backoff>()
     /** Each server's first load, run here so a shelf scrolled away or a tab left doesn't end it. */
     private val loads = java.util.concurrent.ConcurrentHashMap<String, Deferred<Unit>>()
     /** Whether each Trackside server gets songs, and when that was asked. */
@@ -509,15 +540,39 @@ class ServerPicksService(
         }
     }
 
+    /**
+     * Goes on with a shelf scrolled to its end: from the walk while it has artists to go on
+     * from, then further ([goFurther]), a source at a time, until the column is filled or a few
+     * sources found nothing. A shelf that found nothing waits a little longer each time.
+     */
     private suspend fun loadMoreNow(serverId: String, shelf: ForYouShelf, want: Int) {
         val server = server(serverId) ?: return
+        val key = "$serverId/${shelf.name}"
+        waitTurn(key)
         lock(serverId).withLock {
             val walk = walks[serverId] ?: return
-            if (!walk.canGoOn() && pending(walk).isEmpty()) return
             val tally = Tally()
             publish(serverId, walk, filling = true)
             try {
-                goOn(walk, shelf, server, publishing = true, want = want.coerceAtLeast(1), tally = tally)
+                val wanted = want.coerceAtLeast(1)
+                var added = goOn(walk, shelf, server, publishing = true, want = wanted, tally = tally)
+                var steps = 0
+                while (added < wanted && steps < FURTHER_STEPS && !tally.unreachable) {
+                    steps++
+                    if (goFurther(walk, server, shelf, tally)) {
+                        added += goOn(walk, shelf, server, publishing = true, want = wanted - added, tally = tally)
+                    }
+                }
+                // Nothing more of the server's own: new songs fill the column, so the shelf never ends while there are some.
+                if (added < wanted) {
+                    val newOnes = takeNew(walk, wanted - added)
+                    if (newOnes.isNotEmpty()) {
+                        walk.place(shelf, newOnes)
+                        added += newOnes.size
+                    }
+                }
+                settle(key, found = added > 0)
+                if (added == 0) Logs.i("For You: ${server.name}: nothing new for ${shelf.name.lowercase()} this time; asking again later")
             } finally {
                 withContext(NonCancellable) {
                     val shelves = walk.shelves()
@@ -669,7 +724,12 @@ class ServerPicksService(
         val found = newFound(walk)
         synchronized(found) {
             val shown = (shelves.picks + shelves.suggested + shelves.further).mapTo(HashSet()) { it.identity }
-            found.waiting.addAll(songs.filter { it.identity !in heard && it.identity !in shown && index.find(it.identity) == null && found.met.add(it.identity) })
+            found.waiting.addAll(
+                songs.filter {
+                    it.identity !in heard && it.identity !in shown && it.identity !in shownThisSession &&
+                        index.find(it.identity) == null && found.met.add(it.identity)
+                },
+            )
         }
     }
 
@@ -739,8 +799,177 @@ class ServerPicksService(
         val yours = yoursBy(artist)
         val candidates = candidates(songs, server, also = yours.map { it.identity })
         val heard = candidates.filter { it.heard }.map { it.song.identity }.toSet() + heard(yours.map { it.identity })
-        walk.add(candidates, yours.filter { it.identity !in heard }, dailySeed("for-you-$artist"))
+        walk.add(candidates, yours.filter { it.identity !in heard && it.identity !in shownThisSession }, dailySeed("for-you-$artist"))
     }
+
+    // MARK: - Going further
+
+    /** Where a server is looked to once its walk runs dry, for this session: each source asks for a little more each time. */
+    private class Further {
+        var turn = 0
+        var picksCount = SERVER_PICKS
+        var getMoreCount = GET_MORE
+        /** Songs asked for songs like them, by the server's id. */
+        val similarFrom = HashSet<String>()
+        /** Artists whose top songs were asked for, folded. */
+        val topFrom = HashSet<String>()
+        /** Artists looked for among songs the server could get, folded. */
+        val searchedFor = HashSet<String>()
+    }
+
+    /** The sources [goFurther] takes turns with. */
+    private enum class Source { Similar, TopSongs, Picks, GetMore, Search, Random }
+
+    /** Songs found and waiting to be shown: what going further adds to. */
+    private fun stock(walk: ServerForYou): Int =
+        walk.waiting(ForYouShelf.PICKS).toInt() + walk.waiting(ForYouShelf.SUGGESTED).toInt() + pending(walk).size + if (walk.hasQueue()) 1 else 0
+
+    /**
+     * One more look for songs once the walk's artists are used up, from the next source in
+     * turn: songs like ones on show, the top songs of artists on show, the server's picks and
+     * Get More asked for more than before, songs the server could get by artists on show, and
+     * songs picked at random. One request a call (two for top songs on Trackside), each from
+     * the server's budget. What's found joins the walk, which leaves out anything shown this
+     * session or heard, and new artists among it are gone on from in turn. True when it found
+     * anything new.
+     */
+    private suspend fun goFurther(walk: ServerForYou, server: SubsonicServer, shelf: ForYouShelf, tally: Tally?): Boolean {
+        val client = serverLibrary.client(server) ?: return false
+        val state = synchronized(further) { further.getOrPut(server.id) { Further() } }
+        val trackside = (client as? TracksideMusicServer)?.client
+        val gets = trackside != null && offers[server.id]?.second == NewSongs.Offered
+        val shelves = walk.shelves()
+        // The shelf's own songs first, latest first: what's found is most like what's being scrolled.
+        val onShow = when (shelf) {
+            ForYouShelf.PICKS -> shelves.picks.asReversed() + shelves.suggested.asReversed()
+            else -> shelves.suggested.asReversed() + shelves.further.asReversed() + shelves.picks.asReversed()
+        }
+        val before = stock(walk)
+        val sources = Source.entries
+        repeat(sources.size) {
+            val source = sources[state.turn++ % sources.size]
+            val asked = when (source) {
+                Source.Similar -> {
+                    val (song, id) = onShow.firstNotNullOfOrNull { song -> serverSongId(server, song)?.takeIf { it !in state.similarFrom }?.let { song to it } } ?: return@repeat
+                    state.similarFrom += id
+                    budget(server.id).take()
+                    val songs = ask(tally, "For You: ${server.name} couldn't find songs like one on show") {
+                        if (trackside == null) client.similarSongs(id, 20).map { it.found() }
+                        else trackside.similar(id, 20).let { answer ->
+                            if (gets) addNew(walk, answer.external.orEmpty().map { newSong(it.title, it.artist, cover = it.artworkId) })
+                            answer.songs.filter { it.missing != true }.map { it.subsonic.found() }
+                        }
+                    }.orEmpty()
+                    addFound(walk, server, songs, "further-similar-${song.identity}")
+                    true
+                }
+                Source.TopSongs -> {
+                    val artist = onShow.map { it.artist }.firstOrNull { foldedName(it) !in state.topFrom } ?: return@repeat
+                    state.topFrom += foldedName(artist)
+                    budget(server.id).take()
+                    val songs = ask(tally, "For You: ${server.name} couldn't find an artist's top songs") {
+                        if (trackside == null) client.topSongs(artist, ARTIST_SONGS).map { it.found() }
+                        else {
+                            val found = trackside.searchLibrary(artist, listOf("artist"), limit = 5).artists?.items.orEmpty()
+                            val id = (found.firstOrNull { foldedName(it.name) == foldedName(artist) })?.id
+                            if (id == null) emptyList()
+                            else {
+                                budget(server.id).take()
+                                trackside.artistTopSongs(id, ARTIST_SONGS).let { answer ->
+                                    if (gets) addNew(walk, answer.external.orEmpty().map { newSong(it.title, it.artist, cover = it.artworkId) })
+                                    answer.songs.filter { it.missing != true }.map { it.subsonic.found() }
+                                }
+                            }
+                        }
+                    }.orEmpty()
+                    addFound(walk, server, songs, "further-top-$artist")
+                    true
+                }
+                Source.Picks -> {
+                    if (client !is TracksideMusicServer) return@repeat
+                    // A longer list each time: the server's picks hold for the minute, so more of them is what's new.
+                    val count = state.picksCount
+                    state.picksCount = minOf(count + SERVER_PICKS, MAX_PICKS)
+                    budget(server.id).take()
+                    val picked = ask(tally, "For You: ${server.name} couldn't pick more songs") { client.suggestedPicks(count) }
+                    if (gets) addNew(walk, picked?.external.orEmpty().map { newSong(it.title, it.artist, cover = it.artworkId) })
+                    addFound(walk, server, picked?.songs.orEmpty().filter { it.missing != true }.map { it.subsonic.found() }, "further-picks-$count")
+                    true
+                }
+                Source.GetMore -> {
+                    if (trackside == null) return@repeat
+                    val count = state.getMoreCount
+                    state.getMoreCount = minOf(count * 2, MAX_GET_MORE)
+                    budget(server.id).take()
+                    val more = ask(tally, "For You: ${server.name} couldn't suggest more") { trackside.getMore(count) }
+                    if (gets) addNew(walk, more?.external.orEmpty().map { newSong(it.title, it.artist, cover = it.artworkId) })
+                    addFound(walk, server, more?.songs.orEmpty().filter { it.missing != true }.map { it.subsonic.found() }, "further-more-$count")
+                    true
+                }
+                Source.Search -> {
+                    if (!gets) return@repeat
+                    // New songs' artists first: the server has none of theirs, so songs it could get are all there is.
+                    val artists = (onShow.filter { it.isNew } + pending(walk) + onShow).map { it.artist }
+                    val artist = artists.firstOrNull { foldedName(it) !in state.searchedFor } ?: return@repeat
+                    state.searchedFor += foldedName(artist)
+                    budget(server.id).take()
+                    val could = ask(tally, "For You: ${server.name} couldn't look for songs to get") { trackside!!.searchExternal(artist, ARTIST_SONGS) }
+                    addNew(walk, could?.candidates.orEmpty().map { newSong(it.title, it.artist, it.album, it.durationMs, it.artworkId) })
+                    true
+                }
+                Source.Random -> {
+                    budget(server.id).take()
+                    val songs = ask(tally, "For You: ${server.name} couldn't pick songs at random") { client.randomSongs(RANDOM_SONGS) }?.map { it.found() }.orEmpty()
+                    addFound(walk, server, songs, "further-random-${state.turn}")
+                    true
+                }
+            }
+            if (asked) return stock(walk) > before
+        }
+        return false
+    }
+
+    /** Songs found going further, joining the walk: it leaves out ones heard, shown or waiting already. */
+    private suspend fun addFound(walk: ServerForYou, server: SubsonicServer, songs: List<FoundSong>, salt: String) {
+        if (songs.isEmpty()) return
+        walk.add(candidates(songs, server), emptyList(), dailySeed(salt))
+    }
+
+    /** The server's own id for a song on show, to ask about it; null for a new song, or one of yours from elsewhere. */
+    private fun serverSongId(server: SubsonicServer, song: FoundSong): String? {
+        if (song.isNew) return null
+        ServerLibrary.parseMediaId(song.id)?.let { (serverId, songId) -> return songId.takeIf { serverId == server.id } }
+        return song.id.takeIf { ':' !in it }
+    }
+
+    // MARK: - Backing off
+
+    /** How many times in a row something found nothing new, and when it may be asked again. */
+    private class Backoff {
+        var dry = 0
+        var nextAt = 0L
+    }
+
+    /** Waits until [key] may be asked again; cancelled with whatever scrolled to the end, so nothing waits for a shelf out of view. */
+    private suspend fun waitTurn(key: String) {
+        val wait = (backoffs[key]?.nextAt ?: 0L) - now()
+        if (wait > 0) delay(wait)
+    }
+
+    /** Notes whether [key] found anything: nothing waits twice as long as last time, up to [BACKOFF_MAX_MS]. */
+    private fun settle(key: String, found: Boolean) {
+        val backoff = backoffs.getOrPut(key) { Backoff() }
+        if (found) {
+            backoff.dry = 0
+            backoff.nextAt = 0
+        } else {
+            backoff.dry++
+            backoff.nextAt = now() + minOf(backoffMs shl (backoff.dry - 1).coerceAtMost(10), BACKOFF_MAX_MS)
+        }
+    }
+
+    private fun spent(serverId: String): Set<ForYouShelf> =
+        listOf(ForYouShelf.PICKS, ForYouShelf.SUGGESTED).filterTo(HashSet()) { (backoffs["$serverId/${it.name}"]?.dry ?: 0) >= SPENT_AFTER }
 
     /** What a server picked: its songs, and with Trackside, ones it suggests and doesn't have. */
     private class Picked(val songs: List<FoundSong>, val external: List<TracksideSuggestion>)
@@ -766,8 +995,9 @@ class ServerPicksService(
     private suspend fun candidates(songs: List<FoundSong>, server: SubsonicServer, also: List<String> = emptyList()): List<FoundCandidate> {
         val heard = heard(songs.map { it.identity } + also)
         val known = knownArtists(server)
+        // A song shown already this session counts as heard: the walk leaves it out, so none comes twice.
         return songs.map { song ->
-            FoundCandidate(song, heard = song.identity in heard, knownArtist = foldedName(song.artist) in known, owned = index.find(song.identity) != null)
+            FoundCandidate(song, heard = song.identity in heard || song.identity in shownThisSession, knownArtist = foldedName(song.artist) in known, owned = index.find(song.identity) != null)
         }
     }
 
@@ -884,50 +1114,69 @@ class ServerPicksService(
 
     // MARK: - Keep exploring
 
-    /** A page more of songs you've never played, from a server picked at random, and new ones by artists new to you. */
+    /**
+     * A page more of Keep exploring: new songs your servers could get for you, never one
+     * shown before. A few to start, a page more each time it's scrolled to the end; when
+     * nothing new turns up it waits a little longer before asking again, and never gives up.
+     */
     override suspend fun exploreMore() {
-        val servers = _servers.value
-        if (servers.isEmpty()) return
         try {
-            exploreMoreFrom(servers)
+            exploreMoreNow()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            Logs.e("Keep exploring: couldn't find more", error)
         } finally {
             _answers.update { it + 1 }
         }
     }
 
-    private suspend fun exploreMoreFrom(servers: List<SubsonicServer>) {
-        for (server in servers) loadMore(server.id, ForYouShelf.FURTHER, COLUMN)
+    private suspend fun exploreMoreNow() {
+        val servers = _servers.value
+        if (servers.isEmpty()) return
         exploringMutex.withLock {
-            if (exploringWaiting.size < PAGE) {
-                val server = servers.random()
-                val client = serverLibrary.client(server)
-                val songs = client?.let { ask(null, "Keep exploring: ${server.name} couldn't pick songs") { it.randomSongs(40) } }
-                if (songs == null) {
-                    failuresInARow++
+            val offered = servers.map { it to newSongs(it, null) }
+            val getting = offered.filter { it.second == NewSongs.Offered }.map { it.first }
+            if (getting.isEmpty()) {
+                // Every server's answer known, and none gets songs: say so rather than show songs you have.
+                if (offered.none { (server, offer) -> server.isTrackside && offer == null }) {
+                    _exploreNote.value = exploreNote(offered)
+                    _canExploreMore.value = false
+                    Logs.i("Keep exploring: none of your servers gets songs, so there are no new ones to show")
                 } else {
-                    val found = songs.map { it.found() }
-                    val heard = heard(found.map { it.identity })
-                    val fresh = found.filter { it.identity !in heard && exploringSeen.add(it.identity) }
-                    exploringWaiting.addAll(fresh.map { ServerSong(server.id, it) })
-                    failuresInARow = if (fresh.isEmpty()) failuresInARow + 1 else 0
+                    settle(EXPLORE, found = false)
                 }
-                if (failuresInARow >= 3) Logs.i("Keep exploring: stopped after ${server.name} found nothing new three times in a row")
+                return
             }
-            repeat(minOf(PAGE, exploringWaiting.size)) { randomFound = randomFound + exploringWaiting.removeFirst() }
-            publishExploring()
-            _canExploreMore.value = failuresInARow < 3
+            _exploreNote.value = null
+            _canExploreMore.value = true
+            waitTurn(EXPLORE)
+            val want = if (_exploring.value.isEmpty()) EXPLORE_START else EXPLORE_PAGE
+            var found = 0
+            getting.forEachIndexed { i, server ->
+                val share = want / getting.size + if (i < want % getting.size) 1 else 0
+                if (share == 0) return@forEachIndexed
+                if (walks[server.id] == null) load(server.id)
+                found += lock(server.id).withLock {
+                    val walk = walks[server.id] ?: return@withLock 0
+                    val tally = Tally()
+                    var steps = 0
+                    while (pending(walk).size < share && steps < FURTHER_STEPS && !tally.unreachable) {
+                        steps++
+                        goFurther(walk, server, ForYouShelf.FURTHER, tally)
+                    }
+                    val newOnes = takeNew(walk, share).filter { shownThisSession.add(it.identity) }
+                    if (newOnes.isEmpty()) return@withLock 0
+                    walk.place(ForYouShelf.FURTHER, newOnes)
+                    _exploring.update { list -> list + newOnes.map { ServerSong(server.id, it) } }
+                    publish(server.id, walk, filling = _forYou.value[server.id]?.isFilling == true)
+                    newOnes.size
+                }
+            }
+            settle(EXPLORE, found = found > 0)
+            Logs.i("Keep exploring: ${if (found == 0) "nothing new this time; asking again later" else "$found new songs"}")
         }
     }
-
-    /** Songs you have and haven't played, woven with ones by artists new to you that aren't on the shelves. */
-    private fun publishExploring() {
-        val further = _forYou.value.flatMap { (serverId, state) -> state.shelves.further.map { ServerSong(serverId, it) } }
-        val byId = (randomFound + further).associateBy { it.serverId + "\u0000" + it.song.id }
-        val woven = serverBlend(randomFound.map { it.song.keyed(it.serverId) }, further.map { it.song.keyed(it.serverId) })
-        _exploring.value = woven.mapNotNull { byId[it.id] }.distinctBy { it.song.identity }
-    }
-
-    private fun FoundSong.keyed(serverId: String) = copy(id = serverId + "\u0000" + id)
 
     // MARK: - Playing and keeping
 
@@ -1409,8 +1658,9 @@ class ServerPicksService(
 
     private fun publish(serverId: String, walk: ServerForYou, filling: Boolean, problem: String? = null) {
         walks[serverId] = walk
-        _forYou.update { it + (serverId to ServerForYouState(walk.shelves(), filling, problem, offers[serverId]?.second)) }
-        publishExploring()
+        val shelves = walk.shelves()
+        (shelves.picks + shelves.suggested + shelves.further).forEach { shownThisSession += it.identity }
+        _forYou.update { it + (serverId to ServerForYouState(shelves, filling, problem, offers[serverId]?.second, spent(serverId))) }
         val json = walk.toJson()
         scope.launch(Dispatchers.IO) { runCatching { dir.mkdirs(); File(dir, "$serverId.json").writeText(json) } }
     }
@@ -1420,7 +1670,9 @@ class ServerPicksService(
         // Picks that found nothing aren't worth showing again: the shelf waits for new ones.
         if (walk.shelves().let { it.picks.isEmpty() && it.suggested.isEmpty() }) return
         walks[serverId] = walk
-        _forYou.update { it + (serverId to ServerForYouState(walk.shelves())) }
+        val shelves = walk.shelves()
+        (shelves.picks + shelves.suggested).forEach { shownThisSession += it.identity }
+        _forYou.update { it + (serverId to ServerForYouState(shelves)) }
     }
 
     private fun server(id: String): SubsonicServer? = serverLibrary.entries.value.firstOrNull { it.server.id == id }?.server
@@ -1448,10 +1700,22 @@ class ServerPicksService(
         /** A column for each shelf twice over, and up to this many goes while a shelf is still empty. */
         const val FIRST_ROUNDS = 4
         const val MAX_ROUNDS = 10
-        const val PAGE = 8
         const val ARTIST_SONGS = 20
         const val SERVER_PICKS = 40
         const val GET_MORE = 24
+        /** The most `/me/picks` and `/me/get-more` give (api.md, Library browsing). */
+        const val MAX_PICKS = 200
+        const val MAX_GET_MORE = 100
+        const val RANDOM_SONGS = 40
+        /** Sources tried, a request each, before a shelf scrolled to its end settles for what it has. */
+        const val FURTHER_STEPS = 4
+        /** Keep exploring's first few songs, then a page more each time it's scrolled to the end. */
+        const val EXPLORE_START = 4
+        const val EXPLORE_PAGE = 8
+        const val EXPLORE = "explore"
+        const val BACKOFF_MAX_MS = 2 * 60_000L
+        /** Times in a row a shelf found nothing new before it shows what it has, partial column and all. */
+        const val SPENT_AFTER = 3
         /** How long whether a server gets songs is taken as known. */
         const val OFFER_KEEP_MS = 5 * 60_000L
         /** How long a request is followed before it's left to the next launch. */

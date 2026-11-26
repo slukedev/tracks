@@ -20,12 +20,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed as listItemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -130,7 +133,9 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
     val state = all[server.id]
     val songs = state?.shelves?.let { if (shelf == ForYouShelf.PICKS) it.picks else it.suggested }.orEmpty().map { ServerSong(server.id, it) }
     val from = state?.shelves?.from.orEmpty()
-    val goesOn = state == null || state.isFilling || state.shelves.canGoOn
+    // A shelf goes on as it's scrolled for as long as anything new turns up; one that found
+    // nothing a few times running shows all it has, and is still asked again at its end.
+    val goesOn = state == null || state.isFilling || state.shelves.canGoOn || shelf !in state.spent
     val scope = rememberCoroutineScope()
     LaunchedEffect(server.id, reloadKey) { picks.load(server.id) }
 
@@ -182,10 +187,14 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
             else -> {
                 val grid = rememberLazyGridState()
                 // Only whole columns while more are coming, so the end is never a column of gaps.
-                val shown = if (goesOn && songs.size >= ROWS) songs.take(songs.size / ROWS * ROWS) else songs
+                val unique = songs.distinctBy { it.song.id }
+                val shown = if (goesOn && unique.size >= ROWS) unique.take(unique.size / ROWS * ROWS) else unique
                 val atEnd by remember { derivedStateOf { (grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= grid.layoutInfo.totalItemsCount - ROWS } }
-                LaunchedEffect(atEnd, songs.size, goesOn, answers) {
-                    if (atEnd && goesOn) picks.loadMore(server.id, shelf, serverWanted(songs.size.toUInt(), ROWS.toUInt()).toInt())
+                // Only while the end is in view: a shelf scrolled away asks for nothing. Each answer,
+                // even one that found nothing, asks again, as often as the server's budget and the
+                // shelf's backing off allow.
+                LaunchedEffect(atEnd, unique.size, goesOn, answers) {
+                    if (atEnd) picks.loadMore(server.id, shelf, serverWanted(unique.size.toUInt(), ROWS.toUInt()).toInt())
                 }
                 LazyHorizontalGrid(
                     rows = GridCells.Fixed(ROWS),
@@ -196,6 +205,12 @@ fun ServerForYouShelf(server: SubsonicServer, shelf: ForYouShelf, reloadKey: Any
                 ) {
                     itemsIndexed(shown, key = { _, it -> it.song.id }) { index, song ->
                         ServerSongRow(song, shown, index, title, Modifier.width(columnWidth()).animateItem())
+                    }
+                    // The next column's shape while it's being found.
+                    if (goesOn && state?.isFilling == true) {
+                        item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
+                            Box(Modifier.width(columnWidth()).padding(start = 16.dp).semantics { contentDescription = "Loading" }) { PlaceholderColumn(0) }
+                        }
                     }
                 }
             }
@@ -259,24 +274,30 @@ private fun ShelfMessage(text: String, onRetry: () -> Unit) {
 /** The shelf's shape while songs are found: rows where they'll be, no fake content. */
 @Composable
 private fun SongShelfLoading() {
-    val fill = MaterialTheme.colorScheme.surfaceContainerHigh
     Row(
         Modifier.height(RowHeight * ROWS).padding(start = 24.dp).semantics { contentDescription = "Loading" },
         horizontalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         repeat(2) { column ->
-            Column(Modifier.width(columnWidth() - 24.dp)) {
-                repeat(ROWS) { row ->
-                    Row(Modifier.height(RowHeight), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = fill, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(52.dp)) {}
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            val widths = listOf(150.dp, 110.dp, 170.dp, 96.dp)
-                            Surface(color = fill, shape = RoundedCornerShape(6.dp), modifier = Modifier.size(widths[(row + column) % 4], 12.dp)) {}
-                            Spacer(Modifier.height(8.dp))
-                            Surface(color = fill, shape = RoundedCornerShape(6.dp), modifier = Modifier.size(84.dp, 10.dp)) {}
-                        }
-                    }
+            Box(Modifier.width(columnWidth() - 24.dp)) { PlaceholderColumn(column) }
+        }
+    }
+}
+
+/** A column of rows where songs will be: no fake content. */
+@Composable
+private fun PlaceholderColumn(column: Int) {
+    val fill = MaterialTheme.colorScheme.surfaceContainerHigh
+    Column {
+        repeat(ROWS) { row ->
+            Row(Modifier.height(RowHeight), verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = fill, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(52.dp)) {}
+                Spacer(Modifier.width(16.dp))
+                Column {
+                    val widths = listOf(150.dp, 110.dp, 170.dp, 96.dp)
+                    Surface(color = fill, shape = RoundedCornerShape(6.dp), modifier = Modifier.size(widths[(row + column) % 4], 12.dp)) {}
+                    Spacer(Modifier.height(8.dp))
+                    Surface(color = fill, shape = RoundedCornerShape(6.dp), modifier = Modifier.size(84.dp, 10.dp)) {}
                 }
             }
         }
@@ -537,24 +558,37 @@ private fun AlbumShelf(title: String, albums: List<ShelfAlbum>, action: (@Compos
 }
 
 /**
- * Keep exploring, at the very end of Play: songs on your servers you've never played, woven
- * with new ones by artists new to you, for as long as you scroll.
+ * Keep exploring, at the very end of Play: new songs your servers could get for you, a few to
+ * start and more each time the end comes into view, for as long as you scroll. Where none of
+ * your servers gets songs, it says so instead.
  */
-@Composable
-fun KeepExploring(songs: List<ServerSong>, goesOn: Boolean, onEnd: suspend () -> Unit, modifier: Modifier = Modifier) {
-    val answers by rememberServerPicks().answers.collectAsState()
-    Column(modifier.fillMaxWidth()) {
-        SectionTitle("Keep exploring")
-        Spacer(Modifier.height(4.dp))
-        songs.forEachIndexed { index, song ->
-            ServerSongRow(song, songs, index, "Keep exploring", Modifier.padding(horizontal = 8.dp))
+fun LazyListScope.keepExploring(songs: List<ServerSong>, goesOn: Boolean, note: String?, onEnd: suspend () -> Unit) {
+    item(key = "keep-exploring", contentType = "explore-title") {
+        Column(Modifier.fillMaxWidth().animateItem()) {
+            SectionTitle("Keep exploring")
+            Spacer(Modifier.height(4.dp))
         }
-        if (goesOn) {
-            // Composed once the page reaches it: finds more, then again after each answer, even one
-            // that found nothing, until the servers have nothing new three times running.
-            LaunchedEffect(songs.size, answers) { onEnd() }
-            Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
-                LoadingIndicator(Modifier.size(40.dp))
+    }
+    listItemsIndexed(songs, key = { _, it -> "explore-${it.serverId}-${it.song.id}" }, contentType = { _, _ -> "explore-song" }) { index, song ->
+        ServerSongRow(song, songs, index, "Keep exploring", Modifier.padding(horizontal = 8.dp).animateItem())
+    }
+    item(key = "keep-exploring-end", contentType = "explore-end") {
+        val answers by rememberServerPicks().answers.collectAsState()
+        Box(Modifier.fillMaxWidth().animateItem()) {
+            when {
+                note != null -> Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+                    Text(note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val scope = rememberCoroutineScope()
+                    TextButton(onClick = { scope.launch { onEnd() } }, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("Try again") }
+                }
+                goesOn -> {
+                    // Composed only once the end is in view: asks for more, then again after each
+                    // answer, waiting longer each time nothing new turned up.
+                    LaunchedEffect(songs.size, answers) { onEnd() }
+                    Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                        LoadingIndicator(Modifier.size(40.dp))
+                    }
+                }
             }
         }
     }
