@@ -3,6 +3,7 @@ package com.luke.tracks.spotify
 import android.content.SharedPreferences
 import android.net.Uri
 import androidx.core.content.edit
+import com.luke.tracks.net.Logs
 import com.luke.tracks.playback.PcmOpener
 import com.luke.tracks.playback.PlayableSong
 import kotlinx.coroutines.CoroutineDispatcher
@@ -92,6 +93,10 @@ class SpotifyService(
     private var waiting: Job? = null
     private var closing: Job? = null
 
+    /** Guards the saved sign-in against a sign-out that lands while an account is connecting. */
+    private val vaultLock = Any()
+    @Volatile private var signOuts = 0
+
     private fun initialState(): SpotifyState {
         val name = vault.name ?: return SpotifyState.SignedOut
         return if (vault.credentials() != null) SpotifyState.Connected(name) else SpotifyState.NeedsSignIn(name)
@@ -102,9 +107,11 @@ class SpotifyService(
     /** Starts a sign-in and returns the page to open in the browser, or null when it can't start. */
     fun beginSignIn(): String? {
         cancelSignIn(quietly = true)
+        Logs.i("Spotify: starting sign-in")
         val started = runCatching { engine.login("http://127.0.0.1:${freePort()}/login") }
             .recoverCatching { engine.login("http://127.0.0.1:${freePort()}/login") }
-            .getOrElse {
+            .getOrElse { error ->
+                Logs.w("Spotify: sign-in couldn't start", error)
                 _state.value = SpotifyState.Failed(SpotifyProblem.Offline)
                 return null
             }
@@ -117,8 +124,9 @@ class SpotifyService(
     private suspend fun finishSignIn(login: SpotifyLoginInterface) {
         val callback = try {
             login.waitForRedirect(SIGN_IN_LIMIT_SECS)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
             // Cancelled, closed or timed out: back to where it started, with nothing said.
+            Logs.i("Spotify: sign-in ended without a redirect (${error.javaClass.simpleName})")
             if (this.login === login) {
                 this.login = null
                 _state.value = idleState()
@@ -126,23 +134,29 @@ class SpotifyService(
             return
         }
         closing?.cancel()
+        // The callback holds the one-time code: never logged.
+        Logs.i("Spotify: back from the browser, finishing sign-in")
         _state.value = SpotifyState.Checking
         try {
             val signedIn = login.finish(callback, config)
             signedIn.connect()
             if (signedIn.isPremium() == false) {
+                Logs.w("Spotify: signed in, but the account doesn't have Premium")
                 signedIn.signOut()
                 _state.value = SpotifyState.Failed(SpotifyProblem.NeedsPremium)
                 return
             }
             val name = signedIn.username()
-            vault.save(signedIn.credentials(), name)
+            synchronized(vaultLock) { vault.save(signedIn.credentials(), name) }
             synchronized(lock) {
                 account?.let { release(it) }
                 account = signedIn
             }
-            _state.value = SpotifyState.Connected(name, refused = probeRefused(signedIn))
+            val refused = probeRefused(signedIn)
+            Logs.i("Spotify: signed in" + if (refused) ", but Spotify refuses this account's audio in Tracks" else "")
+            _state.value = SpotifyState.Connected(name, refused = refused)
         } catch (error: Exception) {
+            Logs.w("Spotify: sign-in failed", error)
             _state.value = SpotifyState.Failed(error.toSpotifyProblem().forSignIn())
         } finally {
             if (this.login === login) this.login = null
@@ -186,6 +200,7 @@ class SpotifyService(
             _state.value = try {
                 current.copy(refused = probeRefused(account()))
             } catch (error: Exception) {
+                Logs.w("Spotify: checking the account again failed", error)
                 stateAfter(error, current)
             }
         }
@@ -196,13 +211,16 @@ class SpotifyService(
      * Anything else that goes wrong says nothing either way, and the player finds out later.
      */
     private fun probeRefused(account: SpotifyAccountInterface): Boolean {
-        val uri = runCatching { account.savedTracks(0u, 1u).items.firstOrNull()?.uri }.getOrNull() ?: return false
+        val uri = runCatching { account.savedTracks(0u, 1u).items.firstOrNull()?.uri }
+            .onFailure { Logs.w("Spotify: couldn't read a liked song to check audio", it) }
+            .getOrNull() ?: return false
         return try {
             SpotifyPcm(account.openStream(uri, streamOptions())).close()
             false
         } catch (_: SpotifyException.AudioKeyRefused) {
             true
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            Logs.w("Spotify: the audio check didn't finish", error)
             false
         }
     }
@@ -211,15 +229,18 @@ class SpotifyService(
 
     /** Ends the session and forgets the sign-in. History keeps its plays. */
     fun signOut() {
+        Logs.i("Spotify: signing out")
         cancelSignIn(quietly = true)
-        val open = synchronized(lock) { account.also { account = null } }
-        vault.clear()
+        synchronized(vaultLock) {
+            signOuts++
+            vault.clear()
+        }
         _state.value = SpotifyState.SignedOut
-        if (open != null) {
-            scope.launch(io) {
-                runCatching { open.signOut() }
-                release(open)
-            }
+        // The account lock can be held for a whole connect, so it's taken off the main thread.
+        scope.launch(io) {
+            val open = synchronized(lock) { account.also { account = null } } ?: return@launch
+            runCatching { open.signOut() }
+            release(open)
         }
     }
 
@@ -231,17 +252,62 @@ class SpotifyService(
      */
     fun account(): SpotifyAccountInterface = synchronized(lock) {
         account?.let { return it }
+        val signOutsBefore = signOuts
         val credentials = vault.credentials() ?: throw SpotifyPlaybackException(SpotifyProblem.SignedOut)
+        Logs.i("Spotify: connecting the saved account")
         try {
             val opened = engine.open(credentials, config)
             opened.connect()
-            vault.save(opened.credentials(), opened.username())
+            val kept = synchronized(vaultLock) {
+                (signOuts == signOutsBefore).also { if (it) vault.save(opened.credentials(), opened.username()) }
+            }
+            if (!kept) {
+                // Signed out while connecting: the sign-in stays forgotten.
+                runCatching { opened.signOut() }
+                release(opened)
+                throw SpotifyPlaybackException(SpotifyProblem.SignedOut)
+            }
+            Logs.i("Spotify: connected")
             account = opened
             opened
         } catch (error: SpotifyException.Auth) {
-            vault.forgetCredentials()
+            Logs.w("Spotify: the saved sign-in was refused, asking to sign in again", error)
+            synchronized(vaultLock) { if (signOuts == signOutsBefore) vault.forgetCredentials() }
             vault.name?.let { _state.value = SpotifyState.NeedsSignIn(it) }
             throw SpotifyPlaybackException(SpotifyProblem.SignedOut, error)
+        } catch (error: SpotifyException) {
+            Logs.w("Spotify: connecting failed", error)
+            throw error
+        }
+    }
+
+    /**
+     * Drops the open session after Spotify refused one request with a sign-in error. Spotify
+     * also says that for a single page or song it won't serve (a 403), so the saved sign-in is
+     * kept: the next [account] connects again, and only a refused connect forgets it.
+     */
+    private fun dropSession(refused: SpotifyAccountInterface) {
+        val dropped = synchronized(lock) { if (account === refused) account.also { account = null } else null }
+        dropped?.let(::release)
+    }
+
+    /**
+     * Runs [block] on the account, once more on a fresh connection if Spotify answers with a
+     * sign-in error. A second refusal from a connection that worked is about this request only.
+     */
+    private fun <T> withAccount(what: String, block: SpotifyAccountInterface.() -> T): T {
+        val first = account()
+        try {
+            return first.block()
+        } catch (error: SpotifyException.Auth) {
+            Logs.w("Spotify: $what was refused, connecting again", error)
+            dropSession(first)
+        }
+        return try {
+            account().block()
+        } catch (error: SpotifyException.Auth) {
+            Logs.w("Spotify: $what was refused again", error)
+            throw SpotifyPlaybackException(SpotifyProblem.NotAllowed, error)
         }
     }
 
@@ -261,8 +327,13 @@ class SpotifyService(
     }
 
     val audio = PcmOpener { uri ->
-        val account = spotifyCall { account() }
-        val stream = spotifyCall { account.openStream(uri.toString(), streamOptions()) }
+        Logs.i("Spotify: opening $uri")
+        val stream = try {
+            spotifyCall { withAccount("opening a song") { openStream(uri.toString(), streamOptions()) } }
+        } catch (error: SpotifyPlaybackException) {
+            Logs.w("Spotify: couldn't open $uri (${error.problem.name})", error.cause)
+            throw error
+        }
         val connected = _state.value
         if (connected is SpotifyState.Connected && connected.refused) _state.value = connected.copy(refused = false)
         SpotifyPcm(stream)
@@ -289,30 +360,33 @@ class SpotifyService(
 
     // MARK: Library and search
 
-    private suspend fun <T> call(block: SpotifyAccountInterface.() -> T): T = withContext(io) {
+    /**
+     * A library or search call on [io]. Failures are logged here, with what was asked, so
+     * `adb logcat -s Tracks` shows where Spotify stopped.
+     */
+    private suspend fun <T> call(what: String, block: SpotifyAccountInterface.() -> T): T = withContext(io) {
         try {
-            account().block()
-        } catch (error: SpotifyException.Auth) {
-            synchronized(lock) {
-                account?.let { release(it) }
-                account = null
-            }
-            vault.forgetCredentials()
-            _state.value = idleState()
-            throw SpotifyPlaybackException(SpotifyProblem.SignedOut, error)
+            withAccount(what, block)
+        } catch (error: SpotifyPlaybackException) {
+            Logs.w("Spotify: $what failed (${error.problem.name})", error.cause)
+            throw error
+        } catch (error: SpotifyException) {
+            Logs.w("Spotify: $what failed", error)
+            throw error
         }
     }
 
-    suspend fun savedAlbums(offset: Int): SpotifyAlbumPage = call { savedAlbums(offset.toUInt(), PAGE) }
-    suspend fun playlists(offset: Int): SpotifyPlaylistPage = call { playlists(offset.toUInt(), PAGE) }
-    suspend fun likedSongs(offset: Int): SpotifyTrackPage = call { savedTracks(offset.toUInt(), PAGE) }
-    suspend fun album(uri: String): SpotifyAlbum = call { album(uri) }
-    suspend fun playlist(uri: String): SpotifyPlaylist = call { playlist(uri) }
-    suspend fun search(query: String): SpotifySearchResults = call { search(query, 0u, SEARCH_LIMIT) }
+    suspend fun savedAlbums(offset: Int): SpotifyAlbumPage = call("saved albums at $offset") { savedAlbums(offset.toUInt(), PAGE) }
+    suspend fun playlists(offset: Int): SpotifyPlaylistPage = call("playlists at $offset") { playlists(offset.toUInt(), PAGE) }
+    suspend fun likedSongs(offset: Int): SpotifyTrackPage = call("liked songs at $offset") { savedTracks(offset.toUInt(), PAGE) }
+    suspend fun album(uri: String): SpotifyAlbum = call("album $uri") { album(uri) }
+    suspend fun playlist(uri: String): SpotifyPlaylist = call("playlist $uri") { playlist(uri) }
+    // The query is the person's own words: not logged.
+    suspend fun search(query: String): SpotifySearchResults = call("search") { search(query, 0u, SEARCH_LIMIT) }
 
     /** Songs by address, in order, a batch at a time; ones gone from Spotify are left out. */
     suspend fun songs(uris: List<String>): List<PlayableSong> =
-        uris.chunked(TRACK_BATCH).flatMap { batch -> call { tracks(batch) } }.map { it.toPlayableSong() }
+        uris.chunked(TRACK_BATCH).flatMap { batch -> call("${batch.size} songs") { tracks(batch) } }.map { it.toPlayableSong() }
 
     private fun release(account: SpotifyAccountInterface) {
         (account as? Disposable)?.destroy()

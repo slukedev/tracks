@@ -42,7 +42,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.spotify.SpotifyProblem
 import com.luke.tracks.spotify.SpotifyQuality
@@ -64,10 +65,16 @@ fun SpotifySourcePage(service: SpotifyService, onDone: () -> Unit) {
     val state by service.state.collectAsStateWithLifecycle()
     var confirmSignOut by remember { mutableStateOf(false) }
 
-    // Back from the browser: a closed tab with no redirect is a cancel.
-    LifecycleResumeEffect(state) {
-        if (state == SpotifyState.SigningIn) service.browserClosed()
-        onPauseOrDispose {}
+    // Back from the browser: a closed tab with no redirect is a cancel. Only a resume after the
+    // page went to the browser counts; the page is still resumed the moment sign-in starts,
+    // and taking that as a return would cancel the sign-in while the browser is opening.
+    var inBrowser by remember { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        if (state == SpotifyState.SigningIn) inBrowser = true
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (inBrowser && state == SpotifyState.SigningIn) service.browserClosed()
+        inBrowser = false
     }
     var previous by remember { mutableStateOf(state) }
     LaunchedEffect(state) {

@@ -15,6 +15,7 @@ import com.luke.tracks.sources.SourceKind
 import com.luke.tracks.sources.SourceProvider
 import com.luke.tracks.sources.SourceStatus
 import com.luke.tracks.ui.spotify.SpotifyLibraryScreen
+import com.luke.tracks.ui.spotify.SpotifyShelves
 import com.luke.tracks.ui.spotify.SpotifySourcePage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
@@ -57,11 +58,12 @@ private object LibrespotEngine : SpotifyEngine {
 
 class SpotifyLive(val service: SpotifyService, scope: CoroutineScope) : SpotifyIntegration {
     override val provider: SourceProvider = SpotifySourceProvider(service, scope)
+    private val shelves by lazy { SpotifyShelves(service, scope) }
     override val audio: PcmOpener get() = service.audio
     override fun playbackFailed(problem: SpotifyProblem) = service.playbackFailed(problem)
 
     @Composable
-    override fun Library(onBack: () -> Unit) = SpotifyLibraryScreen(service, onBack)
+    override fun Library(onBack: () -> Unit) = SpotifyLibraryScreen(service, shelves, onBack)
 }
 
 /** Spotify in Settings > Sources: listed once signed in, with its own page. */

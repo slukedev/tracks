@@ -33,6 +33,8 @@ enum class SpotifyProblem(val message: String, val retryable: Boolean, val error
     Busy("Spotify is busy. Try again in a few minutes.", false, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED),
     SignedOut("Sign in to Spotify again to play this.", false, PlaybackException.ERROR_CODE_IO_NO_PERMISSION),
     Unavailable("This song isn't available on Spotify.", false, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND),
+    /** Spotify said no to one request while the sign-in itself still works. */
+    NotAllowed("Spotify didn't allow this.", false, PlaybackException.ERROR_CODE_IO_NO_PERMISSION),
     ;
 
     /** Whether it's about the account rather than the one song. */

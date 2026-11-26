@@ -23,6 +23,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import uniffi.tracks_engine.NoHandle
 import uniffi.tracks_engine.SpotifyAccount
+import uniffi.tracks_engine.SpotifyAlbumPage
 import uniffi.tracks_engine.SpotifyConfig
 import uniffi.tracks_engine.SpotifyException
 import uniffi.tracks_engine.SpotifyLoginInterface
@@ -224,6 +225,56 @@ class SpotifyServiceTest {
         }
         service.playbackFailed(SpotifyProblem.Refused)
         assertEquals(SpotifyState.Connected("luke", refused = true), service.state.value)
+    }
+
+    @Test fun aRefusedRequestKeepsTheSignInAndConnectsAgain() = runTest(UnconfinedTestDispatcher()) {
+        val vault = MemoryVault().apply { save(byteArrayOf(1), "luke") }
+        var connects = 0
+        val account = object : FakeAccount() {
+            override fun connect() {
+                connects++
+            }
+            override fun savedAlbums(offset: UInt, limit: UInt): SpotifyAlbumPage = throw SpotifyException.Auth("Spotify does not allow this")
+        }
+        val service = service(FakeEngine(saved = account), vault)
+        try {
+            service.savedAlbums(0)
+            fail("loaded a refused page")
+        } catch (error: SpotifyPlaybackException) {
+            assertEquals(SpotifyProblem.NotAllowed, error.problem)
+        }
+        assertEquals("connected again once", 2, connects)
+        assertArrayEquals(byteArrayOf(7, 7), vault.saved)
+        assertEquals(SpotifyState.Connected("luke"), service.state.value)
+    }
+
+    @Test fun aSongRefusedWithASignInErrorIsTriedOnAFreshConnection() = runTest(UnconfinedTestDispatcher()) {
+        val vault = MemoryVault().apply { save(byteArrayOf(1), "luke") }
+        val account = FakeAccount(streamError = SpotifyException.Auth("403"))
+        val service = service(FakeEngine(saved = account), vault)
+        try {
+            service.audio.open(android.net.Uri.parse("spotify:track:two"))
+            fail("opened refused audio")
+        } catch (error: SpotifyPlaybackException) {
+            assertEquals(SpotifyProblem.NotAllowed, error.problem)
+            assertTrue(!error.problem.accountWide)
+        }
+        assertEquals(listOf("spotify:track:two", "spotify:track:two"), account.opened)
+        assertArrayEquals(byteArrayOf(7, 7), vault.saved)
+    }
+
+    @Test fun signingOutDoesNotWaitForTheAccount() = runTest(UnconfinedTestDispatcher()) {
+        val vault = MemoryVault().apply { save(byteArrayOf(1), "luke") }
+        val service = service(FakeEngine(saved = FakeAccount()), vault)
+        service.signOut()
+        assertEquals(SpotifyState.SignedOut, service.state.value)
+        try {
+            service.account()
+            fail("opened an account after signing out")
+        } catch (error: SpotifyPlaybackException) {
+            assertEquals(SpotifyProblem.SignedOut, error.problem)
+        }
+        assertNull(vault.saved)
     }
 
     @Test fun everyEngineErrorHasItsWords() {

@@ -53,7 +53,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -65,14 +64,21 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.luke.tracks.graph
+import com.luke.tracks.net.Logs
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
+import com.luke.tracks.spotify.SpotifyProblem
 import com.luke.tracks.spotify.SpotifyService
+import com.luke.tracks.spotify.SpotifyState
 import com.luke.tracks.spotify.SpotifyUris
 import com.luke.tracks.spotify.toPlayableSong
 import com.luke.tracks.spotify.toSpotifyProblem
 import com.luke.tracks.ui.components.Artwork
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -94,50 +100,101 @@ data class SpotifyCollection(
 
 enum class SpotifyShelf(val label: String) { Albums("Albums"), Playlists("Playlists"), Liked("Liked Songs") }
 
-/** Something that can go wrong loading, and whether a page is on its way. */
-private class Paged<T> {
+/** A shelf's pages so far, whether the next is on its way, and what went wrong loading it. */
+class Paged<T> {
     val items = mutableStateListOf<T>()
     var next by mutableStateOf<Int?>(0)
     var loading by mutableStateOf(false)
     var problem by mutableStateOf<String?>(null)
+    /** Bumped on a reset, so a page from before it is dropped. */
+    var round = 0
+
+    fun reset() {
+        round++
+        items.clear()
+        next = 0
+        loading = false
+        problem = null
+    }
 }
+
+/**
+ * The library's shelves, kept for as long as the app runs, so switching tabs or filters keeps
+ * what's loaded and never cancels a page on its way. Loads run in the app's [scope]; they're
+ * cleared when the account signs out or changes.
+ */
+class SpotifyShelves(private val service: SpotifyService, private val scope: CoroutineScope) {
+    val albums = Paged<SpotifyCollection>()
+    val playlists = Paged<SpotifyCollection>()
+    val liked = Paged<PlayableSong>()
+
+    init {
+        scope.launch(Dispatchers.Main.immediate) {
+            service.state
+                // Checking again keeps the shelves; signing out or another account clears them.
+                .filter { it != SpotifyState.Checking }
+                .map { (it as? SpotifyState.Connected)?.name }
+                .distinctUntilChanged()
+                .collect { listOf(albums, playlists, liked).forEach(Paged<*>::reset) }
+        }
+    }
+
+    fun loadAlbums() = load(albums, "Albums") { offset -> service.savedAlbums(offset).let { page -> page.items.map { it.toCollection() } to page.nextOffset?.toInt() } }
+    fun loadPlaylists() = load(playlists, "Playlists") { offset -> service.playlists(offset).let { page -> page.items.map { it.toCollection() } to page.nextOffset?.toInt() } }
+    fun loadLiked() = load(liked, "Liked Songs") { offset -> service.likedSongs(offset).let { page -> page.items.map { it.toPlayableSong() } to page.nextOffset?.toInt() } }
+
+    private fun <T> load(paged: Paged<T>, name: String, fetch: suspend (Int) -> Pair<List<T>, Int?>) {
+        val offset = paged.next ?: return
+        if (paged.loading) return
+        paged.loading = true
+        paged.problem = null
+        val round = paged.round
+        scope.launch(Dispatchers.Main.immediate) {
+            try {
+                val (items, next) = fetch(offset)
+                if (round != paged.round) return@launch
+                paged.items += items
+                paged.next = next
+                Logs.i("Spotify: $name loaded ${paged.items.size}" + if (next == null) ", all of them" else "")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (round != paged.round) return@launch
+                Logs.w("Spotify: $name didn't load", error)
+                paged.problem = error.toSpotifyProblem().loadMessage
+            } finally {
+                if (round == paged.round) paged.loading = false
+            }
+        }
+    }
+}
+
+/** What a list says when it couldn't load, rather than a song's words. */
+val SpotifyProblem.loadMessage: String
+    get() = when (this) {
+        SpotifyProblem.Unavailable -> "Couldn't load this from Spotify."
+        SpotifyProblem.SignedOut -> "Sign in to Spotify again in Settings to see this."
+        SpotifyProblem.NeedsPremium, SpotifyProblem.Refused -> "Couldn't load this from Spotify."
+        else -> message
+    }
 
 /**
  * Spotify's saved albums, playlists and liked songs, and search. No editorial, no Home: a
  * library and search are what a player needs.
  */
 @Composable
-fun SpotifyLibraryScreen(service: SpotifyService, onBack: () -> Unit) {
+fun SpotifyLibraryScreen(service: SpotifyService, shelves: SpotifyShelves, onBack: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var shelf by rememberSaveable { mutableStateOf(SpotifyShelf.Albums) }
     var query by rememberSaveable { mutableStateOf("") }
     var opened by remember { mutableStateOf<SpotifyCollection?>(null) }
 
-    val albums = remember { Paged<SpotifyCollection>() }
-    val playlists = remember { Paged<SpotifyCollection>() }
-    val liked = remember { Paged<PlayableSong>() }
-
-    fun <T> load(paged: Paged<T>, fetch: suspend (Int) -> Pair<List<T>, Int?>) {
-        val offset = paged.next ?: return
-        if (paged.loading) return
-        paged.loading = true
-        paged.problem = null
-        scope.launch {
-            try {
-                val (items, next) = fetch(offset)
-                paged.items += items
-                paged.next = next
-            } catch (error: Exception) {
-                paged.problem = error.toSpotifyProblem().message
-            } finally {
-                paged.loading = false
-            }
-        }
-    }
-    val loadAlbums = { load(albums) { offset -> service.savedAlbums(offset).let { page -> page.items.map { it.toCollection() } to page.nextOffset?.toInt() } } }
-    val loadPlaylists = { load(playlists) { offset -> service.playlists(offset).let { page -> page.items.map { it.toCollection() } to page.nextOffset?.toInt() } } }
-    val loadLiked = { load(liked) { offset -> service.likedSongs(offset).let { page -> page.items.map { it.toPlayableSong() } to page.nextOffset?.toInt() } } }
+    val albums = shelves.albums
+    val playlists = shelves.playlists
+    val liked = shelves.liked
+    val loadAlbums = shelves::loadAlbums
+    val loadPlaylists = shelves::loadPlaylists
+    val loadLiked = shelves::loadLiked
 
     val play = { songs: List<PlayableSong>, index: Int, origin: QueueOrigin, shuffle: Boolean ->
         context.graph.player.play(songs, index, origin, shuffle)
@@ -263,7 +320,8 @@ private fun SpotifySearchResults(
             collections = results.albums.items.map { it.toCollection() } + results.playlists.items.map { it.toCollection() }
         } catch (error: Exception) {
             if (error is kotlinx.coroutines.CancellationException) throw error
-            problem = error.toSpotifyProblem().message
+            Logs.w("Spotify: search didn't load", error)
+            problem = error.toSpotifyProblem().loadMessage
         } finally {
             loading = false
         }
@@ -310,7 +368,8 @@ private fun SpotifyCollectionPage(
             songs = service.songs(uris)
         } catch (error: Exception) {
             if (error is kotlinx.coroutines.CancellationException) throw error
-            problem = error.toSpotifyProblem().message
+            Logs.w("Spotify: ${collection.uri} didn't load", error)
+            problem = error.toSpotifyProblem().loadMessage
         }
     }
     val origin = QueueOrigin(collection.title, collection.kind)
