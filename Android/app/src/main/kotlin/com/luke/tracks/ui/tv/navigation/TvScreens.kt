@@ -23,8 +23,8 @@ object TvScreens {
     var charts: @Composable () -> Unit = { Unfilled("Charts") }
     var history: @Composable () -> Unit = { Unfilled("History") }
     var search: @Composable () -> Unit = { Unfilled("Search") }
-    var settings: @Composable () -> Unit = { Unfilled("Settings") }
-    var settingsPage: @Composable (SettingsPageRoute) -> Unit = { Unfilled("Settings") }
+    var settings: @Composable () -> Unit = { com.luke.tracks.ui.tv.settings.TvSettingsScreen() }
+    var settingsPage: @Composable (SettingsPageRoute) -> Unit = { com.luke.tracks.ui.tv.settings.TvSettingsScreen(initial = it.page) }
 
     var album: @Composable (AlbumRoute) -> Unit = { Unfilled(it.title) }
     var artist: @Composable (ArtistRoute) -> Unit = { Unfilled(it.name) }
@@ -36,10 +36,10 @@ object TvScreens {
     var catalogArtist: @Composable (CatalogArtistRoute) -> Unit = { Unfilled(it.name) }
 
     /** The full-screen player. The shell animates it in and keeps focus inside it. */
-    var nowPlaying: @Composable (onClose: () -> Unit) -> Unit = { Unfilled("Now Playing") }
+    var nowPlaying: @Composable (onClose: () -> Unit) -> Unit = { com.luke.tracks.ui.tv.nowplaying.TvNowPlayingScreen(it) }
 
     /** Wraps the whole shell, for first-run onboarding. */
-    var gate: @Composable (content: @Composable () -> Unit) -> Unit = { it() }
+    var gate: @Composable (content: @Composable () -> Unit) -> Unit = { com.luke.tracks.ui.tv.onboarding.TvOnboardingGate(it) }
 }
 
 /** A screen not built yet: its name, centred, so the shell can be driven end to end. */

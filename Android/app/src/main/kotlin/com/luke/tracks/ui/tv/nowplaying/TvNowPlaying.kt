@@ -93,6 +93,7 @@ import com.luke.tracks.ui.nowplaying.rememberCoverSeed
 import com.luke.tracks.ui.theme.LocalDarkTheme
 import com.luke.tracks.ui.tv.components.ClaimFocus
 import com.luke.tracks.ui.tv.components.TvArtwork
+import com.luke.tracks.ui.tv.components.TvEmptyState
 import com.luke.tracks.ui.tv.components.TvIconButton
 import com.luke.tracks.ui.tv.components.rememberFocus
 import com.luke.tracks.ui.tv.components.rememberFocusMemory
@@ -157,8 +158,17 @@ fun TvNowPlaying(
     onClose: () -> Unit,
 ) {
     val song = state.current
-    LaunchedEffect(song == null) { if (song == null) onClose() }
-    if (song == null) return
+    // The queue running out puts the player away; opened with nothing on, it says so.
+    var had by remember { mutableStateOf(false) }
+    LaunchedEffect(song == null) {
+        if (song != null) had = true else if (had) onClose()
+    }
+    if (song == null) {
+        val memory = rememberFocusMemory()
+        memory.ClaimFocus(fallback = null)
+        TvEmptyState(title = "Nothing Playing")
+        return
+    }
     val seed = rememberCoverSeed(song.artworkUri, song.albumTitle ?: song.title)
     TvTracksTheme(dark = LocalDarkTheme.current, seed = seed) {
         Player(state, song, position, player, radio, marks, onLike, onHearLess)

@@ -4,6 +4,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -26,8 +31,21 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.luke.tracks.ui.tv.components.TvListRow
 import com.luke.tracks.ui.tv.theme.LocalReducedMotion
+import com.luke.tracks.ui.tv.theme.TvLayout
 import com.luke.tracks.ui.tv.theme.TvMotion
 import androidx.compose.material3.MaterialTheme as M3Theme
+
+/** A page's scrolling column, inside the safe area. Panels go beside it, not in it. */
+@Composable
+internal fun PageColumn(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(top = TvLayout.SafeTop, bottom = TvLayout.SafeBottom, end = 8.dp),
+        content = content,
+    )
+}
 
 /** A heading inside a Settings page. */
 @Composable
