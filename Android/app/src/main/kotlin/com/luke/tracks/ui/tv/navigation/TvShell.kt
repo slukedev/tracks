@@ -35,6 +35,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -85,6 +88,23 @@ import com.luke.tracks.ui.tv.theme.TvMotion
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import androidx.compose.material3.MaterialTheme as M3Theme
+
+/**
+ * The open rail's own surface: solid, so nothing on the page reads through its labels, with a
+ * soft shadow falling off its edge onto the page.
+ */
+private fun Modifier.railPanel(color: Color) = drawBehind {
+    val edge = RailEdge.toPx()
+    drawRect(color)
+    drawRect(
+        Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.18f), Color.Transparent), startX = size.width, endX = size.width + edge),
+        topLeft = Offset(size.width, 0f),
+        size = Size(edge, size.height),
+    )
+}
+
+private val RailEdge = 32.dp
 
 private data class NowPlaying(val song: PlayableSong?, val playing: Boolean)
 
@@ -139,10 +159,11 @@ fun TvShell(navigator: TvNavigator, playerState: StateFlow<PlayerState> = LocalC
             ) {
                 ModalNavigationDrawer(
                     drawerState = drawer,
+                    // The page stays in view but steps back while the rail is open.
                     scrimBrush = Brush.horizontalGradient(
-                        0f to MaterialTheme.colorScheme.background.copy(alpha = 0.94f),
-                        0.45f to MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
-                        1f to Color.Transparent,
+                        0f to MaterialTheme.colorScheme.background.copy(alpha = 0.8f),
+                        0.5f to MaterialTheme.colorScheme.background.copy(alpha = 0.6f),
+                        1f to MaterialTheme.colorScheme.background.copy(alpha = 0.45f),
                     ),
                     drawerContent = { value ->
                         Rail(
@@ -174,7 +195,7 @@ private fun NavigationDrawerScope.Rail(
     Column(
         Modifier
             .fillMaxHeight()
-            .then(if (open) Modifier.background(Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.background.copy(alpha = 0f)))) else Modifier)
+            .then(if (open) Modifier.railPanel(M3Theme.colorScheme.surfaceContainer) else Modifier)
             .padding(start = 12.dp, end = 12.dp, top = TvLayout.SafeTop, bottom = TvLayout.SafeBottom)
             .onFocusChanged { if (it.hasFocus) navigator.focus.dropClaim() }
             .focusProperties {
