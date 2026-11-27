@@ -16,6 +16,9 @@ sealed interface LaunchRequest {
     /** A tracks:// link from a shortcut, widget, notification or another app. */
     data class Link(val uri: Uri) : LaunchRequest
 
+    /** tracks://link?server=<id>&code=<user code>: approve linking a TV to that Trackside server. */
+    data class LinkApproval(val serverId: String, val userCode: String) : LaunchRequest
+
     /** A trackside://pair link from a Trackside dashboard. */
     data class Pairing(val link: String) : LaunchRequest
 
@@ -33,12 +36,24 @@ sealed interface LaunchRequest {
                 else -> {
                     val data = intent.data ?: return null
                     when (data.scheme) {
-                        "tracks" -> Link(data)
+                        "tracks" -> if (data.host == "link") linkApproval(data) else Link(data)
                         "trackside" -> Pairing(data.toString())
                         else -> null
                     }
                 }
             }
+        }
+
+        private val serverIdPattern = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+        private val userCodePattern = Regex("([A-Z0-9]{4})-?([A-Z0-9]{4})")
+
+        /** Both parts or nothing: a server id (a UUID, as Trackside gives) and a code shaped as Trackside shows it. */
+        private fun linkApproval(data: Uri): LinkApproval? {
+            val server = runCatching { data.getQueryParameter("server") }.getOrNull() ?: return null
+            val code = runCatching { data.getQueryParameter("code") }.getOrNull() ?: return null
+            if (!serverIdPattern.matches(server)) return null
+            val parts = userCodePattern.matchEntire(code) ?: return null
+            return LinkApproval(server.lowercase(), "${parts.groupValues[1]}-${parts.groupValues[2]}")
         }
 
         /** The query as plain text: control characters gone, spaces trimmed, capped in length. */

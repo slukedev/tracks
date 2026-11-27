@@ -31,8 +31,8 @@ class CombinedLibrary(
     val servers: ServerLibrary,
     private val engine: Engine,
     private val sampleData: Boolean,
-    /** False on TV: the device's files and servers are never read there. */
-    private val localSources: Boolean = true,
+    /** False on TV: the device's music files are never read there. */
+    private val deviceFiles: Boolean = true,
 ) : MusicLibrary {
     private val sampleTracks = MutableStateFlow<List<LibraryTrack>>(emptyList())
     private val sampleFolder = File(context.cacheDir, "sample-music")
@@ -46,10 +46,8 @@ class CombinedLibrary(
 
     @OptIn(FlowPreview::class)
     fun start() {
-        if (localSources) {
-            if (!sampleData) device.start()
-            servers.start()
-        }
+        if (deviceFiles && !sampleData) device.start()
+        servers.start()
         if (sampleData) {
             // The sample history fills in the background at launch; build once it's there.
             scope.launch {
@@ -59,14 +57,12 @@ class CombinedLibrary(
             }
         }
         scope.launch {
-            val none = flowOf(emptyList<LibraryTrack>())
-            val off = flowOf(false)
             combine(
-                if (localSources) device.tracks else none,
-                if (localSources) device.hasPermission else off,
-                if (localSources) device.loading else off,
-                if (localSources) servers.tracks else none,
-                if (localSources) servers.loading else off,
+                if (deviceFiles) device.tracks else flowOf(emptyList()),
+                if (deviceFiles) device.hasPermission else flowOf(false),
+                if (deviceFiles) device.loading else flowOf(false),
+                servers.tracks,
+                servers.loading,
             ) { local, allowed, localLoading, remote, remoteLoading ->
                 Sources(local, allowed, localLoading && !sampleData, remote, remoteLoading)
             }.combine(sampleTracks) { sources, samples -> sources to samples }
@@ -94,8 +90,7 @@ class CombinedLibrary(
     )
 
     override suspend fun refresh() {
-        if (!localSources) return
-        if (!sampleData) device.refresh()
+        if (deviceFiles && !sampleData) device.refresh()
         servers.syncAll()
     }
 

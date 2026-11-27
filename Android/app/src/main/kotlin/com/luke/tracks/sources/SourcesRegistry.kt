@@ -92,7 +92,7 @@ class SourcesRegistry(
     private val spotifyAllowed: Boolean = BuildConfig.SPOTIFY,
     /** The servers once they're read, for writing out an order saved before; null until then. */
     loadedServers: Flow<List<String>?>? = null,
-    /** The kinds this device offers at all; on TV only Apple Music. Others are never registered. */
+    /** The kinds this device offers at all; on TV only servers (Trackside). Others are never registered. */
     private val allowedKinds: Set<SourceKind> = SourceKind.entries.toSet(),
 ) {
     private val providers = MutableStateFlow(builtIn.filter { allows(it.kind) })
@@ -293,8 +293,8 @@ class ServerSourceProvider(
     }
 }
 
-/** TV plays from Apple Music only. */
-val TV_SOURCE_KINDS: Set<SourceKind> = setOf(SourceKind.AppleMusic)
+/** TV plays from Trackside only (Apple Music reaches it through Trackside); see [ServerLibrary]'s tracksideOnly. */
+val TV_SOURCE_KINDS: Set<SourceKind> = setOf(SourceKind.Server)
 
 private val instances = WeakHashMap<AppGraph, SourcesRegistry>()
 private val libraries = WeakHashMap<AppGraph, MusicLibrary>()

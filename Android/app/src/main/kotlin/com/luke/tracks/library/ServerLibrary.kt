@@ -108,6 +108,8 @@ class ServerLibrary(
     private val subsonicTransport: (OkHttpClient, Long?) -> SubsonicTransport = { http, timeout -> OkHttpTransport(http, timeout) },
     /** Which home network the phone is on ([NetworkWatcher.identity]). */
     private val networkIdentity: () -> String? = { network?.identity() },
+    /** On TV only Trackside servers are used; Subsonic ones stay saved but untouched. */
+    private val tracksideOnly: Boolean = false,
 ) {
     private val cacheDir = File(context.filesDir, "servers")
     private val songs = MutableStateFlow<Map<String, List<SubsonicSong>>>(emptyMap())
@@ -153,7 +155,7 @@ class ServerLibrary(
     fun start() {
         scope.launch {
             settings.settings.map { it.subsonicServers }.distinctUntilChanged().collect { raw ->
-                val servers = parse(raw)
+                val servers = parse(raw).filter { !tracksideOnly || it.isTrackside }
                 mutex.withLock {
                     connect(servers)
                     val cached = withContext(Dispatchers.IO) { servers.associate { it.id to readCache(it.id) } }

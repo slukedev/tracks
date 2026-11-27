@@ -87,6 +87,8 @@ class MainActivity : ComponentActivity() {
                 navigator.open(com.luke.tracks.ui.navigation.SettingsPageRoute("servers"))
             }
             is LaunchRequest.Link -> open(request.uri)
+            // A TV is linked from its own screen, never approves another.
+            is LaunchRequest.LinkApproval -> if (!tv) navigation.openLinkApproval(request.serverId, request.userCode)
         }
     }
 
