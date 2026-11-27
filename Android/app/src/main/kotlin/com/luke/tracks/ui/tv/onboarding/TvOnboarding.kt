@@ -135,7 +135,7 @@ private fun Welcome(onNext: () -> Unit) {
         Cassette(Modifier.width(260.dp))
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Welcome to Tracks", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.onSurface)
-            Text("Play your music and keep a record of every song.", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Play your music and keep a record of every song.", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(400.dp))
             TvButton("Get Started", onClick = onNext, style = TvButtonStyle.Primary, modifier = Modifier.padding(top = 24.dp).focusRequester(first))
         }
     }

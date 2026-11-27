@@ -29,7 +29,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.foundation.text.input.maxLength
+import androidx.compose.foundation.text.input.maxLengthTrim
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.text.KeyboardOptions
@@ -255,7 +255,7 @@ private fun Field(field: TextFieldState, memory: FocusMemory) {
     ) {
         BasicTextField(
             state = field,
-            inputTransformation = InputTransformation.maxLength(MaxQuery),
+            inputTransformation = InputTransformation.maxLengthTrim(MaxQuery),
             lineLimits = TextFieldLineLimits.SingleLine,
             textStyle = MaterialTheme.typography.titleLarge.copy(color = scheme.onSurface),
             cursorBrush = SolidColor(scheme.primary),

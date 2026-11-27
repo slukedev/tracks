@@ -40,9 +40,9 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.ThumbDown
-import androidx.compose.material.icons.rounded.ThumbDownOffAlt
+import androidx.compose.material.icons.outlined.ThumbDown as OutlinedThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
-import androidx.compose.material.icons.rounded.ThumbUpOffAlt
+import androidx.compose.material.icons.outlined.ThumbUp as OutlinedThumbUp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -54,7 +54,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -315,8 +314,7 @@ private fun Cover(song: PlayableSong, playing: Boolean) {
             .graphicsLayer {
                 scaleX = settle
                 scaleY = settle
-            }
-            .shadow(if (playing) 32.dp else 12.dp, RoundedCornerShape(24.dp), clip = false),
+            },
     ) {
         AnimatedContent(
             targetState = song,
@@ -436,9 +434,9 @@ private fun Secondary(
             }
             if (radio != null && radio.isPick(song)) {
                 val asked = song.identity in radio.askedMoreLike
-                Action("more", if (asked) Icons.Rounded.ThumbUp else Icons.Rounded.ThumbUpOffAlt, "More Like This", selected = asked, enabled = !asked, onClick = player::playMoreLikeThis)
+                Action("more", if (asked) Icons.Rounded.ThumbUp else Icons.Outlined.OutlinedThumbUp, "More Like This", selected = asked, enabled = !asked, onClick = player::playMoreLikeThis)
             }
-            Action("less", if (marks.hidden) Icons.Rounded.ThumbDown else Icons.Rounded.ThumbDownOffAlt, if (marks.hidden) "Hear Again" else "Hear Less", selected = marks.hidden) {
+            Action("less", if (marks.hidden) Icons.Rounded.ThumbDown else Icons.Outlined.OutlinedThumbDown, if (marks.hidden) "Hear Again" else "Hear Less", selected = marks.hidden) {
                 onHearLess(song.identity, !marks.hidden)
             }
             Action("queue", Icons.AutoMirrored.Rounded.QueueMusic, "Up Next", onClick = onQueue)

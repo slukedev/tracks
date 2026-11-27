@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -335,7 +336,7 @@ fun LinkCodeContent(
                 is LinkStep.Failed -> Box(Modifier.size(QrSize).background(M3Theme.colorScheme.surfaceContainerHigh, RoundedCornerShape(20.dp)))
             }
         }
-        Column(Modifier.width(300.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1f, fill = false).widthIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(serverName, style = MaterialTheme.typography.titleMedium, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             when (step) {
                 LinkStep.Starting, is LinkStep.Showing -> {
@@ -369,9 +370,9 @@ fun LinkCodeContent(
                         onClick = onOtherServer,
                         modifier = Modifier.focusRequester(first).onFocusChanged { onOther = it.isFocused },
                     )
+                    footer?.invoke()
                 }
             }
-            footer?.let { Box(Modifier.padding(top = 6.dp)) { it() } }
         }
     }
 }

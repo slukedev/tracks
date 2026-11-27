@@ -151,6 +151,13 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
         snap("settings-about") { Claimed { TvSettingsScreen("about") } }
     }
 
+    @Test fun settingsLinkCode() {
+        show { Claimed { TvSettingsScreen("trackside") } }
+        press(listOf(Key.DirectionRight, Key.DirectionCenter))
+        settle(1_000)
+        capture("settings-trackside-code")
+    }
+
     @Test fun settingsIntoThePage() {
         show { Claimed { TvSettingsScreen("appearance") } }
         press(listOf(Key.DirectionRight, Key.DirectionDown))

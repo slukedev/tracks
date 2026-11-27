@@ -79,8 +79,10 @@ fun TvAppearanceContent(settings: AppSettings, update: (transform: (AppSettings)
         }
         PageHeading("Colors")
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TvChip("Default", selected = settings.colors == ColorChoice.Wallpaper, onClick = { update { it.copy(colors = ColorChoice.Wallpaper) } })
-            TvChip("Custom", selected = settings.colors == ColorChoice.Custom, onClick = { update { it.copy(colors = ColorChoice.Custom) } })
+            listOf(ColorChoice.Wallpaper to "Default", ColorChoice.Custom to "Custom").forEach { (choice, label) ->
+                val picked = settings.colors == choice
+                TvChip(label, selected = picked, onClick = { update { it.copy(colors = choice) } }, icon = if (picked) Icons.Rounded.Check else null)
+            }
         }
         if (settings.colors == ColorChoice.Custom) {
             FlowRow(
@@ -98,7 +100,8 @@ fun TvAppearanceContent(settings: AppSettings, update: (transform: (AppSettings)
             PageHeading("Style")
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StyleOptions.forEach { style ->
-                    TvChip(styleName(style), selected = settings.paletteStyle == style, onClick = { update { it.copy(paletteStyle = style) } })
+                    val picked = settings.paletteStyle == style
+                    TvChip(styleName(style), selected = picked, onClick = { update { it.copy(paletteStyle = style) } }, icon = if (picked) Icons.Rounded.Check else null)
                 }
             }
         }
