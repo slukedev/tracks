@@ -7,12 +7,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,23 +39,28 @@ import com.luke.tracks.ui.settings.StatusHero
 import com.luke.tracks.ui.settings.Tone
 import com.luke.tracks.ui.tv.link.LinkException
 import com.luke.tracks.ui.tv.link.LinkProblem
+import com.luke.tracks.ui.tv.link.LinkRequest
 import com.luke.tracks.ui.tv.link.LocalTvLinker
+import com.luke.tracks.ui.tv.link.normalizedUserCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /** Where approving a TV stands. */
 sealed interface Approval {
-    data object Asking : Approval
-    data object Approving : Approval
+    /** Waiting for a code to be typed. */
+    data object Typing : Approval
+    data object LookingUp : Approval
+    data class Asking(val request: LinkRequest, val busy: Boolean = false) : Approval
     data class Linked(val deviceName: String) : Approval
+    data class Denied(val deviceName: String) : Approval
     data class Failed(val problem: LinkProblem) : Approval
 }
 
 /**
- * Approves a TV linking to a Trackside server this phone is paired with, from a tracks://link
- * QR or typed from the server's source page ([userCode] null asks for it). Only for a paired
- * server: anything else says so and goes back.
+ * Approves or turns down a TV linking to a Trackside server this phone is paired with, from a
+ * tracks://link QR or a code typed from the server's page ([userCode] null asks for it). It
+ * looks the code up first, so the TV's name shows before anything is approved.
  */
 @Composable
 fun LinkApprovalPage(serverId: String, userCode: String?, onDone: () -> Unit) {
@@ -65,99 +71,135 @@ fun LinkApprovalPage(serverId: String, userCode: String?, onDone: () -> Unit) {
     val servers = (graph.library as? CombinedLibrary)?.servers
     val entries by remember(servers) { servers?.entries ?: MutableStateFlow(emptyList()) }.collectAsState()
     val server = entries.firstOrNull { it.server.isTrackside && (it.server.serverUuid.equals(serverId, ignoreCase = true) || it.server.id == serverId) }?.server
-    var approval by remember { mutableStateOf<Approval>(Approval.Asking) }
+    val target = server?.serverUuid ?: server?.id
+    var code by rememberSaveable { mutableStateOf(userCode?.let(::normalizedUserCode)) }
+    var approval by remember { mutableStateOf<Approval>(if (code == null) Approval.Typing else Approval.LookingUp) }
+    var attempt by remember { mutableStateOf(0) }
+
+    fun run(step: suspend () -> Approval) {
+        scope.launch {
+            approval = try {
+                step()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: LinkException) {
+                haptics.performHapticFeedback(HapticFeedbackType.Reject)
+                Approval.Failed(error.problem)
+            } catch (_: Exception) {
+                Approval.Failed(LinkProblem.Offline)
+            }
+        }
+    }
+    LaunchedEffect(target, code, attempt) {
+        val id = target ?: return@LaunchedEffect
+        val typed = code ?: return@LaunchedEffect
+        approval = Approval.LookingUp
+        run { Approval.Asking(linker.lookUp(id, typed).clean()) }
+    }
+
     LinkApprovalContent(
         serverName = server?.name,
-        userCode = userCode,
+        userCode = code,
         approval = approval,
-        onApprove = { code ->
-            val paired = server ?: return@LinkApprovalContent
-            approval = Approval.Approving
-            scope.launch {
-                approval = try {
-                    Approval.Linked(linker.approve(paired.serverUuid ?: paired.id, code).trim().take(80).ifEmpty { "TV" }).also {
-                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                    }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: LinkException) {
-                    Approval.Failed(error.problem)
-                } catch (_: Exception) {
-                    Approval.Failed(LinkProblem.Offline)
-                }
+        onCode = { code = it },
+        onRetry = { attempt++ },
+        onApprove = {
+            val asking = approval as? Approval.Asking ?: return@LinkApprovalContent
+            val id = target ?: return@LinkApprovalContent
+            val typed = code ?: return@LinkApprovalContent
+            approval = asking.copy(busy = true)
+            run {
+                Approval.Linked(linker.approve(id, typed).clean().deviceName).also { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
             }
+        },
+        onDeny = {
+            val asking = approval as? Approval.Asking ?: return@LinkApprovalContent
+            val id = target ?: return@LinkApprovalContent
+            val typed = code ?: return@LinkApprovalContent
+            approval = asking.copy(busy = true)
+            run { Approval.Denied(linker.deny(id, typed).clean().deviceName) }
         },
         onDone = onDone,
     )
 }
 
+/** Only what's safe to show of what the server says about the TV. */
+private fun LinkRequest.clean() = copy(
+    deviceName = deviceName.filterNot { it.isISOControl() }.trim().take(80).ifEmpty { "TV" },
+    platform = platform.filterNot { it.isISOControl() }.trim().take(40),
+)
+
 /** The page from plain values, for screenshots. */
 @Composable
-fun LinkApprovalContent(serverName: String?, userCode: String?, approval: Approval, onApprove: (String) -> Unit, onDone: () -> Unit) {
+fun LinkApprovalContent(
+    serverName: String?,
+    userCode: String?,
+    approval: Approval,
+    onCode: (String) -> Unit,
+    onRetry: () -> Unit,
+    onApprove: () -> Unit,
+    onDeny: () -> Unit,
+    onDone: () -> Unit,
+) {
     var typed by rememberSaveable { mutableStateOf("") }
-    val code = userCode ?: normalized(typed)
     SettingsScaffold(title = "Link a TV") {
         item(key = "hero") {
+            val done: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = { Button(onClick = onDone) { Text("Done") } }
             when {
-                serverName == null -> StatusHero(
-                    icon = Icons.Rounded.Tv,
-                    shape = MaterialShapes.Cookie9Sided,
-                    tone = Tone.Error,
-                    headline = "Pair this phone with that server first",
-                    actions = { Button(onClick = onDone) { Text("Done") } },
-                )
-                approval is Approval.Linked -> StatusHero(
-                    icon = Icons.Rounded.Tv,
-                    shape = MaterialShapes.Cookie9Sided,
-                    tone = Tone.Primary,
-                    headline = "${approval.deviceName} is linked",
-                    actions = { Button(onClick = onDone) { Text("Done") } },
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                )
-                else -> StatusHero(
-                    icon = Icons.Rounded.Tv,
-                    shape = MaterialShapes.Cookie9Sided,
-                    tone = if (approval is Approval.Failed) Tone.Error else Tone.Secondary,
-                    headline = if (userCode != null) "Link a TV to $serverName?" else "Enter the code on your TV",
-                    body = (approval as? Approval.Failed)?.problem?.message,
+                serverName == null -> Hero(Tone.Error, "Pair this phone with that server first", actions = done)
+                approval is Approval.Linked -> Hero(Tone.Primary, "${approval.deviceName} is linked", actions = done)
+                approval is Approval.Denied -> Hero(Tone.Neutral, "${approval.deviceName} wasn't linked", actions = done)
+                approval is Approval.Failed -> Hero(Tone.Error, approval.problem.message, actions = {
+                    if (approval.problem == LinkProblem.Offline) OutlinedButton(onClick = onRetry) { Text("Try again") }
+                    Button(onClick = onDone) { Text("Done") }
+                })
+                approval is Approval.Asking -> Hero(
+                    tone = if (approval.request.nearby) Tone.Secondary else Tone.Error,
+                    headline = "Link ${approval.request.deviceName} to $serverName?",
+                    body = if (approval.request.nearby) null else "This TV isn't on your network.",
                     actions = {
-                        Button(
-                            onClick = { code?.let(onApprove) },
-                            enabled = code != null && approval != Approval.Approving,
-                        ) { Text(if (approval == Approval.Approving) "Approving…" else "Approve") }
-                        OutlinedButton(onClick = onDone, colors = ButtonDefaults.outlinedButtonColors()) { Text("Cancel") }
+                        Button(onClick = onApprove, enabled = !approval.busy) { Text("Approve") }
+                        OutlinedButton(onClick = onDeny, enabled = !approval.busy) { Text("Deny") }
                     },
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
+                approval == Approval.LookingUp -> Hero(Tone.Secondary, "Finding the TV…")
+                else -> Hero(Tone.Secondary, "Enter the code on your TV", actions = {
+                    Button(onClick = { normalizedUserCode(typed)?.let(onCode) }, enabled = normalizedUserCode(typed) != null) { Text("Continue") }
+                    OutlinedButton(onClick = onDone) { Text("Cancel") }
+                })
+            }
+        }
+        if (serverName != null && approval is Approval.Typing) {
+            item(key = "field") {
+                OutlinedTextField(
+                    value = typed,
+                    onValueChange = { typed = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '-' || c == ' ' }.take(10) },
+                    label = { Text("Code") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { normalizedUserCode(typed)?.let(onCode) }),
+                    textStyle = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
-        if (serverName != null && approval !is Approval.Linked) {
+        if (serverName != null && userCode != null && (approval is Approval.Asking || approval == Approval.LookingUp)) {
             item(key = "code") {
-                if (userCode != null) {
-                    Text(
-                        userCode,
-                        style = androidx.compose.material3.MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Monospace),
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    )
-                } else {
-                    OutlinedTextField(
-                        value = typed,
-                        onValueChange = { typed = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '-' }.take(9) },
-                        label = { Text("Code") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false, imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { code?.let(onApprove) }),
-                        textStyle = androidx.compose.material3.MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Monospace),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                Text(userCode, style = MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.padding(horizontal = 8.dp))
             }
         }
     }
 }
 
-/** "Q7RM4X2K" or "q7rm-4x2k" as Trackside shows it, "Q7RM-4X2K"; null until it's whole. */
-fun normalized(text: String): String? {
-    val plain = text.uppercase().filter { it in 'A'..'Z' || it in '0'..'9' }
-    return if (plain.length == 8) plain.take(4) + "-" + plain.drop(4) else null
+@Composable
+private fun Hero(tone: Tone, headline: String, body: String? = null, actions: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? = null) {
+    StatusHero(
+        icon = Icons.Rounded.Tv,
+        shape = MaterialShapes.Cookie9Sided,
+        tone = tone,
+        headline = headline,
+        body = body,
+        actions = actions,
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+    )
 }

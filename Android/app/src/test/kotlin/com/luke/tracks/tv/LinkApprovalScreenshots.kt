@@ -4,6 +4,7 @@ import com.luke.tracks.ScreenshotTest
 import com.luke.tracks.ui.link.Approval
 import com.luke.tracks.ui.link.LinkApprovalContent
 import com.luke.tracks.ui.tv.link.LinkProblem
+import com.luke.tracks.ui.tv.link.LinkRequest
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import com.luke.tracks.ui.navigation.LocalNavigator
@@ -17,27 +18,25 @@ class LinkApprovalScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         CompositionLocalProvider(LocalNavigator provides Navigator()) { content() }
     }
 
-    @Test fun fromTheQr() = snap("link-approve-asking") {
-        Phone { LinkApprovalContent("Living Room Server", "Q7RM-4X2K", Approval.Asking, {}, {}) }
-    }
+    private val request = LinkRequest("Living Room TV", "android_tv", nearby = true)
 
-    @Test fun typed() = snap("link-approve-typed") {
-        Phone { LinkApprovalContent("Living Room Server", null, Approval.Asking, {}, {}) }
-    }
+    @Composable
+    private fun Shot(code: String?, approval: Approval, server: String? = "Living Room Server") =
+        Phone { LinkApprovalContent(server, code, approval, {}, {}, {}, {}, {}) }
 
-    @Test fun approving() = snap("link-approve-approving") {
-        Phone { LinkApprovalContent("Living Room Server", "Q7RM-4X2K", Approval.Approving, {}, {}) }
-    }
+    @Test fun asking() = snap("link-approve-asking") { Shot("Q7RM-4X2K", Approval.Asking(request)) }
 
-    @Test fun linked() = snap("link-approve-linked") {
-        Phone { LinkApprovalContent("Living Room Server", "Q7RM-4X2K", Approval.Linked("Living Room TV"), {}, {}) }
-    }
+    @Test fun farAway() = snap("link-approve-far") { Shot("Q7RM-4X2K", Approval.Asking(request.copy(nearby = false))) }
 
-    @Test fun failed() = snap("link-approve-failed") {
-        Phone { LinkApprovalContent("Living Room Server", "Q7RM-4X2K", Approval.Failed(LinkProblem.NeedsUpdate), {}, {}) }
-    }
+    @Test fun lookingUp() = snap("link-approve-looking") { Shot("Q7RM-4X2K", Approval.LookingUp) }
 
-    @Test fun notPaired() = snap("link-approve-not-paired") {
-        Phone { LinkApprovalContent(null, "Q7RM-4X2K", Approval.Asking, {}, {}) }
-    }
+    @Test fun typed() = snap("link-approve-typed") { Shot(null, Approval.Typing) }
+
+    @Test fun linked() = snap("link-approve-linked") { Shot("Q7RM-4X2K", Approval.Linked("Living Room TV")) }
+
+    @Test fun denied() = snap("link-approve-denied") { Shot("Q7RM-4X2K", Approval.Denied("Living Room TV")) }
+
+    @Test fun expired() = snap("link-approve-expired") { Shot("Q7RM-4X2K", Approval.Failed(LinkProblem.CodeExpired)) }
+
+    @Test fun notPaired() = snap("link-approve-not-paired") { Shot("Q7RM-4X2K", Approval.LookingUp, server = null) }
 }

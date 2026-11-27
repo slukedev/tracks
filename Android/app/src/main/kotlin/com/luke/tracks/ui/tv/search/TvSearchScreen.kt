@@ -26,7 +26,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.maxLength
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.History
@@ -38,7 +43,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -102,8 +106,9 @@ private const val MaxQuery = 200
 fun TvSearchScreen() {
     val graph = LocalContext.current.graph
     val navigator = LocalTvNavigator.current
-    var query by rememberSaveable { mutableStateOf("") }
-    LaunchedEffect(Unit) { navigator.consumeSearchQuery()?.let { query = it } }
+    val field = rememberTextFieldState()
+    LaunchedEffect(Unit) { navigator.consumeSearchQuery()?.let(field::setTextAndPlaceCursorAtEnd) }
+    val query = field.text.toString()
     // Asked for only after a short pause in typing, so each key doesn't start a search.
     var settled by remember { mutableStateOf(query) }
     LaunchedEffect(query) {
@@ -116,12 +121,14 @@ fun TvSearchScreen() {
     }
     val keepAll = remember { { _: PlayableSong -> true } }
     val library = rememberLibraryFound(settled, { graph.library.index.value }, keepAll)
-    TvSearchContent(query, onQuery = { query = it.take(MaxQuery) }, settled = settled, library = library, history = history)
+    TvSearchContent(field, settled = settled, library = library, history = history)
 }
 
 @Composable
-fun TvSearchContent(query: String, onQuery: (String) -> Unit, settled: String, library: LibraryFound, history: SearchResults?) {
+fun TvSearchContent(field: TextFieldState, settled: String, library: LibraryFound, history: SearchResults?) {
     val context = LocalContext.current
+    val query = field.text
+    val onQuery: (String) -> Unit = { field.setTextAndPlaceCursorAtEnd(it) }
     val memory = rememberFocusMemory()
     val recents = remember(context) { RecentSearches(context) }
     memory.ClaimFocus(memory.requester("field"))
@@ -135,7 +142,7 @@ fun TvSearchContent(query: String, onQuery: (String) -> Unit, settled: String, l
         contentPadding = PaddingValues(top = TvLayout.SafeTop, bottom = TvLayout.SafeBottom + 16.dp),
         verticalArrangement = Arrangement.spacedBy(TvLayout.SectionSpacing - 16.dp),
     ) {
-        item(key = "field") { Field(query, onQuery, memory) }
+        item(key = "field") { Field(field, memory) }
         when {
             query.isBlank() -> if (recents.items.isNotEmpty()) item(key = "recents") {
                 Column {
@@ -226,7 +233,7 @@ private sealed interface Played {
  * the system's voice search, where the TV has one.
  */
 @Composable
-private fun Field(query: String, onQuery: (String) -> Unit, memory: FocusMemory) {
+private fun Field(field: TextFieldState, memory: FocusMemory) {
     val scheme = MaterialTheme.colorScheme
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -239,7 +246,7 @@ private fun Field(query: String, onQuery: (String) -> Unit, memory: FocusMemory)
     val listen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
         val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-        if (!spoken.isNullOrBlank()) onQuery(spoken.filterNot { it.isISOControl() })
+        if (!spoken.isNullOrBlank()) field.setTextAndPlaceCursorAtEnd(spoken.filterNot { it.isISOControl() }.take(MaxQuery))
     }
     Row(
         Modifier.fillMaxWidth().padding(start = TvLayout.ContentStart, end = TvLayout.SafeEnd, top = 4.dp),
@@ -247,13 +254,13 @@ private fun Field(query: String, onQuery: (String) -> Unit, memory: FocusMemory)
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         BasicTextField(
-            value = query,
-            onValueChange = onQuery,
-            singleLine = true,
+            state = field,
+            inputTransformation = InputTransformation.maxLength(MaxQuery),
+            lineLimits = TextFieldLineLimits.SingleLine,
             textStyle = MaterialTheme.typography.titleLarge.copy(color = scheme.onSurface),
             cursorBrush = SolidColor(scheme.primary),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, showKeyboardOnFocus = false),
-            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide(); focusManager.moveFocus(FocusDirection.Down) }),
+            onKeyboardAction = { keyboard?.hide(); focusManager.moveFocus(FocusDirection.Down) },
             modifier = Modifier
                 .weight(1f)
                 .rememberFocus(memory, "field")
@@ -267,7 +274,7 @@ private fun Field(query: String, onQuery: (String) -> Unit, memory: FocusMemory)
                     }
                 }
                 .semantics { contentDescription = "Search" },
-            decorationBox = { inner ->
+            decorator = { inner ->
                 Row(
                     Modifier
                         .height(56.dp)
@@ -279,7 +286,7 @@ private fun Field(query: String, onQuery: (String) -> Unit, memory: FocusMemory)
                     Icon(Icons.Rounded.Search, null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(26.dp))
                     Spacer(Modifier.width(14.dp))
                     Box(Modifier.weight(1f)) {
-                        if (query.isEmpty()) Text("Songs, Artists and Albums", style = MaterialTheme.typography.titleLarge, color = scheme.onSurfaceVariant, maxLines = 1)
+                        if (field.text.isEmpty()) Text("Songs, Artists and Albums", style = MaterialTheme.typography.titleLarge, color = scheme.onSurfaceVariant, maxLines = 1)
                         inner()
                     }
                 }

@@ -11,6 +11,7 @@ import com.luke.tracks.ui.tv.link.LinkException
 import com.luke.tracks.ui.tv.link.LinkOffer
 import com.luke.tracks.ui.tv.link.LinkPoll
 import com.luke.tracks.ui.tv.link.LinkProblem
+import com.luke.tracks.ui.tv.link.LinkRequest
 import com.luke.tracks.ui.tv.link.LinkServer
 import com.luke.tracks.ui.tv.link.TvLinker
 import kotlinx.coroutines.flow.Flow
@@ -85,6 +86,7 @@ class FakeLinker(
     var starts = 0
     var pollCount = 0
     val approved = mutableListOf<String>()
+    private val request = LinkRequest("Living Room TV", "android_tv", nearby = true)
 
     override suspend fun start(server: LinkServer): LinkOffer {
         startProblem?.let { throw LinkException(it) }
@@ -93,10 +95,14 @@ class FakeLinker(
 
     override suspend fun poll(offer: LinkOffer): LinkPoll = polls[minOf(pollCount++, polls.lastIndex)]
 
-    override suspend fun approve(serverId: String, userCode: String): String {
+    override suspend fun lookUp(serverId: String, userCode: String) = request
+
+    override suspend fun approve(serverId: String, userCode: String): LinkRequest {
         approved += userCode
-        return "Living Room TV"
+        return request
     }
+
+    override suspend fun deny(serverId: String, userCode: String) = request
 }
 
 class FakeDirectory(servers: List<LinkServer>, private val found: LinkServer? = null) : LinkDirectory {

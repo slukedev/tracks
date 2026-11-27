@@ -166,7 +166,7 @@ fun TvSummaryContent(data: SummaryData?, kind: PeriodKind, onKind: (PeriodKind) 
             return
         }
     }
-    val d = data!!
+    val d = data
     memory.ClaimFocus(memory.requester("period:${kind.name}"))
     TvShelfScroll { LazyColumn(
         state = rememberLazyListState(),

@@ -110,7 +110,7 @@ class TvContentScreenshots(dark: Boolean) : TvScreenshotTest(dark) {
     }
 
     @Test
-    @Config(qualifiers = "w960dp-h540dp-land-television-tvdpi")
+    @Config(qualifiers = "w640dp-h360dp-land-television-mdpi")
     fun play720p() {
         withSampleHistory()
         library()

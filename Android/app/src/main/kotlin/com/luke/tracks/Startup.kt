@@ -59,7 +59,7 @@ object Startup {
         // Last.fm scrobbling, widgets, shortcuts and notification channels; none of them on TV.
         com.luke.tracks.system.SystemIntegration.start(app, graph)
         // Trackside Cloud sync, and each Trackside server's listens, now playing and live events.
-        if (!tv) com.luke.tracks.sync.CloudSync.install(graph, servers).start()
+        com.luke.tracks.sync.CloudSync.install(graph, servers).start()
         com.luke.tracks.library.trackside.TracksideServices.install(graph, servers).start()
     }
 }

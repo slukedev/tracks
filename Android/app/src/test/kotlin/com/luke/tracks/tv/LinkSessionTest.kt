@@ -46,11 +46,11 @@ class LinkSessionTest {
         assertEquals(3, linker.pollCount)
     }
 
-    @Test fun waitsTheIntervalAndFiveSecondsMoreForEachSlowDown() = runTest {
-        val linker = Timed(this, FakeLinker(polls = listOf(LinkPoll.Pending, LinkPoll.SlowDown, LinkPoll.Pending, LinkPoll.SlowDown, LinkPoll.Linked("S"))))
+    @Test fun waitsTheIntervalThenLongerForEachSlowDown() = runTest {
+        val linker = Timed(this, FakeLinker(polls = listOf(LinkPoll.Pending, LinkPoll.SlowDown(5), LinkPoll.Pending, LinkPoll.SlowDown(30), LinkPoll.Linked("S"))))
         linkSteps(linker, TvLinkDemo.server, clock()).toList()
         val gaps = linker.pollTimes.zipWithNext { a, b -> b - a }
-        assertEquals(listOf(5_000L, 10_000L, 10_000L, 15_000L), gaps)
+        assertEquals(listOf(5_000L, 10_000L, 10_000L, 30_000L), gaps)
         assertEquals(5_000L, linker.pollTimes.first())
     }
 

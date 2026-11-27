@@ -54,7 +54,7 @@ fun linkSteps(linker: TvLinker, server: LinkServer, now: () -> Instant = Instant
             }
             when (answer) {
                 LinkPoll.Pending -> Unit
-                LinkPoll.SlowDown -> waitMs = (waitMs + SlowDownMs).coerceAtMost(MaxWaitMs)
+                is LinkPoll.SlowDown -> waitMs = maxOf(waitMs + SlowDownMs, answer.intervalSeconds * 1000L).coerceAtMost(MaxWaitMs)
                 LinkPoll.Expired -> break
                 LinkPoll.Denied -> {
                     emit(LinkStep.Failed(LinkProblem.Denied))
@@ -87,7 +87,7 @@ private suspend fun FlowCollector<LinkStep>.attempt(start: suspend () -> LinkOff
 /** Only what Trackside sends: a code shaped as it shows one, its own link, sane timing. */
 internal fun LinkOffer.isValid(now: Instant): Boolean =
     deviceCode.isNotBlank() && deviceCode.length <= 512 &&
-        UserCode.matches(userCode) &&
+        normalizedUserCode(userCode) == userCode &&
         intervalSeconds in 1..MaxIntervalSeconds &&
         expiresAt.isAfter(now)
 
@@ -96,7 +96,6 @@ internal fun LinkOffer.qrLink(): String? = linkUrl.takeIf {
     it.length <= 512 && it.startsWith("tracks://link?") && it.contains(userCode) && it.none { c -> c.isWhitespace() || c.isISOControl() }
 }
 
-private val UserCode = Regex("[A-Z0-9]{4}-[A-Z0-9]{4}")
 private const val MaxIntervalSeconds = 60
 private const val SlowDownMs = 5_000L
 private const val MaxWaitMs = 60_000L
