@@ -164,6 +164,8 @@ data class TracksideCapabilities(
         @SerialName("password_login") val passwordLogin: Boolean? = null,
         val pairing: Boolean? = null,
         @SerialName("pair_requests") val pairRequests: Boolean? = null,
+        /** A TV can link with a short code that a signed-in phone approves. */
+        @SerialName("device_link") val deviceLink: Boolean? = null,
     )
 }
 
@@ -192,11 +194,17 @@ data class TracksideDeviceInfo(
     /** Stays the same for this install, so signing in again replaces this device's key. */
     @SerialName("client_device_id") val clientDeviceId: String,
     val name: String,
-    val platform: String = "android",
+    /** [ANDROID], or [ANDROID_TV] on a TV. */
+    val platform: String = ANDROID,
     val model: String? = null,
     @SerialName("app_name") val appName: String? = "Tracks",
     @SerialName("app_version") val appVersion: String? = null,
-)
+) {
+    companion object {
+        const val ANDROID = "android"
+        const val ANDROID_TV = "android_tv"
+    }
+}
 
 @Serializable
 data class TracksideDevice(val id: String, val name: String = "")
@@ -267,6 +275,68 @@ data class TracksidePairPoll(
     val state: String,
     val result: TracksidePairResult? = null,
 )
+
+@Serializable
+internal data class TracksideLinkStartBody(val device: TracksideDeviceInfo)
+
+/** A link this TV asked for: show [userCode] and a QR of [linkUrl], poll with [deviceCode]. */
+@Serializable
+data class TracksideLinkStart(
+    /** Secret: only this TV knows it. Keep it in memory; never log it. */
+    @SerialName("device_code") val deviceCode: String,
+    /** "WDJB-MJHT". */
+    @SerialName("user_code") val userCode: String,
+    /** Usually an https address; a bare path when the server knows none of its own. */
+    @SerialName("verification_url") val verificationUrl: String,
+    /** tracks://link?server=<server_id>&code=<user_code>, for the QR. */
+    @SerialName("link_url") val linkUrl: String,
+    @SerialName("interval_s") val intervalS: Long = 5,
+    @SerialName("expires_at") val expiresAt: String,
+) {
+    /** The code is a secret too, so it never reaches a log. */
+    override fun toString() = "TracksideLinkStart(userCode=$userCode, expiresAt=$expiresAt)"
+}
+
+@Serializable
+internal data class TracksideLinkPollBody(@SerialName("device_code") val deviceCode: String)
+
+@Serializable
+internal data class TracksideLinkCodeBody(@SerialName("user_code") val userCode: String)
+
+/** What a code would link, so the person confirms it before approving. */
+@Serializable
+data class TracksideLinkInfo(
+    /** "pending", "approved", "denied". */
+    val state: String,
+    val device: Device,
+    /** False: the TV asked from outside the home network. Say so before approving. */
+    val nearby: Boolean = false,
+    @SerialName("requested_at") val requestedAt: String,
+    @SerialName("expires_at") val expiresAt: String,
+) {
+    @Serializable
+    data class Device(
+        val name: String,
+        val platform: String = "other",
+        val model: String? = null,
+        @SerialName("app_name") val appName: String? = null,
+    )
+}
+
+/** One poll's answer. Only [Linked] carries credentials, and only once. */
+sealed interface TracksideLinkPoll {
+    data class Linked(val result: TracksidePairResult) : TracksideLinkPoll
+    data object Pending : TracksideLinkPoll
+    /** Poll every [intervalS] seconds from now on. */
+    data class SlowDown(val intervalS: Long) : TracksideLinkPoll
+    data object Denied : TracksideLinkPoll
+    /** Expired, already collected or unknown: start a new link. */
+    data object Expired : TracksideLinkPoll
+}
+
+/** The `device_linked` event: a TV this person approved collected its key. */
+@Serializable
+data class TracksideDeviceLinkedEvent(val id: String, val name: String = "", val platform: String = "other")
 
 /** `GET /api/v1/server/urls`: where the server can be reached now. The ETag is [version]. */
 @Serializable
@@ -596,5 +666,7 @@ internal data class TracksideErrorEnvelope(val error: Body) {
         @SerialName("speaker_id") val speakerId: String? = null,
         /** With `https_required`: the server's https addresses, to try before any it listed earlier. */
         @SerialName("https_urls") val httpsUrls: List<TracksideServerUrl>? = null,
+        /** With `slow_down`: the interval to poll at from now on. */
+        @SerialName("interval_s") val intervalS: Long? = null,
     )
 }

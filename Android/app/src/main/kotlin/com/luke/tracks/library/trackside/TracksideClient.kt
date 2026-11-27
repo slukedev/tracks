@@ -5,6 +5,7 @@ import com.luke.tracks.net.Http
 import com.luke.tracks.net.Nearby
 import com.luke.tracks.net.ServerEndpoints
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import okhttp3.HttpUrl
@@ -53,6 +54,12 @@ sealed class TracksideError(message: String) : Exception(message) {
     data object InsecureAddress : TracksideError("This address isn't encrypted. Use https, or your home network address.")
     /** The server refused a password or key sent over plain http from beyond the home network. */
     data object HttpsRequired : TracksideError("Your server only signs in over https from outside your home network. Use its https address.")
+    /** A TV's code was right, but its link ran out. */
+    data object LinkExpired : TracksideError("That code has expired. Get a new one on the TV.")
+    /** Too many wrong codes reached this TV's link first, so it can't be approved. */
+    data object LinkLocked : TracksideError("Locked after too many wrong tries. Get a new code on the TV.")
+    /** Someone already approved or denied this TV's code. */
+    data object LinkUsed : TracksideError("That code has been used.")
 }
 
 /** What came back: the status, the body and the one header that matters. */
@@ -124,6 +131,19 @@ class TracksideClient(
         val id = deviceId ?: return
         perform("me/devices/$id", "DELETE")
     }
+
+    // MARK: Linking a TV (approving it from this phone)
+
+    /** What [userCode] would link: the TV's name and whether it asked from nearby. Any case, dash optional. */
+    suspend fun lookupLink(userCode: String): TracksideLinkInfo = linkDecision("link/lookup", userCode)
+
+    /** Approves the TV showing [userCode]: it becomes one of your devices when it next polls. */
+    suspend fun approveLink(userCode: String): TracksideLinkInfo = linkDecision("link/approve", userCode)
+
+    suspend fun denyLink(userCode: String): TracksideLinkInfo = linkDecision("link/deny", userCode)
+
+    private suspend fun linkDecision(path: String, userCode: String): TracksideLinkInfo =
+        send(path, "POST", TracksideJson.encodeToString(TracksideLinkCodeBody.serializer(), TracksideLinkCodeBody(userCode)), TracksideLinkInfo.serializer())
 
     // MARK: Browsing
 
@@ -463,6 +483,67 @@ class TracksideClient(
             return decode(transport.send(request(base, "pair/requests/${pairing.id}", authorization = "Pair ${pairing.pollSecret}"), null), TracksidePairPoll.serializer())
         }
 
+        /** Starts linking this TV: show the code and QR, then [pollLink] every `intervalS` seconds. */
+        suspend fun startLink(base: HttpUrl, device: TracksideDeviceInfo, transport: TracksideTransport = OkHttpTracksideTransport()): TracksideLinkStart {
+            requireSafe(base)
+            val body = TracksideJson.encodeToString(TracksideLinkStartBody.serializer(), TracksideLinkStartBody(device))
+            return decode(transport.send(request(base, "link/start", method = "POST", body = body), null), TracksideLinkStart.serializer())
+        }
+
+        /**
+         * One poll. Maps 200, 428, 429 `slow_down`, 403 `access_denied` and 410 `expired_token`
+         * to [TracksideLinkPoll]; anything else throws [TracksideError] as usual (429
+         * `rate_limited` is [TracksideError.RateLimited]).
+         */
+        suspend fun pollLink(base: HttpUrl, deviceCode: String, transport: TracksideTransport = OkHttpTracksideTransport()): TracksideLinkPoll {
+            requireSafe(base)
+            val body = TracksideJson.encodeToString(TracksideLinkPollBody.serializer(), TracksideLinkPollBody(deviceCode))
+            val answer = transport.send(request(base, "link/poll", method = "POST", body = body), null)
+            if (answer.status in 200..299) return TracksideLinkPoll.Linked(decode(answer, TracksidePairResult.serializer()))
+            val refusal = runCatching { TracksideJson.decodeFromString(TracksideErrorEnvelope.serializer(), answer.body).error }.getOrNull()
+            return when (refusal?.code) {
+                "authorization_pending" -> TracksideLinkPoll.Pending
+                "slow_down" -> TracksideLinkPoll.SlowDown(refusal.details?.intervalS ?: answer.retryAfter?.trim()?.toLongOrNull() ?: SLOW_DOWN_FALLBACK_S)
+                "access_denied" -> TracksideLinkPoll.Denied
+                "expired_token" -> TracksideLinkPoll.Expired
+                else -> throw error(answer)
+            }
+        }
+
+        /**
+         * Polls until linked, denied or expired, honouring the interval and `slow_down`.
+         * Cancellable. A dropped connection or a busy server waits and tries again until the
+         * link would have expired, so a blip on the network doesn't cost the TV its code.
+         */
+        suspend fun awaitLink(base: HttpUrl, start: TracksideLinkStart, transport: TracksideTransport = OkHttpTracksideTransport()): TracksideLinkPoll {
+            val expires = instant(start.expiresAt)
+            var interval = start.intervalS.coerceIn(1, MAX_LINK_INTERVAL_S)
+            var wait = interval
+            while (true) {
+                delay(wait * 1_000)
+                wait = interval
+                val poll = try {
+                    pollLink(base, start.deviceCode, transport)
+                } catch (error: TracksideError.RateLimited) {
+                    wait = (error.retryAfterSeconds ?: interval).coerceIn(interval, MAX_LINK_INTERVAL_S)
+                    null
+                } catch (_: IOException) {
+                    null
+                }
+                when (poll) {
+                    null, TracksideLinkPoll.Pending -> if (expires != null && Instant.now().isAfter(expires)) return TracksideLinkPoll.Expired
+                    is TracksideLinkPoll.SlowDown -> {
+                        interval = poll.intervalS.coerceIn(1, MAX_LINK_INTERVAL_S)
+                        wait = interval
+                    }
+                    else -> return poll
+                }
+            }
+        }
+
+        private const val SLOW_DOWN_FALLBACK_S = 10L
+        private const val MAX_LINK_INTERVAL_S = 60L
+
         /** The profile for a bit rate: null for the original. */
         fun profile(bitRate: Int?): String? = bitRate?.let { if (it >= 256) "aac-256" else "aac-128" }
 
@@ -541,6 +622,7 @@ class TracksideClient(
             val body = runCatching { TracksideJson.decodeFromString(TracksideErrorEnvelope.serializer(), answer.body).error }.getOrNull()
                 ?: return TracksideError.Http(answer.status)
             val retryAfter = answer.retryAfter?.trim()?.toLongOrNull()
+            if (body.code == "conflict" && body.details?.reason == "link_used") return TracksideError.LinkUsed
             return when (body.code) {
                 "unauthenticated" -> TracksideError.Unauthenticated
                 "media_token_expired" -> TracksideError.MediaTokenExpired
@@ -554,6 +636,8 @@ class TracksideClient(
                 "library_unavailable", "transcoder_busy", "unavailable" -> TracksideError.Unavailable(body.code, retryAfter)
                 "speakers_unavailable" -> TracksideError.SpeakersUnavailable(retryAfter)
                 "catalog_unavailable" -> TracksideError.CatalogUnavailable(retryAfter)
+                "link_expired" -> TracksideError.LinkExpired
+                "link_locked" -> TracksideError.LinkLocked
                 else -> TracksideError.Server(answer.status, body.code, body.message.orEmpty(), body.details?.field, body.details?.reason, body.details?.capability)
             }
         }
