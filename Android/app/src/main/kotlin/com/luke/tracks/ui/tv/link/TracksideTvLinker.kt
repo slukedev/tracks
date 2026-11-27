@@ -10,8 +10,9 @@ package com.luke.tracks.ui.tv.link
  *   the pacing; its `Linked(result)` is kept with
  *   `servers.pair(null, "", url, Pairing.Approved(result))`, exactly as a pairing is.
  * - [lookUp], [approve], [deny]: `lookupLink`, `approveLink` and `denyLink` on the paired
- *   server's client, into a [LinkRequest]; `NotFound`, `LinkExpired`, `LinkLocked`, `LinkUsed`
- *   and `RateLimited` become the [LinkProblem]s of the same names.
+ *   server's client, into a [LinkRequest]; TracksideError `NotFound`, `LinkExpired`,
+ *   `LinkLocked`, `LinkUsed` and `RateLimited` become [LinkProblem] NotFound, CodeExpired,
+ *   Locked, Used and RateLimited.
  * Until then every server reads as one that can't link yet, so a build without them is safe.
  */
 object TracksideTvLinker : TvLinker {
