@@ -39,7 +39,7 @@ sealed interface LinkPoll {
 enum class LinkProblem(val message: String) {
     NeedsUpdate("Update Trackside to link this TV."),
     Offline("Can't reach the server. Check the connection."),
-    NotTrackside("That address isn't a Trackside server."),
+    NotTrackside("Couldn't find Trackside at that address."),
     Denied("Linking was turned down."),
     Insecure("Use your server's https address."),
     Failed("Linking didn't work. Try again."),

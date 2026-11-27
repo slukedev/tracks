@@ -29,7 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,7 +69,9 @@ import com.luke.tracks.ui.tv.theme.TvMotion
 import com.luke.tracks.ui.tv.theme.TvTracksTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.tracks_engine.Mix
@@ -130,11 +131,8 @@ fun rememberLibraryIndex(): State<LibraryIndex> {
 @Composable
 fun rememberCurrentMediaId(): State<String?> {
     val player = LocalContext.current.graph.player
-    val flow = remember(player) { player.state }
-    val current = remember(flow) { androidx.compose.runtime.derivedStateOf { flow.value.current?.mediaId } }
-    // collectAsState keeps the flow's value fresh; the derived state only changes with the song.
-    flow.collectAsState()
-    return current
+    val flow = remember(player) { player.state.map { it.current?.mediaId }.distinctUntilChanged() }
+    return flow.collectAsStateWithLifecycle(player.state.value.current?.mediaId)
 }
 
 /** A mix's cover for TV: four of its albums, each decoded small, in the mix's own colors. */

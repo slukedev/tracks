@@ -50,9 +50,9 @@ and shared secret. Without them the app says Last.fm isn't set up in this build.
 
 ### Google TV
 
-The same APK runs on Google TV with its own interface (`ui/tv`), playing Apple Music only, so
-a TV build needs the MusicKit AARs and a developer token like any Apple Music build. Try it on
-an Android TV emulator or with `adb install` on a TV; see the Google TV section of
+The same APK runs on Google TV with its own interface (`ui/tv`), playing from a Trackside
+server only (Apple Music through Trackside). Try it on an Android TV emulator or with
+`adb install` on a TV; see the Google TV section of
 [docs/platforms/android.md](../docs/platforms/android.md).
 
 ## Testing
