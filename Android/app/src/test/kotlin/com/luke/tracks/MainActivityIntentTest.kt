@@ -7,6 +7,8 @@ import android.provider.MediaStore
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.luke.tracks.playback.IdlePlayer
+import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.playback.PlayerState
 import com.luke.tracks.playback.PlayerController
 import com.luke.tracks.ui.navigation.Tab
 import kotlinx.coroutines.runBlocking
@@ -25,11 +27,16 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class MainActivityIntentTest {
-    private class RecordingPlayer : PlayerController by IdlePlayer() {
+    /** Something playing, so Now Playing has a song to stay open for. */
+    private class RecordingPlayer : PlayerController by IdlePlayer(PlayerState(current = saltwater)) {
         val searches = mutableListOf<String>()
         override fun playFromSearch(query: String) {
             searches += query
         }
+    }
+
+    private companion object {
+        val saltwater = PlayableSong("local:1", Uri.parse("content://media/1"), "Saltwater", "Chicane", null, null, 240_000, "saltwater|chicane")
     }
 
     private val app get() = ApplicationProvider.getApplicationContext<TracksApplication>()

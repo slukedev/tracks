@@ -7,6 +7,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -21,14 +22,17 @@ import com.luke.tracks.ui.navigation.AppShell
 import com.luke.tracks.ui.navigation.Navigator
 import com.luke.tracks.ui.navigation.Tab
 import com.luke.tracks.ui.theme.TracksTheme
+import com.luke.tracks.ui.tv.navigation.TvEntry
+import com.luke.tracks.ui.tv.navigation.TvNavigator
 
 class MainActivity : ComponentActivity() {
     internal val navigator = Navigator()
+    internal val tvNavigator = TvNavigator()
 
     private val tv get() = graph.formFactor.tv
 
     /** Where links and searches from outside go: the TV's navigation on a TV, else the phone's. */
-    internal val navigation: AppNavigation get() = navigator
+    internal val navigation: AppNavigation get() = if (tv) tvNavigator else navigator
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -40,24 +44,29 @@ class MainActivity : ComponentActivity() {
         // Recreated (rotation, theme): the intent was handled the first time.
         if (savedInstanceState == null) handle(intent)
         setContent {
-            val settings by graph.settings.settings.collectAsStateWithLifecycle(AppSettings())
-            val dark = when (settings.theme) {
-                ThemeChoice.System -> isSystemInDarkTheme()
-                ThemeChoice.Light -> false
-                ThemeChoice.Dark -> true
-            }
             CompositionLocalProvider(LocalFormFactor provides graph.formFactor) {
-                TracksTheme(
-                    dark = dark,
-                    seed = if (settings.colors == ColorChoice.Custom) androidx.compose.ui.graphics.Color(settings.seedColor) else null,
-                    style = settings.paletteStyle,
-                    pureBlack = settings.pureBlack,
-                    animate = true,
-                ) {
-                    com.luke.tracks.ui.onboarding.OnboardingGate { AppShell(remember { navigator }) }
-                    com.luke.tracks.ui.library.servers.PairingLinkPrompt()
-                }
+                if (tv) TvEntry(remember { tvNavigator }) else PhoneEntry()
             }
+        }
+    }
+
+    @Composable
+    private fun PhoneEntry() {
+        val settings by graph.settings.settings.collectAsStateWithLifecycle(AppSettings())
+        val dark = when (settings.theme) {
+            ThemeChoice.System -> isSystemInDarkTheme()
+            ThemeChoice.Light -> false
+            ThemeChoice.Dark -> true
+        }
+        TracksTheme(
+            dark = dark,
+            seed = if (settings.colors == ColorChoice.Custom) androidx.compose.ui.graphics.Color(settings.seedColor) else null,
+            style = settings.paletteStyle,
+            pureBlack = settings.pureBlack,
+            animate = true,
+        ) {
+            com.luke.tracks.ui.onboarding.OnboardingGate { AppShell(remember { navigator }) }
+            com.luke.tracks.ui.library.servers.PairingLinkPrompt()
         }
     }
 

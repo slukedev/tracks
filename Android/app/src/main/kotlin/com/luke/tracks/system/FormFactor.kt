@@ -17,7 +17,9 @@ data class FormFactor(val tv: Boolean, val lowRam: Boolean) {
 
         fun of(context: Context): FormFactor {
             val uiMode = context.getSystemService(UiModeManager::class.java)
+            val configured = context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
             val television = uiMode?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+                configured == Configuration.UI_MODE_TYPE_TELEVISION ||
                 context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
             val lowRam = context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
             return FormFactor(tv = television, lowRam = lowRam)

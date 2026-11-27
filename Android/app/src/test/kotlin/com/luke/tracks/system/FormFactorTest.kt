@@ -1,8 +1,10 @@
 package com.luke.tracks.system
 
 import android.app.ActivityManager
+import android.app.UiModeManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,8 +25,13 @@ class FormFactorTest {
         assertEquals(FormFactor(tv = false, lowRam = false), FormFactor.of(context))
     }
 
+    @Test fun televisionUiModeIsATv() {
+        shadowOf(context.getSystemService(UiModeManager::class.java)).setCurrentModeType(Configuration.UI_MODE_TYPE_TELEVISION)
+        assertTrue(FormFactor.of(context).tv)
+    }
+
     @Test @Config(qualifiers = "television")
-    fun televisionUiModeIsATv() {
+    fun televisionConfigurationIsATv() {
         assertTrue(FormFactor.of(context).tv)
     }
 
