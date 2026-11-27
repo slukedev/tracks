@@ -261,6 +261,20 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
 - Connect a TV to your Trackside server: scan the code it shows with your iPhone's Camera, or
   type it in Settings, Devices, Connect a TV. Tracks shows which TV it is and warns when it
   asked from outside your home network, then Approve or Deny, and says when the TV is connected
+- Play Spotify, Tidal and the other music services your Trackside server has, on iPhone and
+  Mac. Search shows them in a section of their own after your library, with a chip for each
+  service, and a song you already have comes as your own copy. Their albums, artists and
+  playlists open as pages like your own, and Your Services on Play opens what you've saved on
+  each. Apple Music still plays as it always has
+- A service's songs play here through your server, lossless on Wi-Fi and in a smaller stream
+  on cellular or Low Data Mode, moving between the two as the network does. Play, pause,
+  skip, scrub, shuffle and repeat answer at once, with silence rather than a moment of the old
+  song while the stream catches up, and the lock screen, headphones and AirPlay work as with
+  any song. A queue with a service's song in it plays all of it that way, your server's songs
+  too; a queue of your own songs still plays as before
+- Send what a service plays to one of your server's speakers, or bring a speaker's music back
+  to this device, from where it's got to. Plays from a service are kept in your history under
+  that service
 - Search asks your servers as you type, so songs newer than the last sync turn up too. With a
   music server that adds songs on request, search finds songs you don't own yet to play straight
   away, and Add to Your Music has the server fetch the file, which joins your music a few
@@ -364,6 +378,13 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   each server's speakers with commands laid over them until the server settles them
   (`SpeakerBoard`), and serves them to the apps from `SpeakersStore`. The speaker fixtures are
   copied from the server and decoded in the tests
+- TracksCore reads Trackside's streaming catalog (`/catalog/*`, the `catalog` search type)
+  and phone relay (`/relay/sessions`, the `relay` event, a command's `relay`), with refs kept
+  opaque. `StreamingCatalog` keeps each server's services while `/me` has
+  `features.catalog`, without Apple Music. `RelayPlayerEngine` plays the relay's HLS live in
+  `AVPlayer`, moves to each new generation as `RelayStreamFollower` decides, picks the tier
+  from `NWPathMonitor`, and sends every control to the relay's speaker. The catalog and relay
+  fixtures are copied from the contract and decoded in the tests
 - TracksCore and the Android client speak Trackside's TV linking (`/link/*`, RFC 8628 in
   shape): the approving calls for phones and Macs, the start and poll calls for a TV (Android
   sends `android_tv` from a TV), `link_expired`, `link_locked` and `link_used`, and the
