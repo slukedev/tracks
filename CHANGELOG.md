@@ -241,6 +241,18 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   the server, and plays made offline are sent once it can be reached
 - Moving from another server to Trackside: Tracks matches the songs you downloaded or put in
   playlists to the same songs on Trackside, and the downloaded files stay as they are
+- Your Trackside server's speakers join Play On, beside your devices: Sonos, Chromecast,
+  AirPlay and the rest it plays to, each saying what it's playing, who's playing along, or
+  that it's off. Tap one and the song you're playing moves there from where it's got to,
+  with Up Next after it; the row says it's connecting at once, and your iPhone or Mac stops
+  once the speaker has it, or plays on if it doesn't start
+- While the music is on a speaker the player shows and controls it, as with your other
+  devices: play, pause, skip, scrub, shuffle and repeat where the speaker has them, its
+  volume, power and the speakers playing along under the controls. On iPhone the mini player
+  opens a full player for it, and the music comes back here from where it's got to
+- Each speaker has its own page in Devices settings: its volume, power and the speakers to
+  group with it, a checkmark each. Every change shows at once and settles on what the
+  speaker does, and one that doesn't happen goes back with a word on why
 - Search asks your servers as you type, so songs newer than the last sync turn up too. With a
   music server that adds songs on request, search finds songs you don't own yet to play straight
   away, and Add to Your Music has the server fetch the file, which joins your music a few
@@ -340,6 +352,10 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
 - On Android, Apple Music through MusicKit for Android is gone, with its optional AARs and
   developer token. It will come back through Trackside too, and plays from Apple Music stay
 - `Engine/build-android.sh` builds one engine, into `Android/app/engine-bindings/`
+- TracksCore reads Trackside's speakers API and events (`TracksideSpeakers.swift`), keeps
+  each server's speakers with commands laid over them until the server settles them
+  (`SpeakerBoard`), and serves them to the apps from `SpeakersStore`. The speaker fixtures are
+  copied from the server and decoded in the tests
 
 ## Motif 1.0
 

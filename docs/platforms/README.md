@@ -195,6 +195,7 @@ As of November 2026, on `feat/android-m3-expressive`.
 | --- | --- | --- | --- | --- |
 | Your Devices: see, control and move music between your devices | Yes | Yes | No | Platform (`NearbyMessage` could move) |
 | HomePods and AirPlay speakers in Play On | Yes | Yes | n/a (Cast, output switcher) | Platform |
+| Trackside's speakers in Play On, the player and Devices settings (volume, power, grouping) | Yes | Yes | No | Platform (`SpeakerBoard` in TracksCore) |
 | Handoff | Yes | Yes | n/a | Platform |
 | SharePlay, invite in Messages or by code | Yes | No | No | Platform |
 | Join by code without the app (App Clip) | Yes | n/a | No | Platform |

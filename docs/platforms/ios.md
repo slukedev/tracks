@@ -331,6 +331,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Your Devices: see what Tracks on your Mac is playing, control it, send music there or bring
   it here, over the local network with TLS keys shared through iCloud.
 - Play On lists HomePods and AirPlay speakers beside your devices.
+- Play On lists your Trackside server's speakers too: tap one to send the music there, and the
+  mini player opens a full player for it with its volume, power and grouping.
 - Handoff of the song playing to your other devices.
 - Play on Another Device and Bring Music Here as App Intents.
 - SharePlay: passengers add songs to Up Next, invited in Messages or by a code to scan.
