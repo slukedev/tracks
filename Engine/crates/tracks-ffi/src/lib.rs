@@ -21,8 +21,6 @@ mod library;
 mod mixes;
 mod radio;
 mod server;
-#[cfg(feature = "spotify")]
-mod spotify;
 
 /// Something the engine couldn't do.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
