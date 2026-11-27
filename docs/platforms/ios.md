@@ -92,26 +92,25 @@ See [README.md](README.md) for the legend and how to keep this current.
   songs (`YourMusic.scope`, `shown`), with "Nothing from Home yet" when it has none. No Music
   Yet with Add Source when nothing is added.
 - Source filter under Play's and Library's title, once a second source exists: All Sources,
-  each source by its real name (Apple Music, Spotify, On This iPhone, each server's name),
+  each source by its real name (Apple Music, On This iPhone, each server's name),
   Manage Sources…. Past six sources, servers fold into a Servers submenu. Choosing never
   touches the queue (`AppModel.chooseSources`). With All Sources and more than one player,
   Play is one page built from every source (`PlayPage`): Apple Music's page leads, with your
   own music's shelves (Waiting to Be Heard, From Your Downloads, each server's picks and
-  shelves) and Spotify's playlists and albums in their sections, one Recently Played taking
-  each source in turn, and the crate, mixes, moods and genres made once from the history.
-  Without Apple Music, or offline, your own music's page leads, with Spotify's shelves. A
-  saved Spotify filter stays while Spotify is still opening its saved account, which waits
-  for the first unlock.
+  shelves) in their sections, one Recently Played taking each source in turn, and the crate,
+  mixes, moods and genres made once from the history. Without Apple Music, or offline, your
+  own music's page leads.
 - Settings › Sources, the first row in Settings: the worst problem (Sign In, 1 Offline) or
   the source's name or count. Status words: Sign In, Offline, Syncing 42% (a Trackside
   server's first sync, counted from its libraries' song counts), Away (reached at an address
   off the home network or over Tailscale), Connected. Each source has its page: Apple Music, On This iPhone (Import
   Songs…, Add Folder…), each server's page. Add Source… offers Apple Music, On This iPhone and
-  Server (the server form); Spotify only in builds with the `SPOTIFY` flag (see Spotify).
+  Server (the server form). A Spotify source saved by an earlier version reads as unknown and
+  stays out of the list.
 - Play From (Settings › Sources, Edit to reorder, synced): which copy plays when a song is in
-  several sources. Every place (each server, Downloads, Apple Music, Spotify, On This iPhone)
-  can go anywhere, and a source added later goes last. A new order starts On This iPhone,
-  Downloads, Apple Music, Spotify; an order saved before that rule is written out once as it
+  several sources. Every place (each server, Downloads, Apple Music, On This iPhone) can go
+  anywhere, and a source added later goes last. A new order starts On This iPhone,
+  Downloads, Apple Music; an order saved before that rule is written out once as it
   played (`PlayFromOrder.migrated`). Applied
   where Tracks picks among a song's copies by name (`YourMusic.track(for:)`), and with All
   Sources to every request: a mix, a chart or a search result plays through the player of
@@ -126,8 +125,8 @@ See [README.md](README.md) for the legend and how to keep this current.
   (`MusicKitPlayerEngine.lookUp`, 25 at a time at most). Stations from Apple Music always
   play on its own player. The order and its resolver are `PlayFromOrder` in TracksCore.
 - Album pages end their facts line with the glyphs of every source that has the album (your
-  files and servers from its songs; Apple Music's catalog and your Spotify albums looked up
-  once per album, `AlbumElsewhere`), read as "Available from…". A song whose own copy can't
+  files and servers from its songs; Apple Music's catalog looked up once per album,
+  `AlbumElsewhere`), read as "Available from…". A song whose own copy can't
   play now plays from another source's, with that source's glyph on its row. Artist pages
   add a shelf for each other source with their albums (`ArtistElsewhere`).
 - Shortcuts' Choose Source and a Focus filter set the source filter (`ChooseSourceIntent`,
@@ -181,7 +180,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   between songs.
 - The back of the sleeve: tap the cover for your history with the song.
 - Up Next: reorder, remove, jump; Tracks Radio shows just the next song. A song that can't
-  play now (its server out of reach, Spotify signed out or offline) is dimmed with an
+  play now (its server out of reach) is dimmed with an
   exclamation mark, reads "Unavailable" and has a Remove action. In a queue across sources,
   each row carries its source's glyph.
 - Thirty seconds before a song ends, the songs straight after it are checked: one that
@@ -189,14 +188,12 @@ See [README.md](README.md) for the legend and how to keep this current.
   "Skipped 2 songs / Home is offline". When nothing ahead can play, the music stops at the
   end of the song with "Nothing in Up Next can play right now." and Play Downloads where
   there are any (`PlayerModel.checkAhead`).
-- Source badge under the scrubber beside the quality badge, with two or more sources and
-  always for Spotify; its menu plays the song from each other copy that can play, by its
+- Source badge under the scrubber beside the quality badge, with two or more sources; its
+  menu plays the song from each other copy that can play, by its
   source's name and glyph, from where it had got to, keeping Up Next, and Go to Album
-  (`SourceBadge`, `PlayerModel.playFrom`). The mini
-  player shows Spotify's mark after the artist, and CarPlay's Up Next rows carry it.
+  (`SourceBadge`, `PlayerModel.playFrom`).
 - Songs left out of a queue because they can't play: "Skipped 3 songs / Home is offline" in a
   capsule above the mini player for 3 seconds, swipe down to dismiss.
-- Full Cover shows Spotify's covers as Living Cover, so they're never cropped.
 - Sleep timer, AirPlay, system volume slider.
 - Favorite star; hold it to add to a playlist.
 - Audio quality badge (Lossless, Hi-Res, Dolby Atmos) with bit depth and sample rate.
@@ -274,42 +271,6 @@ See [README.md](README.md) for the legend and how to keep this current.
   `If-Range`), on its own up to three times when the connection dropped.
 - Logs never hold a signed address: errors go through `URLRedaction.describe`.
 
-### Spotify (builds you make yourself)
-
-Opt-in and experimental: only in Debug builds with the `SPOTIFY` flag, which
-`Engine/build-apple.sh --spotify` turns on (see the README). App Store and other Release builds
-contain none of it and refuse an engine built with it. Spotify Premium is required.
-
-- Sources › Add Source › Spotify: Sign In with Spotify opens Spotify's page in the system web
-  sheet (shared cookies), while the engine listens on `http://127.0.0.1:<port>/login`, the only
-  redirect librespot's client ID accepts; the sheet closes when the answer arrives. Then
-  Checking… while Tracks confirms Premium and asks for one song's key. Errors: Premium required
-  (Done), Spotify can't play this account in Tracks (Remove, Try Again), can't reach Spotify
-  (Try Again). Cancelling the sheet is not an error.
-- The engine's saved sign-in (never the OAuth tokens) is in the Keychain, this device only,
-  readable after first unlock. Signing out deletes it and forgets every Spotify list and track
-  kept in memory. Nothing from Spotify is written to disk apart from History's plays.
-- Account page: the account's name, Quality on Wi-Fi and on cellular (Normal, High, Very
-  High: 96, 160 and 320 kbps), Sign Out… with a confirmation.
-- Play from Spotify: Recently Played (your Spotify plays from History), Playlists and Albums.
-  Library: Playlists, Albums, Liked Songs and Recently Added. Search's library scope searches
-  Spotify (songs, artists, albums, playlists). Album, playlist and artist pages with Play,
-  Shuffle, Play Next, Play Last and Open in Spotify.
-- Attribution: Spotify's icon (green, or black or white on a cover-coloured page) on every
-  Spotify row and tile; covers never cropped, corners at most 4 pt small and 8 pt large.
-- Playback in Tracks (`SpotifyPlayerEngine`): the engine decodes to 44.1 kHz stereo float PCM;
-  a thread of its own pulls it into a lock-free ring, and an `AVAudioEngine` source node plays
-  from the ring with no locks or allocation on the audio thread. The next song is decoded
-  into the ring behind the current one, so albums are gapless. Seeking, the lock screen,
-  Control Center, headphones, CarPlay's buttons, interruptions, route changes and media
-  services resets all work as for files. Plays are kept in History as Spotify's.
-- Songs from anywhere else in Tracks (mixes, charts, Tracks Radio, Apple Music pages' songs)
-  play by finding each on Spotify: by URI, then ISRC, then title and artist.
-- Known limitation: since November 2026 Spotify refuses audio keys to clients like librespot
-  for accounts it hasn't seen on one before (librespot#1649), and there is no fix. Such an
-  account signs in and browses, but can't play; the page says so.
-- Settings › About › Acknowledgements lists librespot and psst (MIT) with their notices.
-
 ### Scrobbling and Last.fm
 
 - Connect a Last.fm account in a web sheet; the session key is kept in the Keychain.
@@ -318,9 +279,9 @@ contain none of it and refuse an engine built with it. Spotify Premium is requir
 - Imports your Last.fm history from Settings, without asking first; Sync Now adds what you've
   scrobbled since, from any app. Progress shows in the row, and it picks up where it stopped.
 - Scrobble queue with retries; scrobbling can be paused.
-- Spotify plays aren't scrobbled unless Scrobble Spotify is on (Last.fm settings, and Scrobble
-  to Last.fm on Spotify's page; `scrobblesSpotifyToLastFM`, synced, off by default): Spotify
-  sends its own. Held plays show as left to Spotify.
+- Spotify plays in the history (from earlier versions) aren't scrobbled unless
+  `scrobblesSpotifyToLastFM` is on (synced, off by default): Spotify sends its own. Held plays
+  show as left to Spotify.
 - Imported scrobbles get the same id on every device and on Android: a UUIDv5 of
   `playedAtMs␟lastFM␟appleMusic␟songIdentity` (`PlayID.lastFM`).
 
@@ -360,8 +321,8 @@ contain none of it and refuse an engine built with it. Spotify Premium is requir
 - Every setting is listed once in `SettingsRegistry` (TracksCore's `core`, the app's
   `AppSettingsRegistry.swift`), as synced or kept on the device; renamed keys carry over through
   `formerKeys`, and a demo launch's changes are undone on the next real launch.
-- A welcome the first time Tracks opens on the device: Add Music (Apple Music, Spotify in
-  builds with it, On This iPhone, Server, each with Add), Last.fm, and the iCloud restore's
+- A welcome the first time Tracks opens on the device: Add Music (Apple Music, On This iPhone,
+  Server, each with Add), Last.fm, and the iCloud restore's
   progress (`Apps/Shared/Onboarding`).
 - Sync can be turned off; Settings › Sync shows what syncs and where it stands.
 

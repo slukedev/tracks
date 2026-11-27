@@ -857,7 +857,7 @@ final class YourMusic {
             switch scope {
             case .device: !track.isFromServer
             case .server(let id): track.serverID == id
-            case .appleMusic, .spotify, .unknown: true
+            case .appleMusic, .unknown: true
             }
         })
     }

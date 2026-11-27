@@ -81,21 +81,17 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Moods, genres, Handpicked and Party.
 - Edit Listen Now's sections.
 - Source filter in the toolbar of Listen Now and every Library page, once a second source
-  exists: All Sources, each source by its real name (Apple Music, Spotify, On This Mac, each
-  server's name), Manage Sources… (opens the Sources pane). Never touches the queue. The
+  exists: All Sources, each source by its real name (Apple Music, On This Mac, each server's
+  name), Manage Sources… (opens the Sources pane). Never touches the queue. The
   sidebar keeps its shape; its Library group follows the filter's player. With All Sources
   and more than one player, Listen Now is one page built from every source, one queue plays
   songs from several sources, album pages show the glyphs of every source that has them and
   artist pages a shelf per other source, as on iPhone (see the iPhone page, Tabs and
   sources). Up Next's rows carry their source's glyph in a mixed queue and dim when they
   can't play.
-- Sources pane in Settings (after General): Apple Music access, Spotify in builds with the
-  `SPOTIFY` flag, On This Mac, servers, and Play From (drag to reorder; synced).
-- Spotify (Debug builds with the `SPOTIFY` flag only; see the iPhone page): sign in, one
-  Quality, Sign Out… in the Sources pane; Listen Now and the sidebar's Albums, Songs (liked)
-  and Playlists show your Spotify library; Search searches Spotify. Same player and limits.
-- Settings › General › About › Acknowledgements: the engine's licenses, librespot and psst
-  with their notices in Spotify builds.
+- Sources pane in Settings (after General): Apple Music access, On This Mac, servers, and
+  Play From (drag to reorder; synced).
+- Settings › General › About › Acknowledgements: the engine's licenses.
 - Play Songs In Tracks or Music; Explicit Songs; Open To.
 - Block artists; Reset Mix Suggestions.
 - Starting music in Tracks pauses Music.
@@ -115,8 +111,8 @@ See [README.md](README.md) for the legend and how to keep this current.
   Music; the song's preview groove when it's off or macOS refuses. Code in `Apps/macOS/Audio/`.
 - Backgrounds: Full Cover, artwork, Living Colour, Pulse.
 - Play count and keep ring, sleep timer, favorite star, audio quality badge, and beside it
-  the source badge (two or more sources, always for Spotify) whose menu plays the song from
-  another source. Full Cover shows Spotify's covers as Living Cover. Songs that can't play
+  the source badge (two or more sources) whose menu plays the song from another source.
+  Songs that can't play
   are dimmed in Up Next, and a queue that left some out says "Skipped 3 songs".
 - Pick Up Where You Left Off.
 - Gapless albums for your own music.
@@ -177,8 +173,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Scrobbles every kept song, radio included; Now Playing updates.
 - Import Last.fm history and Sync Now. Imported scrobbles get the same id as on iPhone and
   Android (`PlayID.lastFM`).
-- Spotify plays are scrobbled only with Scrobble Spotify on (Last.fm pane, in builds with
-  Spotify); off by default, since Spotify sends its own.
+- Spotify plays in the history (from earlier versions) are scrobbled only with
+  `scrobblesSpotifyToLastFM` on; off by default, since Spotify sends its own.
 
 ### Sync and backup
 
@@ -213,8 +209,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Every setting is listed once in `SettingsRegistry` (TracksCore's `core`, the app's
   `AppSettingsRegistry.swift`), as synced or kept on the device; renamed keys carry over through
   `formerKeys`, and a demo launch's changes are undone on the next real launch.
-- A welcome the first time Tracks opens on the device: Apple Music, Spotify (in builds with
-  it), On This Mac and Server, each with Add; Last.fm; and the iCloud restore's progress
+- A welcome the first time Tracks opens on the device: Apple Music, On This Mac and Server, each with Add; Last.fm; and the iCloud restore's progress
   (`Apps/Shared/Onboarding`).
 - Sync can be turned off; the Sync pane shows what syncs and where it stands.
 

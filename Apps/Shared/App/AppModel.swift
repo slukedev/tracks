@@ -77,10 +77,6 @@ final class AppModel {
         }
     }
 
-    /// Spotify, when this build has it (the `SPOTIFY` flag) and it's set up. Nil otherwise, and
-    /// then Spotify appears nowhere.
-    var spotify: (any SpotifySource)?
-
     /// Which player Play draws from. Follows the source filter; set it through
     /// ``chooseSources(_:)``. Changing it directly changes the player and stops what's playing.
     var musicSource: MusicSource = MusicSource.current {
@@ -227,15 +223,6 @@ final class AppModel {
             self.reconciler = nil
             self.lastFMHistory = nil
         }
-        #if SPOTIFY
-        // Sample data never reaches Spotify.
-        if !isDemoLaunch {
-            let spotify = SpotifyService()
-            spotify.isExpensiveNetwork = { [weak yourMusic] in yourMusic?.network.isExpensive ?? false }
-            self.spotify = spotify
-            if musicSource == .spotify { player.use(spotify.engine) }
-        }
-        #endif
         player.makeTracksRadio = TracksRadioSource.make(library: library, discovery: discovery, yourMusic: yourMusic, player: player)
         player.radioDownloads = yourMusic
         player.makeAutoplay = AutoplaySource.make(library: library, yourMusic: yourMusic, player: player)
@@ -653,15 +640,6 @@ final class AppModel {
                   let songs = try? await MusicKitPlaybackService.songs(for: [candidate.id]), !songs.isEmpty
             else { return nil }
             return .songs(songs)
-        case .spotify:
-            #if SPOTIFY
-            guard let spotify = spotifyService, spotify.isConnected,
-                  let song = await spotify.song(title: title, artist: artist, album: album)
-            else { return nil }
-            return .history([song])
-            #else
-            return nil
-            #endif
         }
     }
 
@@ -708,9 +686,6 @@ final class AppModel {
         if Self.isCatalogID(song.songID), musicAuthorization == .authorized, !playFeed.cannotPlayCatalog {
             copies.append((.source(.appleMusic), .appleMusic))
         }
-        if spotify?.isConnected == true, yourMusic.network.isOnline {
-            copies.append((.source(.spotify), .spotify))
-        }
         guard copies.count > 1 || copies.first?.source != musicSource else { return nil }
         return yourMusic.playFromOrder.choose(copies, place: \.place, canPlay: { _ in true })?.source
     }
@@ -729,9 +704,6 @@ final class AppModel {
             let engine = LocalPlayerEngine(music: yourMusic, capture: .yourMusic)
             yourMusicEngine = engine
             return engine
-        case .spotify:
-            // Spotify is offered only once its integration is there (see `spotify`).
-            return spotify?.engine ?? appleMusicEngine
         }
     }
 
@@ -1127,8 +1099,6 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
         return switch source {
         case .appleMusic: shared
         case .yourMusic: shared + [.downloads] + (hasLidarr ? [.lidarr] : [])
-        // Spotify's own library: no artists of its own, and nothing to download.
-        case .spotify: [.albums, .songs, .playlists]
         }
     }
 

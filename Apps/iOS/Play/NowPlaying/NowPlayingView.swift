@@ -46,7 +46,7 @@ struct NowPlayingView: View {
             }
         }
         // Lit from the cover, wherever the layout puts it.
-        .nowPlayingBackdrop(cover: player.current?.cover, tint: tint, isPlaying: player.isPlaying, style: shownBackground)
+        .nowPlayingBackdrop(cover: player.current?.cover, tint: tint, isPlaying: player.isPlaying, style: background)
         // Up Next's list scrolls first.
         .nowPlayingPresentation(yields: showsQueue, cover: player.current?.cover, isFullCover: isFullCover, sinks: coverSinks)
         .sheet(isPresented: $showsTuner) { RadioTunerSheet() }
@@ -96,13 +96,7 @@ struct NowPlayingView: View {
         .sheet(isPresented: Bindable(SharePlayController.shared).showsCode) { SharePlayCodeSheet() }
     }
 
-    private var isFullCover: Bool { shownBackground == .fullCover }
-
-    /// The background chosen, except that Spotify's covers are never cropped: Full Cover
-    /// shows them as Living Cover.
-    private var shownBackground: NowPlayingBackground {
-        background == .fullCover && player.playingSource == .spotify ? .living : background
-    }
+    private var isFullCover: Bool { background == .fullCover }
 
     /// Music's gesture: the cover sinks back while paused. Not while its back is up, which
     /// is being read. Full Cover's cover is the background itself, which stays put.

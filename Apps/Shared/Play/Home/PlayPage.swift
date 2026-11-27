@@ -26,7 +26,7 @@ struct PlayPage: View {
         if players.contains(.appleMusic), !isOffline {
             PlayScreen(merging: players.subtracting([.appleMusic]))
         } else if players.contains(.yourMusic) {
-            YourMusicScreen(mergesSpotify: players.contains(.spotify) && !isOffline)
+            YourMusicScreen()
         } else {
             page(for: .appleMusic)
         }
@@ -39,12 +39,6 @@ struct PlayPage: View {
             YourMusicScreen()
         case .appleMusic:
             appleMusic
-        case .spotify:
-            #if SPOTIFY
-            SpotifyPlayScreen()
-            #else
-            appleMusic
-            #endif
         }
     }
 

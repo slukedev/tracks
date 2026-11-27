@@ -50,8 +50,7 @@ struct FullPlayer: View {
             }
         }
         // Lit from the cover, wherever the window's size puts it.
-        // Spotify's covers are never cropped: Full Cover shows them as Living Cover.
-        .nowPlayingBackdrop(cover: player.current?.cover, tint: tint, isPlaying: player.isPlaying, style: player.playingSource == .spotify && NowPlayingBackground.chosen == .fullCover ? .living : nil)
+        .nowPlayingBackdrop(cover: player.current?.cover, tint: tint, isPlaying: player.isPlaying)
         .coverTint(of: player.current?.cover, into: $tint)
         .task(id: player.current?.cover) {
             guard let cover = player.current?.cover else { return }

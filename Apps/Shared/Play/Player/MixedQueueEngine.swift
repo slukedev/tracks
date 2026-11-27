@@ -2,7 +2,7 @@ import Foundation
 import MusicKit
 import TracksCore
 
-/// One queue across sources: Apple Music, your files and servers, and Spotify, song by song.
+/// One queue across sources, Apple Music and your files and servers, song by song.
 ///
 /// Each song keeps the source it was queued from. Songs in a row from one source are handed to
 /// that source's player together, so they follow each other as that player plays them, without
@@ -510,24 +510,12 @@ final class MixedQueueEngine: PlayerEngine {
             local.onAutoSkip = { [weak self] in self?.onAutoSkip?() }
             local.onRanOut = { [weak self] in self?.runEnded() }
         }
-        #if SPOTIFY
-        if let spotify = engine as? SpotifyPlayerEngine {
-            spotify.onNotice = { [weak self] in self?.onNotice?($0) }
-            spotify.onRemoteNext = { [weak self] in self?.onRemoteNext?() }
-            spotify.onRemotePrevious = { [weak self] in self?.onRemotePrevious?() }
-            spotify.onAutoSkip = { [weak self] in self?.onAutoSkip?() }
-            spotify.onRanOut = { [weak self] in self?.runEnded() }
-        }
-        #endif
     }
 
     /// Stops following a player, and with `stopping`, stops it and has it let go.
     private func detach(_ engine: any PlayerEngine, stopping: Bool) {
         engine.onChange = nil
         if let local = engine as? LocalPlayerEngine { local.onRanOut = nil }
-        #if SPOTIFY
-        if let spotify = engine as? SpotifyPlayerEngine { spotify.onRanOut = nil }
-        #endif
         guard stopping else { return }
         engine.pause()
         engine.deactivate()

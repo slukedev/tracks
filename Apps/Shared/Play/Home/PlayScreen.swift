@@ -54,11 +54,6 @@ struct PlayScreen: View {
                                     GetMoreSection()
                                 }
                             }
-                            #if SPOTIFY
-                            if merging.contains(.spotify), section == .appleMusic {
-                                SpotifyPlayShelves(showsRecent: false)
-                            }
-                            #endif
                         }
                         .id(section.rawValue)
                     }
@@ -124,9 +119,6 @@ struct PlayScreen: View {
             await music.getMore.loadSuggestions(taste: feed.favoriteArtists.map { GetMoreRanking.Taste(name: $0.name, plays: $0.plays) })
         }
         .sheet(item: $signingIn) { server in ServerForm(editing: server) }
-        #if SPOTIFY
-        .spotifyDestinations()
-        #endif
     }
 
     /// Apple Music's catalog shelves: with every source on and no subscription to play them,
@@ -167,12 +159,11 @@ struct PlayScreen: View {
         case .recentlyPlayed where !merging.isEmpty:
             let recent = MergedRecent.items(
                 feed: showsCatalog ? feed.recentlyPlayed : [],
-                albums: merging.contains(.yourMusic) ? ownShelves.recentlyPlayed : [],
-                spotify: merging.contains(.spotify) ? spotifyRecent : []
+                albums: merging.contains(.yourMusic) ? ownShelves.recentlyPlayed : []
             )
             if !recent.isEmpty {
                 Shelf(title: String(localized: "Recently Played"), items: recent) { item in
-                    MergedRecentTile(item: item, spotify: spotifyRecent)
+                    MergedRecentTile(item: item)
                 }
             } else if feed.appleMusicState == .loading, showsCatalog {
                 PlaceholderShelf(title: String(localized: "Recently Played"))
@@ -314,34 +305,23 @@ struct PlayScreen: View {
 
     /// Apple's live stations only. Personal stations from the history still play from Recently Played.
     private var radio: [FeedItem] { feed.liveStations }
-
-    /// Your latest Spotify plays, for the shared Recently Played.
-    private var spotifyRecent: [HistorySong] {
-        #if SPOTIFY
-        SpotifyPlayShelves.recentlyPlayed(in: model.library.history).map(\.value)
-        #else
-        []
-        #endif
-    }
 }
 
-/// Recently Played with every source on: Apple Music's, your albums and your Spotify songs,
-/// taken in turn so each source shows near the start.
+/// Recently Played with every source on: Apple Music's and your albums, taken in turn so each
+/// source shows near the start.
 private enum MergedRecent: Identifiable {
     case feed(FeedItem)
     case album(LocalAlbum)
-    case spotify(HistorySong)
 
     var id: String {
         switch self {
         case .feed(let item): item.id
         case .album(let album): "local.\(album.id)"
-        case .spotify(let song): "spotify.\(SongIdentity.key(title: song.title, artistName: song.artistName))"
         }
     }
 
-    static func items(feed: [FeedItem], albums: [LocalAlbum], spotify: [HistorySong]) -> [MergedRecent] {
-        let lists: [[MergedRecent]] = [feed.map(MergedRecent.feed), albums.map(MergedRecent.album), spotify.map(MergedRecent.spotify)]
+    static func items(feed: [FeedItem], albums: [LocalAlbum]) -> [MergedRecent] {
+        let lists: [[MergedRecent]] = [feed.map(MergedRecent.feed), albums.map(MergedRecent.album)]
         var merged: [MergedRecent] = []
         for position in 0..<(lists.map(\.count).max() ?? 0) {
             for list in lists where list.indices.contains(position) { merged.append(list[position]) }
@@ -352,7 +332,6 @@ private enum MergedRecent: Identifiable {
 
 private struct MergedRecentTile: View {
     let item: MergedRecent
-    let spotify: [HistorySong]
 
     var body: some View {
         switch item {
@@ -360,12 +339,6 @@ private struct MergedRecentTile: View {
             FeedTile(item: feedItem)
         case .album(let album):
             LocalAlbumTile(album: album)
-        case .spotify(let song):
-            #if SPOTIFY
-            SpotifySongTile(song: song, queue: spotify, context: .songs(String(localized: "Recently Played")))
-            #else
-            EmptyView()
-            #endif
         }
     }
 }

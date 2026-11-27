@@ -2,24 +2,6 @@ import SwiftUI
 import MusicKit
 import TracksCore
 
-/// What Tracks needs from Spotify to list it as a source and play from it. Provided only in
-/// builds with the `SPOTIFY` flag, by setting ``AppModel/spotify``.
-@MainActor
-protocol SpotifySource: AnyObject {
-    /// Signed in with an account that can play.
-    var isConnected: Bool { get }
-    /// Signed out, refused or expired: its row asks to sign in.
-    var needsSignIn: Bool { get }
-    /// Opening the account saved on this device, which can take until the device is first
-    /// unlocked: a Spotify filter chosen before stays chosen meanwhile.
-    var isChecking: Bool { get }
-    /// The account's display name, never its email.
-    var accountName: String? { get }
-    var engine: any PlayerEngine { get }
-    /// Its page in Settings ▸ Sources: signing in, quality, Scrobble to Last.fm, Sign Out….
-    func settingsPage() -> AnyView
-}
-
 /// A source's state in one word, for its row. Worst first.
 enum SourceStatus: Hashable {
     case signIn
@@ -77,7 +59,6 @@ enum SourceWords {
         case .appleMusic: MusicSource.appleMusic.symbol
         case .device: MusicSource.deviceSymbol
         case .server: "server.rack"
-        case .spotify: MusicSource.spotify.symbol
         case .unknown: "music.quarternote.3"
         }
     }
@@ -87,7 +68,6 @@ enum SourceWords {
         case .appleMusic: .pink
         case .device: .blue
         case .server: .indigo
-        case .spotify: .black
         case .unknown: .gray
         }
     }
@@ -123,8 +103,8 @@ extension PlayFromOrder {
 }
 
 extension AppModel {
-    /// Every source added, in a steady order: Apple Music, Spotify, this device, then servers
-    /// in the order they were added.
+    /// Every source added, in a steady order: Apple Music, this device, then servers in the
+    /// order they were added.
     var sourceEntries: [SourceEntry] {
         var entries: [SourceEntry] = []
         if isShowingSampleData {
@@ -139,15 +119,6 @@ extension AppModel {
             default:
                 break
             }
-        }
-        // Listed once signed in, or once signed in before and now asking to be again.
-        if let spotify, spotify.isConnected || spotify.needsSignIn || spotify.isChecking {
-            entries.append(SourceEntry(
-                id: .spotify,
-                name: String(localized: "Spotify"),
-                status: spotify.needsSignIn ? .signIn : spotify.isChecking ? .connecting : .connected,
-                canPlay: spotify.isConnected
-            ))
         }
         let files = yourMusic.fileTracks.count
         if files > 0 {
@@ -204,12 +175,6 @@ extension AppModel {
     /// so a launch never moves away from them before they're found.
     func followSources() {
         yourMusic.scope = yourMusicScope
-        // Spotify is still opening the account saved here: a Spotify filter or player chosen
-        // before stays as it was, rather than moving away and forgetting the choice.
-        if let spotify, spotify.isChecking,
-           sourceSelection == .only(.spotify) || musicSource == .spotify {
-            return
-        }
         let target: MusicSource
         switch effectiveSourceSelection {
         case .only(let source):
@@ -230,37 +195,19 @@ extension AppModel {
         guard case .only(let source) = effectiveSourceSelection else { return nil }
         switch source {
         case .device, .server: return source
-        case .appleMusic, .spotify, .unknown: return nil
+        case .appleMusic, .unknown: return nil
         }
     }
 }
 
-/// A source's icon: its symbol, or Spotify's own mark, in its colours or, on a page coloured
-/// from a cover, in black or white. Read by the source's name.
+/// A source's icon, read by the source's name.
 struct SourceGlyph: View {
     let source: SourceID
-    @Environment(\.pageTone) private var tone
     @Environment(YourMusic.self) private var music: YourMusic?
 
     var body: some View {
-        Group {
-            if case .spotify = source {
-                if let tone {
-                    Image("SpotifyIconMono")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .foregroundStyle(tone.isDark ? Color.white : Color.black)
-                } else {
-                    Image("SpotifyIcon")
-                        .resizable()
-                        .scaledToFit()
-                }
-            } else {
-                Image(systemName: SourceWords.symbol(for: source))
-            }
-        }
-        .accessibilityLabel(Text(verbatim: name))
+        Image(systemName: SourceWords.symbol(for: source))
+            .accessibilityLabel(Text(verbatim: name))
     }
 
     private var name: String {
@@ -272,7 +219,7 @@ struct SourceGlyph: View {
 }
 
 /// The sources a collection is in, after its facts: up to three glyphs, then how many more.
-/// Read as "Available from Apple Music, Home and Spotify".
+/// Read as "Available from Apple Music, Home and On This Mac".
 struct SourceGlyphRow: View {
     let sources: [SourceID]
     @Environment(AppModel.self) private var model
@@ -316,12 +263,7 @@ struct SourceRowLabel: View {
                 Text(verbatim: entry.name)
                     .lineLimit(1)
             } icon: {
-                if case .spotify = entry.id {
-                    SourceGlyph(source: .spotify)
-                        .frame(width: 28, height: 28)
-                } else {
-                    SettingsIconTile(systemImage: entry.symbol, color: entry.tint)
-                }
+                SettingsIconTile(systemImage: entry.symbol, color: entry.tint)
             }
         }
         .accessibilityElement(children: .combine)

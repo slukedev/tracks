@@ -21,8 +21,6 @@ struct YourMusicScreen: View {
     /// A server whose password needs typing again.
     @State private var signingIn: SubsonicServer?
     @State private var shelves = Shelves()
-    /// With every source on, Spotify's shelves join these: Apple Music isn't here to lead.
-    var mergesSpotify = false
 
     enum ImportMode { case files, folder }
 
@@ -120,9 +118,6 @@ struct YourMusicScreen: View {
             guard !Task.isCancelled else { return }
             shelves = made
         }
-        #if SPOTIFY
-        .spotifyDestinations()
-        #endif
         // Get More's picks, found once something can fetch, and ranked again as your servers
         // find songs and what's yours changes.
         .task(id: GetMoreKey(
@@ -396,11 +391,6 @@ extension YourMusicScreen {
             ForEach(servers) { server in
                 ServerShelves(server: server)
             }
-            #if SPOTIFY
-            if mergesSpotify {
-                SpotifyPlayShelves()
-            }
-            #endif
         case .suggestedArtists, .radio:
             // Apple Music's own: your music has neither.
             EmptyView()

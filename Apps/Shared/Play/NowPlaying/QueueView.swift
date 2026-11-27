@@ -163,8 +163,8 @@ struct QueueView: View {
 
     private func row(_ upcoming: PlayerTrack, at index: Int, isLast: Bool) -> some View {
         let isUnavailable = player.isUnavailable(upcoming) || upcoming.local.map { !music.isPlayable($0) } ?? false
-        // Named only where the queue mixes sources, and always for Spotify.
-        let named = player.sourceID(of: upcoming).flatMap { $0 == .spotify || player.queueMixesSources ? $0 : nil }
+        // Named only where the queue mixes sources.
+        let named = player.queueMixesSources ? player.sourceID(of: upcoming) : nil
         return Button {
             player.jump(toUpNext: index)
         } label: {

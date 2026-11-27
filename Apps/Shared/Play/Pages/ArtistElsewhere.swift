@@ -13,9 +13,6 @@ struct ArtistElsewhere: View {
     @Environment(YourMusic.self) private var music
     @AppStorage(PlayPreferences.allowsExplicitKey) private var allowsExplicit = true
     @State private var appleMusic: [Album] = []
-    #if SPOTIFY
-    @State private var spotify: [SpotifyAlbum] = []
-    #endif
 
     var body: some View {
         Group {
@@ -36,18 +33,6 @@ struct ArtistElsewhere: View {
                         ArtistAlbumTile(album: album)
                     }
                 }
-                #if SPOTIFY
-                if !spotify.isEmpty {
-                    Shelf(title: String(localized: "Spotify"), items: spotify.map { Identified($0, id: $0.uri) }) {
-                        glyph(.spotify)
-                    } tile: { item in
-                        NavigationLink(value: SpotifyRoute.album(item.value.uri)) {
-                            SpotifyShelfTile(title: item.value.title, subtitle: item.value.artistLine, artwork: item.value.artworkUrl)
-                        }
-                        .buttonStyle(.pressable)
-                    }
-                }
-                #endif
             }
         }
         .task(id: "\(name).\(model.mixesSources)") { await load() }
@@ -86,13 +71,5 @@ struct ArtistElsewhere: View {
                 appleMusic = PlayPreferences.versions(of: Array(detailed.albums ?? []), allowsExplicit: allowsExplicit)
             }
         }
-        #if SPOTIFY
-        if page != .spotify, let service = model.spotifyService, service.isConnected,
-           let saved = try? await service.savedAlbums() {
-            spotify = saved.filter { album in
-                album.artists.contains { StatsCalculator.folded($0.name) == key }
-            }
-        }
-        #endif
     }
 }

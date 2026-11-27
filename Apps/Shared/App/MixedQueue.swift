@@ -107,10 +107,6 @@ extension AppModel {
             let byName = HistorySong(songID: known ? song.songID : "", title: song.title, artistName: song.artistName, albumTitle: song.albumTitle, artworkURL: song.artworkURL)
             copies.append((appleMusicItem(byName, catalog: catalog), .source(.appleMusic), true))
         }
-        if let spotify, spotify.isConnected || spotify.needsSignIn {
-            let canPlay = spotify.isConnected && yourMusic.network.isOnline
-            copies.append((itemPlaying(song, from: .spotify), .source(.spotify), canPlay))
-        }
         return yourMusic.playFromOrder.ranked(copies, place: \.place)
     }
 
@@ -118,8 +114,7 @@ extension AppModel {
     /// Tracks Radio could pick.
     func canPlayAnywhere(_ song: MixSong) -> Bool {
         if yourMusic.canPlay(song) { return true }
-        if musicAuthorization == .authorized, !playFeed.cannotPlayCatalog { return true }
-        return spotify?.isConnected == true && yourMusic.network.isOnline
+        return musicAuthorization == .authorized && !playFeed.cannotPlayCatalog
     }
 
     /// Another copy of a song ahead that can play now, from somewhere else.
@@ -145,8 +140,7 @@ extension AppModel {
     func sourceID(of item: MixedQueueEngine.Item) -> SourceID {
         switch item.payload {
         case .local(let track): track.serverID.map(SourceID.server) ?? .device
-        case .song: .appleMusic
-        case .history: item.source == .spotify ? .spotify : .appleMusic
+        case .song, .history: .appleMusic
         }
     }
 
@@ -197,7 +191,7 @@ extension AppModel {
         )
     }
 
-    /// A song known by name and id, for Apple Music or Spotify to look up as it comes.
+    /// A song known by name and id, for a source's player to look up as it comes.
     private func itemPlaying(_ song: HistorySong, from source: MusicSource) -> MixedQueueEngine.Item {
         let id = UUID().uuidString
         return MixedQueueEngine.Item(
@@ -225,11 +219,6 @@ extension AppModel {
             return yourMusic.isPlayable(local) ? nil : PlayerModel.Unavailable(reason: offlineReason([local]))
         }
         switch source {
-        case .spotify:
-            guard let spotify else { return PlayerModel.Unavailable(reason: nil) }
-            if !spotify.isConnected { return PlayerModel.Unavailable(reason: String(localized: "Spotify is signed out")) }
-            if !yourMusic.network.isOnline { return PlayerModel.Unavailable(reason: String(localized: "Spotify needs a connection")) }
-            return nil
         case .appleMusic:
             return musicAuthorization == .authorized || isDemoLaunch ? nil : PlayerModel.Unavailable(reason: nil)
         case .yourMusic, nil:
@@ -242,14 +231,10 @@ extension AppModel {
         switch source {
         case .yourMusic:
             return offlineReason(items.compactMap(\.payload.localTrack))
-        case .spotify:
-            return unavailability(of: items.first?.track ?? Self.blankTrack, from: .spotify)?.reason
         case .appleMusic:
             return nil
         }
     }
-
-    private static let blankTrack = PlayerTrack(id: "", title: "", artistName: "", albumTitle: nil, cover: .url(nil, seed: ""), duration: nil, isExplicit: false, song: nil)
 
     /// "Home is offline", when every song is on one server out of reach.
     private func offlineReason(_ tracks: [LocalTrack]) -> String? {
@@ -306,7 +291,7 @@ extension AppModel {
     }
 }
 
-/// Where else an album is, by title and artist: Apple Music's catalog and your Spotify albums.
+/// Where else an album is, by title and artist: Apple Music's catalog.
 /// Asked once an album a launch, and only with every source on.
 @MainActor
 enum AlbumElsewhere {
@@ -326,13 +311,6 @@ enum AlbumElsewhere {
                 found.append(.appleMusic)
             }
         }
-        #if SPOTIFY
-        if page != .spotify, let spotify = model.spotifyService, spotify.isConnected,
-           let albums = try? await spotify.savedAlbums(),
-           albums.contains(where: { AlbumMatch.matches($0.title, $0.artistLine, match) }) {
-            found.append(.spotify)
-        }
-        #endif
         known[key] = found
         return found
     }

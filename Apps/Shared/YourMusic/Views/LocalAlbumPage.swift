@@ -326,8 +326,8 @@ struct LocalAlbumContent: View {
         }
     }
 
-    /// Every source that has it: this device and your servers, from its songs, and Apple Music
-    /// and Spotify, as looked up.
+    /// Every source that has it: this device and your servers, from its songs, and Apple Music,
+    /// as looked up.
     private var albumSources: [SourceID] {
         guard model.mixesSources else { return [] }
         var sources: [SourceID] = []

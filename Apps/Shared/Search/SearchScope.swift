@@ -22,14 +22,12 @@ enum SearchScope: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The title where the library is your own music rather than Apple Music's, or Spotify,
-    /// which searches all of Spotify.
+    /// The title where the library is your own music rather than Apple Music's.
     func title(for source: MusicSource) -> LocalizedStringKey {
         guard self == .library else { return title }
         switch source {
         case .appleMusic: return title
         case .yourMusic: return "Your Library"
-        case .spotify: return "Spotify"
         }
     }
 
@@ -46,14 +44,13 @@ enum SearchScope: String, CaseIterable, Identifiable {
             switch source {
             case .appleMusic: "recentMusicSearches"
             case .yourMusic: "recentYourMusicSearches"
-            case .spotify: "recentSpotifySearches"
             }
         case .history: "recentHistorySearches"
         }
     }
 
-    /// The scopes Play offers: Apple Music's catalog isn't one when your own music or Spotify
-    /// is what plays. For Spotify, the library scope searches Spotify.
+    /// The scopes Play offers: Apple Music's catalog isn't one when your own music is what
+    /// plays.
     static func scopes(for source: MusicSource) -> [SearchScope] {
         source == .appleMusic ? allCases : [.library, .history]
     }

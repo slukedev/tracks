@@ -2,7 +2,7 @@ import SwiftUI
 import TracksCore
 
 /// Where the song on is playing from, under the scrubber beside its audio quality: shown once
-/// there's more than one source, and always for Spotify. Its menu plays the song from another
+/// there's more than one source. Its menu plays the song from another
 /// copy, as Play From ranks them, and goes to its album.
 struct SourceBadge: View {
     @Environment(AppModel.self) private var model
@@ -13,7 +13,7 @@ struct SourceBadge: View {
 
     var body: some View {
         let sources = model.sourceEntries.filter(\.canPlay)
-        if let track = player.current, let source = player.playingSource, source == .spotify || sources.count > 1 {
+        if let track = player.current, let source = player.playingSource, sources.count > 1 {
             let name = sources.first { $0.id == source }?.name ?? SourceWords.fallbackName(for: source)
             Menu {
                 let copies = model.mixesSources ? model.otherCopies(of: track, playingFrom: source) : []
@@ -97,7 +97,6 @@ extension SourceWords {
     static func fallbackName(for source: SourceID) -> String {
         switch source {
         case .appleMusic: String(localized: "Apple Music")
-        case .spotify: String(localized: "Spotify")
         case .device: MusicSource.deviceName
         case .server, .unknown: String(localized: "Server")
         }

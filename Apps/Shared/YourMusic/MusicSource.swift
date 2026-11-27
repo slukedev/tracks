@@ -1,9 +1,9 @@
 import SwiftUI
 import TracksCore
 
-/// Which of Tracks’ players Play draws from: Apple Music's, the one for files and servers, or
-/// Spotify's. Chosen through the source filter (``SourceSelection``), never named in the UI
-/// on its own: the person sees sources by their real names.
+/// Which of Tracks’ players Play draws from: Apple Music's, or the one for files and servers.
+/// Chosen through the source filter (``SourceSelection``), never named in the UI on its own:
+/// the person sees sources by their real names.
 ///
 /// Remembered on this device. A value from a newer version reads as Apple Music and stays
 /// stored as it was until the filter changes.
@@ -11,7 +11,6 @@ nonisolated enum MusicSource: String, CaseIterable, Identifiable, Sendable {
     case appleMusic
     /// Files on this device and every server. The stored value keeps its old name.
     case yourMusic
-    case spotify
 
     var id: String { rawValue }
 
@@ -26,7 +25,6 @@ nonisolated enum MusicSource: String, CaseIterable, Identifiable, Sendable {
         switch source {
         case .appleMusic, .unknown: self = .appleMusic
         case .device, .server: self = .yourMusic
-        case .spotify: self = .spotify
         }
     }
 
@@ -56,8 +54,6 @@ nonisolated enum MusicSource: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .appleMusic: "music.note"
         case .yourMusic: "server.rack"
-        // Where only a symbol fits, as in menus; rows show Spotify's own icon (`SourceGlyph`).
-        case .spotify: "wave.3.right.circle"
         }
     }
 
@@ -66,7 +62,6 @@ nonisolated enum MusicSource: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .appleMusic: String(localized: "Apple Music")
         case .yourMusic: Self.ownMusicName
-        case .spotify: String(localized: "Spotify")
         }
     }
 }

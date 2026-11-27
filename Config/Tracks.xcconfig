@@ -66,17 +66,6 @@ CODE_SIGN_STYLE = Automatic
 // then includes the approved entitlement in new profiles, including Xcode Cloud exports.
 TRACKS_IOS_ENTITLEMENTS = Apps/iOS/Resources/Tracks-CarPlay.entitlements
 
-// Spotify, in builds you make for yourself only. `Engine/build-apple.sh --spotify` builds the
-// engine with it and writes Engine.xcconfig (gitignored) saying so; Debug builds then define
-// SPOTIFY and link what it needs (project.yml). Release builds never do, and stop with an
-// error if the engine still has Spotify in it. Run `Engine/build-apple.sh` before archiving.
-TRACKS_ENGINE_SPOTIFY = NO
-#include? "Engine.xcconfig"
-TRACKS_SPOTIFY_CONDITION_YES = SPOTIFY
-TRACKS_SPOTIFY_CONDITION = $(TRACKS_SPOTIFY_CONDITION_$(TRACKS_ENGINE_SPOTIFY))
-TRACKS_SPOTIFY_LDFLAGS_YES = -framework Security
-TRACKS_SPOTIFY_LDFLAGS = $(TRACKS_SPOTIFY_LDFLAGS_$(TRACKS_ENGINE_SPOTIFY))
-
 // Optional, and last so they override the values above. A fresh clone builds for the
 // simulator and as an unsigned Mac app without either.
 #include? "Local.xcconfig"

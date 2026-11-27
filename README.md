@@ -241,26 +241,6 @@ If you see `developerTokenRequestFailed`, MusicKit couldn't get a developer toke
 the App ID is Explicit, that MusicKit is ticked for it, and that the build is signed with
 that team.
 
-## Spotify (your own builds only)
-
-Tracks can play Spotify itself, through [librespot](https://github.com/librespot-org/librespot)
-in the engine. It's experimental, needs Spotify Premium, and is against Spotify's terms, so it
-is off by default and never in App Store builds. To try it on your own device:
-
-```sh
-Engine/build-apple.sh --spotify
-```
-
-then build and run the **Debug** configuration. Debug builds define `SPOTIFY` whenever the
-engine has Spotify in it (`Config/Engine.xcconfig`, written by the script). Release builds
-stop with an error until you run `Engine/build-apple.sh` without `--spotify` again. Add
-Spotify in Settings › Sources.
-
-Since November 2026 Spotify refuses audio to clients like this for accounts it hasn't seen on
-one before ([librespot#1649](https://github.com/librespot-org/librespot/issues/1649)). Those
-accounts can sign in and browse but not play. Thanks to librespot and
-[psst](https://github.com/jpochyla/psst) (both MIT).
-
 ## Last.fm
 
 Scrobbling is optional. Without it, Tracks builds and runs normally and says that no Last.fm

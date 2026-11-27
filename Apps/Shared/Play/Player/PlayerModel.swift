@@ -136,15 +136,6 @@ final class PlayerModel {
             mixed.onAutoSkip = { [weak self] in self?.isAutoSkipping = true }
             return
         }
-        #if SPOTIFY
-        if let spotify = engine as? SpotifyPlayerEngine {
-            spotify.onNotice = { [weak self] in self?.confirm($0) }
-            spotify.onRemoteNext = { [weak self] in self?.skipToNext() }
-            spotify.onRemotePrevious = { [weak self] in self?.skipToPrevious() }
-            spotify.onAutoSkip = { [weak self] in self?.isAutoSkipping = true }
-            return
-        }
-        #endif
         guard let local = engine as? LocalPlayerEngine else { return }
         local.onNotice = { [weak self] in self?.confirm($0) }
         local.onSkipped = { [weak self] count, reason in self?.noteSkipped(count, reason: reason) }
@@ -819,20 +810,16 @@ final class PlayerModel {
         skipNotice = nil
     }
 
-    /// Where the song on is playing from: Apple Music, Spotify, this device or a server.
+    /// Where the song on is playing from: Apple Music, this device or a server.
     var playingSource: SourceID? {
         guard let current else { return nil }
         if let mixed = engine as? MixedQueueEngine {
             switch mixed.currentSource {
             case .appleMusic: return .appleMusic
-            case .spotify: return .spotify
             case .yourMusic: return current.local.map { $0.serverID.map(SourceID.server) ?? .device }
             case nil: return nil
             }
         }
-        #if SPOTIFY
-        if engine is SpotifyPlayerEngine { return .spotify }
-        #endif
         if let local = current.local { return local.serverID.map(SourceID.server) ?? .device }
         if engine is MusicKitPlayerEngine { return .appleMusic }
         return nil
@@ -944,9 +931,6 @@ final class PlayerModel {
     private var engineSource: MusicSource? {
         if engine is MusicKitPlayerEngine { return .appleMusic }
         if engine is LocalPlayerEngine { return .yourMusic }
-        #if SPOTIFY
-        if engine is SpotifyPlayerEngine { return .spotify }
-        #endif
         return nil
     }
 
@@ -955,13 +939,11 @@ final class PlayerModel {
         (engine as? MixedQueueEngine)?.source(of: track.id) ?? engineSource
     }
 
-    /// The source a song in the queue plays from, by name: this device, a server, Apple Music
-    /// or Spotify.
+    /// The source a song in the queue plays from, by name: this device, a server or Apple Music.
     func sourceID(of track: PlayerTrack) -> SourceID? {
         if let local = track.local { return local.serverID.map(SourceID.server) ?? .device }
         switch source(of: track) {
         case .appleMusic: return .appleMusic
-        case .spotify: return .spotify
         case .yourMusic, nil: return nil
         }
     }
