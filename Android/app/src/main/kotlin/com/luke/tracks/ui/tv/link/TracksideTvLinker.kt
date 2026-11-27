@@ -3,10 +3,12 @@ package com.luke.tracks.ui.tv.link
 /**
  * The app's [TvLinker] on the Trackside client, the one file to change when the client's
  * device-link calls land (api.md section 6):
- * - [start]: `TracksideClient.startLink(server.url, device)` with the same device object as
- *   sign-in (platform "android_tv"), into a [LinkOffer].
- * - [poll]: `TracksideClient.pollLink(base, deviceCode)`; its `Linked(result)` is kept with
- *   `ServerLibrary.pair(null, name, url, Pairing.Approved(result))`, exactly as a pairing is.
+ * - [start]: `ServerLibrary.startLink(server.url)` (TracksideClient.startLink with
+ *   `TracksideDeviceInfo.ANDROID_TV`), into a [LinkOffer]; a server without
+ *   `capabilities.auth.deviceLink` is [LinkProblem.NeedsUpdate].
+ * - [poll]: `TracksideClient.pollLink(base, deviceCode)`, one ask per call, so [linkSteps] keeps
+ *   the pacing; its `Linked(result)` is kept with
+ *   `servers.pair(null, "", url, Pairing.Approved(result))`, exactly as a pairing is.
  * - [lookUp], [approve], [deny]: `lookupLink`, `approveLink` and `denyLink` on the paired
  *   server's client, into a [LinkRequest]; `NotFound`, `LinkExpired`, `LinkLocked`, `LinkUsed`
  *   and `RateLimited` become the [LinkProblem]s of the same names.

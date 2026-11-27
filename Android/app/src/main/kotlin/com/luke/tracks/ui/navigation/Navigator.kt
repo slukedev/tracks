@@ -66,6 +66,11 @@ class Navigator(start: Tab = Tab.Play) : AppNavigation {
         open(SearchRoute)
     }
 
+    /** tracks://link: the phone's page for approving a TV, on top of where you are. Both values are checked by then. */
+    override fun openLinkApproval(serverId: String, userCode: String) {
+        open(SettingsPageRoute(com.luke.tracks.ui.link.linkApprovalPage(serverId, userCode)))
+    }
+
     /** False when there was nothing to go back to. */
     fun back(): Boolean {
         if (nowPlayingOpen) {

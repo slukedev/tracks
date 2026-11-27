@@ -203,3 +203,21 @@ private fun Hero(tone: Tone, headline: String, body: String? = null, actions: (@
         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
     )
 }
+
+/** The Settings page name that opens [LinkApprovalPage]: "link/<server id>/<code>", or "link/<server id>" to type the code. */
+fun linkApprovalPage(serverId: String, userCode: String? = null): String =
+    listOfNotNull("link", serverId, userCode).joinToString("/")
+
+/** [LinkApprovalPage] for a page name made by [linkApprovalPage]; anything else, checked again, goes back. */
+@Composable
+fun LinkApprovalFromPage(page: String, onDone: () -> Unit) {
+    val parts = page.removePrefix("link/").split('/')
+    val server = parts.firstOrNull()?.takeIf { ServerId.matches(it) }
+    if (server == null || parts.size > 2) {
+        LaunchedEffect(page) { onDone() }
+        return
+    }
+    LinkApprovalPage(server, parts.getOrNull(1)?.let(::normalizedUserCode), onDone)
+}
+
+private val ServerId = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
