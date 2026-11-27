@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.applemusic
 
+import com.luke.tracks.system.isTv
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -273,6 +274,7 @@ private fun openStore(context: Context) {
     try {
         context.startActivity(app)
     } catch (_: ActivityNotFoundException) {
-        runCatching { context.startActivity(web) }
+        // A TV has no browser to fall back to.
+        if (!context.isTv) runCatching { context.startActivity(web) }
     }
 }

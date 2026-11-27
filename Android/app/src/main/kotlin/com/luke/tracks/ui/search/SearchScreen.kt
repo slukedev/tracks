@@ -138,6 +138,10 @@ fun SearchScreen(initialQuery: String = "", initialScope: SearchScope = SearchSc
         results = graph.engine.read { search(text, 24u) }
     }
     LaunchedEffect(Unit) { if (query.isEmpty()) runCatching { focus.requestFocus() } }
+    // A search from Assistant or the system's search: shown as if typed.
+    LaunchedEffect(navigator.pendingSearch) {
+        navigator.pendingSearch?.let { query = it; navigator.pendingSearch = null }
+    }
 
     fun remember(text: String = query) = recents.add(text)
 

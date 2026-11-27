@@ -1,5 +1,6 @@
 package com.luke.tracks.lastfm
 
+import com.luke.tracks.system.isTv
 import kotlinx.coroutines.flow.flatMapLatest
 import android.app.Activity
 import android.content.Context
@@ -292,6 +293,7 @@ class LastFm internal constructor(private val context: Context, private val grap
     }
 
     private fun open(activity: Context, url: String) {
+        if (activity.isTv) return
         val intent = CustomTabsIntent.Builder().setShowTitle(true).setShareState(CustomTabsIntent.SHARE_STATE_OFF).build()
         if (activity !is Activity) intent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { intent.launchUrl(activity, Uri.parse(url)) }.onFailure {

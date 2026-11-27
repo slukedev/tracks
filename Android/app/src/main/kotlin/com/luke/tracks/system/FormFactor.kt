@@ -26,3 +26,10 @@ data class FormFactor(val tv: Boolean, val lowRam: Boolean) {
 }
 
 val LocalFormFactor = staticCompositionLocalOf { FormFactor.Phone }
+
+/**
+ * Whether this process runs the TV interface. Shared helpers check it so a TV never opens a
+ * browser, share sheet, chooser or output switcher.
+ */
+val Context.isTv: Boolean
+    get() = (applicationContext as? com.luke.tracks.TracksApplication)?.graph?.formFactor?.tv == true

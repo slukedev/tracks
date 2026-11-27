@@ -1,5 +1,6 @@
-# Generates the adaptive launcher icon (background, foreground, monochrome) and the animated
-# launch splash from one set of measurements. Run: python3 Android/tools/generate_icon.py
+# Generates the adaptive launcher icon (background, foreground, monochrome), the animated
+# launch splash and the Google TV banner from one set of measurements.
+# Run: python3 Android/tools/generate_icon.py (the banner needs Pillow: pip install pillow)
 import math, os
 RES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "main", "res")
 
@@ -116,4 +117,57 @@ splash = f'''<animated-vector xmlns:android="http://schemas.android.com/apk/res/
 </animated-vector>
 '''
 open(f"{RES}/drawable/splash_cassette.xml", "w").write(splash.replace('<?xml version="1.0" encoding="utf-8"?>', ''))
+
+def banner():
+    # Google TV's launcher banner: 320x180 at xhdpi, the icon's background and cassette with the
+    # app's name beside it. Drawn large, then scaled down for each density.
+    from PIL import Image, ImageDraw, ImageFont
+    W, H, SS = 640, 360, 4
+    w, h = W*SS, H*SS
+    # The icon background's radial gradient, stretched to the banner.
+    stops = [(0, (0xFF, 0x7A, 0x93)), (0.55, (0xE8, 0x35, 0x5C)), (1, (0xB3, 0x12, 0x3C))]
+    def shade(t):
+        t = min(max(t, 0), 1)
+        for (a, ca), (b, cb) in zip(stops, stops[1:]):
+            if t <= b:
+                f = (t - a) / (b - a)
+                return tuple(round(x + (y - x)*f) for x, y in zip(ca, cb))
+        return stops[-1][1]
+    small = Image.new("RGB", (W//4, H//4))
+    cx, cy, radius = W//4*0.37, H//4*0.28, W//4*0.88
+    small.putdata([shade(math.hypot(x - cx, y - cy)/radius) for y in range(H//4) for x in range(W//4)])
+    img = small.resize((w, h), Image.BICUBIC).convert("RGBA")
+    d = ImageDraw.Draw(img)
+
+    # The cassette in the 108 viewport, scaled so its body is about half the banner's height.
+    k = h*0.5/BH
+    ox, oy = w*0.09 - BX*k, (h - BH*k)/2 - BY*k
+    def P(x, y): return (ox + x*k, oy + y*k)
+    def box(x, y, bw, bh): return [P(x, y), P(x + bw, y + bh)]
+    shadow = Image.new("RGBA", (w, h))
+    ImageDraw.Draw(shadow).rounded_rectangle(box(BX+0.5, BY+2.2, BW-1, BH), radius=9*k, fill=(0, 0, 0, 0x33))
+    img.alpha_composite(shadow)
+    d.rounded_rectangle(box(BX, BY, BW, BH), radius=9*k, fill=(0xFB, 0xF1, 0xF2))
+    d.rounded_rectangle(box(WX, WY, WW, WH), radius=7.5*k, fill=(0x2B, 0x22, 0x35))
+    def poly(c, R, lobes, depth, color):
+        pts = [P(c[0] + R*(1 + depth*math.cos(lobes*t))*math.cos(t), c[1] + R*(1 + depth*math.cos(lobes*t))*math.sin(t))
+               for t in (2*math.pi*i/140 for i in range(140))]
+        d.polygon(pts, fill=color)
+    for c in (L, Rr):
+        poly(c, REEL, 7, 0.09, (0xFF, 0xB3, 0xC1))
+        poly(c, HUB+0.6, 6, 0.12, (0xFF, 0xFB, 0xFA))
+        d.ellipse(box(c[0]-1.1, c[1]-1.1, 2.2, 2.2), fill=(0x2B, 0x22, 0x35))
+    d.polygon([P(44, 63.5), P(64, 63.5), P(67.5, 70), P(40.5, 70)], fill=(0xE2, 0xCC, 0xD9))
+    d.rounded_rectangle(box(48.5, 66.2, 11, 1.6), radius=0.8*k, fill=(0xB7, 0x9D, 0xB0))
+
+    font = ImageFont.truetype(os.path.join(RES, "font", "google_sans_flex.ttf"), round(h*0.25))
+    font.set_variation_by_axes([96, 100, 640, 100, 0])
+    tx = P(BX + BW, 0)[0] + w*0.06
+    d.text((tx, h/2), "Tracks", font=font, fill=(0xFF, 0xFF, 0xFF), anchor="lm")
+
+    for folder, size in (("drawable-xhdpi", (320, 180)), ("drawable-xxxhdpi", (640, 360))):
+        os.makedirs(f"{RES}/{folder}", exist_ok=True)
+        img.resize(size, Image.LANCZOS).convert("RGB").save(f"{RES}/{folder}/tv_banner.png", optimize=True)
+
+banner()
 print("ok")

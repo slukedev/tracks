@@ -43,6 +43,8 @@ See [README.md](README.md) for the legend and how to keep this current.
   ExoPlayer plays a silent stand-in of the song's length and MusicKit follows it (item, play,
   pause, seek), handing the audio focus to MusicKit. The queue, notification, Android Auto,
   the listen count and History stay ExoPlayer's; plays are kept as `appleMusic`.
+- 2026-11-27: Google TV is the same APK with its own interface, playing Apple Music only.
+  See Google TV below.
 - 2026-11-24: Cleartext is the app's decision, not the network security config's. The config
   can't name private address ranges, so it permits cleartext and `net/Http.kt`'s
   `CleartextGuard` refuses plain http to anything but a nearby address (the iPhone's and
@@ -686,6 +688,41 @@ What the real SDK settled (it differed from what the code first guessed):
 
 Still needs a phone: sign-in through the Apple Music app and its return, playback and the
 stand-in staying in step, seeking, a refreshed token, and another device taking over.
+
+## Google TV
+
+One APK serves phones and Google TV. The launcher filter carries `LEANBACK_LAUNCHER`, the
+app has a TV banner (`res/drawable-xhdpi/tv_banner.png`, 320x180, and an xxxhdpi copy, both
+from `tools/generate_icon.py`), and no hardware is required: leanback, touchscreen, camera
+and microphone are all `required="false"`. The build includes `armeabi-v7a`, since many TV
+boxes run a 32-bit userspace even on 64-bit chips (Play's TV quality rule TV-G6).
+
+`system/FormFactor.kt` decides once per process: a TV is `UI_MODE_TYPE_TELEVISION` or a
+device with `FEATURE_LEANBACK`; low RAM is `ActivityManager.isLowRamDevice()`. `AppGraph`
+holds it and `LocalFormFactor` hands it to Compose. On a TV:
+
+- `MainActivity` shows the TV interface (`ui/tv`, built with `androidx.tv:tv-material`)
+  instead of the phone shell. Links, searches and Assistant requests go through
+  `AppNavigation`, which both shells implement.
+- Apple Music is the only source. `SourcesRegistry` is made with `allowedKinds` set to Apple
+  Music, so device files, servers and Spotify never register, and nothing says they're
+  missing. Startup never reads MediaStore, never asks for music permission, and skips server
+  address refreshes, Trackside services, Trackside Cloud sync, Spotify, Last.fm scrobbling,
+  widgets and shortcuts. `trackside://pair` links are ignored.
+- Shared helpers never open a browser, share sheet, chooser, QR scanner or output switcher.
+  Getting the Apple Music app goes to the store with `market://` only.
+- Sign-in needs the Apple Music app on the TV: MusicKit signs in through it, and Apple has no
+  code-on-another-device flow.
+- The splash shows the cassette still (`res/values-television/themes.xml`). Debug builds turn
+  on StrictMode with logging, and low-RAM devices keep a smaller cover cache in memory.
+- The screen may go to the system screensaver while music plays, as other music apps on TV
+  do.
+
+`ACTION_SEARCH` opens Search with the query, and `MEDIA_PLAY_FROM_SEARCH` plays what it names
+(blank plays Tracks Radio), on phones as well as TVs. Both queries are treated as plain text:
+control characters are dropped and they're cut at 200 characters.
+
+Still needs a TV: everything. Robolectric screenshots cover the TV screens at 960x540dp.
 
 ## Spotify (sideload builds only)
 

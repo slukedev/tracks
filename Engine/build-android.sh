@@ -10,7 +10,7 @@
 # `-Ptracks.sideload=true`. Needs the Android NDK (ANDROID_NDK_HOME, or the newest under
 # $ANDROID_HOME/ndk) and cargo-ndk (`cargo install cargo-ndk`).
 #
-#   Engine/build-android.sh               play, release build for arm64-v8a and x86_64
+#   Engine/build-android.sh               play, release build for arm64-v8a, armeabi-v7a and x86_64
 #   Engine/build-android.sh --sideload    sideload only
 #   Engine/build-android.sh --both        both variants
 #   Engine/build-android.sh --debug ...   unoptimized
@@ -55,7 +55,8 @@ esac
 rm -rf "$ANDROID_DIR/app/src/main/jniLibs" "$ANDROID_DIR/app/engine-bindings/uniffi" \
   "$ANDROID_DIR"/app/src/test/resources/linux-* "$ANDROID_DIR"/app/src/test/resources/darwin-*
 
-rustup target add aarch64-linux-android x86_64-linux-android >/dev/null
+# armeabi-v7a is for Google TV boxes with a 32-bit userspace.
+rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android >/dev/null
 
 for variant in "${VARIANTS[@]}"; do
   FEATURES=()
@@ -64,7 +65,7 @@ for variant in "${VARIANTS[@]}"; do
   rm -rf "$OUT"
   mkdir -p "$OUT"
 
-  cargo ndk -t arm64-v8a -t x86_64 --platform 31 -o "$OUT/jniLibs" \
+  cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 --platform 31 -o "$OUT/jniLibs" \
     build -p tracks-ffi --lib "${CARGO_PROFILE[@]}" "${FEATURES[@]}" --locked
 
   cargo run -q -p uniffi-bindgen --release --locked -- generate \
@@ -78,5 +79,5 @@ for variant in "${VARIANTS[@]}"; do
     cp "$CARGO_TARGET_DIR/$PROFILE/$HOST_LIB" "$OUT/host/$JNA_DIR/"
   fi
 
-  echo "✓ TracksEngine $PROFILE built for Android ($variant: arm64-v8a, x86_64) and this computer"
+  echo "✓ TracksEngine $PROFILE built for Android ($variant: arm64-v8a, armeabi-v7a, x86_64) and this computer"
 done

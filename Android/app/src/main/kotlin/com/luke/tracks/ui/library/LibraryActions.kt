@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.library
 
+import com.luke.tracks.system.isTv
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
@@ -252,6 +253,7 @@ private fun actionsFor(target: LibraryTarget, context: Context, player: PlayerCo
 }
 
 private fun share(context: Context, text: String) {
+    if (context.isTv) return
     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
     context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
