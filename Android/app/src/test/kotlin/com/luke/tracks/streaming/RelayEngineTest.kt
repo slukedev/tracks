@@ -162,6 +162,27 @@ class RelayEngineTest {
         assertEquals("play", relay.sent.last())
     }
 
+    @Test fun playStraightAfterANewQueueStartsOneSession() = runTest {
+        val relay = FakeRelay()
+        val engine = engine(relay)
+        val shown = engine.play(SERVER, kept, preview, emptyMap())
+        engine.resume()
+        runCurrent()
+        assertTrue("shown before the network answered", shown.isCompleted)
+        assertEquals(listOf("start:lossless:3"), relay.sent)
+    }
+
+    @Test fun pausedWhileStartingTellsTheServerAndPlaysNothing() = runTest {
+        val relay = FakeRelay()
+        val engine = engine(relay)
+        engine.play(SERVER, kept, preview, emptyMap())
+        engine.pause()
+        runCurrent()
+        assertEquals(listOf("start:lossless:3", "pause"), relay.sent)
+        assertNull(engine.status.value.stream)
+        assertFalse(engine.status.value.wantsToPlay)
+    }
+
     @Test fun aSeekSendsThePositionAndShowsItAtOnce() = runTest {
         val relay = FakeRelay()
         val engine = engine(relay)

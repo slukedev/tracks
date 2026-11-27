@@ -17,6 +17,8 @@ import com.luke.tracks.library.trackside.TracksideSpeakerPlayback
 import com.luke.tracks.library.trackside.TracksideSpeakerQueue
 import com.luke.tracks.library.trackside.TracksideSpeakerTransfer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -178,137 +180,152 @@ class RelayEngine(
     // MARK: Asking
 
     /**
+     * Runs a control on [work]. The answer completes once its effect is shown (before the
+     * network is asked), so a player can hold its own guess until then and no longer.
+     */
+    private fun control(block: suspend (shown: () -> Unit) -> Unit): Deferred<Unit> {
+        val shown = CompletableDeferred<Unit>()
+        scope.launch(work) {
+            try {
+                block { shown.complete(Unit) }
+            } finally {
+                shown.complete(Unit)
+            }
+        }
+        return shown
+    }
+
+    /**
      * Plays [kept] here, showing [preview] at once. A session already going on the same server
      * is reused; one on another server ends.
      */
-    fun play(serverId: String, kept: CatalogMedia.Kept, preview: List<RelayItem>, services: Map<String, String>) {
-        scope.launch(work) {
-            val token = ++commands
-            val before = _status.value
-            if (before.serverId != null && before.serverId != serverId) endQuietly()
-            serviceNames = services
-            retireStream()
-            val start = kept.request.startIndex ?: 0
-            _status.value = RelayStatus(
-                serverId = serverId,
-                phase = RelayStatus.Phase.Starting,
-                wantsToPlay = true,
-                items = preview,
-                index = start.coerceIn(0, (preview.size - 1).coerceAtLeast(0)),
-                positionMs = kept.request.positionMs ?: 0,
-                positionAtMs = null,
-                shuffle = kept.request.shuffle == true,
-                repeat = kept.request.repeat ?: "off",
-                tier = tier(),
-                services = services,
-                sessionId = session?.id,
-                speakerId = session?.speakerId,
-            )
-            val client = clientFor(serverId)?.also { skewMs = it.clockSkewMs } ?: return@launch fail("Couldn't reach your server.")
-            val live = session?.takeIf { !it.isEnded }
-            try {
-                if (live != null) {
-                    val answer = withContext(io) { client.play(live.speakerId, kept.request) }
-                    if (token == commands) apply(answer, client)
-                } else {
-                    val started = withContext(io) { client.start(TracksideRelayRequest(play = kept.request, name = deviceName(), tier = tier())) }
-                    applySession(started, client)
-                }
-                if (_status.value.wantsToPlay && _status.value.stream == null) awaitStream()
-                // Read back once the server has queued it, for when no events come (in the background).
-                scope.launch(work) {
-                    delay(SETTLE_READ_MS)
-                    if (token != commands) return@launch
-                    refreshQueue(client)
-                    refreshSpeaker(client)
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                if (error.isRelayEnded() && live != null) {
-                    // The session ended under us: a new one plays the same thing.
-                    session = null
-                    runCatching { applySession(withContext(io) { client.start(TracksideRelayRequest(play = kept.request, name = deviceName(), tier = tier())) }, client) }
-                        .onFailure { fail(words(it)) }
-                } else fail(words(error))
+    fun play(serverId: String, kept: CatalogMedia.Kept, preview: List<RelayItem>, services: Map<String, String>): Deferred<Unit> = control { shown ->
+        val token = ++commands
+        val before = _status.value
+        if (before.serverId != null && before.serverId != serverId) endQuietly()
+        serviceNames = services
+        retireStream()
+        val start = kept.request.startIndex ?: 0
+        _status.value = RelayStatus(
+            serverId = serverId,
+            phase = RelayStatus.Phase.Starting,
+            wantsToPlay = true,
+            items = preview,
+            index = start.coerceIn(0, (preview.size - 1).coerceAtLeast(0)),
+            positionMs = kept.request.positionMs ?: 0,
+            positionAtMs = null,
+            shuffle = kept.request.shuffle == true,
+            repeat = kept.request.repeat ?: "off",
+            tier = tier(),
+            services = services,
+            sessionId = session?.id,
+            speakerId = session?.speakerId,
+        )
+        shown()
+        val client = clientFor(serverId)?.also { skewMs = it.clockSkewMs } ?: return@control fail("Couldn't reach your server.")
+        val live = session?.takeIf { !it.isEnded }
+        try {
+            if (live != null) {
+                val answer = withContext(io) { client.play(live.speakerId, kept.request) }
+                if (token == commands) apply(answer, client)
+            } else {
+                val started = withContext(io) { client.start(TracksideRelayRequest(play = kept.request, name = deviceName(), tier = tier())) }
+                applySession(started, client)
             }
+            afterStart(client, token)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (error.isRelayEnded() && live != null) {
+                // The session ended under us: a new one plays the same thing.
+                session = null
+                runCatching { applySession(withContext(io) { client.start(TracksideRelayRequest(play = kept.request, name = deviceName(), tier = tier())) }, client) }
+                    .onSuccess { afterStart(client, token) }
+                    .onFailure { fail(words(it)) }
+            } else fail(words(error))
+        }
+    }
+
+    private suspend fun afterStart(client: RelayClient, token: Long) {
+        // Paused while it was starting: the server is told, and nothing plays.
+        if (!_status.value.wantsToPlay) {
+            command(client, TracksideSpeakerPlayback("pause"), changesStream = false)
+            return
+        }
+        if (_status.value.stream == null) awaitStream()
+        // Read back once the server has queued it, for when no events come (in the background).
+        scope.launch(work) {
+            delay(SETTLE_READ_MS)
+            if (token != commands) return@launch
+            refreshQueue(client)
+            refreshSpeaker(client)
         }
     }
 
     /** Adds songs after the one playing ([next]) or at the end, as the server's queue takes them. */
-    fun enqueue(items: List<TracksideSpeakerPlayRequest.Item>, preview: List<RelayItem>, next: Boolean) {
-        if (items.isEmpty()) return
-        scope.launch(work) {
-            val state = _status.value
-            val speakerId = state.speakerId ?: return@launch
-            val shown = state.items.toMutableList().apply { if (next) addAll((state.index + 1).coerceAtMost(size), preview) else addAll(preview) }
-            _status.value = state.copy(items = shown)
-            val client = client() ?: return@launch
-            runCatching { withContext(io) { client.play(speakerId, TracksideSpeakerPlayRequest(items, mode = if (next) "next" else "add")) } }
-                .onSuccess { apply(it, client, keepsStream = true) }
-                .onFailure { say(words(it)) }
-            refreshQueue(client)
-        }
+    fun enqueue(items: List<TracksideSpeakerPlayRequest.Item>, preview: List<RelayItem>, next: Boolean): Deferred<Unit> = control { shown ->
+        val state = _status.value
+        val speakerId = state.speakerId
+        if (items.isEmpty() || speakerId == null) return@control
+        val updated = state.items.toMutableList().apply { if (next) addAll((state.index + 1).coerceAtMost(size), preview) else addAll(preview) }
+        _status.value = state.copy(items = updated)
+        shown()
+        val client = client() ?: return@control
+        runCatching { withContext(io) { client.play(speakerId, TracksideSpeakerPlayRequest(items, mode = if (next) "next" else "add")) } }
+            .onSuccess { apply(it, client, keepsStream = true) }
+            .onFailure { say(words(it)) }
+        refreshQueue(client)
     }
 
-    fun resume() {
-        scope.launch(work) {
-            val state = _status.value
-            if (state.serverId == null) return@launch
-            ++commands
-            _status.value = state.copy(wantsToPlay = true, phase = if (state.phase == RelayStatus.Phase.Failed) RelayStatus.Phase.Starting else state.phase)
-            val client = client() ?: return@launch fail("Couldn't reach your server.")
-            val live = session?.takeIf { !it.isEnded }
-            if (live == null) {
-                // Ended (idle, or the server restarted): a new session, and the server's queue plays on from where it was.
-                try {
-                    val started = withContext(io) { client.start(TracksideRelayRequest(name = deviceName(), tier = tier())) }
-                    applySession(started, client)
-                    command(client, TracksideSpeakerPlayback("play"))
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    fail(words(error))
-                }
-                return@launch
-            }
-            // A paused session already names the next generation, which waits for the audio.
-            offerStream(live, client)
-            command(client, TracksideSpeakerPlayback("play"))
+    fun resume(): Deferred<Unit> = control { shown ->
+        val state = _status.value
+        // Already on its way: a second press, or play straight after a new queue, asks nothing more.
+        if (state.serverId == null || (state.wantsToPlay && (state.phase == RelayStatus.Phase.Starting || state.phase == RelayStatus.Phase.Live))) return@control
+        ++commands
+        _status.value = state.copy(wantsToPlay = true, phase = if (state.phase == RelayStatus.Phase.Live) state.phase else RelayStatus.Phase.Starting)
+        shown()
+        val client = client() ?: return@control fail("Couldn't reach your server.")
+        val live = session?.takeIf { !it.isEnded }
+        if (live == null) {
+            // Ended (idle, or the server restarted): a new session, and the server's queue plays on from where it was.
+            restart(client)
+            return@control
         }
+        // A paused session already names the next generation, which waits for the audio.
+        offerStream(live, client)
+        command(client, TracksideSpeakerPlayback("play"))
     }
 
     /** Pauses here at once; the server's stream ends, and playing again starts a new one. */
-    fun pause() {
-        scope.launch(work) {
-            val state = _status.value
-            if (state.serverId == null || !state.wantsToPlay) return@launch
-            ++commands
-            retireStream()
-            _status.value = _status.value.copy(wantsToPlay = false, positionMs = shownPosition(state), positionAtMs = null, phase = if (state.phase == RelayStatus.Phase.Live) RelayStatus.Phase.Paused else state.phase)
-            val client = client() ?: return@launch
-            if (session?.isEnded == false) command(client, TracksideSpeakerPlayback("pause"), changesStream = false)
-        }
+    fun pause(): Deferred<Unit> = control { shown ->
+        val state = _status.value
+        if (state.serverId == null || !state.wantsToPlay) return@control
+        ++commands
+        retireStream()
+        _status.value = _status.value.copy(wantsToPlay = false, positionMs = shownPosition(state), positionAtMs = null, phase = if (state.phase == RelayStatus.Phase.Live) RelayStatus.Phase.Paused else state.phase)
+        shown()
+        val client = client() ?: return@control
+        if (session?.isEnded == false) command(client, TracksideSpeakerPlayback("pause"), changesStream = false)
     }
 
-    fun next() = move(TracksideSpeakerPlayback("next")) { it.copy(index = (it.index + 1).coerceAtMost((it.items.size - 1).coerceAtLeast(0)), positionMs = 0) }
+    fun next(): Deferred<Unit> = move(TracksideSpeakerPlayback("next")) { it.copy(index = (it.index + 1).coerceAtMost((it.items.size - 1).coerceAtLeast(0)), positionMs = 0) }
 
-    fun previous() = move(TracksideSpeakerPlayback("previous")) { state ->
+    fun previous(): Deferred<Unit> = move(TracksideSpeakerPlayback("previous")) { state ->
         if (shownPosition(state) > RESTARTS_AFTER_MS) state.copy(positionMs = 0) else state.copy(index = (state.index - 1).coerceAtLeast(0), positionMs = 0)
     }
 
-    fun jump(index: Int) = scope.launch(work) {
-        val item = _status.value.items.getOrNull(index) ?: return@launch
-        if (item.itemId.isEmpty()) return@launch
-        moveNow(TracksideSpeakerPlayback("jump", itemId = item.itemId)) { it.copy(index = index, positionMs = 0) }
+    fun jump(index: Int): Deferred<Unit> = control { shown ->
+        val item = _status.value.items.getOrNull(index)
+        if (item == null || item.itemId.isEmpty()) return@control
+        moveNow(TracksideSpeakerPlayback("jump", itemId = item.itemId), shown) { it.copy(index = index, positionMs = 0) }
     }
 
-    fun seek(positionMs: Long) = move(TracksideSpeakerPlayback("seek", positionMs = positionMs.coerceAtLeast(0))) { it.copy(positionMs = positionMs.coerceAtLeast(0)) }
+    fun seek(positionMs: Long): Deferred<Unit> = move(TracksideSpeakerPlayback("seek", positionMs = positionMs.coerceAtLeast(0))) { it.copy(positionMs = positionMs.coerceAtLeast(0)) }
 
-    fun setShuffle(on: Boolean) = setting(TracksideSpeakerPatch(shuffle = on)) { it.copy(shuffle = on) }
+    fun setShuffle(on: Boolean): Deferred<Unit> = setting(TracksideSpeakerPatch(shuffle = on)) { it.copy(shuffle = on) }
 
     /** off, one or all. */
-    fun setRepeat(repeat: String) = setting(TracksideSpeakerPatch(repeat = repeat)) { it.copy(repeat = repeat) }
+    fun setRepeat(repeat: String): Deferred<Unit> = setting(TracksideSpeakerPatch(repeat = repeat)) { it.copy(repeat = repeat) }
 
     /** The tier to use from now on: cellular on a metered network, when the server can send it. */
     fun preferTier(cellular: Boolean, serverSendsCellular: Boolean) {
@@ -458,34 +475,46 @@ class RelayEngine(
 
     // MARK: Inside
 
-    private fun move(playback: TracksideSpeakerPlayback, guess: (RelayStatus) -> RelayStatus) {
-        scope.launch(work) { moveNow(playback, guess) }
-    }
+    private fun move(playback: TracksideSpeakerPlayback, guess: (RelayStatus) -> RelayStatus): Deferred<Unit> =
+        control { shown -> moveNow(playback, shown, guess) }
 
-    private suspend fun moveNow(playback: TracksideSpeakerPlayback, guess: (RelayStatus) -> RelayStatus) {
+    private suspend fun moveNow(playback: TracksideSpeakerPlayback, shown: () -> Unit, guess: (RelayStatus) -> RelayStatus) {
         val state = _status.value
         if (state.serverId == null) return
         ++commands
         retireStream()
         _status.value = guess(_status.value).copy(positionAtMs = null)
         itemTimer?.cancel()
+        shown()
         val client = client() ?: return
         if (session?.isEnded != false) {
             // Nothing is listening for the command: start again, and let the server's queue move.
-            if (state.wantsToPlay) resume()
+            if (state.wantsToPlay) restart(client)
             return
         }
         command(client, playback)
     }
 
-    private fun setting(patch: TracksideSpeakerPatch, guess: (RelayStatus) -> RelayStatus) {
-        scope.launch(work) {
-            val speakerId = _status.value.speakerId ?: return@launch
-            _status.value = guess(_status.value)
-            val client = client() ?: return@launch
-            runCatching { withContext(io) { client.patch(speakerId, patch) } }
-                .onSuccess { apply(it, client, keepsStream = true) }
-                .onFailure { say(words(it)); refreshSpeaker(client) }
+    private fun setting(patch: TracksideSpeakerPatch, guess: (RelayStatus) -> RelayStatus): Deferred<Unit> = control { shown ->
+        // Set before a queue starts, it goes with the queue's play request.
+        _status.value = guess(_status.value)
+        shown()
+        val speakerId = _status.value.speakerId ?: return@control
+        val client = client() ?: return@control
+        runCatching { withContext(io) { client.patch(speakerId, patch) } }
+            .onSuccess { apply(it, client, keepsStream = true) }
+            .onFailure { say(words(it)); refreshSpeaker(client) }
+    }
+
+    /** A new session for a queue the server kept, playing on from where it was. */
+    private suspend fun restart(client: RelayClient) {
+        try {
+            applySession(withContext(io) { client.start(TracksideRelayRequest(name = deviceName(), tier = tier())) }, client)
+            command(client, TracksideSpeakerPlayback("play"))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            fail(words(error))
         }
     }
 
@@ -504,7 +533,7 @@ class RelayEngine(
             if (error.isRelayEnded()) {
                 session = session?.copy(state = "ended")
                 _status.value = _status.value.copy(phase = RelayStatus.Phase.Ended)
-                if (_status.value.wantsToPlay) resume()
+                if (_status.value.wantsToPlay) restart(client)
                 return
             }
             say(words(error))

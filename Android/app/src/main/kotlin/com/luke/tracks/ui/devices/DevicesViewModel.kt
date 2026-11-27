@@ -124,6 +124,14 @@ class DevicesViewModel(private val graph: AppGraph, private val repository: Spea
     fun castTo(key: SpeakerKey) {
         val repository = repository ?: return
         viewModelScope.launch {
+            // Music from a service plays here through the relay: the server moves its queue to the speaker.
+            val relay = com.luke.tracks.streaming.Streaming.of(graph)?.relay
+            val relaying = relay?.status?.value?.takeIf { it.isActive && it.serverId == key.serverId }
+            if (relay != null && relaying != null) {
+                repository.choose(key)
+                if (!relay.transfer(key.speakerId)) repository.release()
+                return@launch
+            }
             val player = graph.player
             val built = withContext(Dispatchers.Default) {
                 val playerState = player.state.value
@@ -155,6 +163,15 @@ class DevicesViewModel(private val graph: AppGraph, private val repository: Spea
                     val found = it.items.map { item -> item.songId?.let { id -> songs[ServerLibrary.mediaId(key.serverId, id)] } }
                     if (found.isEmpty() || found.any { song -> song == null }) null else found.filterNotNull()
                 }
+            }
+            // A queue with any service's song comes here through the relay, as the server moves it.
+            val streaming = com.luke.tracks.streaming.Streaming.of(graph)
+            val relayed = queue?.items?.any { it.ref != null } == true || speaker?.nowPlaying?.ref != null
+            if (moved == null && relayed && speaker != null && streaming?.repository?.state?.value?.server(key.serverId)?.plays == true) {
+                val names = streaming.repository.state.value.server(key.serverId)?.services.orEmpty().associate { it.id to it.name }
+                repository.release()
+                streaming.relay.takeFrom(key.serverId, key.speakerId, names)
+                return@launch
             }
             if (moved == null || speaker == null) {
                 repository.release()
@@ -191,8 +208,10 @@ class DevicesViewModel(private val graph: AppGraph, private val repository: Spea
     private fun ui(state: SpeakersState): DevicesUi {
         val many = state.servers.size > 1
         val sections = state.servers.map { server ->
-            val names = server.speakers.associate { it.id to it.label }
-            val all = server.speakers.map { speaker ->
+            // The relay for this phone is "This phone", not a speaker of its own.
+            val speakers = server.speakers.filterNot { it.relay?.thisDevice == true }
+            val names = speakers.associate { it.id to it.label }
+            val all = speakers.map { speaker ->
                 val key = SpeakerKey(server.serverId, speaker.id)
                 val group = speaker.group
                 SpeakerUi(
