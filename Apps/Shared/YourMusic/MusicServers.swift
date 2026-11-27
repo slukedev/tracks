@@ -68,6 +68,19 @@ final class MusicServers {
     private(set) var songRequests: [String: SongRequestBoard] = [:]
     /// The speakers on each Trackside server that has them, for Devices and the player.
     let speakers = SpeakersStore()
+    /// TVs you approved with a code that have since collected their key, as each server said
+    /// (`device_linked`), so the approval can say the TV is connected.
+    private(set) var linkedDevices: [LinkedDevice] = []
+
+    struct LinkedDevice: Equatable {
+        let serverID: String
+        let device: TracksideDeviceLinked
+    }
+
+    /// Your Trackside servers, the ones a TV can be connected to.
+    var tracksideServers: [SubsonicServer] {
+        servers.filter(\.isTrackside)
+    }
 
     @ObservationIgnored private var subsonic: [String: SubsonicClient] = [:]
     @ObservationIgnored private var trackside: [String: TracksideConnection] = [:]
@@ -825,6 +838,8 @@ final class MusicServers {
         case .acquisition(let acquisition):
             songRequests[serverID]?.update(acquisition)
             if acquisition.state == .done { syncSoon(serverID) }
+        case .deviceLinked(let device):
+            linkedDevices = Array((linkedDevices + [LinkedDevice(serverID: serverID, device: device)]).suffix(8))
         case .revoked, .library, .other, .speakerChanged, .speakerRemoved, .speakerProgress, .speakerQueue, .speakerCommand, .speakers:
             break
         }
@@ -1280,6 +1295,8 @@ final class MusicServers {
             insecureAddressReason
         case .httpsRequired:
             String(localized: "Your server only connects over https, and none of its https addresses answered. Check its public address.")
+        case .linkExpired, .linkLocked:
+            TracksideLinkWords.problem(error)
         case .mediaTokenExpired, .conflict, .syncReset, .candidateExpired, .preconditionFailed, .invalidState, .featureUnavailable:
             String(localized: "The server couldn't answer.")
         }

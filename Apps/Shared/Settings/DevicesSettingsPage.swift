@@ -13,6 +13,7 @@ struct DevicesSettingsPage: View {
     @AppStorage(NearbyDevices.bringsQueueKey) private var bringsQueue = true
     /// The speaker whose page is open, on the Mac, where it's a sheet.
     @State private var openSpeaker: SpeakerAddress?
+    @State private var connectsTV = false
 
     private var status: NearbyDevicesStatus {
         let playingOn: String? = {
@@ -62,6 +63,13 @@ struct DevicesSettingsPage: View {
             if model.speakers.hasSpeakers {
                 speakersSection
             }
+            if !model.yourMusic.servers.tracksideServers.isEmpty {
+                tvSection
+            }
+        }
+        .sheet(isPresented: $connectsTV) {
+            ConnectTVSheet()
+                .environment(model.yourMusic)
         }
         #if os(macOS)
         .sheet(item: $openSpeaker) { address in
@@ -198,6 +206,21 @@ struct DevicesSettingsPage: View {
             }
         } header: {
             Text("Speakers")
+        }
+    }
+
+    /// A TV signs in to your server with the code it shows, approved here.
+    private var tvSection: some View {
+        Section {
+            #if os(macOS)
+            LabeledContent {
+                Button("Connect…") { connectsTV = true }
+            } label: {
+                Label("TV", systemImage: "tv")
+            }
+            #else
+            Button("Connect a TV…", systemImage: "tv") { connectsTV = true }
+            #endif
         }
     }
 
