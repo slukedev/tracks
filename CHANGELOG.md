@@ -258,6 +258,9 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
 - Each speaker has its own page in Devices settings: its volume, power and the speakers to
   group with it, a checkmark each. Every change shows at once and settles on what the
   speaker does, and one that doesn't happen goes back with a word on why
+- Connect a TV to your Trackside server: scan the code it shows with your iPhone's Camera, or
+  type it in Settings, Devices, Connect a TV. Tracks shows which TV it is and warns when it
+  asked from outside your home network, then Approve or Deny, and says when the TV is connected
 - Search asks your servers as you type, so songs newer than the last sync turn up too. With a
   music server that adds songs on request, search finds songs you don't own yet to play straight
   away, and Add to Your Music has the server fetch the file, which joins your music a few
@@ -361,6 +364,10 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   each server's speakers with commands laid over them until the server settles them
   (`SpeakerBoard`), and serves them to the apps from `SpeakersStore`. The speaker fixtures are
   copied from the server and decoded in the tests
+- TracksCore and the Android client speak Trackside's TV linking (`/link/*`, RFC 8628 in
+  shape): the approving calls for phones and Macs, the start and poll calls for a TV (Android
+  sends `android_tv` from a TV), `link_expired`, `link_locked` and `link_used`, and the
+  `device_linked` event. The link fixtures are copied from the server and decoded in the tests
 
 ## Motif 1.0
 
