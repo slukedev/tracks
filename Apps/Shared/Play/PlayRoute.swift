@@ -41,6 +41,10 @@ enum PlayRoute: Hashable {
     case artistNamed(String, identity: String)
     /// One of Tracks’ own pages, for a menu that can only push through ``OpenPlayRouteAction``.
     case stats(Route)
+    /// A music service's album, artist or playlist on one of your servers, by its ref.
+    case catalog(CatalogRoute)
+    /// What's saved on a music service: its playlists, albums and artists.
+    case catalogLibrary(CatalogServiceAddress)
 }
 
 /// The parts of the Apple Music library the Play tab lists.
@@ -123,6 +127,12 @@ private struct PlayDestination: View {
         case .lidarr: LidarrPage()
         case .lidarrArtist(let id): LidarrArtistPage(artistID: id)
         case .artistNamed(let name, let identity): FavoriteArtistPage(name: name, identity: identity)
+        case .catalog(let route):
+            switch route.kind {
+            case .artist: CatalogArtistPage(route: route)
+            case .album, .playlist: CatalogCollectionPage(route: route)
+            }
+        case .catalogLibrary(let address): CatalogLibraryPage(address: address)
         case .stats(let route):
             switch route {
             case .artist(let id): ArtistDetailView(artistID: id)

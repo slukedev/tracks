@@ -302,6 +302,8 @@ extension YourMusicScreen {
                 GetMoreSection()
             }
         }
+        // What's saved on the music services your servers play from, before the endless list.
+        ServiceLibraryShelf()
         // One endless list at the bottom: what you have and haven't played, and more your
         // servers find for you, as Apple Music's Play ends with Keep Exploring.
         if player.isDemo, suggestionMode != .off {

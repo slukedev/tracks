@@ -52,6 +52,15 @@ struct MusicSearchResults: View {
                     HistoryRecallHint(query: query) { model.search.scope = .history }
                     resultSections
                 }
+                // The music services on your servers, after Apple Music's own: never Apple
+                // Music again through a server.
+                if !isBlank, scope == .appleMusic, !model.isShowingSampleData {
+                    CatalogSearchSection(
+                        query: query,
+                        listedKeys: Set(results.songs.map { SongIdentity.key(title: $0.title, artistName: $0.artistName) }),
+                        remember: remember
+                    )
+                }
             }
             // The page's width even when empty, so the overlay's message has it too.
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -256,7 +265,8 @@ struct MusicSearchResults: View {
                 Button("Try Again") { attempt += 1 }
                 Button("Search History") { model.search.scope = .history }
             }
-        } else if !isBlank, state == .loaded, results.isEmpty {
+        } else if !isBlank, state == .loaded, results.isEmpty, !model.streaming.hasServices {
+            // With music services, their own section says when they found nothing too.
             SearchNoResults(query: query)
         } else if !isBlank, state == .loading, results.isEmpty {
             // The songs' places while the first answer comes.
