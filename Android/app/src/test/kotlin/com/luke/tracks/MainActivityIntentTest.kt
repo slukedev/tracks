@@ -93,6 +93,20 @@ class MainActivityIntentTest {
         assertFalse(cut.query.last().isHighSurrogate())
     }
 
+    @Test fun linkApprovalsAreCheckedStrictly() {
+        fun of(link: String) = LaunchRequest.of(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+        val server = "5f0c2b9e-8a3d-4c1e-9b7a-2d6e4f8a1c3b"
+        assertEquals(LaunchRequest.LinkApproval(server, "Q7RM-4X2K"), of("tracks://link?server=$server&code=Q7RM-4X2K"))
+        assertEquals(LaunchRequest.LinkApproval(server, "Q7RM-4X2K"), of("tracks://link?server=${server.uppercase()}&code=Q7RM4X2K"))
+        assertNull(of("tracks://link?server=$server"))
+        assertNull(of("tracks://link?code=Q7RM-4X2K"))
+        assertNull(of("tracks://link?server=home&code=Q7RM-4X2K"))
+        assertNull(of("tracks://link?server=$server&code=q7rm-4x2k"))
+        assertNull(of("tracks://link?server=$server&code=Q7RM-4X2K-EXTRA"))
+        assertNull(of("tracks://link?server=$server%0A&code=Q7RM-4X2K"))
+        assertNull(of("tracks://link?server=$server&code=Q7RM--4X2K"))
+    }
+
     @Test fun linksAreReadByScheme() {
         assertEquals(LaunchRequest.Link(Uri.parse("tracks://radio")), LaunchRequest.of(Intent(Intent.ACTION_VIEW, Uri.parse("tracks://radio"))))
         assertEquals(LaunchRequest.Pairing("trackside://pair?x=1"), LaunchRequest.of(Intent(Intent.ACTION_VIEW, Uri.parse("trackside://pair?x=1"))))

@@ -12,7 +12,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** On TV the registry holds Apple Music and nothing else, however the others arrive. */
+/** On TV the registry holds servers (Trackside) and nothing else, however the others arrive. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class SourcesRegistryTvTest {
@@ -31,17 +31,19 @@ class SourcesRegistryTvTest {
         )
     }
 
-    @Test fun tvKeepsOnlyAppleMusic() {
+    @Test fun tvKeepsOnlyServers() {
         val registry = registry(TV_SOURCE_KINDS)
-        assertEquals(emptyList<Source>(), registry.sources.value)
-
         registry.register(FakeProvider(SourceKind.Spotify, listOf(FakeSources.spotify)))
         registry.register(FakeProvider(SourceKind.AppleMusic, listOf(appleMusic)))
 
-        assertEquals(listOf(SourceKind.AppleMusic), registry.registered.value.map { it.kind })
-        assertEquals(listOf(appleMusic), registry.sources.value)
+        assertEquals(listOf(SourceKind.Server), registry.registered.value.map { it.kind })
+        assertEquals(listOf(FakeSources.home, FakeSources.studio), registry.sources.value)
         assertNull(registry.provider(SourceKind.Device))
-        assertEquals(listOf(PlayFromPlace.From(SourceId.AppleMusic)), registry.arrangedPlayFrom())
+        assertNull(registry.provider(SourceKind.AppleMusic))
+        assertEquals(
+            listOf(SourceId.Server("s1"), SourceId.Server("s2")).map(PlayFromPlace::From),
+            registry.arrangedPlayFrom(),
+        )
     }
 
     @Test fun phoneKeepsEverySource() {

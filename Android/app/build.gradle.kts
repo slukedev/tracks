@@ -222,6 +222,7 @@ dependencies {
     implementation(libs.glance.material3)
     implementation(libs.coil.compose)
     implementation(libs.coil.network)
+    implementation(libs.zxing.core)
     implementation(libs.okhttp)
     implementation("${libs.jna.get()}@aar")
     implementation(libs.material.kolor)

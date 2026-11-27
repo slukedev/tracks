@@ -23,7 +23,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** On a TV, outside requests reach the TV's navigation, and phone-only sources stay out. */
+/** On a TV, outside requests reach the TV's navigation, and only Trackside is a source. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 class TvIntentTest {
@@ -48,9 +48,9 @@ class TvIntentTest {
         app.graph.player = previous
     }
 
-    @Test fun theGraphKnowsItsATvAndHoldsOnlyAppleMusic() {
+    @Test fun theGraphKnowsItsATvAndHoldsOnlyServers() {
         assertTrue(app.graph.formFactor.tv)
-        assertTrue(app.graph.sources.registered.value.all { it.kind == SourceKind.AppleMusic })
+        assertEquals(listOf(SourceKind.Server), app.graph.sources.registered.value.map { it.kind })
     }
 
     @Test fun searchGoesToTheTvSearch() {
@@ -68,6 +68,16 @@ class TvIntentTest {
             .putExtra(SearchManager.QUERY, "Saltwater")
         ActivityScenario.launch<MainActivity>(intent).use {
             assertEquals(listOf("Saltwater"), player.searches)
+        }
+    }
+
+    @Test fun linkApprovalsAreIgnored() {
+        val link = Uri.parse("tracks://link?server=5f0c2b9e-8a3d-4c1e-9b7a-2d6e4f8a1c3b&code=Q7RM-4X2K")
+        ActivityScenario.launch<MainActivity>(Intent(Intent.ACTION_VIEW, link).setClass(app, MainActivity::class.java)).use { scenario ->
+            scenario.onActivity { activity ->
+                assertEquals(TvDestination.Play, activity.tvNavigator.destination)
+                assertFalse(activity.tvNavigator.nowPlayingOpen)
+            }
         }
     }
 
