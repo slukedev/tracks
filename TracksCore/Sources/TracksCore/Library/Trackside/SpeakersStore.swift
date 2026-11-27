@@ -280,7 +280,7 @@ public final class SpeakersStore {
             boards[serverID]?.setState(state)
             if state.state == .ok, was != .ok { refresh(serverID) }
             if state.state == .unavailable { positions.forget(serverID: serverID) }
-        case .speakerQueue, .changed, .library, .acquisition, .revoked, .serverURLs, .cloud, .other:
+        case .speakerQueue, .changed, .library, .acquisition, .revoked, .serverURLs, .cloud, .deviceLinked, .other:
             break
         }
         scheduleDeadline()

@@ -424,6 +424,9 @@ struct TracksideFixtureTests {
         if has("mode"), has("url") { return read(TracksidePlaybackDecision.self) }
         if has("mode") { return read(TracksideSyncPage.self) { ($0.songs ?? []) + ($0.upserts?.songs ?? []) } }
         if has("api_key") { return read(TracksidePairResult.self) }
+        if has("device_code"), has("user_code") { return read(TracksideLinkStart.self) }
+        if has("device"), has("nearby") { return read(TracksideLinkInfo.self) }
+        if has("id"), has("platform"), keys.isSubset(of: ["id", "name", "platform"]) { return read(TracksideDeviceLinked.self) }
         if has("poll_secret") { return read(TracksidePairRequest.self) }
         if has("user"), has("server") { return read(TracksideMe.self) }
         if has("search_id") { return read(TracksideAcquisitionSearch.self) { $0.inLibrary ?? [] } }

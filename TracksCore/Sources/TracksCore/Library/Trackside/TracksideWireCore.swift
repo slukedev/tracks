@@ -122,11 +122,14 @@ public struct TracksideCapabilities: Codable, Sendable, Hashable {
         public var passwordLogin: Bool?
         public var pairing: Bool?
         public var pairRequests: Bool?
+        /// A TV can link with a short code that a signed-in device approves.
+        public var deviceLink: Bool?
 
         enum CodingKeys: String, CodingKey {
             case pairing
             case passwordLogin = "password_login"
             case pairRequests = "pair_requests"
+            case deviceLink = "device_link"
         }
     }
 
@@ -271,11 +274,14 @@ struct TracksideErrorEnvelope: Codable, Sendable {
         let received: Int?
         /// With `https_required`: the server's https addresses, when it has any.
         let httpsURLs: [TracksideServerURL]?
+        /// With `slow_down`: the seconds to poll at from now on.
+        let intervalS: Int?
 
         enum CodingKeys: String, CodingKey {
             case field, reason, received, capability
             case resetsAt = "resets_at"
             case httpsURLs = "https_urls"
+            case intervalS = "interval_s"
         }
 
         init(from decoder: any Decoder) throws {
@@ -286,6 +292,7 @@ struct TracksideErrorEnvelope: Codable, Sendable {
             resetsAt = try? container.decodeIfPresent(Date.self, forKey: .resetsAt)
             received = try? container.decodeIfPresent(Int.self, forKey: .received)
             httpsURLs = (try? container.decodeIfPresent([TracksideLenientElement<TracksideServerURL>].self, forKey: .httpsURLs))?.compactMap(\.value)
+            intervalS = try? container.decodeIfPresent(Int.self, forKey: .intervalS)
         }
     }
 }

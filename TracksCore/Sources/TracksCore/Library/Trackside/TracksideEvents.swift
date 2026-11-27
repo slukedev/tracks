@@ -127,6 +127,8 @@ public enum TracksideEvent: Sendable, Equatable {
     case speakerCommand(TracksideSpeakerCommandOutcome)
     /// Whether the server can reach its speakers. Back to `ok`: read them all again.
     case speakers(TracksideSpeakersState)
+    /// A TV this person approved with a code collected its key: it's one of their devices now.
+    case deviceLinked(TracksideDeviceLinked)
     /// One this build doesn't know, or doesn't need.
     case other(String)
 
@@ -172,6 +174,9 @@ public enum TracksideEvent: Sendable, Equatable {
         case "speakers":
             guard let state = try? decoder.decode(TracksideSpeakersState.self, from: data) else { self = .other(event.event); return }
             self = .speakers(state)
+        case "device_linked":
+            guard let device = try? decoder.decode(TracksideDeviceLinked.self, from: data) else { self = .other(event.event); return }
+            self = .deviceLinked(device)
         default:
             self = .other(event.event)
         }
