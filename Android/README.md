@@ -1,8 +1,8 @@
 # Tracks for Android
 
 Tracks on Android: Kotlin, Jetpack Compose and Material 3 Expressive, on the same Rust engine
-as the iPhone and Mac apps. It plays music from your sources (files on the phone, Trackside and Subsonic servers, and
-Spotify in sideload builds) with Media3, keeps
+as the iPhone and Mac apps. It plays music from your sources (files on the phone, Trackside and Subsonic servers) with
+Media3, keeps
 every song you play in it, and turns that history into Summary, Charts, History and mixes.
 It can import your Last.fm history and scrobbles to Last.fm.
 
@@ -29,12 +29,7 @@ cd Android
 
 Run `Engine/build-android.sh` once after cloning and after any change in `Engine/`. It writes
 the engine for each ABI, its Kotlin bindings and a host copy for JVM tests under
-`app/engine-bindings/<variant>/`, gitignored.
-
-There are two variants. **play** is the default and the only one for a store. **sideload** adds
-Spotify (see `docs/platforms/android.md`); build its engine with `Engine/build-android.sh
---sideload` (or `--both`), then pass `-Ptracks.sideload=true` to any Gradle task, for example
-`./gradlew -Ptracks.sideload=true :app:assembleRelease`. Its version name ends in `-sideload`.
+`app/engine-bindings/`, gitignored.
 
 Release builds are signed with the Play upload key when `secrets.properties` (or the
 `TRACKS_UPLOAD_*` environment variables, for CI) names one; see `secrets.example.properties`.
@@ -69,7 +64,7 @@ engine and invented sample history, into `app/build/screenshots/`. See
 | `engine` | The Rust engine, called off the main thread. |
 | `data` | Room (the history's source of truth), settings, periods, sample data. |
 | `library` | Device files, Subsonic and Trackside servers (`library/trackside`), merged. |
-| `sources` | The sources registry: each source's name and status, the source filter, the Play From order, and the player's skipped-songs messages. Spotify registers into it. |
+| `sources` | The sources registry: each source's name and status, the source filter, the Play From order, and the player's skipped-songs messages. A kind of source beyond files and servers registers into it. |
 | `net` | The app's HTTP rules: one OkHttp setup, cleartext only nearby, certificate pins, endpoint racing, retries, credential-free media links, log redaction. |
 | `playback` | Media3 service, Android Auto browse tree, player controller, Tracks Radio. |
 | `lastfm` | Connecting, scrobbling and importing, through the engine's Last.fm client. |

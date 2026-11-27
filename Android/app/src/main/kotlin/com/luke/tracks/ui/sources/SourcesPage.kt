@@ -137,9 +137,6 @@ fun SourcesSettingsPage(adding: Boolean = false) {
             SourceKind.AppleMusic -> AddOption("appleMusic", "Apple Music", SourceKind.AppleMusic, provider.addSubtitle, provider.iconRes) {
                 navigator.open(SettingsPageRoute(sourcePage(SourceId.AppleMusic)))
             }
-            SourceKind.Spotify -> AddOption("spotify", "Spotify", SourceKind.Spotify, provider.addSubtitle, provider.iconRes) {
-                navigator.open(SettingsPageRoute(sourcePage(SourceId.Spotify)))
-            }
         }
     }.sortedBy { it.kind.ordinal }
 

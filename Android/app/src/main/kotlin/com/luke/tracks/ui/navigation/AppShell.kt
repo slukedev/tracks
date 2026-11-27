@@ -191,7 +191,6 @@ fun AppShell(navigator: Navigator) {
                             entry<SongRoute> { SongScreen(it.identity, it.title, it.artistName) }
                             entry<MixRoute> { MixScreen(it.mixId) }
                             entry<SearchRoute> { SearchScreen() }
-                            entry<SpotifyLibraryRoute> { com.luke.tracks.spotify.Spotify.integration?.Library(onBack = { navigator.back() }) }
                             entry<SettingsRoute> { SettingsScreen() }
                             entry<SettingsPageRoute> { SettingsPageScreen(it.page) }
                             entry<LibraryAlbumRoute> { LibraryAlbumScreen(it.albumId) }

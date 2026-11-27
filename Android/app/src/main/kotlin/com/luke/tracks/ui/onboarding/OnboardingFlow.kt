@@ -128,8 +128,6 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
     }
     val editing = com.luke.tracks.ui.library.servers.rememberServerEditing()
     val sources by com.luke.tracks.ui.sources.sourceList()
-    val registry = com.luke.tracks.ui.sources.rememberSources()
-    val providers by registry.registered.collectAsStateWithLifecycle()
     val lastFm by graph.lastFm.connection.collectAsStateWithLifecycle()
     LifecycleResumeEffect(lastFm) {
         if (lastFm is LastFm.Connection.Waiting) graph.lastFm.checkNow()
@@ -143,7 +141,6 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
     }
 
     val done = step == OnboardingStep.LastFm && lastFm is LastFm.Connection.Connected
-    var spotifyOpen by remember { mutableStateOf(false) }
     val scheme = MaterialTheme.colorScheme
     val shapeColor = when (step) {
         OnboardingStep.Welcome, OnboardingStep.Ready -> scheme.primaryContainer
@@ -211,10 +208,6 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
                         onAskMusic = { askMusic.launch(Manifest.permission.READ_MEDIA_AUDIO) },
                         servers = sources.count { it.kind == com.luke.tracks.sources.SourceKind.Server },
                         onAddServer = { editing.add() },
-                        spotify = providers.firstOrNull { it.kind == com.luke.tracks.sources.SourceKind.Spotify }?.let { provider ->
-                            SpotifyRow(sources.any { it.kind == com.luke.tracks.sources.SourceKind.Spotify }, provider.iconRes, provider.addSubtitle)
-                        },
-                        onAddSpotify = { spotifyOpen = true },
                         onConnectLastFm = {
                             // Last.fm is the one thing that may need to say something later: a sign-in that ran out.
                             if (!notifications) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -229,19 +222,7 @@ fun OnboardingFlow(onDone: (sampleData: Boolean) -> Unit, initialStep: Onboardin
         }
     }
     editing.Sheets()
-    if (spotifyOpen) {
-        val spotifyProvider = providers.firstOrNull { it.kind == com.luke.tracks.sources.SourceKind.Spotify }
-        androidx.compose.ui.window.Dialog(
-            onDismissRequest = { spotifyOpen = false },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-        ) {
-            Surface(Modifier.fillMaxSize()) { spotifyProvider?.Page(null, onDone = { spotifyOpen = false }) }
-        }
-    }
 }
-
-/** Spotify's row in Add music, in builds that have it. */
-private data class SpotifyRow(val added: Boolean, val iconRes: Int?, val subtitle: String?)
 
 private fun granted(context: android.content.Context, permission: String) =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
@@ -292,8 +273,6 @@ private fun StepContent(
     onAskMusic: () -> Unit,
     servers: Int,
     onAddServer: () -> Unit,
-    spotify: SpotifyRow?,
-    onAddSpotify: () -> Unit,
     onConnectLastFm: () -> Unit,
     onCheckLastFm: () -> Unit,
     onNext: () -> Unit,
@@ -310,11 +289,7 @@ private fun StepContent(
                 Permission(1, Icons.Rounded.PhoneAndroid, "On This Device", music, onAskMusic)
                 Spacer(Modifier.height(8.dp))
                 Permission(2, Icons.Rounded.Dns, "Server", servers > 0, onAddServer, subtitle = if (servers > 1) "$servers added" else null)
-                if (spotify != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Permission(3, Icons.Rounded.GraphicEq, "Spotify", spotify.added, onAddSpotify, subtitle = spotify.subtitle, iconRes = spotify.iconRes)
-                }
-                Actions(4, primary = "Continue", onPrimary = onNext)
+                Actions(3, primary = "Continue", onPrimary = onNext)
             }
             OnboardingStep.LastFm -> when (lastFm) {
                 LastFm.Connection.NotConfigured -> {
@@ -382,7 +357,6 @@ private fun Permission(
     allowed: Boolean,
     onAllow: () -> Unit,
     subtitle: String? = null,
-    iconRes: Int? = null,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -390,12 +364,8 @@ private fun Permission(
         modifier = Modifier.staggered(index).padding(top = if (index == 1) 20.dp else 0.dp).fillMaxWidth(),
     ) {
         Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (iconRes != null) {
-                com.luke.tracks.ui.sources.SourceGlyph(com.luke.tracks.sources.SourceKind.Spotify, iconRes = iconRes)
-            } else {
-                Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(22.dp))
-                }
+            Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {

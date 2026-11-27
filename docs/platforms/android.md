@@ -25,7 +25,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 ## Decisions
 
 - 2026-11-24: Sources replace "Your Music". A source is where a song comes from: On This
-  Device, each server by its own name, and Spotify in builds that have it. They live in one
+  Device, each server by its own name, and Apple Music where the build has it. They live in one
   registry (`sources/`), are managed in Settings > Sources, and filter Play and Library once
   there are two or more. The tabs are Play, Library, Summary, History and Search, with Charts
   as History's second mode. Plays stay in History when a source is removed.
@@ -308,8 +308,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - Colors from the cover, artwork that breathes while playing and rests when paused.
 - Swipe the artwork to skip; pull down to close.
-- With two or more sources, where the song plays from under the seek bar (always for
-  Spotify); Up next marks each row's source when the queue mixes them, and dims songs whose
+- With two or more sources, where the song plays from under the seek bar; Up next marks each row's source when the queue mixes them, and dims songs whose
   source can't play them now. When the player skips songs it couldn't play, one quiet
   snackbar says how many and why.
 - "Playing from", tappable artist, play count and a ring that fills until the song is kept.
@@ -326,7 +325,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Settings > Sources: every source with one status word (Connected, Away when a server is
   reached outside home, Offline, Sign in, Check certificate, Syncing with a percentage on a
   Trackside server's first sync, a song count), Add source (a container transform from the button;
-  On This Device asks for music access, Server opens the server form, Spotify its own page),
+  On This Device asks for music access, Server opens the server form),
   the Play From order once there are two or more (drag a row by its handle or after a long
   press, or TalkBack's Move up and Move down; any source can go anywhere and a new one goes
   last), and remove with a confirmation that
@@ -339,7 +338,6 @@ See [README.md](README.md) for the legend and how to keep this current.
   minute before a song ends, songs next whose source can't play are switched to another copy
   or skipped with one Snackbar (`Skipped 2 songs`, `Home is offline`); when nothing left can
   play, `Nothing in Up Next can play right now.` once the music stops.
-- Library filtered to Spotify shows Spotify's own saved albums, playlists and liked songs.
 - Apple Music (`applemusic/`, `ui/applemusic/`): Add source opens its page, Sign in hands over
   to the Apple Music app through MusicKit's sign-in, and the account is checked by its
   storefront. Every state has its sentence (Install Apple Music to sign in, no subscription,
@@ -442,8 +440,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Connect through a Custom Tab, with the session key sealed by an Android Keystore key.
 - Scrobbles in batches of 50 with WorkManager, settled by Last.fm's answer, with backoff.
 - Now playing updates.
-- Spotify's plays aren't scrobbled unless Scrobble Spotify is on (Last.fm settings, sideload
-  builds only), since Spotify scrobbles them itself.
+- Spotify's plays (from earlier sideload builds, or synced from another device) aren't
+  scrobbled, since Spotify scrobbles them itself.
 - Import from Last.fm, skipping plays already kept. The row says what it does before you tap
   it and shows progress; there is no confirmation dialog.
 - A notification when the session is revoked.
@@ -458,7 +456,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   setting and cross-fade when changed.
 - Settings in Android 16's grouped style: Sources and Sync first, then Last.fm, appearance,
   Tracks Radio, Hear less of, privacy, about, licenses, app language and sample data.
-- Onboarding: welcome, Add music (On This Device, a server, Spotify where built), Last.fm,
+- Onboarding: welcome, Add music (On This Device, a server), Last.fm,
   and try with sample data.
 - Material 3 Expressive's short navigation bar on phones (a wide rail on larger screens). It
   slides away while you scroll down and returns when you scroll up; the mini player follows,
@@ -557,8 +555,6 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - Driving: Tracks Radio for the road, from Activity Recognition or an Android Auto
   connection.
 - Shake to Play.
-- Spotify copies of a song in your files or on a server: Play From only chooses among the
-  phone's files and servers, and a Spotify song plays as Spotify.
 
 ### Now Playing
 
@@ -686,49 +682,6 @@ What the real SDK settled (it differed from what the code first guessed):
 
 Still needs a phone: sign-in through the Apple Music app and its return, playback and the
 stand-in staying in step, seeking, a refreshed token, and another device taking over.
-
-## Spotify (sideload builds only)
-
-Spotify plays inside Tracks through the engine's `spotify` feature, on librespot. It is opt-in
-and never in a store build: Spotify's terms forbid unofficial clients and the audio is
-decrypted on the phone. Build it with `Engine/build-android.sh --sideload` and
-`-Ptracks.sideload=true` (see [Android/README.md](../../Android/README.md)); that sets
-`BuildConfig.SPOTIFY`, links the engine built with Spotify, and compiles `app/src/sideload/`.
-The play variant compiles `app/src/play/`, whose `SpotifyFlavor` returns nothing, against an
-engine without Spotify, so none of it ships there. A sideload build has the same application
-id, so it replaces a store install (and its history) rather than sitting beside it.
-
-- **Premium only.** Sign-in checks the account; without Premium nothing is kept and the page
-  says `Spotify Premium is needed to play here.`
-- **Sign-in** (Settings, Sources, Spotify): the engine's `SpotifyLogin` listens on
-  `http://127.0.0.1:<free port>/login`, the only redirect librespot's client ID accepts, while
-  Spotify's page is open in a Custom Tab. Coming back with the tab closed and no redirect
-  within 1.5 s is a cancel and says nothing. The opaque credentials blob is sealed with a
-  Keystore AES-GCM key (`KeystoreSecretBox("tracks.spotify")`) in the `spotify` preferences;
-  Sign Out deletes it. The OAuth tokens are never kept.
-- **Audio key refusal.** Since November 2026 Spotify refuses audio keys to librespot-style
-  clients for accounts it hasn't seen on one before
-  ([librespot#1649](https://github.com/librespot-org/librespot/issues/1649)); there is no fix.
-  Sign-in tries one saved song's key: when refused, the account stays for browsing and the page
-  shows `Spotify can't play this account in Tracks.` with Remove and Try Again, and the Sources
-  row asks to sign in.
-- **Playback** goes through the same Media3 ExoPlayer as everything else.
-  `playback/PcmWavDataSource` presents the engine's `SpotifyStream` (44.1 kHz stereo, read as
-  16-bit bytes with `read_pcm16`, so no float is boxed) as a WAV, so focus, the notification, Android Auto, speed and gapless joins work unchanged.
-  WavExtractor seeks by byte offset; the source maps it to a frame, seeks the engine to the
-  millisecond at or before it, and drops or pads the difference. A song that decodes short is
-  padded with silence to the length it promised. ExoPlayer opens the next song about 50 s
-  ahead, which is the prefetch. Account-wide errors (Premium, refused, signed out) aren't
-  retried and are said once; network errors are retried like any stream.
-- Plays are kept with source Spotify (`PlaySourceValue.Spotify`, the engine's
-  `PlaySource.Spotify`).
-- **Browsing:** saved albums, playlists, liked songs and search (`ui/spotify/`), with Spotify's
-  mark on every row, uncropped covers with 4dp and 8dp corners, and Open in Spotify on album
-  and playlist pages. No editorial or Home. Quality uses Spotify's names (Normal, High, Very
-  High, for 96, 160 and 320 kbps) separately for Wi-Fi and cellular.
-- librespot and psst are credited in Settings, About, Licenses.
-- *(Untested on a device and with a real account.)* Checked with fakes and Robolectric only:
-  the WAV framing, seeking sums, error words and the variant gating.
 
 ## Sync (Trackside Cloud)
 

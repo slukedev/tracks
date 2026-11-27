@@ -4,11 +4,11 @@ import uniffi.tracks_engine.PlaySource
 
 /**
  * Where a song can come from, as the iPhone's `SourceID` names it: files on this device, a
- * server by its id, Spotify, or Apple Music. Anything newer, from a Play From order synced from
- * another device, is kept as it was stored.
+ * server by its id, or Apple Music. Anything else, from a Play From order synced from another
+ * device or saved by an earlier version, is kept as it was stored.
  */
 sealed interface SourceId {
-    /** The stored form, the same on every platform: "device", "server:<id>", "spotify". */
+    /** The stored form, the same on every platform: "device", "server:<id>", "appleMusic". */
     val raw: String
 
     data object Device : SourceId {
@@ -17,10 +17,6 @@ sealed interface SourceId {
 
     data class Server(val id: String) : SourceId {
         override val raw get() = SERVER_PREFIX + id
-    }
-
-    data object Spotify : SourceId {
-        override val raw = "spotify"
     }
 
     data object AppleMusic : SourceId {
@@ -35,7 +31,6 @@ sealed interface SourceId {
     val playSource: PlaySource
         get() = when (this) {
             Device, is Server -> PlaySource.YourMusic
-            Spotify -> PlaySource.Spotify
             AppleMusic -> PlaySource.AppleMusic
             is Unknown -> PlaySource.Unknown(stored)
         }
@@ -45,7 +40,6 @@ sealed interface SourceId {
 
         fun parse(raw: String): SourceId = when {
             raw == Device.raw -> Device
-            raw == Spotify.raw -> Spotify
             raw == AppleMusic.raw -> AppleMusic
             raw.startsWith(SERVER_PREFIX) && raw.length > SERVER_PREFIX.length -> Server(raw.removePrefix(SERVER_PREFIX))
             else -> Unknown(raw)
@@ -59,7 +53,6 @@ sealed interface SourceId {
         fun ofMediaId(mediaId: String): SourceId? = when {
             mediaId.startsWith("local:") || mediaId.startsWith("sample:") -> Device
             mediaId.startsWith("subsonic:") -> mediaId.removePrefix("subsonic:").substringBefore(':', "").takeIf { it.isNotEmpty() }?.let(::Server)
-            mediaId.startsWith("spotify:") -> Spotify
             mediaId.startsWith("applemusic:") -> AppleMusic
             else -> null
         }
@@ -67,7 +60,7 @@ sealed interface SourceId {
 }
 
 /** What kind of place a source is, for its glyph and its words. */
-enum class SourceKind { Device, Server, AppleMusic, Spotify }
+enum class SourceKind { Device, Server, AppleMusic }
 
 /**
  * Where a source stands, worst first, as one word for its row. Only [needsAction] ones are
@@ -202,7 +195,7 @@ data class PlayFromOrder(val places: List<PlayFromPlace>) {
     fun migrated(servers: List<String>): PlayFromOrder {
         val defaults = listOf<PlayFromPlace>(PlayFromPlace.From(SourceId.Device)) +
             servers.map { PlayFromPlace.From(SourceId.Server(it)) } +
-            listOf(PlayFromPlace.From(SourceId.AppleMusic), PlayFromPlace.From(SourceId.Spotify))
+            listOf(PlayFromPlace.From(SourceId.AppleMusic))
         val current = defaults.toSet()
         val arranged = places.filter { it in current }.distinct().toMutableList()
         defaults.forEachIndexed { offset, place ->

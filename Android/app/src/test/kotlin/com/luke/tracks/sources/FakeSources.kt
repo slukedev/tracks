@@ -26,7 +26,6 @@ object FakeSources {
     val device = Source(SourceId.Device, "On This Device", SourceKind.Device, SourceStatus.Songs(2104), songCount = 2104)
     val home = Source(SourceId.Server("s1"), "Home", SourceKind.Server, SourceStatus.Connected, songCount = 48_000, address = "https://home.example.net")
     val studio = Source(SourceId.Server("s2"), "Studio NAS", SourceKind.Server, SourceStatus.Offline("Can't reach this address."), address = "http://192.168.1.20:4533")
-    val spotify = Source(SourceId.Spotify, "Spotify", SourceKind.Spotify, SourceStatus.Connected)
 
     /** A registry with these sources and nothing stored, so tests don't share a filter. */
     fun registry(
@@ -36,6 +35,6 @@ object FakeSources {
     ): SourcesRegistry {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE).also { it.edit().clear().commit() }
-        return SourcesRegistry(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), providers, spotifyAllowed = true)
+        return SourcesRegistry(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), providers)
     }
 }

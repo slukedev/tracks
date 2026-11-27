@@ -1,19 +1,15 @@
 #!/bin/bash
-# Builds the Rust engine for Android and generates its Kotlin bindings, per variant:
+# Builds the Rust engine for Android and generates its Kotlin bindings:
 #
-#   Android/app/engine-bindings/<variant>/jniLibs/<abi>/libtracks_engine.so   the engine, per ABI
-#   Android/app/engine-bindings/<variant>/kotlin/uniffi/...                  generated Kotlin bindings
-#   Android/app/engine-bindings/<variant>/host/<platform>/                  the engine for this computer
+#   Android/app/engine-bindings/jniLibs/<abi>/libtracks_engine.so   the engine, per ABI
+#   Android/app/engine-bindings/kotlin/uniffi/...                  generated Kotlin bindings
+#   Android/app/engine-bindings/host/<platform>/                  the engine for this computer
 #
-# Two variants: "play", the store build, and "sideload", which adds Spotify (the engine's
-# `spotify` feature, on librespot). Gradle builds play unless asked for sideload with
-# `-Ptracks.sideload=true`. Needs the Android NDK (ANDROID_NDK_HOME, or the newest under
-# $ANDROID_HOME/ndk) and cargo-ndk (`cargo install cargo-ndk`).
+# Needs the Android NDK (ANDROID_NDK_HOME, or the newest under $ANDROID_HOME/ndk) and cargo-ndk
+# (`cargo install cargo-ndk`).
 #
-#   Engine/build-android.sh               play, release build for arm64-v8a and x86_64
-#   Engine/build-android.sh --sideload    sideload only
-#   Engine/build-android.sh --both        both variants
-#   Engine/build-android.sh --debug ...   unoptimized
+#   Engine/build-android.sh           release build for arm64-v8a and x86_64
+#   Engine/build-android.sh --debug   unoptimized
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -21,13 +17,10 @@ ENGINE="$PWD"
 ANDROID_DIR="$ENGINE/../Android"
 PROFILE=release
 CARGO_PROFILE=(--release)
-VARIANTS=(play)
 for arg in "$@"; do
   case "$arg" in
     --debug) PROFILE=debug; CARGO_PROFILE=() ;;
-    --sideload) VARIANTS=(sideload) ;;
-    --both) VARIANTS=(play sideload) ;;
-    *) echo "✗ Unknown option $arg. Use --debug, --sideload or --both." >&2; exit 1 ;;
+    *) echo "✗ Unknown option $arg. The only option is --debug." >&2; exit 1 ;;
   esac
 done
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ENGINE/target}"
@@ -57,26 +50,23 @@ rm -rf "$ANDROID_DIR/app/src/main/jniLibs" "$ANDROID_DIR/app/engine-bindings/uni
 
 rustup target add aarch64-linux-android x86_64-linux-android >/dev/null
 
-for variant in "${VARIANTS[@]}"; do
-  FEATURES=()
-  [ "$variant" = sideload ] && FEATURES=(--features spotify)
-  OUT="$ANDROID_DIR/app/engine-bindings/$variant"
-  rm -rf "$OUT"
-  mkdir -p "$OUT"
+# Clearing the whole folder also drops the per-variant engines earlier versions built there.
+OUT="$ANDROID_DIR/app/engine-bindings"
+rm -rf "$OUT"
+mkdir -p "$OUT"
 
-  cargo ndk -t arm64-v8a -t x86_64 --platform 31 -o "$OUT/jniLibs" \
-    build -p tracks-ffi --lib "${CARGO_PROFILE[@]}" "${FEATURES[@]}" --locked
+cargo ndk -t arm64-v8a -t x86_64 --platform 31 -o "$OUT/jniLibs" \
+  build -p tracks-ffi --lib "${CARGO_PROFILE[@]}" --locked
 
-  cargo run -q -p uniffi-bindgen --release --locked -- generate \
-    --library "$CARGO_TARGET_DIR/aarch64-linux-android/$PROFILE/libtracks_engine.so" \
-    --language kotlin --no-format --config "$ENGINE/android-bindings.toml" --out-dir "$OUT/kotlin" >/dev/null
+cargo run -q -p uniffi-bindgen --release --locked -- generate \
+  --library "$CARGO_TARGET_DIR/aarch64-linux-android/$PROFILE/libtracks_engine.so" \
+  --language kotlin --no-format --out-dir "$OUT/kotlin" >/dev/null
 
-  # The same engine for this computer, so Robolectric tests and screenshots run it on the JVM.
-  cargo build -p tracks-ffi --lib "${CARGO_PROFILE[@]}" "${FEATURES[@]}" --locked
-  if [ -n "$JNA_DIR" ]; then
-    mkdir -p "$OUT/host/$JNA_DIR"
-    cp "$CARGO_TARGET_DIR/$PROFILE/$HOST_LIB" "$OUT/host/$JNA_DIR/"
-  fi
+# The same engine for this computer, so Robolectric tests and screenshots run it on the JVM.
+cargo build -p tracks-ffi --lib "${CARGO_PROFILE[@]}" --locked
+if [ -n "$JNA_DIR" ]; then
+  mkdir -p "$OUT/host/$JNA_DIR"
+  cp "$CARGO_TARGET_DIR/$PROFILE/$HOST_LIB" "$OUT/host/$JNA_DIR/"
+fi
 
-  echo "✓ TracksEngine $PROFILE built for Android ($variant: arm64-v8a, x86_64) and this computer"
-done
+echo "✓ TracksEngine $PROFILE built for Android (arm64-v8a, x86_64) and this computer"

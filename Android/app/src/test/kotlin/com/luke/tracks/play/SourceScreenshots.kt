@@ -30,7 +30,7 @@ import org.robolectric.annotation.Config
 
 /** Sources, adding one, a server's page, and what sources change on Now Playing and Up next. */
 class SourceScreenshots(dark: Boolean) : ScreenshotTest(dark) {
-    private val all = listOf(FakeSources.device, FakeSources.home, FakeSources.studio, FakeSources.spotify)
+    private val all = listOf(FakeSources.device, FakeSources.home, FakeSources.studio)
 
     @Composable
     private fun Frame(registry: SourcesRegistry? = null, content: @Composable () -> Unit) {
@@ -44,7 +44,6 @@ class SourceScreenshots(dark: Boolean) : ScreenshotTest(dark) {
                 playFrom = PlayFromOrder.Standard.arranged(all.map { PlayFromPlace.From(it.id) }),
                 options = listOf(
                     AddOption("server", "Server", SourceKind.Server) {},
-                    AddOption("spotify", "Spotify", SourceKind.Spotify, subtitle = "Needs Premium") {},
                 ),
                 onOpen = {},
                 onRemove = {},

@@ -52,9 +52,6 @@ import com.luke.tracks.sources.sources
 import com.luke.tracks.applemusic.AppleMusic
 import com.luke.tracks.applemusic.AppleMusicUris
 import com.luke.tracks.applemusic.appleMusicProblem
-import com.luke.tracks.spotify.Spotify
-import com.luke.tracks.spotify.SpotifyUris
-import com.luke.tracks.spotify.spotifyProblem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -139,8 +136,8 @@ class PlaybackService : MediaLibraryService() {
     /** Files on the phone, and server songs signed only as each request goes out ([com.luke.tracks.net.ServerLinks]). */
     private val dataSources by lazy { DefaultDataSource.Factory(this, OkHttpDataSource.Factory(Http.media)) }
 
-    /** The above, plus Spotify's decoded audio in builds that have it. */
-    private val songSources by lazy { SourceDataSource.Factory(dataSources, appleMusic = { AppleMusic.service?.playback }) { Spotify.integration?.audio } }
+    /** The above, plus Apple Music's stand-ins. */
+    private val songSources by lazy { SourceDataSource.Factory(dataSources) { AppleMusic.service?.playback } }
 
     override fun onCreate() {
         super.onCreate()
@@ -298,24 +295,17 @@ class PlaybackService : MediaLibraryService() {
         val title = player.currentMediaItem?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "that song"
         failuresInARow++
         val moveOn = player.hasNextMediaItem() && failuresInARow < player.mediaItemCount
-        val spotify = error.spotifyProblem()
         val appleMusic = error.appleMusicProblem()
         val mediaId = player.currentMediaItem?.mediaId.orEmpty()
         when {
             // Its source can't play now (a server offline): the same quiet message as songs skipped ahead.
-            moveOn && spotify == null && !graph.sources.canPlay(mediaId) ->
+            moveOn && !graph.sources.canPlay(mediaId) ->
                 graph.sources.reportSkipped(SkippedSongs(1, graph.sources.whyUnavailable(mediaId)))
             appleMusic != null -> {
                 if (!appleMusic.accountWide || failuresInARow == 1) say(appleMusic.message)
                 AppleMusic.service?.playbackFailed(appleMusic)
             }
-            spotify == null -> say(if (moveOn) "Couldn't play $title. Playing the next song." else "Couldn't play $title.")
-            // Said once for a run of songs that fail for the same account-wide reason.
-            spotify.accountWide -> {
-                if (failuresInARow == 1) say(spotify.message)
-                Spotify.integration?.playbackFailed(spotify)
-            }
-            else -> say(spotify.message)
+            else -> say(if (moveOn) "Couldn't play $title. Playing the next song." else "Couldn't play $title.")
         }
         if (!moveOn) return
         player.seekToNextMediaItem()
@@ -503,7 +493,6 @@ class PlaybackService : MediaLibraryService() {
             listenedMs = count.listenedMs,
             kind = PlayKindValue.OnDemand,
             source = when {
-                SpotifyUris.isSpotify(song.mediaId) -> PlaySourceValue.Spotify
                 // Kept as the engine's Apple Music source, "appleMusic" in History and Trackside Cloud.
                 AppleMusicUris.isAppleMusic(song.mediaId) -> PlaySourceValue.Streaming
                 else -> PlaySourceValue.YourMusic

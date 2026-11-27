@@ -13,7 +13,6 @@ import com.luke.tracks.sync.deviceIdentity
 import com.luke.tracks.playback.MediaControllerPlayer
 import com.luke.tracks.playback.radio.TracksRadio
 import com.luke.tracks.sources.sources
-import com.luke.tracks.spotify.Spotify
 import com.luke.tracks.applemusic.AppleMusic
 
 /**
@@ -35,9 +34,6 @@ object Startup {
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = servers.refreshAddresses()
         })
-        // Spotify, in sideload builds only.
-        Spotify.install(app, graph.scope)
-        Spotify.integration?.let { graph.sources.register(it.provider) }
         // Apple Music, when there's a developer token and the build has Apple's MusicKit SDK.
         AppleMusic.install(app, graph.scope, servers)
         AppleMusic.provider?.let { graph.sources.register(it) }

@@ -34,13 +34,13 @@ class SourcesPlaybackTest {
     private fun track(mediaId: String, identity: String = "song") = LibraryTrack(song(mediaId, identity), LibrarySourceKind.Server, "album")
 
     @Test fun copiesRankInThePlayFromOrderAndSkipOnesThatCantPlay() {
-        val registry = FakeSources.registry(FakeSources.device, FakeSources.home, FakeSources.studio, FakeSources.spotify)
-        val copies = listOf("spotify:track:1", "subsonic:s1:b", "subsonic:s2:a", "local:7")
-        assertEquals(listOf("local:7", "subsonic:s1:b", "subsonic:s2:a", "spotify:track:1"), registry.ranked(copies) { it })
+        val registry = FakeSources.registry(FakeSources.device, FakeSources.home, FakeSources.studio)
+        val copies = listOf("subsonic:s1:b", "subsonic:s2:a", "local:7")
+        assertEquals(listOf("local:7", "subsonic:s1:b", "subsonic:s2:a"), registry.ranked(copies) { it })
 
-        registry.setPlayFrom(listOf(SourceId.Spotify, SourceId.Server("s2"), SourceId.Device, SourceId.Server("s1")).map(PlayFromPlace::From))
+        registry.setPlayFrom(listOf(SourceId.Server("s2"), SourceId.Device, SourceId.Server("s1")).map(PlayFromPlace::From))
         val ranked = registry.ranked(copies) { it }
-        assertEquals(listOf("spotify:track:1", "subsonic:s2:a", "local:7", "subsonic:s1:b"), ranked)
+        assertEquals(listOf("subsonic:s2:a", "local:7", "subsonic:s1:b"), ranked)
         assertFalse("Studio NAS is offline", registry.canPlay("subsonic:s2:a"))
         assertEquals("local:7", ranked.drop(1).first(registry::canPlay))
     }
@@ -54,41 +54,40 @@ class SourcesPlaybackTest {
             override val offersAdd = MutableStateFlow(true)
             override suspend fun remove(id: SourceId) = Unit
         }
-        val registry = FakeSources.registry(name = "play-from-order", providers = listOf(device, serverProvider, FakeProvider(SourceKind.Spotify, listOf(FakeSources.spotify))))
+        val registry = FakeSources.registry(name = "play-from-order", providers = listOf(device, serverProvider))
         val home = PlayFromPlace.From(SourceId.Server("s1"))
         val studio = PlayFromPlace.From(SourceId.Server("s2"))
         val phone = PlayFromPlace.From(SourceId.Device)
-        val spotify = PlayFromPlace.From(SourceId.Spotify)
 
-        registry.setPlayFrom(listOf(spotify, phone, home))
-        assertEquals(listOf(spotify, phone, home), registry.arrangedPlayFrom())
-        registry.setPlayFrom(listOf(home, spotify, phone))
-        assertEquals(listOf(home, spotify, phone), registry.arrangedPlayFrom())
+        registry.setPlayFrom(listOf(home, phone))
+        assertEquals(listOf(home, phone), registry.arrangedPlayFrom())
+        registry.setPlayFrom(listOf(phone, home))
+        assertEquals(listOf(phone, home), registry.arrangedPlayFrom())
 
         servers.value = listOf(FakeSources.home, FakeSources.studio)
-        assertEquals(listOf(home, spotify, phone, studio), registry.arrangedPlayFrom())
-        registry.setPlayFrom(listOf(studio, home, spotify, phone))
-        assertEquals(listOf(studio, home, spotify, phone), registry.arrangedPlayFrom())
+        assertEquals(listOf(phone, home, studio), registry.arrangedPlayFrom())
+        registry.setPlayFrom(listOf(studio, home, phone))
+        assertEquals(listOf(studio, home, phone), registry.arrangedPlayFrom())
 
         servers.value = listOf(FakeSources.studio)
-        registry.setPlayFrom(listOf(phone, studio, spotify))
+        registry.setPlayFrom(listOf(phone, studio))
         servers.value = listOf(FakeSources.home, FakeSources.studio)
-        assertEquals("a source that comes back keeps its place", listOf(phone, home, studio, spotify), registry.arrangedPlayFrom())
+        assertEquals("a source that comes back keeps its place", listOf(phone, home, studio), registry.arrangedPlayFrom())
     }
 
     @Test fun anOrderSavedBeforeIsWrittenOutAsItPlayed() {
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
         val prefs = context.getSharedPreferences("play-from-legacy", android.content.Context.MODE_PRIVATE)
-        prefs.edit().clear().putString("playFromOrder", "spotify\ndevice").commit()
+        // Spotify was a source of its own before; its place is kept, last, as one this phone doesn't know.
+        prefs.edit().clear().putString("playFromOrder", "server:s2\nspotify\ndevice").commit()
         val registry = SourcesRegistry(
             prefs,
             CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
-            listOf(FakeProvider(SourceKind.Device, listOf(FakeSources.device)), FakeProvider(SourceKind.Server, listOf(FakeSources.home)), FakeProvider(SourceKind.Spotify, listOf(FakeSources.spotify))),
-            spotifyAllowed = true,
-            loadedServers = MutableStateFlow(listOf("s1")),
+            listOf(FakeProvider(SourceKind.Device, listOf(FakeSources.device)), FakeProvider(SourceKind.Server, listOf(FakeSources.home, FakeSources.studio))),
+            loadedServers = MutableStateFlow(listOf("s1", "s2")),
         )
-        assertEquals(listOf(SourceId.Spotify, SourceId.Device, SourceId.Server("s1")).map(PlayFromPlace::From), registry.arrangedPlayFrom())
-        assertEquals("spotify\ndevice\nserver:s1\nappleMusic", prefs.getString("playFromOrder", null))
+        assertEquals(listOf(SourceId.Server("s2"), SourceId.Device, SourceId.Server("s1")).map(PlayFromPlace::From), registry.arrangedPlayFrom())
+        assertEquals("server:s2\nappleMusic\ndevice\nserver:s1\nspotify", prefs.getString("playFromOrder", null))
     }
 
     @Test fun theOrderKeepsWhatItDoesntShowWhereItWas() {
@@ -97,8 +96,8 @@ class SourcesPlaybackTest {
         assertEquals("server:gone\ndevice\nspotify\nappleMusic", moved.raw)
         assertEquals(order, PlayFromOrder.parse(order.raw))
         assertEquals(
-            listOf("spotify:track:1", "local:7", "tidal:1"),
-            PlayFromOrder.parse("spotify\ndevice").ranked(listOf("tidal:1", "local:7", "spotify:track:1")) {
+            listOf("subsonic:s1:a", "local:7", "tidal:1"),
+            PlayFromOrder.parse("server:s1\ndevice").ranked(listOf("tidal:1", "local:7", "subsonic:s1:a")) {
                 PlayFromPlace.From(SourceId.ofMediaId(it) ?: SourceId.Unknown(it))
             },
         )

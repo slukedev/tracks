@@ -247,21 +247,21 @@ class AppleMusicServiceTest {
 @Config(sdk = [36])
 class AppleMusicSourcesTest {
     @Test fun appleMusicCanGoAnywhereInPlayFrom() {
-        val here = listOf(SourceId.Device, SourceId.Server("s1"), SourceId.AppleMusic, SourceId.Spotify).map { PlayFromPlace.From(it) }
-        val chosen = listOf(SourceId.Spotify, SourceId.AppleMusic, SourceId.Device, SourceId.Server("s1")).map { PlayFromPlace.From(it) }
+        val here = listOf(SourceId.Device, SourceId.Server("s1"), SourceId.AppleMusic).map { PlayFromPlace.From(it) }
+        val chosen = listOf(SourceId.AppleMusic, SourceId.Device, SourceId.Server("s1")).map { PlayFromPlace.From(it) }
         assertEquals(chosen, PlayFromOrder.Standard.reordered(chosen).arranged(here))
         assertFalse(PlayFromPlace.From(SourceId.AppleMusic) in PlayFromOrder(here).arranged(here - PlayFromPlace.From(SourceId.AppleMusic)))
     }
 
     @Test fun appleMusicSongsAreKnownByTheirMediaIdAndRankedInPlayFrom() {
         val apple = com.luke.tracks.sources.Source(SourceId.AppleMusic, "Apple Music", SourceKind.AppleMusic, SourceStatus.Connected)
-        val registry = FakeSources.registry(FakeSources.device, FakeSources.home, apple, FakeSources.spotify, name = "apple-sources")
+        val registry = FakeSources.registry(FakeSources.device, FakeSources.home, apple, name = "apple-sources")
         assertEquals(SourceId.AppleMusic, registry.sourceOf("applemusic:song:1613600188"))
-        val copies = listOf("spotify:track:1", "applemusic:song:1", "subsonic:s1:b", "local:7")
-        assertEquals(listOf("local:7", "subsonic:s1:b", "applemusic:song:1", "spotify:track:1"), registry.ranked(copies) { it })
+        val copies = listOf("applemusic:song:1", "subsonic:s1:b", "local:7")
+        assertEquals(listOf("local:7", "subsonic:s1:b", "applemusic:song:1"), registry.ranked(copies) { it })
         assertTrue(PlayFromPlace.From(SourceId.AppleMusic) in registry.arrangedPlayFrom())
 
-        registry.setPlayFrom(listOf(SourceId.AppleMusic, SourceId.Device, SourceId.Server("s1"), SourceId.Spotify).map { PlayFromPlace.From(it) })
+        registry.setPlayFrom(listOf(SourceId.AppleMusic, SourceId.Device, SourceId.Server("s1")).map { PlayFromPlace.From(it) })
         assertEquals("applemusic:song:1", registry.ranked(copies) { it }.first())
     }
 }

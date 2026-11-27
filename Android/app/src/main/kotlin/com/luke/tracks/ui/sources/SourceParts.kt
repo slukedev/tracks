@@ -62,7 +62,6 @@ fun sourceSelection(): State<SourceSelection> = rememberSources().selection.coll
 fun SourceKind.icon(): ImageVector = when (this) {
     SourceKind.Device -> Icons.Rounded.PhoneAndroid
     SourceKind.Server -> Icons.Rounded.Dns
-    SourceKind.Spotify -> Icons.Rounded.GraphicEq
     SourceKind.AppleMusic -> Icons.Rounded.MusicNote
 }
 

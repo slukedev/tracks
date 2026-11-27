@@ -10,14 +10,6 @@ plugins {
 }
 
 /**
- * Which engine and code the app is built with. "play" is the store build. "sideload" adds
- * Spotify, which plays through librespot against Spotify's terms and so never goes to a store:
- * build it with -Ptracks.sideload=true after Engine/build-android.sh --sideload.
- */
-val sideload = providers.gradleProperty("tracks.sideload").map { it.toBoolean() }.getOrElse(false)
-val variant = if (sideload) "sideload" else "play"
-
-/**
  * Apple's MusicKit for Android SDK, for Apple Music sign-in and playback. Apple ships it only as
  * AARs behind a developer sign-in (developer.apple.com/download/all, "Android MusicKit"), so it's
  * never committed: put them in app/libs/apple-musickit/. Built with them when they're there;
@@ -99,10 +91,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "LASTFM_API_KEY", "\"${secrets.getProperty("lastfm.apiKey", "")}\"")
         buildConfigField("String", "LASTFM_SECRET", "\"${secrets.getProperty("lastfm.secret", "")}\"")
-        buildConfigField("boolean", "SPOTIFY", sideload.toString())
         buildConfigField("String", "APPLE_MUSIC_DEVELOPER_TOKEN", "\"$appleMusicDeveloperToken\"")
         buildConfigField("boolean", "APPLE_MUSIC_SDK", appleMusicSdk.toString())
-        if (sideload) versionNameSuffix = "-sideload"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
@@ -137,15 +127,12 @@ android {
 
     sourceSets {
         getByName("main") {
-            kotlin.directories += "engine-bindings/$variant/kotlin"
-            kotlin.directories += "src/$variant/kotlin"
-            jniLibs.directories += "engine-bindings/$variant/jniLibs"
-            res.directories += "src/$variant/res"
+            kotlin.directories += "engine-bindings/kotlin"
+            jniLibs.directories += "engine-bindings/jniLibs"
             kotlin.directories += if (appleMusicSdk) "src/appleMusicSdk/kotlin" else "src/appleMusicNoSdk/kotlin"
             if (appleMusicSdk) res.directories += "src/appleMusicSdk/res"
         }
         getByName("test") {
-            kotlin.directories += "src/test${variant.replaceFirstChar(Char::uppercase)}/kotlin"
             if (appleMusicSdk) kotlin.directories += "src/testAppleMusicSdk/kotlin"
         }
     }
@@ -259,18 +246,15 @@ tasks.withType<Test>().configureEach {
     val os = System.getProperty("os.name").lowercase()
     val arch = System.getProperty("os.arch").let { if (it == "amd64" || it == "x86_64") "x86-64" else "aarch64" }
     val dir = (if (os.contains("mac")) "darwin-" else "linux-") + arch
-    systemProperty("jna.library.path", file("engine-bindings/$variant/host/$dir").absolutePath)
+    systemProperty("jna.library.path", file("engine-bindings/host/$dir").absolutePath)
 }
 
-// Says how to build the engine when this variant's is missing, rather than failing on
-// unresolved references.
-val engineBindings = file("engine-bindings/$variant/kotlin")
-val engineCommand = if (sideload) "Engine/build-android.sh --sideload" else "Engine/build-android.sh"
+// Says how to build the engine when it's missing, rather than failing on unresolved references.
+val engineBindings = file("engine-bindings/kotlin")
 tasks.named("preBuild").configure {
     val bindings = engineBindings
-    val command = engineCommand
     doFirst {
-        if (!bindings.exists()) throw GradleException("Tracks: the engine for this variant isn't built. Run $command first.")
+        if (!bindings.exists()) throw GradleException("Tracks: the engine isn't built. Run Engine/build-android.sh first.")
     }
 }
 

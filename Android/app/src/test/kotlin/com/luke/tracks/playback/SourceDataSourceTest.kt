@@ -2,19 +2,14 @@ package com.luke.tracks.playback
 
 import android.net.Uri
 import androidx.media3.common.C
-import androidx.media3.common.PlaybackException
 import androidx.media3.datasource.ByteArrayDataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
-import com.luke.tracks.spotify.SpotifyPlaybackException
-import com.luke.tracks.spotify.SpotifyProblem
-import com.luke.tracks.spotify.SpotifyUris
-import com.luke.tracks.spotify.spotifyProblem
+import com.luke.tracks.applemusic.AppleMusicException
+import com.luke.tracks.applemusic.AppleMusicProblem
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -35,14 +30,14 @@ class SourceDataSourceTest {
         override fun close() = Unit
     }
 
-    @Test fun spotifyAddressesPlayAsWavAndTheRestGoToTheDefault() {
+    @Test fun appleMusicAddressesPlayAsWavAndTheRestGoToTheDefault() {
         val file = byteArrayOf(1, 2, 3)
         val opened = mutableListOf<Uri>()
         val source = SourceDataSource(ByteArrayDataSource(file)) { PcmOpener { opened += it; silence } }
 
-        val spotify = source.open(DataSpec(Uri.parse("spotify:track:abc")))
-        assertEquals(44L + 44_100 * 4, spotify)
-        assertEquals(listOf(Uri.parse("spotify:track:abc")), opened)
+        val stand = source.open(DataSpec(Uri.parse("applemusic:song:1613600188")))
+        assertEquals(44L + 44_100 * 4, stand)
+        assertEquals(listOf(Uri.parse("applemusic:song:1613600188")), opened)
         val header = ByteArray(4)
         source.read(header, 0, 4)
         assertEquals("RIFF", String(header))
@@ -53,21 +48,14 @@ class SourceDataSourceTest {
         source.close()
     }
 
-    @Test fun aBuildOrSessionWithoutSpotifySaysSignIn() {
+    @Test fun withoutAppleMusicItSaysSignIn() {
         val source = SourceDataSource(ByteArrayDataSource(byteArrayOf(0))) { null }
         try {
-            source.open(DataSpec(Uri.parse("spotify:track:abc")))
-            fail("opened without Spotify")
-        } catch (error: SpotifyPlaybackException) {
-            assertEquals(SpotifyProblem.SignedOut, error.problem)
-            assertEquals(PlaybackException.ERROR_CODE_IO_NO_PERMISSION, error.reason)
+            source.open(DataSpec(Uri.parse("applemusic:song:1")))
+            fail("opened without Apple Music")
+        } catch (error: AppleMusicException) {
+            assertEquals(AppleMusicProblem.SignedOut, error.problem)
         }
-    }
-
-    @Test fun theProblemIsFoundThroughMedia3sWrapping() {
-        val wrapped = IOException("load", RuntimeException("outer", SpotifyPlaybackException(SpotifyProblem.Refused)))
-        assertEquals(SpotifyProblem.Refused, wrapped.spotifyProblem())
-        assertNull(IOException("plain").spotifyProblem())
     }
 
     @Test fun onlyTheNetworkIsWorthRetrying() {
@@ -80,31 +68,7 @@ class SourceDataSourceTest {
                 1,
             ),
         )
-        assertEquals(C.TIME_UNSET, delay(SpotifyPlaybackException(SpotifyProblem.Refused)))
-        assertEquals(C.TIME_UNSET, delay(SpotifyPlaybackException(SpotifyProblem.NeedsPremium)))
-        assertEquals(C.TIME_UNSET, delay(SpotifyPlaybackException(SpotifyProblem.SignedOut)))
-        assertTrue(delay(SpotifyPlaybackException(SpotifyProblem.Offline)) >= 0)
+        assertEquals(C.TIME_UNSET, delay(AppleMusicException(AppleMusicProblem.SignedOut)))
         assertTrue(delay(IOException("dropped")) >= 0)
-    }
-
-    @Test fun theWordsAreTheSpecsAndAccountWideOnesAreMarked() {
-        assertEquals("Spotify Premium is needed to play here.", SpotifyProblem.NeedsPremium.message)
-        assertEquals("Spotify can't play this account in Tracks.", SpotifyProblem.Refused.message)
-        assertEquals("Can't reach Spotify. Check your connection.", SpotifyProblem.Offline.message)
-        assertTrue(SpotifyProblem.Refused.accountWide)
-        assertFalse(SpotifyProblem.Offline.accountWide)
-        SpotifyProblem.entries.forEach { assertFalse("no em dashes: ${it.name}", it.message.contains('—')) }
-    }
-
-    @Test fun spotifySongsCarryAWavHintAndSayWhereTheyComeFrom() {
-        val song = PlayableSong("spotify:track:abc", Uri.parse("spotify:track:abc"), "Song", "Artist", null, null, 1000, "id")
-        val item = song.toMediaItem()
-        assertEquals("audio/wav", item.localConfiguration?.mimeType)
-        assertEquals("Spotify · Artist", item.mediaMetadata.subtitle)
-        val stripped = item.buildUpon().setUri(null as Uri?).build()
-        assertEquals("audio/wav", stripped.restored()?.localConfiguration?.mimeType)
-        assertTrue(SpotifyUris.isSpotify(song.mediaId))
-        assertEquals("https://open.spotify.com/album/xyz", SpotifyUris.webPage("spotify:album:xyz"))
-        assertNull(SpotifyUris.webPage("https://example.invalid"))
     }
 }

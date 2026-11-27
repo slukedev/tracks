@@ -11,20 +11,15 @@ import com.luke.tracks.applemusic.AppleMusicException
 import com.luke.tracks.applemusic.AppleMusicProblem
 import com.luke.tracks.applemusic.AppleMusicUris
 import com.luke.tracks.applemusic.appleMusicProblem
-import com.luke.tracks.spotify.SpotifyPlaybackException
-import com.luke.tracks.spotify.SpotifyProblem
-import com.luke.tracks.spotify.SpotifyUris
-import com.luke.tracks.spotify.spotifyProblem
 
 /**
- * Hands each address to what can read it: `spotify:` songs to their decoded audio and
- * `applemusic:` songs to their silent stand-in ([com.luke.tracks.applemusic.AppleMusicPlayback]),
- * both presented as WAV, and everything else (files, servers, artwork) to [fallback].
+ * Hands each address to what can read it: `applemusic:` songs to their silent stand-in
+ * ([com.luke.tracks.applemusic.AppleMusicPlayback]), presented as WAV, and everything else
+ * (files, servers, artwork) to [fallback].
  */
 class SourceDataSource(
     private val fallback: DataSource,
-    private val appleMusic: () -> PcmOpener? = { null },
-    private val spotify: () -> PcmOpener?,
+    private val appleMusic: () -> PcmOpener?,
 ) : DataSource {
     private val listeners = mutableListOf<TransferListener>()
     private var current: DataSource? = null
@@ -36,10 +31,6 @@ class SourceDataSource(
 
     override fun open(dataSpec: DataSpec): Long {
         val source = when (dataSpec.uri.scheme) {
-            SpotifyUris.SCHEME -> {
-                val opener = spotify() ?: throw SpotifyPlaybackException(SpotifyProblem.SignedOut)
-                PcmWavDataSource(opener).also { pcm -> listeners.forEach(pcm::addTransferListener) }
-            }
             AppleMusicUris.SCHEME -> {
                 val opener = appleMusic() ?: throw AppleMusicException(AppleMusicProblem.SignedOut)
                 PcmWavDataSource(opener).also { pcm -> listeners.forEach(pcm::addTransferListener) }
@@ -65,22 +56,19 @@ class SourceDataSource(
 
     class Factory(
         private val fallback: DataSource.Factory,
-        private val appleMusic: () -> PcmOpener? = { null },
-        private val spotify: () -> PcmOpener?,
+        private val appleMusic: () -> PcmOpener?,
     ) : DataSource.Factory {
-        override fun createDataSource(): DataSource = SourceDataSource(fallback.createDataSource(), appleMusic, spotify)
+        override fun createDataSource(): DataSource = SourceDataSource(fallback.createDataSource(), appleMusic)
     }
 }
 
 /**
- * Media3's retries for a dropped connection, except where retrying can't help: Spotify saying
- * no to the account or the song, or MusicKit not starting an Apple Music song.
+ * Media3's retries for a dropped connection, except where retrying can't help: MusicKit not
+ * starting an Apple Music song.
  */
 class SourceLoadErrorPolicy(retries: Int) : DefaultLoadErrorHandlingPolicy(retries) {
     override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
         if (loadErrorInfo.exception.appleMusicProblem() != null) return C.TIME_UNSET
-        val problem = loadErrorInfo.exception.spotifyProblem()
-        if (problem != null && !problem.retryable) return C.TIME_UNSET
         return super.getRetryDelayMsFor(loadErrorInfo)
     }
 }

@@ -68,7 +68,7 @@ private class RampSource(
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class PcmWavDataSourceTest {
-    private val uri = Uri.parse("spotify:track:ramp")
+    private val uri = Uri.parse("applemusic:song:ramp")
 
     private fun open(source: PcmSource, position: Long = 0, length: Long = C.LENGTH_UNSET.toLong()): Pair<PcmWavDataSource, Long> {
         val data = PcmWavDataSource { source }

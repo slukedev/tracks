@@ -23,8 +23,6 @@ enum class HistoryMode { Plays, Charts }
 @Serializable data class SongRoute(val identity: String, val title: String, val artistName: String) : Route
 @Serializable data class MixRoute(val mixId: String) : Route
 @Serializable data object SearchRoute : Route
-/** Spotify's saved music, in builds that have it. */
-@Serializable data object SpotifyLibraryRoute : Route
 @Serializable data object SettingsRoute : Route
 /**
  * A page inside Settings, by name: "sources", "source/<id>" (one source, by its stored id),
