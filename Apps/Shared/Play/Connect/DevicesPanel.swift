@@ -25,6 +25,10 @@ struct DevicesPanel: View {
     @State private var notFoundOn: String?
     /// Counts the moves someone made here, for a tap of feedback on each.
     @State private var moves = 0
+    /// The speaker whose page is open.
+    @State private var speakerSettings: SpeakerAddress?
+    /// Counts the times the music here was sent to a speaker, for a firm tap as it starts.
+    @State private var casts = 0
     #if os(macOS)
     @State private var musicSpeakers = MusicSpeakersModel()
     @State private var output = SystemOutputObserver()
@@ -52,7 +56,13 @@ struct DevicesPanel: View {
                     localNetworkNotice
                 }
             }
-            if let device = featured {
+            if let address = model.controlledSpeaker, let speaker = model.controlledSpeakerNow {
+                Section {
+                    SpeakerCard(address: address, speaker: speaker, close: close)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+            } else if let device = featured {
                 Section {
                     RemoteDeviceCard(device: device, close: close)
                         .listRowInsets(EdgeInsets())
@@ -90,7 +100,12 @@ struct DevicesPanel: View {
         .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: model.nearby.devices.map(\.id))
         .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: model.musicLocation)
         .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: showsRoute)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: speakerIDs)
         .sensoryFeedback(Design.Haptic.done, trigger: moves)
+        .sensoryFeedback(Design.Haptic.start, trigger: casts)
+        .navigationDestination(item: $speakerSettings) { address in
+            SpeakerSettingsPage(address: address)
+        }
         .onAppear { routes.start() }
         .onDisappear { routes.stop() }
     }
@@ -98,7 +113,10 @@ struct DevicesPanel: View {
     /// The iPhone's speaker, unless another device has the music, while there's somewhere
     /// else the sound could go.
     private var showsRoute: Bool {
-        if case .device = model.musicLocation { return false }
+        switch model.musicLocation {
+        case .device, .speaker: return false
+        case .here, .nowhere: break
+        }
         return routes.route != nil || routes.hasOtherRoutes
     }
     #endif
@@ -119,7 +137,9 @@ struct DevicesPanel: View {
                     .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 12, style: .continuous))
                     .transition(.opacity)
             }
-            if let device = featured {
+            if let address = model.controlledSpeaker, let speaker = model.controlledSpeakerNow {
+                SpeakerCard(address: address, speaker: speaker, close: close)
+            } else if let device = featured {
                 RemoteDeviceCard(device: device, close: close)
             }
             module("Play On") {
@@ -159,6 +179,7 @@ struct DevicesPanel: View {
         .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: shownSpeakers)
         .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: showsOutput)
         .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: showsAutomationNotice)
+        .animation(Design.Motion.reduced(Design.Motion.row, reduceMotion: reduceMotion), value: speakerIDs)
         .task { await musicSpeakers.follow() }
         .onAppear { output.start() }
         .onDisappear { output.stop() }
@@ -192,7 +213,10 @@ struct DevicesPanel: View {
     /// The Mac's output, unless another device has the music, while there's somewhere else
     /// the sound could go.
     private var showsOutput: Bool {
-        if case .device = model.musicLocation { return false }
+        switch model.musicLocation {
+        case .device, .speaker: return false
+        case .here, .nowhere: break
+        }
         return output.speakers != nil || output.hasOtherRoutes
     }
 
@@ -268,6 +292,22 @@ struct DevicesPanel: View {
                 }
             }
         }
+        SpeakerDeviceRows(openSettings: openSpeakerSettings) { casts += 1 }
+    }
+
+    /// Every speaker listed, so rows arriving and leaving move rather than jump.
+    private var speakerIDs: [String] {
+        model.speakers.serverIDs.flatMap { serverID in model.speakers.listed(on: serverID).map { "\(serverID)/\($0.id)" } }
+    }
+
+    private func openSpeakerSettings(_ address: SpeakerAddress) {
+        #if os(macOS)
+        settingsPane = .devices
+        openSettings()
+        close()
+        #else
+        speakerSettings = address
+        #endif
     }
 
     private var awayRows: some View {
@@ -337,7 +377,7 @@ struct DevicesPanel: View {
 
     /// Only while there's nobody else to show: once there is, the rows say it.
     private var footer: String? {
-        model.nearby.devices.isEmpty ? String(localized: "Open Tracks on your other devices to see them here.") : nil
+        model.nearby.devices.isEmpty && !model.speakers.hasSpeakers ? String(localized: "Open Tracks on your other devices to see them here.") : nil
     }
 
     // MARK: - Choosing
@@ -376,6 +416,19 @@ struct DevicesPanel: View {
             return
         }
         #endif
+        if movingTo == nil, case .speaker(let address) = model.musicLocation {
+            movingTo = Self.here
+            Task {
+                let moved = await model.playHere(from: address)
+                movingTo = nil
+                if moved {
+                    moves += 1
+                } else {
+                    await sayNotFound(on: Self.here)
+                }
+            }
+            return
+        }
         guard movingTo == nil,
               case .device(let id) = model.musicLocation,
               let device = model.nearby.devices.first(where: { $0.id == id }),

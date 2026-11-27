@@ -266,6 +266,9 @@ final class AppModel {
         nearby.onTakeOver = { [weak self] state, device in
             Task { _ = await self?.play(state, from: device) }
         }
+        yourMusic.servers.speakers.onCastFailed = { [weak self] address in
+            self?.castFailed(on: address)
+        }
         // Sample data never shows, or forgets, the devices this one really knows.
         if isDemoLaunch { nearby.keepToThisRun() }
         #if DEBUG
@@ -308,7 +311,10 @@ final class AppModel {
         nearby.publish(nearbyState ?? NearbyState())
         updateHandoff()
         // Music started here: the player is this device's again.
-        if player.isPlaying { controlledDeviceID = nil }
+        if player.isPlaying {
+            controlledDeviceID = nil
+            controlledSpeaker = nil
+        }
     }
 
     /// What Tracks is playing, as your other devices are told it. Nil with nothing queued.
@@ -380,7 +386,18 @@ final class AppModel {
 
     /// The device the main player is showing and controlling instead of this one, as Spotify
     /// Connect does. Nil for this device.
-    var controlledDeviceID: String?
+    var controlledDeviceID: String? {
+        didSet { if controlledDeviceID != nil { controlledSpeaker = nil } }
+    }
+
+    /// The speaker the main player is showing and controlling, while the music is on one of
+    /// your servers' speakers. One or the other of this and ``controlledDeviceID``, never both.
+    var controlledSpeaker: SpeakerAddress? {
+        didSet { if controlledSpeaker != nil { controlledDeviceID = nil } }
+    }
+
+    /// Whether a queue that went to a speaker should carry on here if it doesn't start there.
+    @ObservationIgnored var resumesAfterFailedCast: SpeakerAddress?
 
     private(set) var arrivingFrom: String?
 
@@ -396,13 +413,18 @@ final class AppModel {
             controlled: controlledDeviceID,
             isPlayingHere: player.isPlaying,
             hasSongHere: player.hasQueue,
-            peers: nearby.devices.map { MusicLocation.Peer(id: $0.id, hasSong: $0.state?.hasSong == true, isPlaying: $0.state?.isPlaying == true) }
+            peers: nearby.devices.map { MusicLocation.Peer(id: $0.id, hasSong: $0.state?.hasSong == true, isPlaying: $0.state?.isPlaying == true) },
+            speaker: controlledSpeakerNow == nil ? nil : controlledSpeaker
         )
     }
 
-    var mainPlayerHasSong: Bool { controlledDevice != nil || player.hasQueue }
+    var mainPlayerHasSong: Bool { controlledDevice != nil || controlledSpeakerNow != nil || player.hasQueue }
 
     func mainPlayerPlayPause() {
+        if let address = controlledSpeaker, let speaker = controlledSpeakerNow {
+            if speaker.can(.pause) { speakers.perform(speaker.isPlaying ? .pause : .play, on: address) }
+            return
+        }
         guard let device = controlledDevice else {
             player.togglePlayPause()
             return
@@ -411,6 +433,10 @@ final class AppModel {
     }
 
     func mainPlayerNext() {
+        if let address = controlledSpeaker, let speaker = controlledSpeakerNow {
+            if speaker.can(.nextPrevious) { speakers.perform(.next, on: address) }
+            return
+        }
         guard let device = controlledDevice else {
             player.skipToNext()
             return
@@ -419,6 +445,10 @@ final class AppModel {
     }
 
     func mainPlayerPrevious() {
+        if let address = controlledSpeaker, let speaker = controlledSpeakerNow {
+            if speaker.can(.nextPrevious) { speakers.perform(.previous, on: address) }
+            return
+        }
         guard let device = controlledDevice else {
             player.skipToPrevious()
             return
@@ -427,6 +457,7 @@ final class AppModel {
     }
 
     var mainPlayerCanGoBack: Bool {
+        if let speaker = controlledSpeakerNow { return speaker.can(.nextPrevious) }
         if let device = controlledDevice { return nearby.shownState(of: device)?.canSkipBack == true }
         return player.hasQueue && player.context?.isStation != true
     }
@@ -434,6 +465,7 @@ final class AppModel {
     /// Shows and controls another device's song in the main player.
     func control(_ device: NearbyDevices.Device?) {
         controlledDeviceID = device?.id
+        if device == nil { controlledSpeaker = nil }
     }
 
     /// Moves what's playing here to another device, from where it's got to. It pauses here
