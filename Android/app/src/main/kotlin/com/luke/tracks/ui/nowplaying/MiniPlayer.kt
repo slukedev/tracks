@@ -96,8 +96,16 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
     val colors by remember { graph.settings.settings.map { it.miniPlayerColors }.distinctUntilChanged() }
         .collectAsStateWithLifecycle(MiniPlayerColors.Album)
     val song = state.current
+    // While a speaker plays, the mini player is the speaker's.
+    val devices = com.luke.tracks.ui.devices.devicesViewModel()
+    val devicesUi by devices.state.collectAsStateWithLifecycle()
+    val casting = devicesUi.casting
     // Tells the shell how much room pages should leave under their lists.
-    SideEffect { navigator.miniPlayerVisible = song != null }
+    SideEffect { navigator.miniPlayerVisible = song != null || casting != null }
+    if (casting != null) {
+        com.luke.tracks.ui.devices.CastMiniPlayer(casting, devices, onExpand, modifier)
+        return
+    }
 
     AnimatedVisibility(
         visible = song != null,

@@ -60,11 +60,23 @@ fun WavySeekBar(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val live by position.collectAsStateWithLifecycle()
+    WavySeekBar(live = { live }, durationMs = durationMs, isPlaying = isPlaying, onSeek = onSeek, modifier = modifier)
+}
+
+/** The same bar for a position worked out as it's drawn, such as a speaker's. */
+@Composable
+fun WavySeekBar(
+    live: () -> Long,
+    durationMs: Long,
+    isPlaying: Boolean,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val duration = ListenCounter.knownLength(durationMs) ?: run {
-        UnknownLengthBar(position, modifier)
+        UnknownLengthBar(live, modifier)
         return
     }
-    val live by position.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     var scrub by remember { mutableStateOf<Float?>(null) }
     var lastTick by remember { mutableFloatStateOf(-1f) }
@@ -72,7 +84,7 @@ fun WavySeekBar(
     val dragged by interaction.collectIsDraggedAsState()
     val pressed by interaction.collectIsPressedAsState()
     val held = dragged || pressed || scrub != null
-    val fraction = (scrub ?: (live.toFloat() / duration)).coerceIn(0f, 1f)
+    val fraction = (scrub ?: (live().toFloat() / duration)).coerceIn(0f, 1f)
     val motion = MaterialTheme.motionScheme
     val amplitude by animateFloatAsState(if (isPlaying && !held) 1f else 0f, motion.slowEffectsSpec(), label = "wave")
     val thumbHeight by animateDpAsState(if (held) 32.dp else 24.dp, motion.fastSpatialSpec(), label = "thumb")
@@ -145,8 +157,7 @@ fun WavySeekBar(
  * the time played so far.
  */
 @Composable
-private fun UnknownLengthBar(position: StateFlow<Long>, modifier: Modifier) {
-    val live by position.collectAsStateWithLifecycle()
+private fun UnknownLengthBar(live: () -> Long, modifier: Modifier) {
     val scheme = MaterialTheme.colorScheme
     Column(modifier.semantics { contentDescription = "Length unknown" }) {
         // The slider's own height, so the controls below don't jump when the length arrives.
@@ -154,7 +165,7 @@ private fun UnknownLengthBar(position: StateFlow<Long>, modifier: Modifier) {
             FlatTrack(0f, scheme.primary, scheme.primary.copy(alpha = 0.24f))
         }
         Row(Modifier.fillMaxWidth()) {
-            Text(clock(live.toFloat()), style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
+            Text(clock(live().toFloat()), style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
             Spacer(Modifier.weight(1f))
             Text("--:--", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
         }

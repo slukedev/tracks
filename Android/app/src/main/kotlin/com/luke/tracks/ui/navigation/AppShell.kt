@@ -152,6 +152,15 @@ fun AppShell(navigator: Navigator) {
             skips.showSnackbar(listOfNotNull(skipped.message, skipped.reason).joinToString("\n"))
         }
     }
+    // What happened to a speaker command, when neither Now Playing nor Devices is there to say it.
+    val devices = com.luke.tracks.ui.devices.devicesViewModel()
+    LaunchedEffect(devices) {
+        devices.messages.collect { message ->
+            if (navigator.nowPlayingOpen || devices.sheetOpen) return@collect
+            skips.currentSnackbarData?.dismiss()
+            skips.showSnackbar(message.text)
+        }
+    }
 
     SharedTransitionLayout {
     CompositionLocalProvider(LocalNavigator provides navigator, LocalSharedTransitionScope provides this) {

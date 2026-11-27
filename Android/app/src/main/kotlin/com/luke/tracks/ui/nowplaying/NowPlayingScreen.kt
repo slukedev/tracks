@@ -154,7 +154,15 @@ fun NowPlayingScreen(onClose: () -> Unit) {
             .filter { it }.first()
         haptics.performHapticFeedback(HapticFeedbackType.GestureEnd)
     }
-    LaunchedEffect(song == null) { if (song == null) onClose() }
+    // While a speaker plays, the player shows and controls it instead.
+    val devices = com.luke.tracks.ui.devices.devicesViewModel()
+    val devicesUi by devices.state.collectAsStateWithLifecycle()
+    val casting = devicesUi.casting
+    LaunchedEffect(song == null && casting == null) { if (song == null && casting == null) onClose() }
+    if (casting != null) {
+        com.luke.tracks.ui.devices.CastNowPlaying(casting, devices, onClose)
+        return
+    }
     if (song == null) return
 
     val seed = rememberCoverSeed(song.artworkUri, song.albumTitle ?: song.title)
@@ -170,8 +178,20 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
     val scheme = MaterialTheme.colorScheme
     val actions = rememberPlayActions()
     var queueOpen by remember { mutableStateOf(false) }
+    var devicesOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var dragDown by remember { mutableStateOf(0f) }
     val navigator = LocalNavigator.current
+    val devices = com.luke.tracks.ui.devices.devicesViewModel()
+    val devicesUi by devices.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    // Devices when a server has speakers; otherwise the system's own switcher, as before.
+    val onDevices: () -> Unit = {
+        if (devicesUi.offered) {
+            devicesOpen = true
+        } else {
+            openOutputSwitcher(context)
+        }
+    }
     val radioState by LocalContext.current.graph.radio.state.collectAsStateWithLifecycle()
     // Tracks Radio's own song on now, which can steer what it plays next.
     val radio = radioState.takeIf { state.origin?.kind == QueueOrigin.Kind.Radio }
@@ -236,7 +256,7 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
                         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                             controls()
                             Spacer(Modifier.height(16.dp))
-                            BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) })
+                            BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) }, onDevices = onDevices)
                         }
                     }
                 }
@@ -248,15 +268,26 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
                     Spacer(Modifier.weight(0.6f))
                     controls()
                     Spacer(Modifier.weight(0.4f))
-                    BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) })
+                    BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) }, onDevices = onDevices)
                     Spacer(Modifier.height(8.dp))
                 }
             }
         }
         SkipMessages()
+        com.luke.tracks.ui.devices.SpeakerSnackbar(devices, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
     }
 
     if (queueOpen) QueueSheet(state, player, onDismiss = { queueOpen = false }, onTuneRadio = tuneRadio)
+    if (devicesOpen) {
+        com.luke.tracks.ui.devices.DevicesSheet(
+            onDismiss = { devicesOpen = false },
+            onOpenSpeaker = { key ->
+                devicesOpen = false
+                onClose()
+                navigator.open(com.luke.tracks.ui.devices.speakerPage(key))
+            },
+        )
+    }
 }
 
 /** The player's one quiet line when it skips songs it couldn't play, while Now Playing is open. */
@@ -684,8 +715,7 @@ private fun Transport(state: PlayerState, player: PlayerController, isStation: B
 }
 
 @Composable
-private fun BottomActions(state: PlayerState, player: PlayerController, onQueue: () -> Unit, onShare: () -> Unit) {
-    val context = LocalContext.current
+private fun BottomActions(state: PlayerState, player: PlayerController, onQueue: () -> Unit, onShare: () -> Unit, onDevices: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     var sleepMenu by remember { mutableStateOf(false) }
     Row(
@@ -693,7 +723,7 @@ private fun BottomActions(state: PlayerState, player: PlayerController, onQueue:
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BottomAction(Icons.Rounded.SpeakerGroup, "Output") { openOutputSwitcher(context) }
+        BottomAction(Icons.Rounded.SpeakerGroup, "Devices", onDevices)
         Box {
             val sleepAt = state.sleepAtMs
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
