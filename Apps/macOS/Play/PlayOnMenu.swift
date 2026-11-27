@@ -22,10 +22,32 @@ struct PlayOnMenu: View {
                 }
                 .disabled(!canChoose(device))
             }
+            let speakers = model.speakers
+            ForEach(speakers.serverIDs, id: \.self) { serverID in
+                let listed = speakers.listed(on: serverID)
+                if !listed.isEmpty {
+                    Divider()
+                }
+                ForEach(listed) { speaker in
+                    let address = SpeakerAddress(serverID: serverID, speakerID: speaker.id)
+                    Toggle(isOn: Binding(get: { location == .speaker(address) }, set: { _ in choose(speaker, at: address) })) {
+                        Label(speaker.name, systemImage: speaker.symbol)
+                    }
+                    .disabled(!speakers.canControl(serverID) || !speaker.canChoose(hasMusicHere: location == .here && model.player.hasQueue))
+                }
+            }
         } label: {
             Label("Play On", systemImage: "laptopcomputer.and.iphone")
         }
-        .disabled(!isOn || model.nearby.devices.isEmpty)
+        .disabled((!isOn || model.nearby.devices.isEmpty) && !model.speakers.hasSpeakers)
+    }
+
+    private func choose(_ speaker: TracksideSpeaker, at address: SpeakerAddress) {
+        if location == .here, model.player.hasQueue, speaker.can(.play) {
+            Task { await model.sendMusic(to: address) }
+        } else if speaker.hasSong {
+            model.control(speaker: address)
+        }
     }
 
     private func canChoose(_ device: NearbyDevices.Device) -> Bool {
@@ -35,6 +57,10 @@ struct PlayOnMenu: View {
     private var location: MusicLocation { model.musicLocation }
 
     private func playHere() {
+        if case .speaker(let address) = location {
+            Task { _ = await model.playHere(from: address) }
+            return
+        }
         guard case .device(let id) = location, let device = model.nearby.devices.first(where: { $0.id == id }) else { return }
         Task { _ = await model.playHere(from: device) }
     }
