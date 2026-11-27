@@ -80,9 +80,9 @@ class TvShellScreenshots(dark: Boolean) : TvScreenshotTest(dark) {
         capture("shell-reduced-motion")
     }
 
-    @Test fun nothingPlayingAndAPageNotBuiltYet() {
+    @Test fun nothingPlaying() {
         show { TvShell(TvNavigator(TvDestination.History), MutableStateFlow(PlayerState())) }
-        capture("shell-placeholder")
+        capture("shell-nothing-playing")
     }
 
     @Test fun firstLoad() {

@@ -20,19 +20,15 @@ import com.luke.tracks.ui.navigation.MixRoute
 import com.luke.tracks.ui.navigation.Route
 import com.luke.tracks.ui.navigation.SongRoute
 import com.luke.tracks.ui.play.loadFeed
-import com.luke.tracks.ui.tv.TvContentScreens
 import com.luke.tracks.ui.tv.detail.TvDetailSkeleton
 import com.luke.tracks.ui.tv.library.TvLibraryContent
 import com.luke.tracks.ui.tv.library.TvLibraryTab
 import com.luke.tracks.ui.tv.navigation.TvDestination
 import com.luke.tracks.ui.tv.navigation.TvNavigator
-import com.luke.tracks.ui.tv.navigation.TvScreens
 import com.luke.tracks.ui.tv.navigation.TvShell
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Before
 import org.junit.Test
 import org.robolectric.annotation.Config
 
@@ -41,41 +37,6 @@ import org.robolectric.annotation.Config
  * from the sample history and a sample library, in their first-run, loading and full states.
  */
 class TvContentScreenshots(dark: Boolean) : TvScreenshotTest(dark) {
-    private val play = TvScreens.play
-    private val libraryPage = TvScreens.library
-    private val summary = TvScreens.summary
-    private val charts = TvScreens.charts
-    private val history = TvScreens.history
-    private val search = TvScreens.search
-    private val album = TvScreens.album
-    private val artist = TvScreens.artist
-    private val song = TvScreens.song
-    private val mix = TvScreens.mix
-    private val libraryAlbum = TvScreens.libraryAlbum
-    private val libraryArtist = TvScreens.libraryArtist
-    private val catalogAlbum = TvScreens.catalogAlbum
-    private val catalogArtist = TvScreens.catalogArtist
-
-    @Before fun install() = TvContentScreens.install()
-
-    // The slots are global: put back what the other suites expect.
-    @After fun restore() {
-        TvScreens.play = play
-        TvScreens.library = libraryPage
-        TvScreens.summary = summary
-        TvScreens.charts = charts
-        TvScreens.history = history
-        TvScreens.search = search
-        TvScreens.album = album
-        TvScreens.artist = artist
-        TvScreens.song = song
-        TvScreens.mix = mix
-        TvScreens.libraryAlbum = libraryAlbum
-        TvScreens.libraryArtist = libraryArtist
-        TvScreens.catalogAlbum = catalogAlbum
-        TvScreens.catalogArtist = catalogArtist
-    }
-
     private val idle = MutableStateFlow(PlayerState())
 
     private fun library(): SampleLibrary = SampleLibrary().also { graph.library = it }
@@ -109,8 +70,9 @@ class TvContentScreenshots(dark: Boolean) : TvScreenshotTest(dark) {
         capture("play-shelves")
     }
 
+    /** A 720p TV is 1280 by 720 pixels at tvdpi: the same 960 by 540dp as 1080p, at a lower density. */
     @Test
-    @Config(qualifiers = "w640dp-h360dp-land-television-mdpi")
+    @Config(qualifiers = "w960dp-h540dp-land-television-tvdpi")
     fun play720p() {
         withSampleHistory()
         library()

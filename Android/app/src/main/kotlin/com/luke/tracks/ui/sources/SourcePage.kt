@@ -12,6 +12,7 @@ import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -49,7 +50,9 @@ import com.luke.tracks.sources.SourceId
 import com.luke.tracks.sources.SourceKind
 import com.luke.tracks.sources.SourceStatus
 import com.luke.tracks.ui.library.servers.rememberServerEditing
+import com.luke.tracks.ui.link.linkApprovalPage
 import com.luke.tracks.ui.navigation.LocalNavigator
+import com.luke.tracks.ui.navigation.SettingsPageRoute
 import com.luke.tracks.ui.settings.SettingsScaffold
 import com.luke.tracks.ui.settings.StatusHero
 import com.luke.tracks.ui.settings.Tone
@@ -142,7 +145,9 @@ fun ServerSourcePage(source: Source, entry: ServerEntry, showBack: Boolean = tru
     val haptics = LocalHapticFeedback.current
     val editing = rememberServerEditing()
     val registry = rememberSources()
+    val navigator = LocalNavigator.current
     var removing by remember { mutableStateOf(false) }
+    val uuid = entry.server.serverUuid?.takeIf { entry.server.isTrackside }
     ServerSourcePageContent(
         source = source,
         addresses = addresses(entry.server),
@@ -158,6 +163,7 @@ fun ServerSourcePage(source: Source, entry: ServerEntry, showBack: Boolean = tru
             else -> null
         },
         onRemove = { removing = true },
+        onLinkTv = uuid?.let { { navigator.open(SettingsPageRoute(linkApprovalPage(it))) } },
     )
     editing.Sheets()
     if (removing) {
@@ -203,6 +209,7 @@ fun ServerSourcePageContent(
     onCheck: () -> Unit,
     onFix: (() -> Unit)?,
     onRemove: () -> Unit,
+    onLinkTv: (() -> Unit)? = null,
 ) {
     val status = source.status
     SettingsScaffold(title = source.name, showBack = showBack) {
@@ -239,6 +246,11 @@ fun ServerSourcePageContent(
         if (addresses.isNotEmpty()) {
             group("Addresses") {
                 addresses.forEach { route -> info(route.address, route.label, ltr = true) }
+            }
+        }
+        if (onLinkTv != null) {
+            group(key = "tv") {
+                link("Link a TV", icon = Icons.Rounded.Tv, tone = Tone.Secondary, onClick = onLinkTv)
             }
         }
         group(key = "actions") {

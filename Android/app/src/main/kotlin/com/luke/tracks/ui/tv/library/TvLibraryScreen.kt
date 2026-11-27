@@ -42,8 +42,8 @@ import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.ui.navigation.LibraryAlbumRoute
 import com.luke.tracks.ui.navigation.LibraryArtistRoute
+import com.luke.tracks.ui.navigation.SettingsPageRoute
 import com.luke.tracks.ui.sources.sourceList
-import com.luke.tracks.ui.tv.TvContentHooks
 import com.luke.tracks.ui.tv.components.ClaimFocus
 import com.luke.tracks.ui.tv.components.FocusMemory
 import com.luke.tracks.ui.tv.components.TvArtwork
@@ -79,7 +79,8 @@ fun TvLibraryScreen() {
     TvLibraryContent(
         snapshot = snapshot,
         linked = sources.isNotEmpty() || snapshot.songs.isNotEmpty(),
-        onLink = { TvContentHooks.openLink(navigator) },
+        // Settings > Trackside hosts the link flow while there's no server.
+        onLink = { navigator.open(SettingsPageRoute("trackside")) },
     )
 }
 

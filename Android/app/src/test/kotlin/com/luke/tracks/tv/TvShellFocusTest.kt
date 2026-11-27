@@ -25,6 +25,7 @@ import com.luke.tracks.playback.PlayerState
 import com.luke.tracks.ui.theme.TracksBrand
 import com.luke.tracks.ui.tv.components.ClaimFocus
 import com.luke.tracks.ui.tv.components.TvButton
+import com.luke.tracks.ui.tv.components.TvEmptyState
 import com.luke.tracks.ui.tv.components.TvSidePanel
 import com.luke.tracks.ui.tv.components.rememberFocus
 import com.luke.tracks.ui.tv.components.rememberFocusMemory
@@ -55,11 +56,15 @@ class TvShellFocusTest {
     private val originalPlay = TvScreens.play
     private val originalAlbum = TvScreens.album
     private val originalLibrary = TvScreens.library
+    private val originalHistory = TvScreens.history
     private val navigator = TvNavigator()
     private val albums = TvDemo.albums
 
     @Before fun show() {
         TvScreens.play = { DemoHome() }
+        // Pages with nothing to focus, so the rail's rules show on their own.
+        TvScreens.library = { TvEmptyState("Library") }
+        TvScreens.history = { TvEmptyState("History") }
         compose.setContent {
             TvTracksTheme(dark = true, dynamic = false, seed = TracksBrand) {
                 TvShell(navigator, MutableStateFlow(PlayerState(current = TvDemo.song, isPlaying = true)))
@@ -72,6 +77,7 @@ class TvShellFocusTest {
         TvScreens.play = originalPlay
         TvScreens.album = originalAlbum
         TvScreens.library = originalLibrary
+        TvScreens.history = originalHistory
     }
 
     @Test fun launchFocusesTheFirstCard() {
@@ -99,7 +105,7 @@ class TvShellFocusTest {
         assertEquals("Library", focused())
         press(listOf(Key.DirectionCenter))
         assertEquals(TvDestination.Library, navigator.destination)
-        // Library isn't built here, so focus has nowhere to go but the rail.
+        // Library has nothing to focus here, so focus has nowhere to go but the rail.
         back()
         assertEquals(TvDestination.Play, navigator.destination)
         assertEquals("Play", focused())

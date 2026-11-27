@@ -88,6 +88,7 @@ class SourceScreenshots(dark: Boolean) : ScreenshotTest(dark) {
                 onCheck = {},
                 onFix = null,
                 onRemove = {},
+                onLinkTv = {},
             )
         }
     }
