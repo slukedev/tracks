@@ -586,9 +586,23 @@ public struct TracksideMe: Codable, Sendable, Hashable {
     public struct Catalog: Codable, Sendable, Hashable {
         /// This device can play the services itself, through the server.
         public var relay: Bool?
+        /// And in the smaller cellular tier, not only lossless.
+        public var relayCellular: Bool?
 
-        public init(relay: Bool? = nil) {
+        public init(relay: Bool? = nil, relayCellular: Bool? = nil) {
             self.relay = relay
+            self.relayCellular = relayCellular
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case relay
+            case relayCellular = "relay_cellular"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            relay = try? container.decodeIfPresent(Bool.self, forKey: .relay)
+            relayCellular = try? container.decodeIfPresent(Bool.self, forKey: .relayCellular)
         }
     }
 
@@ -711,6 +725,29 @@ public struct TracksideSearchResults: Codable, Sendable, Hashable {
     public var songs: Section<TracksideSong>?
     public var albums: Section<TracksideAlbum>?
     public var artists: Section<TracksideArtist>?
+    /// The music services' results, only when asked for and the server has them. Never mixed
+    /// into the library's sections: folding them in is the app's.
+    public var catalog: TracksideCatalogSearch?
+
+    enum CodingKeys: String, CodingKey {
+        case songs, albums, artists, catalog
+    }
+
+    public init(songs: Section<TracksideSong>? = nil, albums: Section<TracksideAlbum>? = nil, artists: Section<TracksideArtist>? = nil, catalog: TracksideCatalogSearch? = nil) {
+        self.songs = songs
+        self.albums = albums
+        self.artists = artists
+        self.catalog = catalog
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        songs = try container.decodeIfPresent(Section<TracksideSong>.self, forKey: .songs)
+        albums = try container.decodeIfPresent(Section<TracksideAlbum>.self, forKey: .albums)
+        artists = try container.decodeIfPresent(Section<TracksideArtist>.self, forKey: .artists)
+        // A catalog section in a shape this build doesn't know never hides the library's.
+        catalog = try? container.decodeIfPresent(TracksideCatalogSearch.self, forKey: .catalog)
+    }
 
     public struct Section<Item: Codable & Sendable & Hashable>: Codable, Sendable, Hashable {
         public var items: [Item]

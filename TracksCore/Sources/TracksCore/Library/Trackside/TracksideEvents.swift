@@ -129,6 +129,10 @@ public enum TracksideEvent: Sendable, Equatable {
     case speakers(TracksideSpeakersState)
     /// A TV this person approved with a code collected its key: it's one of their devices now.
     case deviceLinked(TracksideDeviceLinked)
+    /// This device's relay changed: its state, generation, tier or playlist. Its owner's only.
+    case relay(TracksideRelaySession)
+    /// The music services, or one's account, changed: read them again.
+    case catalogServices(TracksideCatalogServicesChange)
     /// One this build doesn't know, or doesn't need.
     case other(String)
 
@@ -174,6 +178,11 @@ public enum TracksideEvent: Sendable, Equatable {
         case "speakers":
             guard let state = try? decoder.decode(TracksideSpeakersState.self, from: data) else { self = .other(event.event); return }
             self = .speakers(state)
+        case "relay":
+            guard let session = try? decoder.decode(TracksideRelaySession.self, from: data) else { self = .other(event.event); return }
+            self = .relay(session)
+        case "catalog_services":
+            self = .catalogServices((try? decoder.decode(TracksideCatalogServicesChange.self, from: data)) ?? TracksideCatalogServicesChange(state: .unknown))
         case "device_linked":
             guard let device = try? decoder.decode(TracksideDeviceLinked.self, from: data) else { self = .other(event.event); return }
             self = .deviceLinked(device)

@@ -413,6 +413,12 @@ struct TracksideFixtureTests {
         // A failed command's outcome carries an error too, but isn't a refusal.
         if has("command_id"), has("outcome") { return read(TracksideSpeakerCommandOutcome.self) }
         if has("error") { return read(TracksideErrorEnvelope.self) }
+        if has("generation"), has("speaker_id") { return read(TracksideRelaySession.self) }
+        if has("services"), has("complete") { return read(TracksideCatalogSearch.self) }
+        if fields["services"] is [Any], has("state") { return read(TracksideCatalogServiceList.self) }
+        if has("catalog") { return read(TracksideSearchResults.self) { $0.songs?.items ?? [] } }
+        if has("tracks") || has("top_tracks"), has("album") || has("artist") || has("playlist") { return read(TracksideCatalogItem.self) }
+        if has("items"), has("synced_at") { return read(TracksideCatalogLibraryPage.self) }
         if has("product") { return read(TracksideCapabilities.self) }
         if has("speakers"), has("state") { return read(TracksideSpeakerList.self) }
         if has("command_id"), has("speaker") { return read(TracksideSpeakerCommand.self) }

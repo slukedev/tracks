@@ -375,16 +375,20 @@ public struct TracksideSpeakerCommand: Codable, Sendable, Hashable {
     /// Past this, with no outcome heard, the expectation is dropped and the speaker read again.
     public var settleBy: Date?
     public var speaker: TracksideSpeaker
+    /// For a command to this device's relay, or a move to it: the session as it is now, whose
+    /// playlist the player moves to when it's a new one.
+    public var relay: TracksideRelaySession?
 
-    public init(action: String? = nil, commandID: String, settleBy: Date?, speaker: TracksideSpeaker) {
+    public init(action: String? = nil, commandID: String, settleBy: Date?, speaker: TracksideSpeaker, relay: TracksideRelaySession? = nil) {
         self.action = action
         self.commandID = commandID
         self.settleBy = settleBy
         self.speaker = speaker
+        self.relay = relay
     }
 
     enum CodingKeys: String, CodingKey {
-        case action, speaker
+        case action, speaker, relay
         case commandID = "command_id"
         case settleBy = "settle_by"
     }
@@ -395,6 +399,7 @@ public struct TracksideSpeakerCommand: Codable, Sendable, Hashable {
         commandID = try container.decode(String.self, forKey: .commandID)
         settleBy = try? container.decodeIfPresent(Date.self, forKey: .settleBy)
         speaker = try container.decode(TracksideSpeaker.self, forKey: .speaker)
+        relay = try? container.decodeIfPresent(TracksideRelaySession.self, forKey: .relay)
     }
 }
 

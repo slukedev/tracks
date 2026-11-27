@@ -35,6 +35,19 @@ struct MusicSourcesTests {
         #expect(PlaySource(observation: observation) == .spotify)
     }
 
+    @Test("a server's music service marks its plays: Spotify as Spotify, the rest by their own key")
+    func serviceObservation() {
+        func source(_ key: String?) -> PlaySource {
+            PlaySource(observation: NowPlayingObservation(
+                title: "Song", artistName: "Artist", playbackState: .playing,
+                rawFields: [PlaySource.observationKey: PlaySource.serviceMarker(key: key)]
+            ))
+        }
+        #expect(source("spotify") == .spotify)
+        #expect(source("Tidal") == .unknown("tidal"))
+        #expect(source(nil) == .unknown("service"))
+    }
+
     // MARK: - Statistics scopes
 
     @Test("scopes are offered only with something to tell apart")
