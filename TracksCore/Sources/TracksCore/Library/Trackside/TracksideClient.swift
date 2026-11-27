@@ -10,6 +10,8 @@ public enum TracksideError: Error, Equatable, Sendable {
     /// Unknown, or not visible to this user, which the server doesn't tell apart.
     case notFound
     case conflict(reason: String?)
+    /// A speaker can't do what was asked; `capability` names what it lacks.
+    case unsupported(capability: String?)
     /// The sync cursor is too old to continue from; a snapshot starts over.
     case syncReset
     /// A song offered for getting isn't known any more; search again.
@@ -399,7 +401,7 @@ public struct TracksideClient: Sendable {
 
     // MARK: - Requests
 
-    private var bearer: String { "Bearer \(apiKey)" }
+    var bearer: String { "Bearer \(apiKey)" }
 
     /// The events stream's request, picking up after the last event seen.
     func eventsRequest(lastEventID: String?) async throws -> URLRequest {
@@ -609,7 +611,8 @@ public struct TracksideClient: Sendable {
         case "invalid_state": return .invalidState
         case "rate_limited": return .rateLimited(retryAfter: retryAfter)
         case "quota_exceeded": return .quotaExceeded(resetsAt: body.details?.resetsAt)
-        case "library_unavailable", "transcoder_busy", "unavailable": return .unavailable(code: body.code, retryAfter: retryAfter)
+        case "unsupported": return .unsupported(capability: body.details?.capability)
+        case "library_unavailable", "transcoder_busy", "unavailable", "speakers_unavailable", "catalog_unavailable": return .unavailable(code: body.code, retryAfter: retryAfter)
         case "insufficient_storage": return .insufficientStorage
         case "https_required": return .httpsRequired
         default: return .server(status: status, code: body.code, message: body.message ?? "")

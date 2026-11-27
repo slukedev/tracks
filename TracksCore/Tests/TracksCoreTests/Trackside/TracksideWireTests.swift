@@ -410,8 +410,17 @@ struct TracksideFixtureTests {
         }
         let keys = Set(fields.keys)
         let has = { (key: String) in keys.contains(key) }
+        // A failed command's outcome carries an error too, but isn't a refusal.
+        if has("command_id"), has("outcome") { return read(TracksideSpeakerCommandOutcome.self) }
         if has("error") { return read(TracksideErrorEnvelope.self) }
         if has("product") { return read(TracksideCapabilities.self) }
+        if has("speakers"), has("state") { return read(TracksideSpeakerList.self) }
+        if has("command_id"), has("speaker") { return read(TracksideSpeakerCommand.self) }
+        if has("items"), has("mode") { return read(TracksideSpeakerPlayRequest.self) }
+        if has("items"), has("current_index") { return read(TracksideSpeakerQueue.self) }
+        if has("availability"), has("revision") { return read(TracksideSpeaker.self) }
+        if has("position_ms"), has("position_at") { return read(TracksideSpeakerProgress.self) }
+        if has("state"), has("since"), keys.isSubset(of: ["state", "since"]) { return read(TracksideSpeakersState.self) }
         if has("mode"), has("url") { return read(TracksidePlaybackDecision.self) }
         if has("mode") { return read(TracksideSyncPage.self) { ($0.songs ?? []) + ($0.upserts?.songs ?? []) } }
         if has("api_key") { return read(TracksidePairResult.self) }

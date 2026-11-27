@@ -34,6 +34,7 @@
     "cloud": true,
     "events": true,
     "lyrics": true,
+    "speakers": true,
     "uploads": false
   },
   "media": {

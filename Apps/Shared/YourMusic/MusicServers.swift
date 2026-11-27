@@ -804,7 +804,7 @@ final class MusicServers {
         case .acquisition(let acquisition):
             songRequests[serverID]?.update(acquisition)
             if acquisition.state == .done { syncSoon(serverID) }
-        case .revoked, .library, .other:
+        case .revoked, .library, .other, .speakerChanged, .speakerRemoved, .speakerProgress, .speakerQueue, .speakerCommand, .speakers:
             break
         }
     }

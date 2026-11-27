@@ -148,9 +148,12 @@ public struct TracksideCapabilities: Codable, Sendable, Hashable {
         public var events: Bool?
         public var animatedArt: Bool?
         public var cloud: Bool?
+        /// The server has the speakers, catalog and relay routes. Whether this user may use
+        /// them now is `/me`'s to say.
+        public var speakers: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case lyrics, uploads, events, cloud
+            case lyrics, uploads, events, cloud, speakers
             case animatedArt = "animated_art"
         }
     }
@@ -262,13 +265,15 @@ struct TracksideErrorEnvelope: Codable, Sendable {
     struct Details: Codable, Sendable {
         let field: String?
         let reason: String?
+        /// With `unsupported`: what the speaker can't do.
+        let capability: String?
         let resetsAt: Date?
         let received: Int?
         /// With `https_required`: the server's https addresses, when it has any.
         let httpsURLs: [TracksideServerURL]?
 
         enum CodingKeys: String, CodingKey {
-            case field, reason, received
+            case field, reason, received, capability
             case resetsAt = "resets_at"
             case httpsURLs = "https_urls"
         }
@@ -277,6 +282,7 @@ struct TracksideErrorEnvelope: Codable, Sendable {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             field = try? container.decodeIfPresent(String.self, forKey: .field)
             reason = try? container.decodeIfPresent(String.self, forKey: .reason)
+            capability = try? container.decodeIfPresent(String.self, forKey: .capability)
             resetsAt = try? container.decodeIfPresent(Date.self, forKey: .resetsAt)
             received = try? container.decodeIfPresent(Int.self, forKey: .received)
             httpsURLs = (try? container.decodeIfPresent([TracksideLenientElement<TracksideServerURL>].self, forKey: .httpsURLs))?.compactMap(\.value)
