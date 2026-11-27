@@ -5,6 +5,8 @@ import Foundation
 public enum MusicLocation: Sendable, Equatable {
     case here
     case device(String)
+    /// One of your servers' speakers, controlled from here.
+    case speaker(SpeakerAddress)
     case nowhere
 
     /// One of your other devices, as far as this needs to know.
@@ -20,10 +22,13 @@ public enum MusicLocation: Sendable, Equatable {
         }
     }
 
-    /// The device being controlled from here leads, then music playing (here before
-    /// elsewhere), then a song held paused (here before elsewhere).
-    public init(controlled: String?, isPlayingHere: Bool, hasSongHere: Bool, peers: [Peer]) {
-        if let controlled, peers.contains(where: { $0.id == controlled && $0.hasSong }) {
+    /// The speaker or device being controlled from here leads, then music playing (here
+    /// before elsewhere), then a song held paused (here before elsewhere).
+    /// - Parameter speaker: the speaker the player shows, while it has a song.
+    public init(controlled: String?, isPlayingHere: Bool, hasSongHere: Bool, peers: [Peer], speaker: SpeakerAddress? = nil) {
+        if let speaker {
+            self = .speaker(speaker)
+        } else if let controlled, peers.contains(where: { $0.id == controlled && $0.hasSong }) {
             self = .device(controlled)
         } else if isPlayingHere {
             self = .here
