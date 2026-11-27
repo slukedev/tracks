@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.luke.tracks.ui.theme.LocalDarkTheme
 import com.luke.tracks.ui.tv.theme.LocalReducedMotion
 import com.luke.tracks.ui.tv.theme.TvLayout
 import com.luke.tracks.ui.tv.theme.TvMotion
@@ -76,7 +77,7 @@ fun TvSidePanel(
             enter = fadeIn(tween(ms, easing = TvMotion.EaseOut)),
             exit = fadeOut(tween(TvMotion.FocusOutMs * 2, easing = TvMotion.EaseOut)),
         ) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)))
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (LocalDarkTheme.current) 0.5f else 0.3f)))
         }
         AnimatedVisibility(
             visible = visible,

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,12 +18,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,8 +94,11 @@ private fun ShelfBlocks(modifier: Modifier, cards: Int, cardWidth: Dp, aspectRat
                 TvSkeletonBlock(Modifier.width(180.dp).height(18.dp), RoundedCornerShape(6.dp))
             }
         }
+        // Unbounded like the real row, so cards past the edge keep their size instead of squeezing.
         Row(
-            Modifier.padding(start = TvLayout.ContentStart, top = 12.dp, bottom = 16.dp),
+            Modifier
+                .horizontalScroll(rememberScrollState(), enabled = false)
+                .padding(start = TvLayout.ContentStart, top = 12.dp, bottom = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(TvLayout.ShelfSpacing),
         ) {
             repeat(cards) {
@@ -138,7 +143,11 @@ fun TvListSkeleton(modifier: Modifier = Modifier, rows: Int = 8, leading: Boolea
 @Composable
 fun TvPageSkeleton(modifier: Modifier = Modifier, hero: Boolean = true, shelves: Int = 2) {
     Pulsing {
-        Column(modifier.padding(top = TvLayout.SafeTop), verticalArrangement = Arrangement.spacedBy(TvLayout.SectionSpacing)) {
+        // Unbounded like the real page, so the last shelf runs off the bottom at its true size.
+        Column(
+            modifier.verticalScroll(rememberScrollState(), enabled = false).padding(top = TvLayout.SafeTop),
+            verticalArrangement = Arrangement.spacedBy(TvLayout.SectionSpacing),
+        ) {
             if (hero) {
                 Column(Modifier.padding(start = TvLayout.ContentStart, end = TvLayout.SafeEnd), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     TvSkeletonBlock(Modifier.width(320.dp).height(36.dp), RoundedCornerShape(8.dp))

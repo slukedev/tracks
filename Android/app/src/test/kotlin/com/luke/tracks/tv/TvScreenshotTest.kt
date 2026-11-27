@@ -1,6 +1,7 @@
 package com.luke.tracks.tv
 
 import android.app.Application
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,7 +10,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
@@ -43,13 +44,13 @@ import androidx.tv.material3.MaterialTheme as TvTheme
  * Run: ./gradlew :app:testDebugUnitTest --tests 'com.luke.tracks.tv.*Screenshots*'
  *
  * Subclass it, keep the `(dark: Boolean)` constructor, then either [snap] a screen as it
- * first appears, or [show] it, drive focus with [press], and [capture] each state.
+ * first appears, or [show] it, drive focus with [press] and [back], and [capture] each state.
  */
 @RunWith(ParameterizedRobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [36], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 abstract class TvScreenshotTest(protected val dark: Boolean) {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
     val app: Application get() = ApplicationProvider.getApplicationContext()
     val graph: AppGraph get() = (app as TracksApplication).graph
@@ -95,6 +96,12 @@ abstract class TvScreenshotTest(protected val dark: Boolean) {
             compose.onRoot().performKeyInput { pressKey(key) }
             settle(150)
         }
+        settle(settleMs)
+    }
+
+    /** The remote's Back, through the activity as the system sends it. */
+    fun back(settleMs: Long = 600) {
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         settle(settleMs)
     }
 

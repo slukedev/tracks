@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.luke.tracks.playback.PlayerState
+import com.luke.tracks.ui.tv.components.TvArtwork
 import com.luke.tracks.ui.tv.components.TvButton
 import com.luke.tracks.ui.tv.components.TvButtonStyle
 import com.luke.tracks.ui.tv.components.TvChip
@@ -30,10 +31,10 @@ import com.luke.tracks.ui.tv.components.TvIconButton
 import com.luke.tracks.ui.tv.components.TvListRow
 import com.luke.tracks.ui.tv.components.TvListSkeleton
 import com.luke.tracks.ui.tv.components.TvPageSkeleton
-import com.luke.tracks.ui.tv.components.TvArtwork
 import com.luke.tracks.ui.tv.components.TvSectionTitle
 import com.luke.tracks.ui.tv.components.TvShelfSkeleton
 import com.luke.tracks.ui.tv.components.TvSidePanel
+import com.luke.tracks.ui.tv.components.rememberFocusMemory
 import com.luke.tracks.ui.tv.navigation.TvDestination
 import com.luke.tracks.ui.tv.navigation.TvNavigator
 import com.luke.tracks.ui.tv.navigation.TvScreens
@@ -65,12 +66,18 @@ class TvShellScreenshots(dark: Boolean) : TvScreenshotTest(dark) {
         capture("shell-card-focused")
         press(listOf(Key.DirectionRight, Key.DirectionRight))
         capture("shell-card-moved")
-        // Left from the first column opens the rail on the page you're on.
-        press(listOf(Key.DirectionLeft, Key.DirectionLeft, Key.DirectionLeft))
+        // Back from a page's top opens the rail on the page you're on.
+        back()
         capture("shell-rail-open")
         // Right from the rail goes back to the card you left.
         press(Key.DirectionRight)
         capture("shell-rail-closed")
+    }
+
+    @Test fun reducedMotion() {
+        show(reducedMotion = true) { TvShell(TvNavigator(), MutableStateFlow(PlayerState(current = TvDemo.song, isPlaying = false))) }
+        press(Key.DirectionRight)
+        capture("shell-reduced-motion")
     }
 
     @Test fun nothingPlayingAndAPageNotBuiltYet() {
@@ -79,7 +86,10 @@ class TvShellScreenshots(dark: Boolean) : TvScreenshotTest(dark) {
     }
 
     @Test fun firstLoad() {
-        TvScreens.play = { TvPageSkeleton() }
+        TvScreens.play = {
+            rememberFocusMemory()
+            TvPageSkeleton()
+        }
         show { TvShell(TvNavigator(), MutableStateFlow(PlayerState())) }
         capture("shell-loading")
     }

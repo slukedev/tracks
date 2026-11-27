@@ -31,13 +31,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,6 +58,7 @@ import androidx.tv.material3.NavigationDrawerScope
 import androidx.tv.material3.Text
 import androidx.tv.material3.rememberDrawerState
 import com.luke.tracks.graph
+import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.PlayerState
 import com.luke.tracks.ui.navigation.AlbumRoute
 import com.luke.tracks.ui.navigation.ArtistRoute
@@ -77,7 +83,10 @@ import com.luke.tracks.ui.tv.theme.LocalReducedMotion
 import com.luke.tracks.ui.tv.theme.TvLayout
 import com.luke.tracks.ui.tv.theme.TvMotion
 import kotlinx.coroutines.flow.StateFlow
-import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+
+private data class NowPlaying(val song: PlayableSong?, val playing: Boolean)
 
 internal val RailItemCollapsedWidth = NavigationDrawerItemDefaults.CollapsedDrawerItemWidth
 internal val RailItemExpandedWidth = NavigationDrawerItemDefaults.ExpandedDrawerItemWidth
@@ -89,10 +98,14 @@ internal val RailItemExpandedWidth = NavigationDrawerItemDefaults.ExpandedDrawer
  */
 @Composable
 fun TvShell(navigator: TvNavigator, playerState: StateFlow<PlayerState> = LocalContext.current.graph.player.state) {
-    val player by playerState.collectAsStateWithLifecycle()
+    // Only what the rail shows, so playback ticks don't recompose the frame.
+    val nowPlaying by remember(playerState) {
+        playerState.map { NowPlaying(it.current, it.isPlaying) }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(NowPlaying(playerState.value.current, playerState.value.isPlaying))
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val railFocused = drawer.currentValue == DrawerValue.Open
     val railItems = remember { TvDestination.entries.associateWith { FocusRequester() } }
+    val pages = remember { FocusRequester() }
     val back = {
         when (navigator.back(railFocused = drawer.currentValue == DrawerValue.Open)) {
             TvBack.FocusRail, TvBack.WentToPlay -> railItems.getValue(navigator.destination).requestFocus()
@@ -102,6 +115,18 @@ fun TvShell(navigator: TvNavigator, playerState: StateFlow<PlayerState> = LocalC
     }
 
     BackHandler(enabled = navigator.canGoBack(railFocused), onBack = back)
+
+    // A page without focus memory can't take the focus it's handed, which would leave the
+    // remote pointing nowhere, so the rail takes it.
+    val claim = navigator.focus.claim
+    LaunchedEffect(claim) {
+        if (claim == null || claim == TvNavigator.NowPlayingKey) return@LaunchedEffect
+        repeat(3) { withFrameNanos { } }
+        if (navigator.focus.claim == claim && !navigator.focus.isOnScreen(claim)) {
+            navigator.focus.dropClaim()
+            railItems.getValue(navigator.destination).requestFocus()
+        }
+    }
 
     CompositionLocalProvider(LocalTvNavigator provides navigator, LocalTvFocusStore provides navigator.focus) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -122,13 +147,14 @@ fun TvShell(navigator: TvNavigator, playerState: StateFlow<PlayerState> = LocalC
                     drawerContent = { value ->
                         Rail(
                             navigator = navigator,
-                            player = player,
+                            nowPlaying = nowPlaying,
                             open = value == DrawerValue.Open,
                             requesters = railItems,
+                            pages = pages,
                         )
                     },
                 ) {
-                    Pages(navigator, back)
+                    Pages(navigator, back, Modifier.focusRequester(pages).focusGroup())
                 }
             }
             NowPlayingOverlay(navigator)
@@ -139,11 +165,12 @@ fun TvShell(navigator: TvNavigator, playerState: StateFlow<PlayerState> = LocalC
 @Composable
 private fun NavigationDrawerScope.Rail(
     navigator: TvNavigator,
-    player: PlayerState,
+    nowPlaying: NowPlaying,
     open: Boolean,
     requesters: Map<TvDestination, FocusRequester>,
+    pages: FocusRequester,
 ) {
-    val song = player.current
+    val song = nowPlaying.song
     Column(
         Modifier
             .fillMaxHeight()
@@ -153,16 +180,22 @@ private fun NavigationDrawerScope.Rail(
             .focusProperties {
                 // Into the rail lands on the page you're on, not the nearest item.
                 onEnter = { requesters.getValue(navigator.destination).requestFocus() }
-                // Out to the right goes back to the item you left.
-                onExit = { if (requestedFocusDirection == FocusDirection.Right) navigator.focus.restore(navigator.topKey) }
             }
+            // Right goes back to the item you left. Pages bleed under the rail, so the default
+            // search finds nothing to its right: their rows and columns start at the screen's edge.
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown || event.key != Key.DirectionRight) return@onPreviewKeyEvent false
+                navigator.focus.restore(navigator.topKey) || pages.requestFocus()
+                true
+            }
+            .focusGroup()
             .selectableGroup(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (song != null) {
             NowPlayingChip(
                 song = song,
-                playing = player.isPlaying,
+                playing = nowPlaying.playing,
                 expanded = hasFocus,
                 onClick = navigator::openNowPlaying,
             )
@@ -204,7 +237,7 @@ private fun NavigationDrawerScope.RailItem(destination: TvDestination, navigator
 }
 
 @Composable
-private fun Pages(navigator: TvNavigator, onBack: () -> Unit) {
+private fun Pages(navigator: TvNavigator, onBack: () -> Unit, modifier: Modifier) {
     val reduced = LocalReducedMotion.current
     val holder = rememberSaveableStateHolder()
     AnimatedContent(
@@ -214,6 +247,7 @@ private fun Pages(navigator: TvNavigator, onBack: () -> Unit) {
                 .togetherWith(fadeOut(tween(90, easing = TvMotion.EaseOut)))
         },
         label = "destination",
+        modifier = modifier,
     ) { destination ->
         holder.SaveableStateProvider(destination.name) {
             val slide = with(LocalDensity.current) { 32.dp.roundToPx() }

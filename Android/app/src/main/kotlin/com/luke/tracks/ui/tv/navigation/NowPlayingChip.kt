@@ -90,9 +90,7 @@ internal fun NowPlayingChip(
         Row(Modifier.fillMaxSize().padding(start = 8.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
                 TvArtwork(song.artworkUri, song.albumTitle ?: song.title, Modifier.size(40.dp), sizePx = 96, shape = CircleShape, showInitials = false)
-                Box(Modifier.size(40.dp).padding(0.dp)) {
-                    EqualizerBars(playing, Modifier.fillMaxSize())
-                }
+                EqualizerBars(playing, Modifier.size(40.dp))
             }
             AnimatedVisibility(
                 visible = expanded,

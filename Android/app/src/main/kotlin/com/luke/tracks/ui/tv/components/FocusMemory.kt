@@ -47,6 +47,9 @@ class TvFocusStore {
         if (claim == routeKey) claim = null
     }
 
+    /** Whether the entry is on screen with a [FocusMemory], so it can take focus itself. */
+    fun isOnScreen(routeKey: String): Boolean = routeKey in live
+
     /** Focuses the item the entry last had focused, if it is on screen. */
     fun restore(routeKey: String): Boolean = live[routeKey]?.restore() == true
 

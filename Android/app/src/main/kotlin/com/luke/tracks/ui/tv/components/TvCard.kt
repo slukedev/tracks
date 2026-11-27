@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -84,7 +86,9 @@ fun TvCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(aspectRatio)
-                .tvFocusScale(source, TvMotion.CardFocusScale),
+                .tvFocusScale(source, TvMotion.CardFocusScale)
+                // The words sit outside the focusable tile, so it carries them for TalkBack.
+                .semantics { contentDescription = listOfNotNull(title, subtitle).joinToString(", ") },
             shape = ClickableSurfaceDefaults.shape(shape),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = colors.surfaceVariant,
@@ -93,7 +97,7 @@ fun TvCard(
             ),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
             border = ClickableSurfaceDefaults.border(
-                focusedBorder = Border(BorderStroke(TvMotion.FocusBorderWidth, colors.primary), inset = 3.dp, shape = shape),
+                focusedBorder = Border(BorderStroke(TvMotion.FocusBorderWidth, colors.primary), inset = 1.5.dp, shape = shape),
             ),
             glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(colors.primary.copy(alpha = 0.45f), 12.dp)),
             interactionSource = source,
@@ -149,7 +153,7 @@ fun TvCoverCard(
         shape = shape,
         centered = circle,
     ) {
-        TvArtwork(art, seed, Modifier.fillMaxSize(), shape = shape)
+        TvArtwork(art, seed, Modifier.fillMaxSize(), shape = shape, showInitials = !circle)
     }
 }
 
@@ -176,7 +180,8 @@ object TvArtwork {
 
 /**
  * A cover decoded at [sizePx], so a wall of covers stays small in memory on low-RAM boxes,
- * over the app's stand-in, which shows the name's initials if the cover never arrives.
+ * over the app's stand-in, which shows the name's initials if the cover never arrives (only
+ * at card size and up; they don't fit a row's thumbnail).
  */
 @Composable
 fun TvArtwork(
@@ -185,7 +190,7 @@ fun TvArtwork(
     modifier: Modifier = Modifier,
     sizePx: Int = TvArtwork.CardPx,
     shape: Shape = RoundedCornerShape(12.dp),
-    showInitials: Boolean = true,
+    showInitials: Boolean = sizePx >= TvArtwork.CardPx,
 ) {
     val context = LocalContext.current
     val missing = url == null || (url is String && url.isBlank())
