@@ -301,8 +301,22 @@ See [README.md](README.md) for the legend and how to keep this current.
 - "Playing from", tappable artist, play count and a ring that fills until the song is kept.
 - Wavy seek bar that goes flat when paused.
 - Shuffle and repeat, expressive button group transport.
-- Output switcher, sleep timer with a fade, Up Next with drag to reorder and swipe to remove,
-  Share.
+- Devices, sleep timer with a fade, Up Next with drag to reorder and swipe to remove,
+  Share. Devices lists this phone, your Trackside servers' speakers and the system's own
+  outputs (Bluetooth and the rest, through Android's output switcher); without speakers the
+  button opens the output switcher as before.
+- Speakers (`speakers/`, `ui/devices/`): a tap moves the queue (your server's songs in it)
+  to a speaker, with a tick and the row connecting until the speaker answers; the phone
+  pauses once the server takes it and plays again if the speaker can't. While a speaker
+  plays, the mini player and Now Playing show and control it: play and pause, next and
+  previous, a seek bar that holds where you let go until the speaker gets there, shuffle and
+  repeat, each only where the speaker can. The big player's device area has its name,
+  volume (and the group's), mute, power and who it plays with, the same as its page in
+  Settings, Devices. Every control answers at once and the speaker's own updates settle it;
+  a command that fails, or isn't settled in time, falls back with one quiet line. Position
+  moves every frame from the last one the server said, never by asking again. This phone in
+  Devices brings the music back here when all of it is in your library, else leaves the
+  speaker playing. *(untested on a device)*
 - Mini player as a floating toolbar across the screen beside a round play button, tinted
   from the cover (or in the app's colors, from Settings, Appearance), with the song's progress filling the play button's edge: tap or swipe up
   to expand, swipe to skip, press and hold (or TalkBack's Show queue action) for the queue.
@@ -578,8 +592,11 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 ### Devices and sharing
 
 - Your Devices: see and control Tracks on another device nearby. Android's own equivalents
-  are the output switcher and Cast for speakers; device-to-device control between Android
-  phones and tablets would use Nearby Connections or NSD.
+  are the output switcher and, for speakers, your Trackside server's speakers in Devices;
+  device-to-device control between Android phones and tablets would use Nearby Connections
+  or NSD.
+- Speakers: their Up Next, and moving a queue with music services in it to this phone
+  (that needs the server's relay).
 - SharePlay has no Android equivalent. The nearest is a join-by-code flow over the same
   encrypted relay, with a web page for guests in place of the App Clip.
 - Louder at Speed (volume follows speed in the car).

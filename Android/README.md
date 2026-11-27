@@ -66,6 +66,7 @@ engine and invented sample history, into `app/build/screenshots/`. See
 | `library` | Device files, Subsonic and Trackside servers (`library/trackside`), merged. |
 | `sources` | The sources registry: each source's name and status, the source filter, the Play From order, and the player's skipped-songs messages. A kind of source beyond files and servers registers into it. |
 | `net` | The app's HTTP rules: one OkHttp setup, cleartext only nearby, certificate pins, endpoint racing, retries, credential-free media links, log redaction. |
+| `speakers` | Your Trackside servers' speakers: listed and kept current from each server's events, every control shown at once and settled by the server (`SpeakersRepository`). The screens are in `ui/devices`. |
 | `playback` | Media3 service, Android Auto browse tree, player controller, Tracks Radio. |
 | `lastfm` | Connecting, scrobbling and importing, through the engine's Last.fm client. |
 | `widget`, `system` | Glance widgets, Quick Settings tile, shortcuts, notifications. |

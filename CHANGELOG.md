@@ -220,6 +220,11 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   playing pauses for it and plays on after. Picks gather in a tray along the bottom, to take
   out or put in order, and the station opens with the first. On the Mac, Space plays the
   preview of the song you're on and Return picks it
+- On Android, Devices in Now Playing plays on your Trackside server's speakers. Tap one and
+  what you're listening to moves there; the mini player and Now Playing then show and
+  control the speaker, with its volume, power and the speakers playing with it. Each
+  speaker has its own page in Settings, Devices. Bluetooth and the phone's other outputs
+  are a tap away in the same list
 
 ### Your Music
 
