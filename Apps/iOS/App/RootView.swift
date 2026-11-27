@@ -63,17 +63,19 @@ struct RootView: View {
                 }
             }
             .tabBarMinimizeBehavior(.onScrollDown)
-            .tabViewBottomAccessory(isEnabled: player.hasQueue || model.controlledDevice != nil) {
-                // Another device's song while it's the one being controlled, as Spotify
-                // Connect shows it; otherwise this iPhone's.
-                if let device = model.controlledDevice {
+            .tabViewBottomAccessory(isEnabled: player.hasQueue || model.controlledDevice != nil || model.controlledSpeakerNow != nil) {
+                // A speaker's or another device's song while it's the one being controlled,
+                // as Spotify Connect shows it; otherwise this iPhone's.
+                if let address = model.controlledSpeaker, let speaker = model.controlledSpeakerNow {
+                    SpeakerMiniPlayer(address: address, speaker: speaker, open: openNowPlaying)
+                } else if let device = model.controlledDevice {
                     RemoteMiniPlayer(device: device)
                 } else {
                     MiniPlayer(open: openNowPlaying, onNavigate: go(to:))
                 }
             }
             .fullScreenCover(isPresented: $handoff.isPresented) {
-                NowPlayingView(onNavigate: go(to:))
+                MainPlayerView(onNavigate: go(to:))
                     // Clear, so the tabs show above the player as it's pulled down.
                     .presentationBackground(.clear)
                     .songInfoSheet(model) { route in
