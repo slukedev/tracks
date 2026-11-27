@@ -280,9 +280,6 @@ data class TracksideMe(
     val server: TracksideServerInfo,
     val features: Features? = null,
 ) {
-    /** Whether this server hands out Apple Music developer tokens. */
-    val offersAppleMusic: Boolean get() = features?.appleMusic?.developerToken == true
-
     /**
      * Whether this phone can ask the server to get songs it doesn't have. The server sends
      * `features.acquisition` only when acquisition is on with a source, the account may request
@@ -295,7 +292,6 @@ data class TracksideMe(
 
     @Serializable
     data class Features(
-        @SerialName("apple_music") val appleMusic: AppleMusic? = null,
         val acquisition: Acquisition? = null,
     )
 
@@ -304,19 +300,6 @@ data class TracksideMe(
         @SerialName("instant_play") val instantPlay: Boolean? = null,
         @SerialName("external_play") val externalPlay: Boolean? = null,
     )
-
-    @Serializable
-    data class AppleMusic(@SerialName("developer_token") val developerToken: Boolean? = null)
-}
-
-/** `GET /api/v1/me/apple-music/developer-token`. */
-@Serializable
-data class TracksideAppleMusicToken(
-    val token: String,
-    @SerialName("expires_at") val expiresAt: String? = null,
-    @SerialName("refresh_after") val refreshAfter: String? = null,
-) {
-    override fun toString() = "TracksideAppleMusicToken(expiresAt=$expiresAt)"
 }
 
 @Serializable

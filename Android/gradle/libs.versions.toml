@@ -23,8 +23,6 @@ graphicsShapes = "1.1.0"
 palette = "1.1.0"
 splashscreen = "1.2.0"
 browser = "1.10.0"
-appcompat = "1.7.1"
-gson = "2.15.0"
 robolectric = "4.18"
 roborazzi = "1.79.0"
 junit = "4.13.2"
@@ -74,8 +72,6 @@ graphics-shapes = { module = "androidx.graphics:graphics-shapes", version.ref = 
 palette = { module = "androidx.palette:palette-ktx", version.ref = "palette" }
 splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "splashscreen" }
 browser = { module = "androidx.browser:browser", version.ref = "browser" }
-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
-gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "codeScanner" }
 room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
 junit = { module = "junit:junit", version.ref = "junit" }

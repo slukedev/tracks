@@ -87,12 +87,13 @@ class SourcesPlaybackTest {
             loadedServers = MutableStateFlow(listOf("s1", "s2")),
         )
         assertEquals(listOf(SourceId.Server("s2"), SourceId.Device, SourceId.Server("s1")).map(PlayFromPlace::From), registry.arrangedPlayFrom())
-        assertEquals("server:s2\nappleMusic\ndevice\nserver:s1\nspotify", prefs.getString("playFromOrder", null))
+        assertEquals("server:s2\ndevice\nserver:s1\nspotify", prefs.getString("playFromOrder", null))
     }
 
     @Test fun theOrderKeepsWhatItDoesntShowWhereItWas() {
         val order = PlayFromOrder.parse("server:gone\nappleMusic\nspotify\ndevice")
-        val moved = order.reordered(listOf(SourceId.Device, SourceId.AppleMusic).map(PlayFromPlace::From))
+        // Apple Music is a place only on the iPhone and the Mac: kept where it was, and movable.
+        val moved = order.reordered(listOf(SourceId.Device, SourceId.parse("appleMusic")).map(PlayFromPlace::From))
         assertEquals("server:gone\ndevice\nspotify\nappleMusic", moved.raw)
         assertEquals(order, PlayFromOrder.parse(order.raw))
         assertEquals(

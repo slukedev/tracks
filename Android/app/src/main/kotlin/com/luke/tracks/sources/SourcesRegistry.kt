@@ -300,7 +300,8 @@ val AppGraph.sources: SourcesRegistry
             canAsk = !sampleData,
         )
         val servers = combined?.servers?.let { ServerSourceProvider(it.entries, scope, it.away, it.syncProgress, onRemove = it::remove) }
-        val carried = existing?.registered?.value.orEmpty().filter { it.kind == SourceKind.AppleMusic }
+        // Kinds registered at startup stay registered when the library is replaced.
+        val carried = existing?.registered?.value.orEmpty().filter { it.kind != SourceKind.Device && it.kind != SourceKind.Server }
         val loadedServers = combined?.servers?.let { library ->
             combine(library.loading, library.entries) { loading, entries -> if (loading) null else entries.map { it.server.id } }
         } ?: flowOf(emptyList())

@@ -82,7 +82,6 @@ import com.luke.tracks.library.musicPermission
 import com.luke.tracks.sources.PlayFromPlace
 import com.luke.tracks.sources.Removal
 import com.luke.tracks.sources.Source
-import com.luke.tracks.sources.SourceId
 import com.luke.tracks.sources.SourceKind
 import com.luke.tracks.ui.library.servers.rememberServerEditing
 import com.luke.tracks.ui.navigation.LocalNavigator
@@ -134,9 +133,6 @@ fun SourcesSettingsPage(adding: Boolean = false) {
         when (provider.kind) {
             SourceKind.Device -> AddOption("device", "On This Device", SourceKind.Device) { permission.launch(musicPermission) }
             SourceKind.Server -> AddOption("server", "Server", SourceKind.Server) { editing.add() }
-            SourceKind.AppleMusic -> AddOption("appleMusic", "Apple Music", SourceKind.AppleMusic, provider.addSubtitle, provider.iconRes) {
-                navigator.open(SettingsPageRoute(sourcePage(SourceId.AppleMusic)))
-            }
         }
     }.sortedBy { it.kind.ordinal }
 

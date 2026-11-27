@@ -19,6 +19,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
@@ -49,9 +50,6 @@ import com.luke.tracks.sources.SkippedSongs
 import com.luke.tracks.sources.SongCopies
 import com.luke.tracks.sources.SourceSelection
 import com.luke.tracks.sources.sources
-import com.luke.tracks.applemusic.AppleMusic
-import com.luke.tracks.applemusic.AppleMusicUris
-import com.luke.tracks.applemusic.appleMusicProblem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -121,8 +119,7 @@ class PlaybackService : MediaLibraryService() {
 
     // Copies across sources.
     private val copies = SongCopies {
-        (graph.library as? CombinedLibrary)?.let { listOf(it.device.tracks.value, it.servers.tracks.value) }.orEmpty() +
-            listOfNotNull(AppleMusic.service?.library?.value)
+        (graph.library as? CombinedLibrary)?.let { listOf(it.device.tracks.value, it.servers.tracks.value) }.orEmpty()
     }
     /** The song whose copies have been tried after failing, by identity, and the ones tried. */
     private var triedFor: String? = null
@@ -135,9 +132,6 @@ class PlaybackService : MediaLibraryService() {
 
     /** Files on the phone, and server songs signed only as each request goes out ([com.luke.tracks.net.ServerLinks]). */
     private val dataSources by lazy { DefaultDataSource.Factory(this, OkHttpDataSource.Factory(Http.media)) }
-
-    /** The above, plus Apple Music's stand-ins. */
-    private val songSources by lazy { SourceDataSource.Factory(dataSources) { AppleMusic.service?.playback } }
 
     override fun onCreate() {
         super.onCreate()
@@ -153,9 +147,9 @@ class PlaybackService : MediaLibraryService() {
             .setMediaSourceFactory(
                 // Songs still to get wait in the queue, loading, until they're got.
                 WaitingMediaSource.Factory(
-                    DefaultMediaSourceFactory(songSources)
+                    DefaultMediaSourceFactory(dataSources)
                         // A dropped connection resumes from where the song broke off, a few times over.
-                        .setLoadErrorHandlingPolicy(SourceLoadErrorPolicy(LOAD_RETRIES)),
+                        .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(LOAD_RETRIES)),
                 ),
             )
             .build()
@@ -173,8 +167,6 @@ class PlaybackService : MediaLibraryService() {
             // Said the way songs passed over are, and the next song plays.
             failed = { message -> graph.sources.reportSkipped(SkippedSongs(1, message)) },
         )
-        // Apple Music's songs play through MusicKit, following this player.
-        AppleMusic.service?.playback?.attach(exo)
 
         val open = PendingIntent.getActivity(
             this, 0,
@@ -214,7 +206,6 @@ class PlaybackService : MediaLibraryService() {
         PlaybackBridge.sleepAtMs.value = null
         session?.release()
         session = null
-        AppleMusic.service?.playback?.detach()
         exo.release()
         scope.cancel()
         super.onDestroy()
@@ -295,17 +286,12 @@ class PlaybackService : MediaLibraryService() {
         val title = player.currentMediaItem?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "that song"
         failuresInARow++
         val moveOn = player.hasNextMediaItem() && failuresInARow < player.mediaItemCount
-        val appleMusic = error.appleMusicProblem()
         val mediaId = player.currentMediaItem?.mediaId.orEmpty()
-        when {
-            // Its source can't play now (a server offline): the same quiet message as songs skipped ahead.
-            moveOn && !graph.sources.canPlay(mediaId) ->
-                graph.sources.reportSkipped(SkippedSongs(1, graph.sources.whyUnavailable(mediaId)))
-            appleMusic != null -> {
-                if (!appleMusic.accountWide || failuresInARow == 1) say(appleMusic.message)
-                AppleMusic.service?.playbackFailed(appleMusic)
-            }
-            else -> say(if (moveOn) "Couldn't play $title. Playing the next song." else "Couldn't play $title.")
+        // Its source can't play now (a server offline): the same quiet message as songs skipped ahead.
+        if (moveOn && !graph.sources.canPlay(mediaId)) {
+            graph.sources.reportSkipped(SkippedSongs(1, graph.sources.whyUnavailable(mediaId)))
+        } else {
+            say(if (moveOn) "Couldn't play $title. Playing the next song." else "Couldn't play $title.")
         }
         if (!moveOn) return
         player.seekToNextMediaItem()
@@ -492,11 +478,7 @@ class PlaybackService : MediaLibraryService() {
             durationMs = ListenCounter.knownLength(song.durationMs) ?: ListenCounter.knownLength(exo.duration),
             listenedMs = count.listenedMs,
             kind = PlayKindValue.OnDemand,
-            source = when {
-                // Kept as the engine's Apple Music source, "appleMusic" in History and Trackside Cloud.
-                AppleMusicUris.isAppleMusic(song.mediaId) -> PlaySourceValue.Streaming
-                else -> PlaySourceValue.YourMusic
-            },
+            source = PlaySourceValue.YourMusic,
             appPackage = packageName,
             appName = "Tracks",
             stationName = if (isRadio() && graph.radio.state.value.picks.containsKey(item.mediaId)) "Tracks Radio" else null,

@@ -274,15 +274,14 @@ private fun androidx.compose.foundation.layout.BoxScope.SkipMessages() {
 }
 
 /**
- * Where this song is playing from, under the seek bar: there with two or more sources, and
- * always for Apple Music. A tap offers the album. The mark and name fade as songs change.
+ * Where this song is playing from, under the seek bar: there with two or more sources. A tap offers the album. The mark and name fade as songs change.
  */
 @Composable
 private fun SourceBadge(song: PlayableSong, onGoToAlbum: (() -> Unit) -> Unit) {
     val registry = com.luke.tracks.ui.sources.rememberSources()
     val sources by com.luke.tracks.ui.sources.sourceList()
     val source = sources.firstOrNull { it.id == registry.sourceOf(song.mediaId) } ?: return
-    if (sources.size < 2 && source.kind != com.luke.tracks.sources.SourceKind.AppleMusic) return
+    if (sources.size < 2) return
     val index = com.luke.tracks.ui.play.components.rememberLibraryIndex()
     val navigator = LocalNavigator.current
     val album = index.albumIdOf(song)

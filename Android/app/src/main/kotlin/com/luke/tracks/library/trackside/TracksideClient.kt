@@ -82,9 +82,6 @@ class TracksideClient(
 
     suspend fun me(): TracksideMe = get("me", TracksideMe.serializer())
 
-    suspend fun appleMusicDeveloperToken(): TracksideAppleMusicToken =
-        get("me/apple-music/developer-token", TracksideAppleMusicToken.serializer())
-
     /**
      * The server's addresses, asked of an address that has already proven itself, or null
      * when they haven't changed since [version] (the last answer's ETag). A new address is

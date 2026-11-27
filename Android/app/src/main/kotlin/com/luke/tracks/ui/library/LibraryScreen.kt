@@ -150,13 +150,6 @@ fun LibraryScreen() {
         onPauseOrDispose { }
     }
 
-    // Apple Music's saved albums, playlists and songs come from Apple Music itself.
-    val appleMusic = com.luke.tracks.applemusic.AppleMusic.service
-    if (appleMusic != null && selection == SourceSelection.Only(SourceId.AppleMusic)) {
-        com.luke.tracks.ui.applemusic.AppleMusicLibraryScreen(appleMusic, onBack = { registry.select(SourceSelection.All) })
-        return
-    }
-
     LibraryContent(
         snapshot = snapshot,
         index = { library?.index?.value ?: (graph.library.index.value) },
