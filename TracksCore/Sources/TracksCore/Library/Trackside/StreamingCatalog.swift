@@ -25,6 +25,14 @@ public struct CatalogServiceAddress: Hashable, Sendable, Identifiable {
     }
 }
 
+/// A service that can be searched now, and where it is.
+public struct SearchableService: Identifiable, Sendable, Hashable {
+    public let address: CatalogServiceAddress
+    public let service: TracksideCatalogService
+
+    public var id: String { address.id }
+}
+
 /// Why the services' results aren't there, in words to show calmly in their place.
 public enum CatalogUnavailable: Error, Sendable, Equatable {
     /// The server can't reach its services right now.
@@ -169,9 +177,9 @@ public final class StreamingCatalog {
     }
 
     /// Every service that can be searched now, server by server, in each server's order.
-    public var searchable: [(address: CatalogServiceAddress, service: TracksideCatalogService)] {
+    public var searchable: [SearchableService] {
         serverIDs.flatMap { serverID in
-            (services[serverID] ?? []).filter(\.isSearchable).map { (address: CatalogServiceAddress(serverID: serverID, serviceID: $0.id), service: $0) }
+            (services[serverID] ?? []).filter(\.isSearchable).map { SearchableService(address: CatalogServiceAddress(serverID: serverID, serviceID: $0.id), service: $0) }
         }
     }
 

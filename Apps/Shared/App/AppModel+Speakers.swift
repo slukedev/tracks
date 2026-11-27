@@ -24,6 +24,8 @@ extension AppModel {
     /// - Returns: whether the server took it.
     @discardableResult
     func sendMusic(to address: SpeakerAddress) async -> Bool {
+        // The relay's queue moves as the server keeps it, services' tracks and all.
+        if let moved = await moveRelay(to: address) { return moved }
         guard let current = player.current else { return false }
         let tracks = [current] + player.upNext
         let items = tracks.map { Self.speakerItem(for: $0, on: address.serverID) }
@@ -68,11 +70,12 @@ extension AppModel {
     /// songs in your server's library come: they play from the server as any of its songs do.
     /// - Returns: whether it could.
     func playHere(from address: SpeakerAddress) async -> Bool {
-        guard let speaker = speakers.speaker(address), let playing = speaker.nowPlaying,
-              let catalog = yourMusic.servers.catalogs[address.serverID], !catalog.isEmpty
-        else { return false }
+        guard let speaker = speakers.speaker(address), let playing = speaker.nowPlaying else { return false }
         var queue: TracksideSpeakerQueue?
         if speaker.can(.queue) { queue = try? await speakers.queue(of: address) }
+        // A queue with a service's track in it comes here through the relay, as it is.
+        if let moved = await moveToRelay(from: address, queue: queue) { return moved }
+        guard let catalog = yourMusic.servers.catalogs[address.serverID], !catalog.isEmpty else { return false }
         let wanted = [playing.songID] + (queue?.upNext.map(\.songID) ?? [])
         let tracks = await Self.libraryTracks(wanted, in: catalog, serverID: address.serverID)
         guard let first = tracks.first, first.0 == 0 else { return false }

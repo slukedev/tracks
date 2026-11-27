@@ -283,6 +283,10 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
             return try keepPlayable(found, start: start)
         case .album, .playlist, .station, .demoStation:
             throw PlayerProblem.needsAppleMusic
+        case .relay(let queue):
+            // Only its library songs: the relay plays the rest.
+            let found = queue.entries.enumerated().compactMap { offset, entry in entry.local.map { (offset, $0) } }
+            return try keepPlayable(found, start: queue.start)
         }
     }
 
@@ -1088,7 +1092,7 @@ final class LocalPlayerEngine: NSObject, PlayerEngine {
 
 /// Answers the player's trust challenges for a Trackside server's self-signed address by its
 /// pinned fingerprint, as the server's own requests are; any other certificate there is refused.
-private final class PinnedMediaLoader: NSObject, AVAssetResourceLoaderDelegate, Sendable {
+final class PinnedMediaLoader: NSObject, AVAssetResourceLoaderDelegate, Sendable {
     static let queue = DispatchQueue(label: "com.luke.tracks.pinned-media")
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForResponseTo authenticationChallenge: URLAuthenticationChallenge) -> Bool {

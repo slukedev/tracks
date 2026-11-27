@@ -414,6 +414,24 @@ public final class SpeakersStore {
         }
     }
 
+    /// Moves what this device's relay plays to a speaker, where it's got to, as the server
+    /// keeps it: the relay's queue, with its music services' tracks. The row says it's
+    /// connecting at once.
+    /// - Parameter relayID: the relay's own speaker, on the same server.
+    /// - Returns: whether the server took it: the relay stops then.
+    @discardableResult
+    public func move(from relayID: String, showing nowPlaying: TracksideSpeaker.NowPlaying?, at position: TimeInterval, to address: SpeakerAddress) async -> Bool {
+        guard let service = services[address.serverID], let speaker = speaker(address) else { return false }
+        let token = UUID()
+        let expected = speaker.expecting(playing: nowPlaying, from: position, at: serverNow(address.serverID))
+        boards[address.serverID]?.expect(.transport, on: speaker.id, expected: expected, purpose: .cast, token: token, deadline: deadline(Self.castPatience))
+        scheduleDeadline()
+        let key = UUID().uuidString
+        return await sendNow(token, on: address, patience: Self.castPatience) { _ in
+            try await service.transfer(from: relayID, to: speaker.id, keepPlayingHere: false, key: key)
+        }
+    }
+
     // MARK: - Sending
 
     private func send(_ token: UUID, on address: SpeakerAddress, _ command: @escaping @Sendable (String?) async throws -> TracksideSpeakerCommand) {

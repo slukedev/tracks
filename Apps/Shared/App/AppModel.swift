@@ -109,6 +109,19 @@ final class AppModel {
     @ObservationIgnored private var yourMusicEngine: (any PlayerEngine)?
     @ObservationIgnored private var hasPreparedYourMusic = false
     @ObservationIgnored private var mixedEngineStorage: MixedQueueEngine?
+    @ObservationIgnored private var relayEngineStorage: RelayPlayerEngine?
+
+    /// The player for queues with a music service's tracks in them, through a server's relay,
+    /// made when one is first played.
+    var relayEngine: RelayPlayerEngine {
+        if let relayEngineStorage { return relayEngineStorage }
+        let engine = RelayPlayerEngine(music: yourMusic, capture: .yourMusic)
+        relayEngineStorage = engine
+        return engine
+    }
+
+    /// The relay, where one has been made: for following it without making one.
+    var relayIfMade: RelayPlayerEngine? { relayEngineStorage }
 
     /// The queue across sources, made when a queue first mixes them. See `MixedQueue.swift`.
     var mixedEngine: MixedQueueEngine {
@@ -228,7 +241,21 @@ final class AppModel {
         player.makeAutoplay = AutoplaySource.make(library: library, yourMusic: yourMusic, player: player)
         if !isDemoLaunch {
             player.routeEngine = { [weak self] request, choosingCopy in
-                self?.routedSource(for: request, choosingCopy: choosingCopy).map { self?.engine(for: $0) } ?? nil
+                guard let self else { return nil }
+                // A queue with a service's tracks plays through the relay, all of it.
+                if case .relay = request { return self.relayEngine }
+                // Songs added to the relay's queue join it there.
+                if !choosingCopy, let relay = self.relayEngineStorage, self.player.playsThroughRelay, relay.takes(request) { return relay }
+                return self.routedSource(for: request, choosingCopy: choosingCopy).map { self.engine(for: $0) }
+            }
+            player.carryIntoRelay = { [weak self] request, next in
+                await self?.carryIntoRelay(request, next: next) ?? false
+            }
+            yourMusic.servers.onEvent = { [weak self] event, serverID in
+                self?.relayEngineStorage?.handle(event, from: serverID)
+            }
+            yourMusic.servers.onLost = { [weak self] serverID in
+                self?.relayEngineStorage?.serverLost(serverID)
             }
             player.mixing = { [weak self] request in self?.mixedEngineIfNeeded(for: request) }
             player.requestSources = { [weak self] request in self?.sources(of: request) ?? [] }
@@ -697,7 +724,8 @@ final class AppModel {
             return .yourMusic
         case .album, .playlist, .station:
             return musicAuthorization == .authorized ? .appleMusic : nil
-        case .demoStation:
+        case .demoStation, .relay:
+            // The relay's queue has its own player, which the router picks before this.
             return nil
         case .songs(let songs, let start):
             guard choosingCopy, effectiveSourceSelection == .all, let song = songs.indices.contains(start) ? songs[start] : songs.first else { return nil }

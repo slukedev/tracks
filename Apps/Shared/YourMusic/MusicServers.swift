@@ -68,6 +68,9 @@ final class MusicServers {
     private(set) var songRequests: [String: SongRequestBoard] = [:]
     /// The speakers on each Trackside server that has them, for Devices and the player.
     let speakers = SpeakersStore()
+    /// The music services on each Trackside server that has them, for search, their pages
+    /// and playing through the server's relay.
+    let streaming = StreamingCatalog()
     /// TVs you approved with a code that have since collected their key, as each server said
     /// (`device_linked`), so the approval can say the TV is connected.
     private(set) var linkedDevices: [LinkedDevice] = []
@@ -95,6 +98,11 @@ final class MusicServers {
     @ObservationIgnored var onKeptArrived: (([LocalTrack]) -> Void)?
     /// Called with a server's id once it's removed.
     @ObservationIgnored var onRemoved: ((String) -> Void)?
+    /// Every event of every Trackside server, for this device's relay, which follows its own.
+    @ObservationIgnored var onEvent: ((TracksideEvent, String) -> Void)?
+    /// Called with a server's id once this device can't use it any more: removed, paired
+    /// again or its key refused. Its relay, if it had one, is over.
+    @ObservationIgnored var onLost: ((String) -> Void)?
     /// What Trackside Cloud syncs beyond the history: the playlists. Set by the app.
     @ObservationIgnored var cloudStores: () -> [any CloudEntityStore] = { [] }
     /// One sync at a time for each server, tied to the server as it was when it started.
@@ -216,6 +224,8 @@ final class MusicServers {
             stopWatchingKeeps(server.id)
             trackside[server.id]?.stopEvents()
             speakers.detach(serverID: server.id)
+            streaming.detach(serverID: server.id)
+            onLost?(server.id)
             if cloudSync?.serverID == server.id {
                 // Its client is the old connection's; the next connect starts it again.
                 cloudSync?.stop()
@@ -239,6 +249,8 @@ final class MusicServers {
                 speakers.setReachable(true, serverID: id)
             case .wrongPassword:
                 speakers.detach(serverID: id)
+                streaming.detach(serverID: id)
+                onLost?(id)
             case .connecting:
                 break
             }
@@ -445,6 +457,8 @@ final class MusicServers {
     private func forgetTrackside(_ server: SubsonicServer) {
         trackside.removeValue(forKey: server.id)?.stopEvents()
         speakers.detach(serverID: server.id)
+        streaming.detach(serverID: server.id)
+        onLost?(server.id)
         ServerMediaSigning.shared.remove(server.id)
         TracksideMediaTrust.shared.release(server.id)
         songRequests[server.id] = nil
@@ -580,6 +594,7 @@ final class MusicServers {
             await refreshAddresses(serverID)
             updateRequests(serverID, features: me.features)
             updateSpeakers(serverID, connection, me: me)
+            updateStreaming(serverID, connection, me: me)
             await renewMediaTokenIfDue(serverID, connection)
             guard isCurrent() else { return }
             status[serverID] = .online
@@ -603,6 +618,17 @@ final class MusicServers {
         }
         let name = server(serverID)?.name ?? me.server.name ?? String(localized: "Your Server")
         speakers.attach(serverID: serverID, name: name, service: connection.client, canControl: features.control == true)
+    }
+
+    /// Offers a Trackside server's music services while `/me` says this user has them. An
+    /// older server, or one without them set up, never says so, and nothing shows.
+    private func updateStreaming(_ serverID: String, _ connection: TracksideConnection, me: TracksideMe) {
+        guard !isDemo, let features = me.features?.catalog else {
+            streaming.detach(serverID: serverID)
+            return
+        }
+        let name = server(serverID)?.name ?? me.server.name ?? String(localized: "Your Server")
+        streaming.attach(serverID: serverID, name: name, service: connection.client, features: features)
     }
 
     /// Asks a Trackside server for its addresses, unless they're the ones last read: a new
@@ -823,6 +849,8 @@ final class MusicServers {
 
     private func handle(_ event: TracksideEvent, from serverID: String) {
         speakers.handle(event, from: serverID)
+        streaming.handle(event, from: serverID)
+        onEvent?(event, serverID)
         switch event {
         case .hello:
             // A reconnect: catch up on everything that may have changed meanwhile.
@@ -840,7 +868,7 @@ final class MusicServers {
             if acquisition.state == .done { syncSoon(serverID) }
         case .deviceLinked(let device):
             linkedDevices = Array((linkedDevices + [LinkedDevice(serverID: serverID, device: device)]).suffix(8))
-        case .revoked, .library, .other, .speakerChanged, .speakerRemoved, .speakerProgress, .speakerQueue, .speakerCommand, .speakers:
+        case .revoked, .library, .other, .speakerChanged, .speakerRemoved, .speakerProgress, .speakerQueue, .speakerCommand, .speakers, .relay, .catalogServices:
             break
         }
     }
@@ -890,6 +918,7 @@ final class MusicServers {
                 startEvents(serverID)
                 syncSoon(serverID)
                 speakers.refresh(serverID)
+                streaming.refresh(serverID)
                 if cloudSync?.serverID == serverID { cloudSync?.syncSoon() }
                 Task {
                     await refreshAddresses(serverID)

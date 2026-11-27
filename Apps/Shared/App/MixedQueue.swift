@@ -42,7 +42,7 @@ extension AppModel {
             }, start: start)
         case .history(let songs, let start):
             return aligned(songs.enumerated().map { (offset: $0.offset, item: item(for: $0.element, catalog: nil)) }, start: start)
-        case .album, .playlist, .station, .demoStation:
+        case .album, .playlist, .station, .demoStation, .relay:
             return nil
         }
     }

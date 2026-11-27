@@ -413,7 +413,7 @@ final class MusicKitPlayerEngine: PlayerEngine {
                 queued = Self.allowed(tracks.songs, allowsExplicit: false)
                 queue = try await Self.queue(of: queued, startingAt: nil, shuffled: shuffled)
             }
-        case .demoStation, .local:
+        case .demoStation, .local, .relay:
             throw PlayerProblem.nothingToPlay
         }
 
@@ -602,7 +602,7 @@ final class MusicKitPlayerEngine: PlayerEngine {
                 try await insert([playlist], next: next)
                 return
             }
-        case .station, .demoStation, .local:
+        case .station, .demoStation, .local, .relay:
             // A station replaces the queue; there's nothing to add it after.
             throw PlayerProblem.nothingToPlay
         }
