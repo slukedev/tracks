@@ -332,6 +332,15 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
 - Faster with years of history: pages open and scroll quicker, the first song starts
   sooner, and History's rows no longer shift as they load
 
+### For Developers
+
+- Spotify through librespot is gone: the engine's `tracks-spotify` crate,
+  `Engine/build-apple.sh --spotify`, the `SPOTIFY` build flag and Android's sideload variant.
+  Spotify will come back through Trackside, and plays from Spotify stay in your history
+- On Android, Apple Music through MusicKit for Android is gone, with its optional AARs and
+  developer token. It will come back through Trackside too, and plays from Apple Music stay
+- `Engine/build-android.sh` builds one engine, into `Android/app/engine-bindings/`
+
 ## Motif 1.0
 
 Motif remembers everything you listen to in Apple Music, including the songs Apple Music
