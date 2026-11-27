@@ -219,6 +219,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 - The menu bar shows what your other devices are playing, with their controls.
 - Controls › Play On lists this Mac and every device nearby; HomePods and AirPlay speakers
   from Music, with grouping and volume.
+- Your Trackside server's speakers join Play On and Controls › Play On; the full player and
+  the bar show and control the one with the music, with its volume, power and grouping.
 - Handoff of the song playing, in the Dock.
 - Play on Another Device and Bring Music Here intents.
 

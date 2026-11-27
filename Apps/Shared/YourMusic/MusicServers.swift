@@ -66,6 +66,8 @@ final class MusicServers {
     /// For each Trackside server that offers it, the songs search found for it to get and how
     /// each one asked for is going. Absent for every other server.
     private(set) var songRequests: [String: SongRequestBoard] = [:]
+    /// The speakers on each Trackside server that has them, for Devices and the player.
+    let speakers = SpeakersStore()
 
     @ObservationIgnored private var subsonic: [String: SubsonicClient] = [:]
     @ObservationIgnored private var trackside: [String: TracksideConnection] = [:]
@@ -200,6 +202,7 @@ final class MusicServers {
             subsonicOutboxes[server.id] = nil
             stopWatchingKeeps(server.id)
             trackside[server.id]?.stopEvents()
+            speakers.detach(serverID: server.id)
             if cloudSync?.serverID == server.id {
                 // Its client is the old connection's; the next connect starts it again.
                 cloudSync?.stop()
@@ -217,9 +220,13 @@ final class MusicServers {
             switch now {
             case .offline, .failed:
                 if offlineSince[id] == nil { offlineSince[id] = .now }
+                speakers.setReachable(false, serverID: id)
             case .online:
                 offlineSince[id] = nil
-            case .connecting, .wrongPassword:
+                speakers.setReachable(true, serverID: id)
+            case .wrongPassword:
+                speakers.detach(serverID: id)
+            case .connecting:
                 break
             }
         }
@@ -424,6 +431,7 @@ final class MusicServers {
     /// sync got to, its media token and any plays still to send.
     private func forgetTrackside(_ server: SubsonicServer) {
         trackside.removeValue(forKey: server.id)?.stopEvents()
+        speakers.detach(serverID: server.id)
         ServerMediaSigning.shared.remove(server.id)
         TracksideMediaTrust.shared.release(server.id)
         songRequests[server.id] = nil
@@ -558,6 +566,7 @@ final class MusicServers {
             }
             await refreshAddresses(serverID)
             updateRequests(serverID, features: me.features)
+            updateSpeakers(serverID, connection, me: me)
             await renewMediaTokenIfDue(serverID, connection)
             guard isCurrent() else { return }
             status[serverID] = .online
@@ -570,6 +579,17 @@ final class MusicServers {
             status[serverID] = Self.status(after: error)
         }
         onStatusChange?()
+    }
+
+    /// Shows a Trackside server's speakers while `/me` says this user has them. A server from
+    /// before speakers, or one without them set up, never has the feature, so nothing shows.
+    private func updateSpeakers(_ serverID: String, _ connection: TracksideConnection, me: TracksideMe) {
+        guard !isDemo, let features = me.features?.speakers else {
+            speakers.detach(serverID: serverID)
+            return
+        }
+        let name = server(serverID)?.name ?? me.server.name ?? String(localized: "Your Server")
+        speakers.attach(serverID: serverID, name: name, service: connection.client, canControl: features.control == true)
     }
 
     /// Asks a Trackside server for its addresses, unless they're the ones last read: a new
@@ -789,6 +809,7 @@ final class MusicServers {
     }
 
     private func handle(_ event: TracksideEvent, from serverID: String) {
+        speakers.handle(event, from: serverID)
         switch event {
         case .hello:
             // A reconnect: catch up on everything that may have changed meanwhile.
@@ -804,7 +825,7 @@ final class MusicServers {
         case .acquisition(let acquisition):
             songRequests[serverID]?.update(acquisition)
             if acquisition.state == .done { syncSoon(serverID) }
-        case .revoked, .library, .other:
+        case .revoked, .library, .other, .speakerChanged, .speakerRemoved, .speakerProgress, .speakerQueue, .speakerCommand, .speakers:
             break
         }
     }
@@ -853,6 +874,7 @@ final class MusicServers {
                 guard status[serverID] == .online else { continue }
                 startEvents(serverID)
                 syncSoon(serverID)
+                speakers.refresh(serverID)
                 if cloudSync?.serverID == serverID { cloudSync?.syncSoon() }
                 Task {
                     await refreshAddresses(serverID)

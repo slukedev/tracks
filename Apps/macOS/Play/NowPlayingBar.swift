@@ -88,7 +88,8 @@ private struct NowPlayingBarPlacement: ViewModifier {
         // on it rest until it's in front again.
         let isInFront = window.pages.last.map { $0 == page } ?? true
         let remote = model.controlledDevice
-        let isPresented = player.hasQueue || remote != nil
+        let speaker = model.controlledSpeakerNow
+        let isPresented = player.hasQueue || remote != nil || speaker != nil
         let showsPanel = $window.showsPanel
         let panelPage = $window.panelPage
         // A bar of the page's safe area, so pages end above it and the scroll edge effect
@@ -96,7 +97,9 @@ private struct NowPlayingBarPlacement: ViewModifier {
         return content
             .safeAreaBar(edge: .bottom) {
                 Group {
-                    if let remote {
+                    if let address = model.controlledSpeaker, let speaker {
+                        SpeakerNowPlayingBar(address: address, speaker: speaker)
+                    } else if let remote {
                         // Another device's song, controlled from here, as Spotify Connect does.
                         RemoteNowPlayingBar(device: remote)
                     } else if player.hasQueue {
@@ -109,6 +112,7 @@ private struct NowPlayingBarPlacement: ViewModifier {
             }
             .animation(reduceMotion ? nil : PlayMotion.panel, value: isPresented)
             .animation(reduceMotion ? nil : PlayMotion.panel, value: remote?.id)
+            .animation(reduceMotion ? nil : PlayMotion.panel, value: speaker == nil ? nil : model.controlledSpeaker)
             .environment(\.isOnScreen, isOnScreen && isInFront)
             .onAppear { window.pageAppeared(page) }
             .onDisappear { window.pageDisappeared(page) }
@@ -186,6 +190,95 @@ private struct RemoteNowPlayingBar: View {
                 }
                 .buttonStyle(BarIconButtonStyle(diameter: 30))
                 .help("Show This Mac's Player")
+            }
+            .frame(minWidth: 170, idealWidth: 230, maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: NowPlayingBar.height)
+        .frame(maxWidth: NowPlayingBar.maxWidth)
+        .glassEffect(.regular.tint(.accentColor.opacity(0.12)), in: .capsule)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// The bar while it's showing a speaker's song: the same player, its controls sent there,
+/// the speaker named in the accent, its volume, and the way to bring it here or give the bar
+/// back to this Mac.
+private struct SpeakerNowPlayingBar: View {
+    let address: SpeakerAddress
+    let speaker: TracksideSpeaker
+    @Environment(AppModel.self) private var model
+    @Environment(PlayerModel.self) private var player
+    @Environment(\.openFullPlayer) private var openFullPlayer
+    @State private var isMoving = false
+
+    var body: some View {
+        let track = model.speakerTrack(speaker, on: address.serverID)
+        let isUnreachable = !speaker.isReachable || model.speakers.board(address.serverID)?.isServerReachable == false
+        HStack(spacing: 0) {
+            BarSong(
+                track: track,
+                coverSize: 44,
+                action: { openFullPlayer() },
+                accessibilityLabel: Text("\(track.title), \(track.artistName), playing on \(speaker.name)")
+            ) {
+                Label {
+                    isUnreachable ? Text("Can't Reach \(speaker.name)") : Text("Playing on \(speaker.name)")
+                } icon: {
+                    Image(systemName: isUnreachable ? "exclamationmark.triangle.fill" : speaker.symbol)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(isUnreachable ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+                .lineLimit(1)
+            }
+            .frame(minWidth: 170, idealWidth: 230, maxWidth: .infinity, alignment: .leading)
+            .contextMenu {
+                NowPlayingMenuItems(track: track)
+            }
+
+            VStack(spacing: 3) {
+                if model.speakers.isConnecting(address) {
+                    ProgressView().controlSize(.small)
+                } else {
+                    SpeakerTransport(address: address, speaker: speaker)
+                }
+                SpeakerScrubber(address: address, speaker: speaker, showsTimes: false)
+                    .frame(width: 220, height: 8)
+            }
+
+            HStack(spacing: 2) {
+                SpeakerVolumeSlider(address: address, speaker: speaker, showsMute: false)
+                    .controlSize(.mini)
+                    .frame(width: 110)
+                    .padding(.trailing, 6)
+                Button {
+                    Task {
+                        isMoving = true
+                        let moved = await model.playHere(from: address)
+                        isMoving = false
+                        if !moved { player.confirm(String(localized: "Couldn't Find This Song Here")) }
+                    }
+                } label: {
+                    if isMoving {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Play on This Mac", systemImage: "laptopcomputer")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+                .buttonStyle(BarIconButtonStyle(diameter: 30))
+                .disabled(isMoving)
+                .help("Play on This Mac, from where it's got to")
+                if player.hasQueue {
+                    Button {
+                        model.control(nil)
+                    } label: {
+                        Label("Stop Controlling \(speaker.name)", systemImage: "xmark")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(BarIconButtonStyle(diameter: 30))
+                    .help("Show This Mac's Player")
+                }
             }
             .frame(minWidth: 170, idealWidth: 230, maxWidth: .infinity, alignment: .trailing)
         }

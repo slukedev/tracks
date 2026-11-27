@@ -117,6 +117,16 @@ public enum TracksideEvent: Sendable, Equatable {
     case serverURLs(etag: String?)
     /// Something synced through Trackside Cloud changed, such as `plays`: time to pull it.
     case cloud(entity: String?)
+    /// A speaker became visible, or changed in anything but its position.
+    case speakerChanged(TracksideSpeaker)
+    case speakerRemoved(id: String)
+    case speakerProgress(TracksideSpeakerProgress)
+    /// A speaker's Up Next changed: read it again if it's on show.
+    case speakerQueue(id: String, revision: Int64?)
+    /// How a command this device sent went.
+    case speakerCommand(TracksideSpeakerCommandOutcome)
+    /// Whether the server can reach its speakers. Back to `ok`: read them all again.
+    case speakers(TracksideSpeakersState)
     /// One this build doesn't know, or doesn't need.
     case other(String)
 
@@ -144,6 +154,24 @@ public enum TracksideEvent: Sendable, Equatable {
             self = .serverURLs(etag: (try? decoder.decode(TracksideServerURLsEvent.self, from: data))?.etag)
         case "cloud":
             self = .cloud(entity: (try? decoder.decode(CloudChange.self, from: data))?.entity)
+        case "speaker_added", "speaker_updated":
+            guard let speaker = try? decoder.decode(TracksideSpeaker.self, from: data) else { self = .other(event.event); return }
+            self = .speakerChanged(speaker)
+        case "speaker_removed":
+            guard let removed = try? decoder.decode(SpeakerReference.self, from: data) else { self = .other(event.event); return }
+            self = .speakerRemoved(id: removed.id.lowercased())
+        case "speaker_progress":
+            guard let progress = try? decoder.decode(TracksideSpeakerProgress.self, from: data) else { self = .other(event.event); return }
+            self = .speakerProgress(progress)
+        case "speaker_queue":
+            guard let queue = try? decoder.decode(SpeakerReference.self, from: data) else { self = .other(event.event); return }
+            self = .speakerQueue(id: queue.id.lowercased(), revision: queue.revision)
+        case "speaker_command":
+            guard let outcome = try? decoder.decode(TracksideSpeakerCommandOutcome.self, from: data) else { self = .other(event.event); return }
+            self = .speakerCommand(outcome)
+        case "speakers":
+            guard let state = try? decoder.decode(TracksideSpeakersState.self, from: data) else { self = .other(event.event); return }
+            self = .speakers(state)
         default:
             self = .other(event.event)
         }
@@ -157,6 +185,11 @@ public enum TracksideEvent: Sendable, Equatable {
             case seq
             case serverID = "server_id"
         }
+    }
+
+    private struct SpeakerReference: Decodable {
+        let id: String
+        let revision: Int64?
     }
 
     private struct CloudChange: Decodable {

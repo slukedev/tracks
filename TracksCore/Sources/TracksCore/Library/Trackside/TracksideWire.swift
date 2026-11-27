@@ -383,6 +383,46 @@ public struct TracksideMe: Codable, Sendable, Hashable {
     public struct Features: Codable, Sendable, Hashable {
         /// Present only when this user can ask the server to get songs it doesn't have.
         public var acquisition: Acquisition?
+        /// Present when this user and key may see the server's speakers.
+        public var speakers: Speakers?
+        /// Present when this user may play from the server's music services.
+        public var catalog: Catalog?
+
+        public init(acquisition: Acquisition? = nil, speakers: Speakers? = nil, catalog: Catalog? = nil) {
+            self.acquisition = acquisition
+            self.speakers = speakers
+            self.catalog = catalog
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case acquisition, speakers, catalog
+        }
+
+        /// One feature in a shape this build doesn't expect never hides the others.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            acquisition = try? container.decodeIfPresent(Acquisition.self, forKey: .acquisition)
+            speakers = try? container.decodeIfPresent(Speakers.self, forKey: .speakers)
+            catalog = try? container.decodeIfPresent(Catalog.self, forKey: .catalog)
+        }
+    }
+
+    public struct Speakers: Codable, Sendable, Hashable {
+        /// The key may control them too, not just see them.
+        public var control: Bool?
+
+        public init(control: Bool? = nil) {
+            self.control = control
+        }
+    }
+
+    public struct Catalog: Codable, Sendable, Hashable {
+        /// This device can play the services itself, through the server.
+        public var relay: Bool?
+
+        public init(relay: Bool? = nil) {
+            self.relay = relay
+        }
     }
 
     public struct Acquisition: Codable, Sendable, Hashable {
