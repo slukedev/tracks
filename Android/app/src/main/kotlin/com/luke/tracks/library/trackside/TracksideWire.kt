@@ -373,6 +373,15 @@ data class TracksideMe(
     /** Whether this key may also control them (it has the `write` scope). */
     val controlsSpeakers: Boolean get() = features?.speakers?.control == true
 
+    /** Whether this account and key may search and browse the server's streaming services. */
+    val offersCatalog: Boolean get() = features?.catalog != null
+
+    /** Whether this phone may play them here, through the server's relay. */
+    val offersRelay: Boolean get() = features?.catalog?.relay == true
+
+    /** Whether the relay can send the cellular tier (it has an encoder). */
+    val offersRelayCellular: Boolean get() = offersRelay && features?.catalog?.relayCellular == true
+
     @Serializable
     data class Features(
         val acquisition: Acquisition? = null,
@@ -384,7 +393,10 @@ data class TracksideMe(
     data class Speakers(val control: Boolean? = null)
 
     @Serializable
-    data class Catalog(val relay: Boolean? = null)
+    data class Catalog(
+        val relay: Boolean? = null,
+        @SerialName("relay_cellular") val relayCellular: Boolean? = null,
+    )
 
     @Serializable
     data class Acquisition(
@@ -429,6 +441,8 @@ data class TracksideSearchResults(
     val artists: Section<TracksideArtist>? = null,
     /** With `types=external`, where the server gets songs: ones it could get, never in the library. */
     val external: TracksideAcquisitionSearch? = null,
+    /** With `types=catalog`, the streaming services' answer, kept apart from the library's. */
+    val catalog: TracksideCatalogSearch? = null,
 ) {
     @Serializable
     data class Section<T>(val items: List<T> = emptyList(), @SerialName("next_cursor") val nextCursor: String? = null)
@@ -664,6 +678,10 @@ internal data class TracksideErrorEnvelope(val error: Body) {
         /** With `unsupported`: the capability the speaker lacks, and which speaker when it isn't the one asked. */
         val capability: String? = null,
         @SerialName("speaker_id") val speakerId: String? = null,
+        /** With `service_signed_out`: the service whose account needs signing in again. */
+        @SerialName("service_id") val serviceId: String? = null,
+        /** With `relay_limit`: how many sessions are allowed. */
+        val limit: Int? = null,
         /** With `https_required`: the server's https addresses, to try before any it listed earlier. */
         @SerialName("https_urls") val httpsUrls: List<TracksideServerUrl>? = null,
         /** With `slow_down`: the interval to poll at from now on. */
