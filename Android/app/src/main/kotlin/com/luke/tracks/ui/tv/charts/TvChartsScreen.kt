@@ -105,7 +105,7 @@ fun TvChartsContent(charts: List<ChartsData>?, period: PeriodKind, onPeriod: (Pe
     Column(Modifier.fillMaxSize().padding(top = TvLayout.SafeTop)) {
         TvPeriodRow(
             period, onPeriod, canGoBack = first.canGoBack, canGoForward = first.offset > 0, onBack = onBack, onForward = onForward,
-            label = Format.periodTitle(first.period, first.offset).takeIf { period != PeriodKind.AllTime }, memory = memory,
+            label = Format.periodLabel(first.period).takeIf { period != PeriodKind.AllTime }, memory = memory,
             modifier = Modifier.padding(top = 4.dp),
         )
         if (charts.all { it.entries.isEmpty() }) {

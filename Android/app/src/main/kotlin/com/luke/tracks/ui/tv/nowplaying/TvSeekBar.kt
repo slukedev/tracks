@@ -24,6 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -107,6 +109,8 @@ fun TvSeekBar(
     ticking: Boolean,
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    /** Where Down goes: the bar is as wide as the controls below, so the nearest isn't the one meant. */
+    down: FocusRequester? = null,
 ) {
     val length = ListenCounter.knownLength(lengthMs)
     val live = rememberSmoothPosition(position, playing, ticking)
@@ -162,6 +166,7 @@ fun TvSeekBar(
                         setProgress { fraction -> seek((fraction * length).toLong()); true }
                     }
                 }
+                .focusProperties { down?.let { this.down = it } }
                 .focusable(enabled = length != null)
                 .drawBehind {
                     val total = length ?: 0L

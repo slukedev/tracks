@@ -278,6 +278,7 @@ private fun Player(
                 ticking = !idle.asleep,
                 onSeek = player::seekTo,
                 modifier = Modifier.rememberFocus(memory, SeekKey),
+                down = memory.requester(PlayKey),
             )
             Spacer(Modifier.height(20.dp))
             Transport(state, player, memory)

@@ -86,6 +86,8 @@ import com.luke.tracks.ui.tv.components.rememberFocus
 import com.luke.tracks.ui.tv.components.rememberFocusMemory
 import com.luke.tracks.ui.tv.detail.TvNote
 import com.luke.tracks.ui.tv.detail.TvPulse
+import com.luke.tracks.ui.tv.detail.TvRowScroll
+import com.luke.tracks.ui.tv.detail.TvShelfScroll
 import com.luke.tracks.ui.tv.navigation.LocalTvNavigator
 import com.luke.tracks.ui.tv.theme.TvLayout
 import androidx.compose.material3.MaterialTheme as M3Theme
@@ -166,7 +168,7 @@ fun TvSummaryContent(data: SummaryData?, kind: PeriodKind, onKind: (PeriodKind) 
     }
     val d = data!!
     memory.ClaimFocus(memory.requester("period:${kind.name}"))
-    LazyColumn(
+    TvShelfScroll { LazyColumn(
         state = rememberLazyListState(),
         modifier = Modifier.fillMaxSize().focusRestorer(),
         contentPadding = PaddingValues(top = TvLayout.SafeTop, bottom = TvLayout.SafeBottom + 16.dp),
@@ -185,28 +187,28 @@ fun TvSummaryContent(data: SummaryData?, kind: PeriodKind, onKind: (PeriodKind) 
         }
         val songs = d.songs.rows
         if (songs.isNotEmpty()) item(key = "songs") {
-            TvShelf("Top Songs", songs, key = { "song:${it.song.identity}" }, focusMemory = memory) { row ->
+            TvRowScroll { TvShelf("Top Songs", songs, key = { "song:${it.song.identity}" }, focusMemory = memory) { row ->
                 val s = row.song
                 TvCoverCard(s.artworkUrl, (s.albumTitle ?: s.title) + s.artistName, s.title, onClick = { navigator.open(SongRoute(s.identity, s.title, s.artistName)) }, subtitle = s.artistName)
-            }
+            } }
         }
         if (d.artists.rows.isNotEmpty()) item(key = "artists") {
-            TvShelf("Top Artists", d.artists.rows, key = { "artist:${it.artist.identity}" }, focusMemory = memory) { row ->
+            TvRowScroll { TvShelf("Top Artists", d.artists.rows, key = { "artist:${it.artist.identity}" }, focusMemory = memory) { row ->
                 val a = row.artist
                 TvCoverCard(a.artworkUrl, a.name, a.name, onClick = { navigator.open(ArtistRoute(a.identity, a.name)) }, subtitle = Format.plays(a.plays.toLong()), width = 156.dp, circle = true)
-            }
+            } }
         }
         if (d.albums.rows.isNotEmpty()) item(key = "albums") {
-            TvShelf("Top Albums", d.albums.rows, key = { "album:${it.album.identity}" }, focusMemory = memory) { row ->
+            TvRowScroll { TvShelf("Top Albums", d.albums.rows, key = { "album:${it.album.identity}" }, focusMemory = memory) { row ->
                 val a = row.album
                 TvCoverCard(a.artworkUrl, a.title + a.artistName, a.title, onClick = { navigator.open(AlbumRoute(a.identity, a.title, a.artistName)) }, subtitle = a.artistName)
-            }
+            } }
         }
         if (d.highlights.isNotEmpty()) item(key = "highlights") {
-            TvShelf("Highlights", d.highlights.take(8), key = { "highlight:${it.id}" }, focusMemory = memory) { highlight -> HighlightCard(highlight) }
+            TvRowScroll { TvShelf("Highlights", d.highlights.take(8), key = { "highlight:${it.id}" }, focusMemory = memory) { highlight -> HighlightCard(highlight) } }
         }
         item(key = "rhythm") { Rhythm(d, memory) }
-    }
+    } }
 }
 
 @Composable

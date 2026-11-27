@@ -85,6 +85,8 @@ import com.luke.tracks.ui.tv.components.rememberFocusMemory
 import com.luke.tracks.ui.tv.detail.PendingPlay
 import com.luke.tracks.ui.tv.detail.TvNote
 import com.luke.tracks.ui.tv.detail.rememberPendingPlay
+import com.luke.tracks.ui.tv.detail.TvRowScroll
+import com.luke.tracks.ui.tv.detail.TvShelfScroll
 import com.luke.tracks.ui.tv.navigation.LocalTvNavigator
 import com.luke.tracks.ui.tv.theme.TvLayout
 import com.luke.tracks.ui.tv.theme.TvMotion
@@ -127,7 +129,7 @@ fun TvSearchContent(query: String, onQuery: (String) -> Unit, settled: String, l
     val nothing = settled.isNotEmpty() && history != null && library.isEmpty &&
         history.songs.isEmpty() && history.artists.isEmpty() && history.albums.isEmpty()
     val opened = { recents.add(settled) }
-    LazyColumn(
+    TvShelfScroll { LazyColumn(
         state = rememberLazyListState(),
         modifier = Modifier.fillMaxSize().focusRestorer(),
         contentPadding = PaddingValues(top = TvLayout.SafeTop, bottom = TvLayout.SafeBottom + 16.dp),
@@ -138,7 +140,7 @@ fun TvSearchContent(query: String, onQuery: (String) -> Unit, settled: String, l
             query.isBlank() -> if (recents.items.isNotEmpty()) item(key = "recents") {
                 Column {
                     TvSectionTitle("Recent Searches", Modifier.padding(start = TvLayout.ContentStart))
-                    LazyRow(
+                    TvRowScroll { LazyRow(
                         contentPadding = PaddingValues(start = TvLayout.ContentStart, end = TvLayout.SafeEnd, top = 12.dp, bottom = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.focusRestorer(),
@@ -146,13 +148,13 @@ fun TvSearchContent(query: String, onQuery: (String) -> Unit, settled: String, l
                         items(recents.items.toList(), key = { "recent:$it" }) { text ->
                             TvChip(text, selected = false, onClick = { onQuery(text) }, icon = Icons.Rounded.History, modifier = Modifier.rememberFocus(memory, "recent:$text"))
                         }
-                    }
+                    } }
                 }
             }
             nothing -> item(key = "none") { TvNote("No Results", Modifier.padding(start = TvLayout.ContentStart)) }
             else -> results(library, history, memory, pending, opened)
         }
-    }
+    } }
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.results(
@@ -164,26 +166,26 @@ private fun androidx.compose.foundation.lazy.LazyListScope.results(
 ) {
     if (library.songs.isNotEmpty()) item(key = "songs") {
         val songs = library.songs.take(24)
-        TvShelf("Songs", songs, key = { "song:${it.mediaId}" }, focusMemory = memory) { song ->
+        TvRowScroll { TvShelf("Songs", songs, key = { "song:${it.mediaId}" }, focusMemory = memory) { song ->
             val key = "song:${song.mediaId}"
             TvCoverCard(
                 song.artworkUri, (song.albumTitle ?: song.title) + song.artistName, song.title,
                 onClick = { opened(); pending.play(key, songs, songs.indexOf(song), QueueOrigin("Search", QueueOrigin.Kind.Search)) },
                 subtitle = song.artistName, pending = pending.isPending(key),
             )
-        }
+        } }
     }
     if (library.albums.isNotEmpty()) item(key = "albums") {
         val navigator = LocalTvNavigator.current
-        TvShelf("Albums", library.albums, key = { "album:${it.id}" }, focusMemory = memory) { album ->
+        TvRowScroll { TvShelf("Albums", library.albums, key = { "album:${it.id}" }, focusMemory = memory) { album ->
             TvCoverCard(album.artworkUri, album.title + album.artistName, album.title, onClick = { opened(); navigator.open(LibraryAlbumRoute(album.id)) }, subtitle = album.artistName)
-        }
+        } }
     }
     if (library.artists.isNotEmpty()) item(key = "artists") {
         val navigator = LocalTvNavigator.current
-        TvShelf("Artists", library.artists, key = { "artist:${it.id}" }, focusMemory = memory) { artist ->
+        TvRowScroll { TvShelf("Artists", library.artists, key = { "artist:${it.id}" }, focusMemory = memory) { artist ->
             TvCoverCard(artist.albums.firstNotNullOfOrNull { it.artworkUri }, artist.name, artist.name, onClick = { opened(); navigator.open(LibraryArtistRoute(artist.id)) }, width = 156.dp, circle = true)
-        }
+        } }
     }
     val r = history ?: return
     // What you've played that matched: artists first, then songs, then albums, as one shelf.
@@ -192,13 +194,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.results(
         r.albums.map { Played.Album(it.identity, it.title, it.artistName, it.artworkUrl) }
     if (played.isNotEmpty()) item(key = "history") {
         val navigator = LocalTvNavigator.current
-        TvShelf("In Your History", played, key = { it.key }, focusMemory = memory) { item ->
+        TvRowScroll { TvShelf("In Your History", played, key = { it.key }, focusMemory = memory) { item ->
             when (item) {
                 is Played.Artist -> TvCoverCard(item.art, item.name, item.name, onClick = { opened(); navigator.open(ArtistRoute(item.identity, item.name)) }, width = 156.dp, circle = true)
                 is Played.Song -> TvCoverCard(item.art, (item.album ?: item.title) + item.artist, item.title, onClick = { opened(); navigator.open(SongRoute(item.identity, item.title, item.artist)) }, subtitle = item.artist)
                 is Played.Album -> TvCoverCard(item.art, item.title + item.artist, item.title, onClick = { opened(); navigator.open(AlbumRoute(item.identity, item.title, item.artist)) }, subtitle = item.artist)
             }
-        }
+        } }
     }
 }
 

@@ -97,7 +97,7 @@ fun TvArtistScreen(identity: String, name: String) {
     val playable = remember(d, index) { d.songs.playableIn(index) }
     StatsPage(
         memory = memory,
-        art = { TvArtwork(d.stats.artworkUrl, d.stats.name, Modifier.fillMaxWidth(), sizePx = TvArtwork.HeroPx, shape = CircleShape) },
+        art = { TvArtwork(d.stats.artworkUrl, d.stats.name, Modifier.fillMaxWidth(), sizePx = TvArtwork.HeroPx, shape = CircleShape, showInitials = false) },
         title = d.stats.name,
         subtitle = null,
         facts = buildList {
@@ -115,7 +115,7 @@ fun TvArtistScreen(identity: String, name: String) {
             if (d.albums.isNotEmpty()) item(key = "albums") {
                 TvShelf(
                     "Albums", d.albums, key = { "album:${it.identity}" }, focusMemory = memory,
-                    contentPadding = PaddingValues(0.dp), modifier = Modifier.padding(top = 24.dp),
+                    contentPadding = PaddingValues(start = RowInset), modifier = Modifier.padding(top = 24.dp),
                 ) { album ->
                     TvCoverCard(
                         album.artworkUrl, album.title + album.artistName, album.title,
@@ -200,7 +200,7 @@ private fun StatsPage(
     TvDetailLayout(art = art) {
         item(key = "heading") { TvDetailHeading(title, subtitle, facts) }
         if (playable.isNotEmpty() || extra.isNotEmpty()) item(key = "actions") {
-            Row(Modifier.padding(top = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.padding(start = RowInset, top = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (playable.isNotEmpty()) {
                     TvButton(
                         "Play", { pending.play("play", playable, 0, origin ?: QueueOrigin(title, QueueOrigin.Kind.Other)) },
@@ -217,7 +217,7 @@ private fun StatsPage(
             }
         }
         if (songsTitle != null && songs.isNotEmpty()) {
-            item(key = "songsTitle") { TvSectionTitle(songsTitle, Modifier.padding(top = 8.dp, bottom = 4.dp)) }
+            item(key = "songsTitle") { TvSectionTitle(songsTitle, Modifier.padding(start = RowInset, top = 8.dp, bottom = 4.dp)) }
             itemsIndexed(songs, key = { _, s -> "song:${s.identity}" }) { i, song ->
                 val here = index.find(song.identity)
                 TvListRow(

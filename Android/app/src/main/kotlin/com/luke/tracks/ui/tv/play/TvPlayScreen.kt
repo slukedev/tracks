@@ -73,6 +73,8 @@ import com.luke.tracks.ui.tv.detail.PendingPlay
 import com.luke.tracks.ui.tv.detail.TvMixArt
 import com.luke.tracks.ui.tv.detail.TvPulse
 import com.luke.tracks.ui.tv.detail.rememberPendingPlay
+import com.luke.tracks.ui.tv.detail.TvRowScroll
+import com.luke.tracks.ui.tv.detail.TvShelfScroll
 import com.luke.tracks.ui.tv.navigation.LocalTvNavigator
 import com.luke.tracks.ui.tv.theme.TvLayout
 import uniffi.tracks_engine.Mix
@@ -80,7 +82,7 @@ import uniffi.tracks_engine.MixKind
 import androidx.compose.material3.MaterialTheme as M3Theme
 
 /** Tracks Radio and this hour's mix, side by side at the top of Play. */
-private val HeroWidth = 416.dp
+private val HeroWidth = 392.dp
 private const val HeroAspect = 2f
 
 /** One of Trackside's shelves for a server: its songs or albums, ready to show. */
@@ -157,7 +159,7 @@ private fun TvPlayContent(feed: PlayFeed?, servers: List<ServerShelves>, showsRa
                 Brush.verticalGradient(listOf(wash.copy(alpha = 0.16f), Color.Transparent)),
             ),
         )
-        LazyColumn(
+        TvShelfScroll { LazyColumn(
             state = rememberLazyListState(),
             modifier = Modifier.fillMaxSize().focusRestorer(),
             contentPadding = PaddingValues(top = TvLayout.SafeTop, bottom = TvLayout.SafeBottom + 16.dp),
@@ -166,7 +168,7 @@ private fun TvPlayContent(feed: PlayFeed?, servers: List<ServerShelves>, showsRa
             item(key = "greeting", contentType = "greeting") { Greeting(greeting) }
             val hero = listOfNotNull("radio".takeIf { showsRadio }, "mix".takeIf { rightNow != null })
             if (hero.isNotEmpty()) item(key = "hero", contentType = "hero") {
-                TvShelf(null, hero, key = { "hero:$it" }, focusMemory = memory) { which ->
+                TvRowScroll { TvShelf(null, hero, key = { "hero:$it" }, focusMemory = memory) { which ->
                     // Alone before there's any history, the radio takes the room of both.
                     val width = if (hero.size == 1) HeroWidth * 1.5f else HeroWidth
                     when (which) {
@@ -189,7 +191,7 @@ private fun TvPlayContent(feed: PlayFeed?, servers: List<ServerShelves>, showsRa
                             ) { WideMixArt(mix) }
                         }
                     }
-                }
+                } }
             }
             val mixes = feed.shelfMixes
             if (mixes.isNotEmpty()) item(key = "mixes", contentType = "shelf") {
@@ -213,21 +215,21 @@ private fun TvPlayContent(feed: PlayFeed?, servers: List<ServerShelves>, showsRa
                 }
             }
             if (feed.topArtists.isNotEmpty()) item(key = "artists", contentType = "shelf") {
-                TvShelf("Your Artists", feed.topArtists, key = { "artists:${it.identity}" }, focusMemory = memory) { artist ->
+                TvRowScroll { TvShelf("Your Artists", feed.topArtists, key = { "artists:${it.identity}" }, focusMemory = memory) { artist ->
                     TvCoverCard(artist.artworkUrl, artist.name, artist.name, onClick = { navigator.open(ArtistRoute(artist.identity, artist.name)) }, width = 156.dp, circle = true)
-                }
+                } }
             }
             servers.forEach { server ->
                 if (server.albums.isNotEmpty()) item(key = "different-${server.id}", contentType = "shelf") {
-                    TvShelf("Something Different", server.albums, key = { "different:${it.libraryId}" }, focusMemory = memory) { album ->
+                    TvRowScroll { TvShelf("Something Different", server.albums, key = { "different:${it.libraryId}" }, focusMemory = memory) { album ->
                         TvCoverCard(album.coverUrl, album.title + album.artist, album.title, onClick = { navigator.open(LibraryAlbumRoute(album.libraryId)) }, subtitle = album.artist)
-                    }
+                    } }
                 }
             }
             if (feed.waiting.isNotEmpty()) item(key = "waiting", contentType = "shelf") {
                 SongShelf("Waiting to Be Heard", "waiting", feed.waiting.map { it to it.artworkUri }, memory, pending)
             }
-        }
+        } }
     }
 }
 
@@ -253,26 +255,26 @@ private fun Greeting(text: String) {
 @Composable
 private fun MixShelf(title: String, prefix: String, mixes: List<Mix>, memory: FocusMemory) {
     val navigator = LocalTvNavigator.current
-    TvShelf(title, mixes, key = { "$prefix:${it.id}" }, focusMemory = memory) { mix ->
+    TvRowScroll { TvShelf(title, mixes, key = { "$prefix:${it.id}" }, focusMemory = memory) { mix ->
         TvCard(onClick = { navigator.open(MixRoute(mix.id)) }, title = mix.kind.title, subtitle = mix.kind.tileLine) {
             TvMixArt(mix, Modifier.fillMaxSize())
         }
-    }
+    } }
 }
 
 @Composable
 private fun AlbumShelf(title: String, prefix: String, albums: List<LibraryAlbum>, memory: FocusMemory) {
     val navigator = LocalTvNavigator.current
-    TvShelf(title, albums, key = { "$prefix:${it.id}" }, focusMemory = memory) { album ->
+    TvRowScroll { TvShelf(title, albums, key = { "$prefix:${it.id}" }, focusMemory = memory) { album ->
         TvCoverCard(album.artworkUri, album.title + album.artistName, album.title, onClick = { navigator.open(LibraryAlbumRoute(album.id)) }, subtitle = album.artistName)
-    }
+    } }
 }
 
 /** Songs as cards: pressing one plays it and the rest of the shelf after it. */
 @Composable
 private fun SongShelf(title: String, prefix: String, songs: List<Pair<PlayableSong, Any?>>, memory: FocusMemory, pending: PendingPlay) {
     val queue = remember(songs) { songs.map { it.first } }
-    TvShelf(title, songs, key = { "$prefix:${it.first.identity}" }, focusMemory = memory) { (song, cover) ->
+    TvRowScroll { TvShelf(title, songs, key = { "$prefix:${it.first.identity}" }, focusMemory = memory) { (song, cover) ->
         val key = "$prefix:${song.identity}"
         TvCoverCard(
             cover,
@@ -282,7 +284,7 @@ private fun SongShelf(title: String, prefix: String, songs: List<Pair<PlayableSo
             subtitle = song.artistName,
             pending = pending.isPending(key),
         )
-    }
+    } }
 }
 
 /** This hour's mix, wide: its name big on its own color, with its covers beside. */

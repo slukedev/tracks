@@ -118,7 +118,7 @@ private fun LibraryArtistPage(artist: LibraryArtist, songs: List<PlayableSong>, 
     val albumCount = artist.albums.size
     SongsPage(
         memory = memory,
-        art = { TvArtwork(null, artist.name, Modifier.fillMaxWidth(), sizePx = TvArtwork.HeroPx, shape = CircleShape) },
+        art = { TvArtwork(null, artist.name, Modifier.fillMaxWidth(), sizePx = TvArtwork.HeroPx, shape = CircleShape, showInitials = false) },
         title = artist.name,
         subtitle = null,
         facts = listOfNotNull(
@@ -133,7 +133,7 @@ private fun LibraryArtistPage(artist: LibraryArtist, songs: List<PlayableSong>, 
             if (artist.albums.isNotEmpty()) item(key = "albums") {
                 TvShelf(
                     "Albums", artist.albums, key = { "album:${it.id}" }, focusMemory = memory,
-                    contentPadding = PaddingValues(0.dp), modifier = Modifier.padding(bottom = 8.dp),
+                    contentPadding = PaddingValues(start = RowInset), modifier = Modifier.padding(bottom = 8.dp),
                 ) { album ->
                     TvCoverCard(
                         album.artworkUri, album.title + album.artistName, album.title,
@@ -167,7 +167,7 @@ private fun SongsPage(
     TvDetailLayout(art = art) {
         item(key = "heading") { TvDetailHeading(title, subtitle, facts) }
         item(key = "actions") {
-            Row(Modifier.padding(top = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.padding(start = RowInset, top = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (songs.isNotEmpty()) {
                     TvButton(
                         "Play", { pending.play("play", songs, 0, origin) },
@@ -182,7 +182,7 @@ private fun SongsPage(
             }
         }
         before()
-        if (songsTitle != null && songs.isNotEmpty()) item(key = "songsTitle") { TvSectionTitle(songsTitle, Modifier.padding(top = 8.dp, bottom = 4.dp)) }
+        if (songsTitle != null && songs.isNotEmpty()) item(key = "songsTitle") { TvSectionTitle(songsTitle, Modifier.padding(start = RowInset, top = 8.dp, bottom = 4.dp)) }
         itemsIndexed(songs, key = { _, s -> "song:${s.mediaId}" }) { i, song ->
             TvListRow(
                 onClick = { pending.play("song:${song.mediaId}", songs, i, origin) },

@@ -39,6 +39,7 @@ import com.luke.tracks.ui.tv.components.rememberFocus
 import com.luke.tracks.ui.tv.components.rememberFocusMemory
 import com.luke.tracks.ui.tv.detail.MixColors
 import com.luke.tracks.ui.tv.detail.RowArt
+import com.luke.tracks.ui.tv.detail.RowInset
 import com.luke.tracks.ui.tv.detail.RowArtPx
 import com.luke.tracks.ui.tv.detail.TvDetailHeading
 import com.luke.tracks.ui.tv.detail.TvDetailLayout
@@ -92,7 +93,7 @@ private fun MixPage(mix: Mix, feed: PlayFeed) {
                 )
             }
             if (playable.isNotEmpty()) item(key = "actions") {
-                Row(Modifier.padding(top = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.padding(start = RowInset, top = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TvButton(
                         "Play", { pending.play("play", playable, 0, origin) },
                         Modifier.rememberFocus(memory, "play"), icon = Icons.Rounded.PlayArrow, style = TvButtonStyle.Primary, pending = pending.isPending("play"),

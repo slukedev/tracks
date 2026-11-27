@@ -26,7 +26,13 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -180,7 +186,10 @@ fun MixColors(mix: Mix, content: @Composable () -> Unit) {
 }
 
 private val ArtSize = 280.dp
-private val ListGap = 40.dp
+private val ListGap = 24.dp
+
+/** How far a row's content sits in from its edge, for lining things up with it. */
+val RowInset = 16.dp
 
 /**
  * A detail page as TV lays one out: the art fixed on the left, and on the right a column that
@@ -207,7 +216,8 @@ fun TvDetailLayout(
 /** The title block over a detail page's actions: name, who or what it is, and its facts. */
 @Composable
 fun TvDetailHeading(title: String, subtitle: String?, facts: String?, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth()) {
+    // In line with the art of the rows below, which sit inside their own padding.
+    Column(modifier.fillMaxWidth().padding(start = RowInset)) {
         Text(
             title,
             style = MaterialTheme.typography.headlineLarge,
@@ -307,6 +317,39 @@ fun TvRowsSkeleton(rows: Int, modifier: Modifier = Modifier, leading: Boolean = 
             }
         }
     }
+}
+
+private val LocalRowScroll = staticCompositionLocalOf<BringIntoViewSpec?> { null }
+
+/** Where a focused card's top settles on a page of shelves: its shelf's title in view above it. */
+private val ShelfPivot = 100.dp
+
+/**
+ * A page of shelves scrolls the way Google TV's home does: moving to a shelf brings it up to
+ * the same height each time, title and all, rather than just far enough to show the card.
+ * Anything already in the top of the page stays put. Rows inside keep their own scrolling
+ * through [TvRowScroll].
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun TvShelfScroll(content: @Composable () -> Unit) {
+    val rows = LocalBringIntoViewSpec.current
+    val pivot = with(LocalDensity.current) { ShelfPivot.toPx() }
+    val spec = remember(pivot) {
+        object : BringIntoViewSpec {
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+                if (offset >= 0 && offset + size <= containerSize * 0.7f) 0f else offset - pivot
+        }
+    }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides spec, LocalRowScroll provides rows) { content() }
+}
+
+/** A row inside a [TvShelfScroll] page, scrolling sideways as rows normally do. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun TvRowScroll(content: @Composable () -> Unit) {
+    val rows = LocalRowScroll.current
+    if (rows == null) content() else CompositionLocalProvider(LocalBringIntoViewSpec provides rows) { content() }
 }
 
 /** The first focus target of a page, for [com.luke.tracks.ui.tv.components.ClaimFocus]. */
