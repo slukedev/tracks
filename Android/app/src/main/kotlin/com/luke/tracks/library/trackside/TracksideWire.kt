@@ -144,7 +144,12 @@ data class TracksideCapabilities(
     )
 
     @Serializable
-    data class Features(val cloud: Boolean? = null, val events: Boolean? = null)
+    data class Features(
+        val cloud: Boolean? = null,
+        val events: Boolean? = null,
+        /** The server has the speakers API; whether it's set up for you is `/me`'s word. */
+        val speakers: Boolean? = null,
+    )
 
     @Serializable
     data class Cloud(
@@ -210,6 +215,8 @@ data class TracksideUser(
         @SerialName("can_upload") val canUpload: Boolean? = null,
         /** Whether this account may ask the server to get songs it doesn't have. */
         @SerialName("can_request") val canRequest: Boolean? = null,
+        @SerialName("can_use_speakers") val canUseSpeakers: Boolean? = null,
+        @SerialName("can_play_services") val canPlayServices: Boolean? = null,
     )
 }
 
@@ -290,10 +297,24 @@ data class TracksideMe(
     /** Whether the account may request songs at all, as the server's admin set it. */
     val canRequest: Boolean get() = user.permissions?.canRequest != false
 
+    /** Whether this account and key may see the server's speakers: left out when they may not, never false. */
+    val offersSpeakers: Boolean get() = features?.speakers != null
+
+    /** Whether this key may also control them (it has the `write` scope). */
+    val controlsSpeakers: Boolean get() = features?.speakers?.control == true
+
     @Serializable
     data class Features(
         val acquisition: Acquisition? = null,
+        val speakers: Speakers? = null,
+        val catalog: Catalog? = null,
     )
+
+    @Serializable
+    data class Speakers(val control: Boolean? = null)
+
+    @Serializable
+    data class Catalog(val relay: Boolean? = null)
 
     @Serializable
     data class Acquisition(
@@ -570,6 +591,9 @@ internal data class TracksideErrorEnvelope(val error: Body) {
         val reason: String? = null,
         @SerialName("resets_at") val resetsAt: String? = null,
         val field: String? = null,
+        /** With `unsupported`: the capability the speaker lacks, and which speaker when it isn't the one asked. */
+        val capability: String? = null,
+        @SerialName("speaker_id") val speakerId: String? = null,
         /** With `https_required`: the server's https addresses, to try before any it listed earlier. */
         @SerialName("https_urls") val httpsUrls: List<TracksideServerUrl>? = null,
     )

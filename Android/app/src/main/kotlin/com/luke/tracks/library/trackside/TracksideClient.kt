@@ -31,7 +31,19 @@ sealed class TracksideError(message: String) : Exception(message) {
     /** A song offered for getting isn't known anymore: search again. */
     data object CandidateExpired : TracksideError("That song isn't on offer anymore. Try again.")
     class Unavailable(val code: String, val retryAfterSeconds: Long?) : TracksideError("The server can't play that right now. Try again in a moment.")
-    class Server(val status: Int, val code: String, detail: String, val field: String? = null) : TracksideError(detail.ifBlank { "The server had a problem." })
+    class Server(
+        val status: Int,
+        val code: String,
+        detail: String,
+        val field: String? = null,
+        /** With `conflict`: why, such as `speaker_offline` or `not_playable`. */
+        val reason: String? = null,
+        /** With `unsupported`: the capability that's missing. */
+        val capability: String? = null,
+    ) : TracksideError(detail.ifBlank { "The server had a problem." })
+    /** The server can't reach its speakers right now; it says so again when they're back. */
+    class SpeakersUnavailable(val retryAfterSeconds: Long?) : TracksideError("Speakers aren't available right now.")
+    class CatalogUnavailable(val retryAfterSeconds: Long?) : TracksideError("Music services aren't available right now.")
     /** Not an answer Tracks can read: not Trackside, most likely. */
     data object NotTrackside : TracksideError("That address doesn't look like a Trackside server.")
     class Http(val status: Int) : TracksideError("The server answered with an error.")
@@ -44,7 +56,7 @@ sealed class TracksideError(message: String) : Exception(message) {
 }
 
 /** What came back: the status, the body and the one header that matters. */
-data class TracksideAnswer(val status: Int, val body: String, val retryAfter: String? = null, val etag: String? = null)
+data class TracksideAnswer(val status: Int, val body: String, val retryAfter: String? = null, val etag: String? = null, val date: String? = null)
 
 /** Sends a request. OkHttp in the app; a stand-in in tests. */
 fun interface TracksideTransport {
@@ -55,7 +67,7 @@ class OkHttpTracksideTransport(private val http: OkHttpClient = Http.api) : Trac
     override suspend fun send(request: Request, timeoutMs: Long?): TracksideAnswer = withContext(Dispatchers.IO) {
         val call = http.newCall(request)
         timeoutMs?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
-        call.execute().use { TracksideAnswer(it.code, it.body.string(), it.header("Retry-After"), it.header("ETag")) }
+        call.execute().use { TracksideAnswer(it.code, it.body.string(), it.header("Retry-After"), it.header("ETag"), it.header("Date")) }
     }
 }
 
@@ -263,6 +275,98 @@ class TracksideClient(
         }
     }
 
+    // MARK: Speakers (the wire contract's section 1)
+
+    /** How far the server's clock is ahead of this phone's, from the last speaker answer's `Date`. */
+    @Volatile var clockSkewMs: Long = 0
+        private set
+
+    /**
+     * Whether this server has speakers and lets this key see them: the server has the API
+     * (`/capabilities`), and `/me` says it's set up for this account. An old server, or one
+     * without speakers set up, is false and its speakers are never asked for.
+     */
+    suspend fun speakerAccess(): SpeakerAccess {
+        if (capabilities().features?.speakers != true) return SpeakerAccess.None
+        val me = me()
+        return when {
+            !me.offersSpeakers -> SpeakerAccess.None
+            me.controlsSpeakers -> SpeakerAccess.Control
+            else -> SpeakerAccess.Look
+        }
+    }
+
+    enum class SpeakerAccess { None, Look, Control }
+
+    /** Every speaker you can see, or null when nothing changed since [version] (the last answer's ETag). */
+    suspend fun speakers(version: String? = null): Pair<TracksideSpeakerList, String?>? {
+        val answer = call { base ->
+            request(base, "speakers", authorization = bearer).newBuilder()
+                .apply { version?.let { header("If-None-Match", it) } }
+                .build()
+        }
+        noteClock(answer)
+        if (answer.status == 304) return null
+        return decode(answer, TracksideSpeakerList.serializer()) to answer.etag
+    }
+
+    suspend fun speaker(id: String): TracksideSpeaker =
+        call { base -> request(base, "speakers/$id", authorization = bearer) }.also { noteClock(it) }.let { decode(it, TracksideSpeaker.serializer()) }
+
+    /** Up next on a speaker, from its current item less [history] before it. */
+    suspend fun speakerQueue(id: String, cursor: String? = null, limit: Int = 100, history: Int = 0): TracksideSpeakerQueue =
+        get(
+            "speakers/$id/queue",
+            TracksideSpeakerQueue.serializer(),
+            listOfNotNull("limit" to "$limit", cursor?.let { "cursor" to it }, history.takeIf { it > 0 }?.let { "history" to "$it" }).toMap(),
+        )
+
+    /** Play, pause, stop, next, previous, seek or jump. A toggle is never sent twice. */
+    suspend fun speakerPlayback(id: String, command: TracksideSpeakerPlayback): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id/playback", "POST", TracksideJson.encodeToString(TracksideSpeakerPlayback.serializer(), command), retry = command.action != "toggle")
+
+    suspend fun patchSpeaker(id: String, patch: TracksideSpeakerPatch): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id", "PATCH", TracksideJson.encodeToString(TracksideSpeakerPatch.serializer(), patch))
+
+    /** Groups the speakers in [memberIds] with [id] leading; an empty list ungroups everyone from it. */
+    suspend fun setSpeakerMembers(id: String, memberIds: List<String>): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id/members", "PUT", TracksideJson.encodeToString(TracksideSpeakerMembers.serializer(), TracksideSpeakerMembers(memberIds)))
+
+    /** Takes [id] out of whatever group it's in. */
+    suspend fun leaveSpeakerGroup(id: String): TracksideSpeakerCommand = speakerCommand("speakers/$id/group", "DELETE", null)
+
+    suspend fun playOnSpeaker(id: String, play: TracksideSpeakerPlayRequest, key: String = java.util.UUID.randomUUID().toString()): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id/play", "POST", TracksideJson.encodeToString(TracksideSpeakerPlayRequest.serializer(), play), key = key)
+
+    suspend fun transferSpeaker(id: String, transfer: TracksideSpeakerTransfer, key: String = java.util.UUID.randomUUID().toString()): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id/transfer", "POST", TracksideJson.encodeToString(TracksideSpeakerTransfer.serializer(), transfer), key = key)
+
+    /**
+     * A speaker command, with an `Idempotency-Key`: one lost on the way is sent once more with
+     * the same key, so the server acts on it once. A deliberate repeat is a new key.
+     */
+    private suspend fun speakerCommand(path: String, method: String, body: String?, retry: Boolean = true, key: String = java.util.UUID.randomUUID().toString()): TracksideSpeakerCommand {
+        val build = { base: HttpUrl ->
+            request(base, path, method = method, body = body, authorization = bearer).newBuilder().header("Idempotency-Key", key).build()
+        }
+        val answer = try {
+            call(build)
+        } catch (error: IOException) {
+            if (!retry) throw error
+            call(build)
+        }
+        noteClock(answer)
+        return decode(answer, TracksideSpeakerCommand.serializer())
+    }
+
+    /** Only skews of more than two seconds count: `Date` is to the second, and closer clocks are left alone. */
+    private fun noteClock(answer: TracksideAnswer) {
+        val date = answer.date ?: return
+        val server = runCatching { java.time.ZonedDateTime.parse(date, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant() }.getOrNull() ?: return
+        val skew = server.toEpochMilli() - now().toEpochMilli()
+        clockSkewMs = if (kotlin.math.abs(skew) > 2_000) skew else 0
+    }
+
     // MARK: Requests
 
     private suspend fun <T> get(path: String, serializer: KSerializer<T>, query: Map<String, String> = emptyMap()): T =
@@ -448,7 +552,9 @@ class TracksideClient(
                 "quota_exceeded" -> TracksideError.QuotaExceeded(instant(body.details?.resetsAt))
                 "candidate_expired" -> TracksideError.CandidateExpired
                 "library_unavailable", "transcoder_busy", "unavailable" -> TracksideError.Unavailable(body.code, retryAfter)
-                else -> TracksideError.Server(answer.status, body.code, body.message.orEmpty(), body.details?.field)
+                "speakers_unavailable" -> TracksideError.SpeakersUnavailable(retryAfter)
+                "catalog_unavailable" -> TracksideError.CatalogUnavailable(retryAfter)
+                else -> TracksideError.Server(answer.status, body.code, body.message.orEmpty(), body.details?.field, body.details?.reason, body.details?.capability)
             }
         }
     }
