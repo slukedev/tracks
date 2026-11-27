@@ -22,6 +22,8 @@ import com.luke.tracks.applemusic.AppleMusic
  */
 object Startup {
     fun run(app: Application, graph: AppGraph) {
+        // TV plays from Apple Music only: no device files, servers, Spotify, Last.fm or sync.
+        val tv = graph.formFactor.tv
         val servers = ServerLibrary(app, graph.settings, KeystoreSecretBox(), graph.scope, deviceId = { graph.deviceIdentity.id() })
         graph.library = CombinedLibrary(
             context = app,
@@ -30,14 +32,17 @@ object Startup {
             servers = servers,
             engine = graph.engine,
             sampleData = graph.sampleData,
+            localSources = !tv,
         ).also { it.start() }
-        // Back in the foreground, servers may have moved: ask Trackside where they are now.
-        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) = servers.refreshAddresses()
-        })
-        // Spotify, in sideload builds only.
-        Spotify.install(app, graph.scope)
-        Spotify.integration?.let { graph.sources.register(it.provider) }
+        if (!tv) {
+            // Back in the foreground, servers may have moved: ask Trackside where they are now.
+            ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) = servers.refreshAddresses()
+            })
+            // Spotify, in sideload builds only.
+            Spotify.install(app, graph.scope)
+            Spotify.integration?.let { graph.sources.register(it.provider) }
+        }
         // Apple Music, when there's a developer token and the build has Apple's MusicKit SDK.
         AppleMusic.install(app, graph.scope, servers)
         AppleMusic.provider?.let { graph.sources.register(it) }
@@ -46,8 +51,9 @@ object Startup {
             if (Build.FINGERPRINT != "robolectric") it.connect()
         }
         graph.radio = TracksRadio(graph).also { it.watch() }
-        // Last.fm scrobbling, widgets, shortcuts and notification channels.
+        // Last.fm scrobbling, widgets, shortcuts and notification channels; none of them on TV.
         com.luke.tracks.system.SystemIntegration.start(app, graph)
+        if (tv) return
         // Trackside Cloud sync, and each Trackside server's listens, now playing and live events.
         com.luke.tracks.sync.CloudSync.install(graph, servers).start()
         com.luke.tracks.library.trackside.TracksideServices.install(graph, servers).start()

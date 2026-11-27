@@ -1,0 +1,28 @@
+package com.luke.tracks.system
+
+import android.app.ActivityManager
+import android.app.UiModeManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import androidx.compose.runtime.staticCompositionLocalOf
+
+/**
+ * What kind of device Tracks runs on, decided once per process. [tv] picks the TV interface
+ * and limits sources to Apple Music; [lowRam] shrinks caches.
+ */
+data class FormFactor(val tv: Boolean, val lowRam: Boolean) {
+    companion object {
+        val Phone = FormFactor(tv = false, lowRam = false)
+
+        fun of(context: Context): FormFactor {
+            val uiMode = context.getSystemService(UiModeManager::class.java)
+            val television = uiMode?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+                context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+            val lowRam = context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
+            return FormFactor(tv = television, lowRam = lowRam)
+        }
+    }
+}
+
+val LocalFormFactor = staticCompositionLocalOf { FormFactor.Phone }

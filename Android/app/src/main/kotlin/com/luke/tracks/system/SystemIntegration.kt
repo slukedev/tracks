@@ -20,6 +20,8 @@ object SystemIntegration {
     fun start(app: Application, graph: AppGraph) {
         // Robolectric screenshot runs have no launcher, widgets or WorkManager to talk to.
         if (Build.FINGERPRINT == "robolectric") return
+        // TV has no Last.fm, widgets or launcher shortcuts.
+        if (graph.formFactor.tv) return
         Notifications.createChannels(app)
         ScrobbleWorker.schedule(app)
 

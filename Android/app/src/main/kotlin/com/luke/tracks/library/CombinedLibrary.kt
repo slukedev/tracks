@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -30,6 +31,8 @@ class CombinedLibrary(
     val servers: ServerLibrary,
     private val engine: Engine,
     private val sampleData: Boolean,
+    /** False on TV: the device's files and servers are never read there. */
+    private val localSources: Boolean = true,
 ) : MusicLibrary {
     private val sampleTracks = MutableStateFlow<List<LibraryTrack>>(emptyList())
     private val sampleFolder = File(context.cacheDir, "sample-music")
@@ -43,8 +46,10 @@ class CombinedLibrary(
 
     @OptIn(FlowPreview::class)
     fun start() {
-        if (!sampleData) device.start()
-        servers.start()
+        if (localSources) {
+            if (!sampleData) device.start()
+            servers.start()
+        }
         if (sampleData) {
             // The sample history fills in the background at launch; build once it's there.
             scope.launch {
@@ -54,8 +59,14 @@ class CombinedLibrary(
             }
         }
         scope.launch {
+            val none = flowOf(emptyList<LibraryTrack>())
+            val off = flowOf(false)
             combine(
-                device.tracks, device.hasPermission, device.loading, servers.tracks, servers.loading,
+                if (localSources) device.tracks else none,
+                if (localSources) device.hasPermission else off,
+                if (localSources) device.loading else off,
+                if (localSources) servers.tracks else none,
+                if (localSources) servers.loading else off,
             ) { local, allowed, localLoading, remote, remoteLoading ->
                 Sources(local, allowed, localLoading && !sampleData, remote, remoteLoading)
             }.combine(sampleTracks) { sources, samples -> sources to samples }
@@ -83,6 +94,7 @@ class CombinedLibrary(
     )
 
     override suspend fun refresh() {
+        if (!localSources) return
         if (!sampleData) device.refresh()
         servers.syncAll()
     }

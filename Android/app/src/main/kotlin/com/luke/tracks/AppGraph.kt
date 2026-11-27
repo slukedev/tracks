@@ -8,6 +8,7 @@ import com.luke.tracks.engine.Engine
 import com.luke.tracks.library.MusicLibrary
 import com.luke.tracks.playback.PlayerController
 import com.luke.tracks.playback.RadioSource
+import com.luke.tracks.system.FormFactor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +17,11 @@ import kotlinx.coroutines.Dispatchers
  * Everything the app shares, made once per process. Sample data uses its own database and
  * index, so turning it on never touches the real history.
  */
-class AppGraph(val context: Context, val sampleData: Boolean) {
+class AppGraph(
+    val context: Context,
+    val sampleData: Boolean,
+    val formFactor: FormFactor = FormFactor.of(context),
+) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val settings = SettingsRepository(context)
 
