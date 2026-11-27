@@ -57,6 +57,9 @@ class TracksideServices(private val graph: AppGraph, private val servers: Server
     )
     private val live = java.util.concurrent.ConcurrentHashMap<String, Job>()
 
+    /** Each server's speakers, kept current from its events. */
+    val speakers = com.luke.tracks.speakers.Speakers.install(graph, servers)
+
     @OptIn(FlowPreview::class)
     fun start() {
         if (graph.sampleData) return
@@ -133,24 +136,33 @@ class TracksideServices(private val graph: AppGraph, private val servers: Server
                 server()?.let { servers.sync(it) }
             }
         }
-        val ending = TracksideEvents(client).run(
-            onConnected = {
-                // Missed events aren't replayed: ask for the addresses (only if they changed),
-                // the library's changes, and the cloud's.
-                servers.refreshAddresses()
-                syncLibrarySoon()
-                if (cloudHere()) cloud?.pull(null)
-            },
-            onEvent = { event ->
-                when (event.type) {
-                    "changed", "resync" -> syncLibrarySoon()
-                    "server_urls" -> servers.refreshAddresses()
-                    "cloud" -> if (cloudHere()) cloud?.pull(event.cloudEntity)
-                }
-            },
-        )
+        val ending = try {
+            TracksideEvents(client).run(
+                onConnected = {
+                    // Missed events aren't replayed: ask for the addresses (only if they changed),
+                    // the library's changes, the cloud's, and the speakers.
+                    servers.refreshAddresses()
+                    syncLibrarySoon()
+                    if (cloudHere()) cloud?.pull(null)
+                    speakers.connected(serverId)
+                },
+                onEvent = { event ->
+                    when (event.type) {
+                        "changed", "resync" -> syncLibrarySoon()
+                        "server_urls" -> servers.refreshAddresses()
+                        "cloud" -> if (cloudHere()) cloud?.pull(event.cloudEntity)
+                        else -> speakers.handle(serverId, event)
+                    }
+                },
+            )
+        } finally {
+            speakers.disconnected(serverId)
+        }
         // Signed out: the library's sync finds out and asks to pair again.
-        if (ending == TracksideEvents.Ending.SignedOut) server()?.let { servers.sync(it) }
+        if (ending == TracksideEvents.Ending.SignedOut) {
+            speakers.signedOut(serverId)
+            server()?.let { servers.sync(it) }
+        }
     }
 
     companion object {
