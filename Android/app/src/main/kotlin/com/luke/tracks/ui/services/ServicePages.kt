@@ -62,6 +62,7 @@ import com.luke.tracks.library.trackside.TracksideCatalogTrack
 import com.luke.tracks.library.trackside.TracksideError
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.streaming.CatalogMedia
+import com.luke.tracks.streaming.ServiceBrand
 import com.luke.tracks.streaming.ServiceKey
 import com.luke.tracks.ui.components.Artwork
 import com.luke.tracks.ui.discover.CatalogProblem
@@ -73,7 +74,10 @@ import com.luke.tracks.ui.library.PlayShuffleButtons
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.ServiceItemRoute
 import com.luke.tracks.ui.navigation.bottomClearance
+import com.luke.tracks.streaming.StreamingRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -255,7 +259,7 @@ private fun Hero(route: ServiceItemRoute, item: TracksideCatalogItem?, track: Tr
                 ServiceMark(service, size = 20.dp)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    listOfNotNull(service?.name, service?.quality?.let(::qualityLabel)).joinToString(" · "),
+                    listOfNotNull(service?.let { ServiceBrand.name(it) }, service?.let { ServiceBrand.quality(it) }).joinToString(" · "),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -263,14 +267,6 @@ private fun Hero(route: ServiceItemRoute, item: TracksideCatalogItem?, track: Tr
         }
         Spacer(Modifier.height(12.dp))
     }
-}
-
-/** lossless, high or standard, as the service plays through your server. */
-fun qualityLabel(quality: String): String? = when (quality) {
-    "lossless" -> "Lossless"
-    "high" -> "High quality"
-    "standard" -> null
-    else -> null
 }
 
 internal fun playStation(context: android.content.Context, serverId: String, station: TracksideCatalogItem) {
@@ -288,10 +284,16 @@ internal fun playStation(context: android.content.Context, serverId: String, sta
 }
 
 /**
- * What you saved on a service: its playlists first, then albums and artists, newest first.
- * Shown in Search when a service is chosen and nothing's typed.
+ * What you saved on a service: its playlists first, then albums, artists and songs, newest
+ * first. Shown in Search when a service is chosen and nothing's typed.
  */
-fun LazyListScope.serviceLibraryItems(key: ServiceKey, service: TracksideCatalogService?, library: ServiceLibrary, onRetry: () -> Unit) {
+fun LazyListScope.serviceLibraryItems(
+    key: ServiceKey,
+    service: TracksideCatalogService?,
+    library: ServiceLibrary,
+    onRetry: () -> Unit,
+    currentMediaId: String? = null,
+) {
     when (library) {
         ServiceLibrary.Loading -> item(key = "svc-lib-loading") {
             Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.size(48.dp)) }
@@ -300,7 +302,7 @@ fun LazyListScope.serviceLibraryItems(key: ServiceKey, service: TracksideCatalog
         is ServiceLibrary.Loaded -> {
             if (library.isEmpty) {
                 item(key = "svc-lib-empty") {
-                    EmptyState(Icons.Rounded.SearchOff, "Nothing saved yet", "Playlists and albums you save on ${service?.name ?: "the service"} show here.")
+                    EmptyState(Icons.Rounded.SearchOff, "Nothing Saved Yet", "What you save on ${service?.let { ServiceBrand.name(it) } ?: "the service"} shows here.")
                 }
                 return
             }
@@ -317,6 +319,13 @@ fun LazyListScope.serviceLibraryItems(key: ServiceKey, service: TracksideCatalog
                 item(key = "svc-lib-artists-h") { SubHeading("Artists", Modifier.padding(horizontal = 20.dp).animateItem()) }
                 items(library.artists, key = { "svc-lib-artist-${it.ref}" }) { ServiceArtistRow(key.serverId, it, Modifier.animateItem()) }
             }
+            if (library.songs.isNotEmpty()) {
+                val origin = QueueOrigin(service?.let { "Saved on ${ServiceBrand.name(it)}" } ?: "Saved Songs", QueueOrigin.Kind.Library)
+                item(key = "svc-lib-songs-h") { SubHeading("Songs", Modifier.padding(horizontal = 20.dp).animateItem()) }
+                items(library.songs, key = { "svc-lib-song-${it.ref}" }, contentType = { "service-song" }) { track ->
+                    ServiceTrackRow(key.serverId, track, siblings = library.songs, origin = origin, currentMediaId = currentMediaId, modifier = Modifier.animateItem())
+                }
+            }
         }
     }
 }
@@ -324,8 +333,14 @@ fun LazyListScope.serviceLibraryItems(key: ServiceKey, service: TracksideCatalog
 /** A service's saved library, as it loads. */
 sealed interface ServiceLibrary {
     data object Loading : ServiceLibrary
-    data class Loaded(val playlists: List<TracksideCatalogItem>, val albums: List<TracksideCatalogItem>, val artists: List<TracksideCatalogItem>) : ServiceLibrary {
-        val isEmpty: Boolean get() = playlists.isEmpty() && albums.isEmpty() && artists.isEmpty()
+    data class Loaded(
+        val playlists: List<TracksideCatalogItem>,
+        val albums: List<TracksideCatalogItem>,
+        val artists: List<TracksideCatalogItem>,
+        /** The first page of saved songs, newest first. */
+        val songs: List<TracksideCatalogTrack> = emptyList(),
+    ) : ServiceLibrary {
+        val isEmpty: Boolean get() = playlists.isEmpty() && albums.isEmpty() && artists.isEmpty() && songs.isEmpty()
     }
     data class Failed(val message: String) : ServiceLibrary
 }
@@ -347,18 +362,34 @@ fun rememberServiceLibrary(key: ServiceKey?, service: TracksideCatalogService?, 
         }
         library = ServiceLibrary.Loading
         library = try {
-            ServiceLibrary.Loaded(
-                playlists = repository.library(key, "playlist").items,
-                albums = runCatching { repository.library(key, "album").items }.getOrDefault(emptyList()),
-                artists = runCatching { repository.library(key, "artist").items }.getOrDefault(emptyList()),
-            )
+            loadServiceLibrary(repository, key)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            ServiceLibrary.Failed(refusal(error, service.name, service).message)
+            ServiceLibrary.Failed(refusal(error, ServiceBrand.name(service), service).message)
         }
     }
     return library
+}
+
+/**
+ * One page of each kind you saved, at once: playlists must answer, the rest may not. The
+ * server reads them from its synced copy, so this costs the service nothing.
+ */
+suspend fun loadServiceLibrary(repository: StreamingRepository, key: ServiceKey): ServiceLibrary.Loaded = coroutineScope {
+    val albums = async { orNone { repository.library(key, "album").items } }
+    val artists = async { orNone { repository.library(key, "artist").items } }
+    val songs = async { orNone { repository.libraryTracks(key).items } }
+    val playlists = repository.library(key, "playlist").items
+    ServiceLibrary.Loaded(playlists, albums.await(), artists.await(), songs.await())
+}
+
+private suspend fun <T> orNone(read: suspend () -> List<T>): List<T> = try {
+    read()
+} catch (error: CancellationException) {
+    throw error
+} catch (_: Exception) {
+    emptyList()
 }
 
 private const val PAGE = 100

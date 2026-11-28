@@ -36,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -83,6 +84,7 @@ import com.luke.tracks.graph
 import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.library.musicPermission
 import com.luke.tracks.sources.PlayFromChoice
+import com.luke.tracks.streaming.ServiceStanding
 import com.luke.tracks.sources.PlayFromPlace
 import com.luke.tracks.sources.Removal
 import com.luke.tracks.sources.Source
@@ -379,6 +381,8 @@ private fun PlayFromSection(
     val haptics = LocalHapticFeedback.current
     val gapPx = with(LocalDensity.current) { ListItemDefaults.SegmentedGap.toPx() }
     val names = choices.map { it.place to it.name }
+    val standings = choices.associate { it.place to it.standing }
+    var explaining by remember { mutableStateOf<PlayFromChoice?>(null) }
     var dragging by remember { mutableStateOf<PlayFromPlace?>(null) }
     var offset by remember { mutableFloatStateOf(0f) }
     var rowPx by remember { mutableFloatStateOf(1f) }
@@ -422,9 +426,10 @@ private fun PlayFromSection(
         names.forEachIndexed { i, (place, name) ->
             key(place.raw) {
                 val isGet = place == PlayFromPlace.Get && get != null
-                val off = isGet && get == false
-                // Numbered by when each is tried, so one that's off takes no number.
-                val number = names.take(i + 1).count { it.first != PlayFromPlace.Get || get != false }
+                val standing = standings[place] ?: ServiceStanding.Ready
+                val off = (isGet && get == false) || standing != ServiceStanding.Ready
+                // Numbered by when each is tried, so one that's off or can't play now takes no number.
+                val number = names.take(i + 1).count { (it.first != PlayFromPlace.Get || get != false) && (standings[it.first] ?: ServiceStanding.Ready) == ServiceStanding.Ready }
                 val lifted = place == dragging
                 val shift = when {
                     from < 0 || lifted -> 0f
@@ -444,10 +449,14 @@ private fun PlayFromSection(
                         .zIndex(if (lifted) 1f else 0f)
                         .graphicsLayer { translationY = if (lifted) offset else slide }
                         .then(
-                            if (isGet) Modifier.toggleable(get == true, role = Role.Switch) { on -> haptics.toggle(on); onGet(on) } else Modifier,
+                            when {
+                                isGet -> Modifier.toggleable(get == true, role = Role.Switch) { on -> haptics.toggle(on); onGet(on) }
+                                standing != ServiceStanding.Ready -> Modifier.clickable(onClickLabel = "What to do") { explaining = choices.firstOrNull { it.place == place } }
+                                else -> Modifier
+                            },
                         )
                         .semantics(mergeDescendants = true) {
-                            stateDescription = "${i + 1} of ${names.size}"
+                            stateDescription = listOfNotNull("${i + 1} of ${names.size}", standing.word).joinToString(", ")
                             customActions = listOfNotNull(
                                 CustomAccessibilityAction("Move up") { move(i, i - 1); true }.takeIf { i > 0 },
                                 CustomAccessibilityAction("Move down") { move(i, i + 1); true }.takeIf { i < names.lastIndex },
@@ -478,6 +487,7 @@ private fun PlayFromSection(
                         Column(Modifier.weight(1f).alpha(if (off) 0.6f else 1f)) {
                             Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (isGet) Text(GetSummary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            standing.word?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         }
                         if (isGet) TracksSwitch(get == true, onCheckedChange = null)
                         Box(
@@ -499,6 +509,14 @@ private fun PlayFromSection(
                 }
             }
         }
+    }
+    explaining?.let { choice ->
+        AlertDialog(
+            onDismissRequest = { explaining = null },
+            title = { Text(choice.name) },
+            text = { Text(choice.standing.help(choice.name).orEmpty()) },
+            confirmButton = { TextButton(onClick = { explaining = null }) { Text("OK") } },
+        )
     }
 }
 

@@ -1,5 +1,10 @@
 package com.luke.tracks.ui.tv.detail
 
+import androidx.compose.material.icons.rounded.Radio
+import com.luke.tracks.streaming.ServiceBrand
+import com.luke.tracks.streaming.ServiceKey
+import com.luke.tracks.ui.services.startRadioFrom
+import com.luke.tracks.ui.services.streamingState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -124,6 +129,11 @@ private fun ItemSongsPage(route: ServiceItemRoute, page: TracksideCatalogPage, m
         )
     }
     val artist = kind == TracksideCatalogItem.Kind.Artist
+    val streaming = streamingState()
+    val serviceId = item?.serviceId ?: track?.serviceId.orEmpty()
+    val service = streaming.service(ServiceKey(route.serverId, serviceId))
+    // A radio from the page's first song: the service's own where it can make one, else Tracks Radio.
+    val radio = tracks.firstOrNull()?.let { seed -> Triple("Radio", Icons.Rounded.Radio, { context.startRadioFrom(route.serverId, seed) }) }
     SongsPage(
         memory = memory,
         art = {
@@ -142,11 +152,12 @@ private fun ItemSongsPage(route: ServiceItemRoute, page: TracksideCatalogPage, m
             item?.kindLabel()?.takeUnless { artist },
             item?.year?.toString(),
             (item?.trackCount ?: songs.size.takeIf { it > 0 })?.let { Format.songs(it.toLong()) }.takeUnless { artist },
+            service?.let { ServiceBrand.quality(it) },
         ).joinToString(" · "),
         songs = songs,
         origin = origin,
         numbered = kind == TracksideCatalogItem.Kind.Album,
-        extra = emptyList(),
+        extra = listOfNotNull(radio),
         before = {
             if (page.albums.isNotEmpty()) item(key = "albums") {
                 TvShelf(

@@ -93,6 +93,7 @@ import androidx.tv.material3.Text
 import com.luke.tracks.graph
 import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.sources.PlayFromPlace
+import com.luke.tracks.streaming.ServiceStanding
 import com.luke.tracks.sources.Source
 import com.luke.tracks.sources.SourceId
 import com.luke.tracks.sources.SourceSelection
@@ -169,6 +170,7 @@ fun TvSourcesPage() {
         selection = selection,
         playFrom = choices.map { it.place },
         placeNames = choices.associate { it.place to it.name },
+        placeStandings = choices.associate { it.place to it.standing },
         get = getOn.takeIf { getsCopies },
         onGet = registry::setGet,
         onSelect = registry::select,
@@ -225,10 +227,13 @@ fun TvSourcesContent(
     onSync: (Source, Boolean) -> Unit = { _, _ -> },
     /** Names for places that aren't servers: the streaming services, and Get. */
     placeNames: Map<PlayFromPlace, String> = emptyMap(),
+    /** Where each service stands; one missing here is ready. */
+    placeStandings: Map<PlayFromPlace, ServiceStanding> = emptyMap(),
     /** Whether Get is on; null when no server could get a song. */
     get: Boolean? = null,
     onGet: (Boolean) -> Unit = {},
 ) {
+    var explaining by remember { mutableStateOf<PlayFromPlace?>(null) }
     var linking by remember { mutableStateOf<Linking?>(null) }
     var shown by remember { mutableStateOf<SourceId?>(null) }
     // Linking again waits for the panel to hand focus back before the page changes under it.
@@ -317,11 +322,16 @@ fun TvSourcesContent(
                     }
                     if (playFrom.size >= 2) {
                         PageHeading("Play From")
-                        PlayFromList(sources, playFrom, placeNames, onReorder, get, onGet)
+                        PlayFromList(sources, playFrom, placeNames, placeStandings, onReorder, get, onGet, onExplain = { explaining = it })
                     }
                 }
             }
         }
+        ServiceStandingPanel(
+            name = explaining?.let { placeNames[it] },
+            standing = explaining?.let { placeStandings[it] },
+            onClose = { explaining = null },
+        )
         ServerPanel(
             source = sources.firstOrNull { it.id == shown },
             onClose = { shown = null },
@@ -340,6 +350,19 @@ fun TvSourcesContent(
                 onUnlink(source)
             },
         )
+    }
+}
+
+/** What a service that can't play now needs, from its row in Play From. */
+@Composable
+private fun ServiceStandingPanel(name: String?, standing: ServiceStanding?, onClose: () -> Unit) {
+    var last by remember { mutableStateOf(name to standing) }
+    SideEffect { if (name != null) last = name to standing }
+    val (heldName, heldStanding) = if (name != null) name to standing else last
+    TvSidePanel(visible = name != null, onDismiss = onClose, title = heldName) {
+        val help = heldName?.let { heldStanding?.help(it) } ?: return@TvSidePanel
+        Text(help, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
+        TvButton("OK", onClick = onClose, style = TvButtonStyle.Primary)
     }
 }
 
@@ -434,9 +457,11 @@ private fun PlayFromList(
     sources: List<Source>,
     places: List<PlayFromPlace>,
     placeNames: Map<PlayFromPlace, String>,
+    placeStandings: Map<PlayFromPlace, ServiceStanding>,
     onReorder: (List<PlayFromPlace>) -> Unit,
     get: Boolean?,
     onGet: (Boolean) -> Unit,
+    onExplain: (PlayFromPlace) -> Unit,
 ) {
     var reorder by remember { mutableStateOf(RemoteReorder(places)) }
     LaunchedEffect(places) { reorder = reorder.following(places) }
@@ -460,13 +485,16 @@ private fun PlayFromList(
                 key(place.raw) {
                     val lifted = reorder.lifted == place
                     val getSwitch = get.takeIf { place == PlayFromPlace.Get }
+                    val standing = placeStandings[place] ?: ServiceStanding.Ready
+                    fun tried(it: PlayFromPlace) = (it != PlayFromPlace.Get || get != false) && (placeStandings[it] ?: ServiceStanding.Ready) == ServiceStanding.Ready
                     PlayFromRow(
                         number = i + 1,
                         count = shown.size,
-                        // Numbered by when each is tried, so Get takes no number while it's off.
-                        shownNumber = if (getSwitch == false) null else shown.take(i + 1).count { it != PlayFromPlace.Get || get != false },
+                        // Numbered by when each is tried, so Get while it's off, or a service that can't play now, takes no number.
+                        shownNumber = if (!tried(place)) null else shown.take(i + 1).count(::tried),
                         name = names.getValue(place),
                         switch = getSwitch,
+                        status = standing.word,
                         lifted = lifted,
                         canUp = lifted && reorder.canMove(-1),
                         canDown = lifted && reorder.canMove(1),
@@ -474,10 +502,11 @@ private fun PlayFromList(
                             when {
                                 lifted -> drop()
                                 getSwitch != null -> onGet(!getSwitch)
+                                standing != ServiceStanding.Ready -> onExplain(place)
                                 else -> reorder = reorder.pickUp(place)
                             }
                         },
-                        onLongClick = if (getSwitch != null) ({ if (!lifted) reorder = reorder.pickUp(place) }) else null,
+                        onLongClick = if (getSwitch != null || standing != ServiceStanding.Ready) ({ if (!lifted) reorder = reorder.pickUp(place) }) else null,
                         onCarry = { by -> reorder = reorder.move(by) },
                         onLeave = { reorder = reorder.cancel() },
                         onMoveNow = { by -> moveNow(place, by) },
@@ -510,6 +539,8 @@ private fun PlayFromRow(
     name: String,
     /** Get's on or off, drawn as a switch at the row's end; null for every other place. */
     switch: Boolean?,
+    /** Why a service can't play now, under its name, dimmed. */
+    status: String? = null,
     lifted: Boolean,
     canUp: Boolean,
     canDown: Boolean,
@@ -561,7 +592,7 @@ private fun PlayFromRow(
             .tvFocusScale(interaction, TvMotion.RowFocusScale)
             .tvTouch(interaction, onLongClick = onLongClick, onClick = onClick)
             .semantics(mergeDescendants = true) {
-                stateDescription = if (lifted) "Picked up, $number of $count" else "$number of $count"
+                stateDescription = listOfNotNull(if (lifted) "Picked up, $number of $count" else "$number of $count", status).joinToString(", ")
                 if (switch != null) {
                     role = Role.Switch
                     toggleableState = ToggleableState(switch)
@@ -600,10 +631,13 @@ private fun PlayFromRow(
                 color = if (lifted) LocalContentColor.current else colors.primary,
                 modifier = Modifier.width(24.dp),
             )
-            Column(Modifier.weight(1f).alpha(if (switch == false && !lifted) 0.6f else 1f)) {
+            Column(Modifier.weight(1f).alpha(if ((switch == false || status != null) && !lifted) 0.6f else 1f)) {
                 Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (switch != null) {
                     Text(GetSummary, style = MaterialTheme.typography.bodyMedium, color = LocalContentColor.current.copy(alpha = 0.72f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (status != null) {
+                    Text(status, style = MaterialTheme.typography.bodyMedium, color = LocalContentColor.current.copy(alpha = 0.72f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             when {

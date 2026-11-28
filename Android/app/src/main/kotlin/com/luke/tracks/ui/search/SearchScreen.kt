@@ -233,7 +233,7 @@ fun SearchScreen(initialQuery: String = "", initialScope: SearchScope = SearchSc
                 query.isBlank() && serviceKey != null && savedOnService != null -> LazyColumn(
                     contentPadding = PaddingValues(top = 8.dp, bottom = com.luke.tracks.ui.navigation.bottomClearance),
                 ) {
-                    serviceLibraryItems(serviceKey, chosenService, savedOnService, onRetry = { retry++ })
+                    serviceLibraryItems(serviceKey, chosenService, savedOnService, onRetry = { retry++ }, currentMediaId = current)
                 }
                 query.isBlank() -> Recents(recents, onPick = { query = it })
                 serviceKey != null -> com.luke.tracks.ui.library.WithLibraryActions {

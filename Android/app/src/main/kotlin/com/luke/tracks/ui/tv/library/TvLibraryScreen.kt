@@ -35,7 +35,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.key
 import com.luke.tracks.graph
+import com.luke.tracks.ui.services.ServiceLibrary
+import com.luke.tracks.ui.services.ServiceMark
+import com.luke.tracks.ui.services.loadServiceLibrary
+import com.luke.tracks.ui.services.rememberStreaming
+import com.luke.tracks.ui.services.streamingState
 import com.luke.tracks.library.LibraryAlbum
 import com.luke.tracks.library.LibraryArtist
 import com.luke.tracks.library.LibrarySnapshot
@@ -89,19 +96,36 @@ fun TvLibraryScreen() {
     val shown by produceState(snapshot.takeIf { selection is SourceSelection.All }, snapshot, selection) {
         value = if (selection is SourceSelection.All) snapshot else withContext(Dispatchers.Default) { snapshot.only(selection, registry::sourceOf) }
     }
+    val streaming = rememberStreaming()
+    val services = streamingState().libraryTabs()
     TvLibraryContent(
         snapshot = shown ?: LibrarySnapshot(isLoading = true),
         linked = sources.isNotEmpty() || snapshot.songs.isNotEmpty(),
         // Settings > Sources hosts the link flow while there's no server.
         onLink = { navigator.open(SettingsPageRoute("sources")) },
+        services = services,
+        loadService = streaming?.repository?.let { repository -> { tab -> loadServiceLibrary(repository, tab.key) } },
     )
 }
 
-/** The page from plain values, so every state renders the same in screenshots. */
+/**
+ * The page from plain values, so every state renders the same in screenshots. Each service
+ * with a saved library adds a tab after your own music's.
+ */
 @Composable
-fun TvLibraryContent(snapshot: LibrarySnapshot, linked: Boolean, onLink: () -> Unit, initialTab: TvLibraryTab = TvLibraryTab.Albums) {
+fun TvLibraryContent(
+    snapshot: LibrarySnapshot,
+    linked: Boolean,
+    onLink: () -> Unit,
+    initialTab: TvLibraryTab = TvLibraryTab.Albums,
+    services: List<TvServiceTab> = emptyList(),
+    loadService: (suspend (TvServiceTab) -> ServiceLibrary.Loaded)? = null,
+    initialService: String? = null,
+) {
     val memory = rememberFocusMemory()
     when {
+        linked && services.isNotEmpty() && (snapshot.songs.isNotEmpty() || !snapshot.isLoading) ->
+            Tabs(snapshot, memory, initialService ?: initialTab.name, services, loadService)
         !linked -> {
             val link = remember { FocusRequester() }
             memory.ClaimFocus(link)
@@ -115,35 +139,63 @@ fun TvLibraryContent(snapshot: LibrarySnapshot, linked: Boolean, onLink: () -> U
             memory.ClaimFocus(null)
             TvEmptyState("No Music Yet", icon = Icons.Rounded.LibraryMusic)
         }
-        else -> Tabs(snapshot, memory, initialTab)
+        else -> Tabs(snapshot, memory, initialTab.name, emptyList(), null)
     }
 }
 
+/** Your music's tabs while there's music, then a tab per service; each tab keyed by a name that survives a restart. */
 @Composable
-private fun Tabs(snapshot: LibrarySnapshot, memory: FocusMemory, initialTab: TvLibraryTab) {
-    var tab by rememberSaveable { mutableStateOf(initialTab) }
+private fun Tabs(
+    snapshot: LibrarySnapshot,
+    memory: FocusMemory,
+    initial: String,
+    services: List<TvServiceTab>,
+    loadService: (suspend (TvServiceTab) -> ServiceLibrary.Loaded)?,
+) {
+    val own = if (snapshot.songs.isNotEmpty()) TvLibraryTab.entries.map { it.name } else emptyList()
+    val ids = own + services.map { it.id }
+    var chosen by rememberSaveable { mutableStateOf(initial) }
+    // A service that went away, or your music emptied: the first tab there is.
+    val tab = chosen.takeIf { it in ids } ?: ids.first()
+    val service = services.firstOrNull { it.id == tab }
     val firstKey = when (tab) {
-        TvLibraryTab.Albums -> snapshot.albums.firstOrNull()?.let { "album:${it.id}" }
-        TvLibraryTab.Artists -> snapshot.artists.firstOrNull()?.let { "artist:${it.id}" }
-        TvLibraryTab.Songs -> snapshot.songs.firstOrNull()?.let { "song:${it.mediaId}" }
+        TvLibraryTab.Albums.name -> snapshot.albums.firstOrNull()?.let { "album:${it.id}" }
+        TvLibraryTab.Artists.name -> snapshot.artists.firstOrNull()?.let { "artist:${it.id}" }
+        TvLibraryTab.Songs.name -> snapshot.songs.firstOrNull()?.let { "song:${it.mediaId}" }
+        else -> null
     }
-    memory.ClaimFocus(memory.requester(firstKey ?: "tab:${tab.name}"))
+    memory.ClaimFocus(memory.requester(firstKey ?: "tab:$tab"))
     Column(Modifier.fillMaxSize().padding(top = TvLayout.SafeTop)) {
         Row(
-            Modifier.padding(start = TvLayout.ContentStart, end = TvLayout.SafeEnd, top = 4.dp).focusRestorer(memory.requester("tab:${tab.name}")),
+            Modifier.padding(start = TvLayout.ContentStart, end = TvLayout.SafeEnd, top = 4.dp).focusRestorer(memory.requester("tab:$tab")),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            TvLibraryTab.entries.forEach { option ->
-                TvChip(option.label, selected = option == tab, onClick = { tab = option }, modifier = Modifier.rememberFocus(memory, "tab:${option.name}"))
+            if (own.isNotEmpty()) TvLibraryTab.entries.forEach { option ->
+                TvChip(option.label, selected = option.name == tab, onClick = { chosen = option.name }, modifier = Modifier.rememberFocus(memory, "tab:${option.name}"))
+            }
+            services.forEach { option ->
+                key(option.id) {
+                    TvChip(
+                        option.name,
+                        selected = option.id == tab,
+                        onClick = { chosen = option.id },
+                        mark = { ServiceMark(option.service.logoKey, option.name, size = 20.dp) },
+                        modifier = Modifier.widthIn(max = ServiceTabMax).rememberFocus(memory, "tab:${option.id}"),
+                    )
+                }
             }
         }
-        when (tab) {
-            TvLibraryTab.Albums -> AlbumGrid(snapshot.albums, memory)
-            TvLibraryTab.Artists -> ArtistGrid(snapshot.artists, memory)
-            TvLibraryTab.Songs -> SongGrid(snapshot.songs, memory)
+        when {
+            service != null -> TvServiceLibrary(service, memory, loadService?.let { load -> { load(service) } })
+            tab == TvLibraryTab.Artists.name -> ArtistGrid(snapshot.artists, memory)
+            tab == TvLibraryTab.Songs.name -> SongGrid(snapshot.songs, memory)
+            else -> AlbumGrid(snapshot.albums, memory)
         }
     }
 }
+
+/** A long service name, two of a kind told apart by server, ends in an ellipsis. */
+private val ServiceTabMax = 320.dp
 
 private val GridPadding = PaddingValues(start = TvLayout.ContentStart, end = TvLayout.SafeEnd, top = 20.dp, bottom = TvLayout.SafeBottom + 16.dp)
 

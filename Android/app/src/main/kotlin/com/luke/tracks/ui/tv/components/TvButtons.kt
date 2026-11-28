@@ -117,6 +117,8 @@ fun TvChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    /** A mark of its own (a service's logo) in place of [icon], drawn at 20dp. */
+    mark: (@Composable () -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val resting = if (selected) colors.secondaryContainer else M3Theme.colorScheme.surfaceContainer
@@ -137,7 +139,10 @@ fun TvChip(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (icon != null) Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            when {
+                mark != null -> mark()
+                icon != null -> Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            }
             Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }

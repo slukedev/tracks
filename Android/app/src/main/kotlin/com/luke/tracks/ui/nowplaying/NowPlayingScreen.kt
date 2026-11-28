@@ -45,6 +45,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
@@ -308,6 +309,10 @@ private fun androidx.compose.foundation.layout.BoxScope.SkipMessages() {
  */
 @Composable
 private fun SourceBadge(song: PlayableSong, onGoToAlbum: (() -> Unit) -> Unit) {
+    if (com.luke.tracks.streaming.CatalogMedia.isCatalog(song.mediaId)) {
+        ServiceBadge(song.mediaId)
+        return
+    }
     val registry = com.luke.tracks.ui.sources.rememberSources()
     val sources by com.luke.tracks.ui.sources.sourceList()
     val source = sources.firstOrNull { it.id == registry.sourceOf(song.mediaId) } ?: return
@@ -351,6 +356,35 @@ private fun SourceBadge(song: PlayableSong, onGoToAlbum: (() -> Unit) -> Unit) {
     }
 }
 
+/** A service's song says which service plays it, with the service's mark, whatever else there is. */
+@Composable
+private fun ServiceBadge(mediaId: String) {
+    val service = com.luke.tracks.ui.services.rememberServiceOf(mediaId) ?: return
+    val name = com.luke.tracks.streaming.ServiceBrand.name(service)
+    val line = listOfNotNull(name, com.luke.tracks.streaming.ServiceBrand.quality(service)).joinToString(" · ")
+    val fade = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    Row(
+        Modifier
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 12.dp)
+            .semantics(mergeDescendants = true) { contentDescription = "Playing from $name" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        com.luke.tracks.ui.services.ServiceMark(service.logoKey, name, size = 18.dp)
+        Spacer(Modifier.width(8.dp))
+        AnimatedContent(line, transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) }, label = "service") { shown ->
+            Text(
+                shown,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 220.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun TopRow(
     state: PlayerState,
@@ -362,6 +396,8 @@ private fun TopRow(
     onTuneRadio: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
+    val service = com.luke.tracks.ui.services.rememberServiceOf(song.mediaId)
+    val streaming = com.luke.tracks.ui.services.streamingState()
     Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onClose) {
             Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close", modifier = Modifier.size(28.dp))
@@ -413,6 +449,14 @@ private fun TopRow(
                     MenuItem(Icons.AutoMirrored.Rounded.OpenInNew, "Open in another app") {
                         menu = false
                         actions.openElsewhere(song.ref())
+                    }
+                }
+                // A service's song starts that service's own radio where it can make one.
+                if (service != null && radio == null) {
+                    MenuItem(Icons.Rounded.Radio, "Start radio") {
+                        menu = false
+                        val serverId = com.luke.tracks.streaming.CatalogMedia.parse(song.mediaId)?.first
+                        player.startRadio(song, serverId != null && streaming.makesRadio(com.luke.tracks.streaming.ServiceKey(serverId, service.id)))
                     }
                 }
                 MenuItem(Icons.Rounded.RemoveCircleOutline, "Hear less of this") {
