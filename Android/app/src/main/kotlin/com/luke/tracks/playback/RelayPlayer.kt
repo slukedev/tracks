@@ -319,7 +319,7 @@ class RelayPlayer(
 
     private fun contextKind(kind: QueueOrigin.Kind) = when (kind) {
         QueueOrigin.Kind.Mix -> "mix"
-        QueueOrigin.Kind.Radio -> "station"
+        QueueOrigin.Kind.Radio, QueueOrigin.Kind.Station -> "station"
         QueueOrigin.Kind.Album -> "album"
         QueueOrigin.Kind.Artist -> "artist"
         QueueOrigin.Kind.Playlist -> "playlist"

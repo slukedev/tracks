@@ -39,7 +39,11 @@ enum class RepeatChoice { Off, All, One }
 
 /** Why the queue is playing, for the Now Playing header ("Playing from On Repeat"). */
 data class QueueOrigin(val title: String, val kind: Kind) {
-    enum class Kind { Mix, Radio, Album, Artist, Playlist, Library, Search, Other }
+    /** [Radio] is Tracks Radio; [Station] is a streaming service's station, which the relay plays. */
+    enum class Kind { Mix, Radio, Station, Album, Artist, Playlist, Library, Search, Other }
+
+    /** A station picks as it goes: no order to shuffle, no end to repeat. */
+    val isStation: Boolean get() = kind == Kind.Radio || kind == Kind.Station
 }
 
 data class PlayerState(

@@ -388,7 +388,7 @@ private fun Origin(origin: QueueOrigin) {
 private val QueueOrigin.Kind.icon: ImageVector
     get() = when (this) {
         QueueOrigin.Kind.Mix -> Icons.Rounded.AutoAwesome
-        QueueOrigin.Kind.Radio -> Icons.Rounded.Radio
+        QueueOrigin.Kind.Radio, QueueOrigin.Kind.Station -> Icons.Rounded.Radio
         QueueOrigin.Kind.Album -> Icons.Rounded.Album
         QueueOrigin.Kind.Artist -> Icons.Rounded.Person
         QueueOrigin.Kind.Playlist -> Icons.AutoMirrored.Rounded.QueueMusic
@@ -430,7 +430,7 @@ private fun Secondary(
     var named by remember { mutableStateOf<String?>(null) }
     // Shown at once on press, until the settings agree.
     var liked by remember(song.identity, marks.liked) { mutableStateOf(marks.liked) }
-    val station = radio != null
+    val station = radio != null || state.origin?.isStation == true
     val sleepLeft = sleepMinutes(state.sleepAtMs)
     Column {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

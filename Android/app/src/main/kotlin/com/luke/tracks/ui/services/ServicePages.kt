@@ -284,7 +284,7 @@ internal fun playStation(context: android.content.Context, serverId: String, sta
         durationMs = null,
         identity = songIdentity(station.name, ""),
     )
-    context.graph.player.play(listOf(song), 0, QueueOrigin(station.name, QueueOrigin.Kind.Radio))
+    context.graph.player.play(listOf(song), 0, QueueOrigin(station.name, QueueOrigin.Kind.Station))
 }
 
 /**
