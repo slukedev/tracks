@@ -292,23 +292,25 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
         updateNowPlayingInfo()
         let request = playRequest(queue.entries, start: queue.start, position: queue.position)
         do {
-            if let session, !session.hasEnded {
-                let command = try await client.play(on: session.speakerID, request, key: UUID().uuidString)
+            do {
+                if let session, !session.hasEnded {
+                    let command = try await client.play(on: session.speakerID, request, key: UUID().uuidString)
+                    guard asked == starts else { throw CancellationError() }
+                    accept(command)
+                } else {
+                    let started = try await startRelay(client, play: request)
+                    guard asked == starts else { throw CancellationError() }
+                    adopt(started)
+                }
+            } catch TracksideError.conflict(let reason) where reason == "relay_ended" {
+                // Ended under us: once more, on a new one.
                 guard asked == starts else { throw CancellationError() }
-                accept(command)
-            } else {
+                session = nil
                 let started = try await startRelay(client, play: request)
                 guard asked == starts else { throw CancellationError() }
                 adopt(started)
             }
             // The speaker as it plays it, and the queue as the services expanded it.
-            catchUp()
-        } catch TracksideError.conflict(let reason) where reason == "relay_ended" {
-            // Ended under us: once more, on a new one.
-            session = nil
-            let started = try await startRelay(client, play: request)
-            guard asked == starts else { throw CancellationError() }
-            adopt(started)
             catchUp()
         } catch {
             guard asked == starts else { throw CancellationError() }

@@ -1326,6 +1326,8 @@ final class MusicServers {
             String(localized: "Your server only connects over https, and none of its https addresses answered. Check its public address.")
         case .linkExpired, .linkLocked:
             TracksideLinkWords.problem(error)
+        case .unsupported:
+            String(localized: "This speaker can't do that.")
         case .mediaTokenExpired, .conflict, .syncReset, .candidateExpired, .preconditionFailed, .invalidState, .featureUnavailable:
             String(localized: "The server couldn't answer.")
         }

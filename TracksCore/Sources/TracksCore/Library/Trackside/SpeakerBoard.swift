@@ -129,6 +129,7 @@ public struct SpeakerBoard: Sendable, Equatable {
         self.etag = etag
         confirmed = Dictionary(list.speakers.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         order = Self.sorted(Array(confirmed.values)).map(\.id)
+        let confirmed = confirmed
         pending.removeAll { item in
             guard let speaker = confirmed[item.speakerID] else { return true }
             return !speaker.isReachable || (item.isDone && speaker.revision > item.baseRevision)
