@@ -186,8 +186,10 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
         sources: List<com.luke.tracks.sources.Source> = TvSourcesDemo.servers,
         selection: SourceSelection = SourceSelection.All,
         sync: SyncSwitch? = null,
+        extra: Map<PlayFromPlace, String> = emptyMap(),
+        get: Boolean? = null,
     ) {
-        var order by remember { mutableStateOf(sources.map { PlayFromPlace.From(it.id) as PlayFromPlace }) }
+        var order by remember { mutableStateOf(sources.map { PlayFromPlace.From(it.id) as PlayFromPlace } + extra.keys) }
         var chosen by remember { mutableStateOf(selection) }
         // In the whole screen, as it's seen: the list stays put while the page scrolls.
         Claimed {
@@ -201,6 +203,8 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
                     onRefresh = {},
                     onUnlink = {},
                     syncFor = { sync },
+                    placeNames = extra,
+                    get = get,
                 )
             }
         }
@@ -235,6 +239,29 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
     @Test fun sourcesOne() = snap("settings-sources-one") { Sources(listOf(TvSourcesDemo.living)) }
 
     @Test fun sourcesSeveral() = snap("settings-sources-several") { Sources() }
+
+    /** Play From with Apple Music through the server and Get, last, with its switch. */
+    @Test fun sourcesWithServicesAndGet() = snap("settings-sources-services") {
+        Sources(
+            listOf(TvSourcesDemo.living),
+            extra = mapOf(PlayFromPlace.Service(PlayFromPlace.APPLE_MUSIC) to "Apple Music", PlayFromPlace.Get to "Get"),
+            get = true,
+        )
+    }
+
+    /** The Apple Music row picked up and carried to the top. */
+    @Test fun sourcesServiceLifted() {
+        show {
+            Sources(
+                listOf(TvSourcesDemo.living, TvSourcesDemo.den),
+                extra = mapOf(PlayFromPlace.Service(PlayFromPlace.APPLE_MUSIC) to "Apple Music", PlayFromPlace.Get to "Get"),
+                get = false,
+            )
+        }
+        focus(hasStateDescription("3 of 4"))
+        press(listOf(Key.DirectionCenter, Key.DirectionUp, Key.DirectionUp))
+        capture("settings-sources-service-lifted")
+    }
 
     @Test fun sourcesOnlyOne() {
         show { Sources(selection = SourceSelection.Only(TvSourcesDemo.den.id)) }

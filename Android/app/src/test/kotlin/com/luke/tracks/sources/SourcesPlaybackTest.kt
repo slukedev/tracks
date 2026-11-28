@@ -92,8 +92,8 @@ class SourcesPlaybackTest {
 
     @Test fun theOrderKeepsWhatItDoesntShowWhereItWas() {
         val order = PlayFromOrder.parse("server:gone\nappleMusic\nspotify\ndevice")
-        // Apple Music is a place only on the iPhone and the Mac: kept where it was, and movable.
-        val moved = order.reordered(listOf(SourceId.Device, SourceId.parse("appleMusic")).map(PlayFromPlace::From))
+        // Apple Music is stored as the iPhone stores it: kept where it was, and movable.
+        val moved = order.reordered(listOf(PlayFromPlace.From(SourceId.Device), PlayFromPlace.Service(PlayFromPlace.APPLE_MUSIC)))
         assertEquals("server:gone\ndevice\nspotify\nappleMusic", moved.raw)
         assertEquals(order, PlayFromOrder.parse(order.raw))
         assertEquals(
