@@ -143,6 +143,10 @@ final class AppModel {
     /// Your Stats). The window pushes it and clears it.
     var pendingRoute: Route?
 
+    /// A speaker whose page the Mac's Settings window should open on, asked for from the
+    /// Devices popover. The Devices pane opens it and clears it.
+    var pendingSpeakerSettings: SpeakerAddress?
+
     /// The Mac sidebar selection. Lives here so menu commands can change it.
     var sidebarSelection: SidebarItem? = LaunchScene.sidebar.flatMap(SidebarItem.init(rawValue:))
         ?? (LaunchScene.searchText != nil ? .search : SidebarItem.opening)

@@ -75,6 +75,11 @@ struct DevicesSettingsPage: View {
         .sheet(item: $openSpeaker) { address in
             SpeakerSettingsPage(address: address)
         }
+        .onChange(of: model.pendingSpeakerSettings, initial: true) { _, address in
+            guard let address else { return }
+            openSpeaker = address
+            model.pendingSpeakerSettings = nil
+        }
         #endif
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: isOn)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: model.nearby.devices.map(\.id))

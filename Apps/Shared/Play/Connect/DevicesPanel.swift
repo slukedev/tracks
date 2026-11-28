@@ -302,6 +302,7 @@ struct DevicesPanel: View {
 
     private func openSpeakerSettings(_ address: SpeakerAddress) {
         #if os(macOS)
+        model.pendingSpeakerSettings = address
         settingsPane = .devices
         openSettings()
         close()
