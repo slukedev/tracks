@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -40,10 +41,14 @@ import com.luke.tracks.library.LibraryArtist
 import com.luke.tracks.library.LibrarySnapshot
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
+import com.luke.tracks.sources.SourceSelection
 import com.luke.tracks.ui.navigation.LibraryAlbumRoute
 import com.luke.tracks.ui.navigation.LibraryArtistRoute
 import com.luke.tracks.ui.navigation.SettingsPageRoute
+import com.luke.tracks.ui.library.only
+import com.luke.tracks.ui.sources.rememberSources
 import com.luke.tracks.ui.sources.sourceList
+import com.luke.tracks.ui.sources.sourceSelection
 import com.luke.tracks.ui.tv.components.ClaimFocus
 import com.luke.tracks.ui.tv.components.FocusMemory
 import com.luke.tracks.ui.tv.components.TvArtwork
@@ -62,6 +67,8 @@ import com.luke.tracks.ui.tv.detail.rememberPendingPlay
 import com.luke.tracks.ui.tv.detail.trackLength
 import com.luke.tracks.ui.tv.navigation.LocalTvNavigator
 import com.luke.tracks.ui.tv.theme.TvLayout
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 enum class TvLibraryTab(val label: String) { Albums("Albums"), Artists("Artists"), Songs("Songs") }
 
@@ -75,12 +82,18 @@ fun TvLibraryScreen() {
     val graph = LocalContext.current.graph
     val snapshot by graph.library.snapshot.collectAsStateWithLifecycle()
     val sources by sourceList()
+    val selection by sourceSelection()
+    val registry = rememberSources()
     val navigator = LocalTvNavigator.current
+    // One server's songs only, when Settings > Sources says so; narrowed off the main thread.
+    val shown by produceState(snapshot.takeIf { selection is SourceSelection.All }, snapshot, selection) {
+        value = if (selection is SourceSelection.All) snapshot else withContext(Dispatchers.Default) { snapshot.only(selection, registry::sourceOf) }
+    }
     TvLibraryContent(
-        snapshot = snapshot,
+        snapshot = shown ?: LibrarySnapshot(isLoading = true),
         linked = sources.isNotEmpty() || snapshot.songs.isNotEmpty(),
-        // Settings > Trackside hosts the link flow while there's no server.
-        onLink = { navigator.open(SettingsPageRoute("trackside")) },
+        // Settings > Sources hosts the link flow while there's no server.
+        onLink = { navigator.open(SettingsPageRoute("sources")) },
     )
 }
 

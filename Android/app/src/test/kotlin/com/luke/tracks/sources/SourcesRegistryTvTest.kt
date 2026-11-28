@@ -41,6 +41,24 @@ class SourcesRegistryTvTest {
         )
     }
 
+    @Test fun aTvsChoiceOfOneServerAndItsPlayFromOrderAreKeptAsThePhoneKeepsThem() {
+        val registry = registry(TV_SOURCE_KINDS)
+        registry.select(SourceSelection.Only(SourceId.Server("s2")))
+        assertEquals(SourceSelection.Only(SourceId.Server("s2")), registry.selection.value)
+
+        val studioFirst = listOf(SourceId.Server("s2"), SourceId.Server("s1")).map(PlayFromPlace::From)
+        registry.setPlayFrom(studioFirst)
+        assertEquals(studioFirst, registry.arrangedPlayFrom())
+
+        // The same stored form as the phone's and the iPhone's, places this TV doesn't have kept.
+        val prefs = ApplicationProvider.getApplicationContext<Context>().getSharedPreferences("tv-sources", Context.MODE_PRIVATE)
+        assertEquals("server:s2", prefs.getString("sourceFilter", null))
+        assertEquals("device\nserver:s2\nserver:s1", prefs.getString("playFromOrder", null))
+        val again = SourcesRegistry(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), listOf(FakeProvider(SourceKind.Server, listOf(FakeSources.home, FakeSources.studio))), allowedKinds = TV_SOURCE_KINDS)
+        assertEquals(studioFirst, again.arrangedPlayFrom())
+        assertEquals(SourceSelection.Only(SourceId.Server("s2")), again.selection.value)
+    }
+
     @Test fun phoneKeepsEverySource() {
         val registry = registry(SourceKind.entries.toSet())
         assertEquals(SourceKind.entries.toList(), registry.sources.value.map { it.kind }.distinct())
