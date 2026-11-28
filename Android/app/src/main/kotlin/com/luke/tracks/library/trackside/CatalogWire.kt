@@ -139,7 +139,7 @@ data class TracksideCatalogSearch(
     val albums: Section<TracksideCatalogItem>? = null,
     val artists: Section<TracksideCatalogItem>? = null,
     val playlists: Section<TracksideCatalogItem>? = null,
-    val radios: Section<TracksideCatalogItem>? = null,
+    @SerialName("radio") val radios: Section<TracksideCatalogItem>? = null,
     /** False when a service didn't answer in time. */
     val complete: Boolean = true,
     val services: List<ServiceState> = emptyList(),

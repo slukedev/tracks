@@ -42,7 +42,7 @@ private class FakeCatalog(var answer: suspend () -> TracksideCatalogRecommendati
     }
     override suspend fun access() = TracksideClient.CatalogAccess.Play(cellular = false, recommends = true)
     override suspend fun services() = TracksideCatalogServices()
-    override suspend fun search(query: String, services: List<String>, limit: Int) = TracksideCatalogSearch()
+    override suspend fun search(query: String, services: List<String>, limit: Int, types: List<String>) = TracksideCatalogSearch()
     override suspend fun item(ref: String, cursor: String?, limit: Int?) = TracksideCatalogPage()
     override suspend fun library(serviceId: String, kind: String, cursor: String?) = TracksideCatalogLibrary<TracksideCatalogItem>()
     override suspend fun libraryTracks(serviceId: String, cursor: String?) = TracksideCatalogLibrary<TracksideCatalogTrack>()
