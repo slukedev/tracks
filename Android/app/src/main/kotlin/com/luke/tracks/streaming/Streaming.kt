@@ -16,7 +16,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** Your servers' streaming services and this phone's relay, for this process, once the Trackside services start. */
-class Streaming private constructor(val repository: StreamingRepository, val relay: RelayEngine, val servers: ServerLibrary) {
+class Streaming private constructor(
+    val repository: StreamingRepository,
+    val relay: RelayEngine,
+    val servers: ServerLibrary,
+    /** The services' own picks, for Play. */
+    val recommendations: CatalogRecommendations,
+) {
     companion object {
         private val installed = java.util.WeakHashMap<AppGraph, Streaming>()
 
@@ -52,7 +58,12 @@ class Streaming private constructor(val repository: StreamingRepository, val rel
                         metered to (serverId?.let { state.server(it)?.relayCellular } ?: false)
                     }.distinctUntilChanged().collect { (metered, cellular) -> relay.preferTier(metered, cellular) }
                 }
-                Streaming(repository, relay, servers)
+                val recommendations = CatalogRecommendations(
+                    scope = graph.scope,
+                    streaming = repository.state,
+                    clientFor = { id -> servers.tracksideClient(id)?.let(::TracksideCatalogClient) },
+                )
+                Streaming(repository, relay, servers, recommendations)
             }
         }
 
