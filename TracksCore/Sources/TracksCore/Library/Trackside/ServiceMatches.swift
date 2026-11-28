@@ -38,25 +38,27 @@ public struct WantedSong: Sendable, Hashable {
 }
 
 /// `POST /catalog/match`: many songs matched to the services' in one request.
-public struct TracksideCatalogMatchRequest: Encodable, Sendable, Hashable {
-    public struct Item: Encodable, Sendable, Hashable {
+public struct TracksideCatalogMatchRequest: Codable, Sendable, Hashable {
+    public struct Item: Codable, Sendable, Hashable {
         /// The caller's own, unique in the request.
         public var id: String
         public var title: String
         public var artist: String
         public var album: String?
         public var durationMS: Int?
+        public var isrc: String?
 
-        public init(id: String, title: String, artist: String, album: String? = nil, durationMS: Int? = nil) {
+        public init(id: String, title: String, artist: String, album: String? = nil, durationMS: Int? = nil, isrc: String? = nil) {
             self.id = id
             self.title = title
             self.artist = artist
             self.album = album
             self.durationMS = durationMS
+            self.isrc = isrc
         }
 
         enum CodingKeys: String, CodingKey {
-            case id, title, artist, album
+            case id, title, artist, album, isrc
             case durationMS = "duration_ms"
         }
     }
@@ -342,7 +344,7 @@ public enum ServiceLookup {
                 group.addTask { (offset, await search(songs[offset], serviceID: serviceID, client: client)) }
                 next += 1
             }
-            for await (offset, answer) in group {
+            while let (offset, answer) = await group.next() {
                 looked[offset] = answer
                 if next < songs.count {
                     let offset = next

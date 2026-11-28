@@ -512,6 +512,8 @@ public struct TracksideSpeakerPlayRequest: Codable, Sendable, Hashable {
     public var radio: Bool?
     /// Takes the service's only stream from the player holding it, where the server can.
     public var takeover: Bool?
+    /// Loads the queue paused at its start, to begin on a later play command.
+    public var hold: Bool?
 
     /// The most items one request takes.
     public static let itemLimit = 1_000
@@ -527,10 +529,25 @@ public struct TracksideSpeakerPlayRequest: Codable, Sendable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case context, items, mode, shuffle, radio, takeover
+        case context, items, mode, shuffle, radio, takeover, hold
         case positionMS = "position_ms"
         case repeatMode = "repeat"
         case startIndex = "start_index"
+    }
+
+    /// A radio play may leave `mode` out, which means `replace`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        context = try container.decodeIfPresent(TracksideSpeaker.Context.self, forKey: .context)
+        items = try container.decode([Item].self, forKey: .items)
+        mode = try container.decodeIfPresent(Mode.self, forKey: .mode) ?? .replace
+        positionMS = try container.decodeIfPresent(Int.self, forKey: .positionMS)
+        repeatMode = try container.decodeIfPresent(TracksideSpeaker.Repeat.self, forKey: .repeatMode)
+        shuffle = try container.decodeIfPresent(Bool.self, forKey: .shuffle)
+        startIndex = try container.decodeIfPresent(Int.self, forKey: .startIndex)
+        radio = try container.decodeIfPresent(Bool.self, forKey: .radio)
+        takeover = try container.decodeIfPresent(Bool.self, forKey: .takeover)
+        hold = try container.decodeIfPresent(Bool.self, forKey: .hold)
     }
 
     /// The service's radio from one item: no start, position or shuffle with it.
@@ -690,19 +707,22 @@ public struct TracksideSpeakerCommandOutcome: Codable, Sendable, Hashable {
         public var reason: Reason?
         public var serviceID: String?
         /// The speaker holding the service's stream, where this user can see it.
+        public var holderID: String?
         public var holderName: String?
 
-        public init(code: String, message: String? = nil, reason: Reason? = nil, serviceID: String? = nil, holderName: String? = nil) {
+        public init(code: String, message: String? = nil, reason: Reason? = nil, serviceID: String? = nil, holderID: String? = nil, holderName: String? = nil) {
             self.code = code
             self.message = message
             self.reason = reason
             self.serviceID = serviceID
+            self.holderID = holderID
             self.holderName = holderName
         }
 
         enum CodingKeys: String, CodingKey {
             case code, message, reason
             case serviceID = "service_id"
+            case holderID = "holder_id"
             case holderName = "holder_name"
         }
 
@@ -712,6 +732,7 @@ public struct TracksideSpeakerCommandOutcome: Codable, Sendable, Hashable {
             message = try? container.decodeIfPresent(String.self, forKey: .message)
             reason = try? container.decodeIfPresent(Reason.self, forKey: .reason)
             serviceID = (try? container.decodeIfPresent(String.self, forKey: .serviceID))?.lowercased()
+            holderID = (try? container.decodeIfPresent(String.self, forKey: .holderID))?.lowercased()
             holderName = try? container.decodeIfPresent(String.self, forKey: .holderName)
         }
     }

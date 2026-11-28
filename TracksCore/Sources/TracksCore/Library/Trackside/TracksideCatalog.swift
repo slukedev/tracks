@@ -808,7 +808,8 @@ extension TracksideClient {
     /// Saves an item to its service's library, or removes it. Either is safe to send twice.
     /// - Throws: ``TracksideError/unsupported(capability:)`` `library_edit` where it can't
     ///   be, and ``TracksideError/conflict(reason:)`` `service_signed_out` or, removing,
-    ///   `in_other_library`.
+    ///   `not_removable`, when the service's library entry also holds it for another source
+    ///   and it stays saved.
     public func setCatalogSaved(_ saved: Bool, ref: String) async throws -> TracksideCatalogSaved {
         try await send("catalog/items/\(ref)/saved", method: saved ? "PUT" : "DELETE")
     }

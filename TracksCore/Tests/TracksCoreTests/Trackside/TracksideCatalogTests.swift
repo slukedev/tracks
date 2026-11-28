@@ -18,7 +18,10 @@ struct TracksideCatalogTests {
         let first = list.services[0]
         #expect(first.id == "bqtyy4kcexcsg6wa0y4w5")
         #expect(first.logoKey == "spotify")
-        #expect(first.capabilities == [.library, .playlists, .radio, .recommendations, .search, .similar, .topTracks])
+        #expect(first.capabilities == [.library, .libraryEdit, .playlists, .radio, .recommendations, .search, .similar, .topTracks])
+        #expect(first.libraryEditKinds == ["album", "artist", "playlist", "track"])
+        #expect(first.canSave("track"))
+        #expect(!list.services[1].canSave("track"))
         #expect(first.quality == .high)
         #expect(first.isSearchable)
         #expect(!first.isNativeOnApple)
@@ -95,6 +98,7 @@ struct TracksideCatalogTests {
         #expect(album.artistRef == "mc1.YXJ0aXN0H3Nwb3RpZnkfNnZXRE85NjlQdk5xTllISU9XNXYwbQ")
         #expect(tracks.map(\.trackNumber) == [3, 9])
         #expect(tracks.map(\.songID) == ["sdjcz08vf67h7cx28snq6", nil])
+        #expect(tracks.map(\.saved) == [true, false])
 
         guard case .artist(let artist, let top, let albums) = try fixture(TracksideCatalogItem.self, "catalog-artist.json") else {
             Issue.record("expected an artist")
@@ -219,6 +223,12 @@ struct TracksideCatalogTests {
         #expect(me.features?.catalog?.relay == true)
         #expect(me.features?.catalog?.relayCellular == true)
         #expect(me.features?.catalog?.recommendations == true)
+        #expect(me.features?.catalog?.save == true)
+        #expect(me.features?.catalog?.radio == true)
+        #expect(me.features?.catalog?.match == true)
+        #expect(me.features?.speakers?.takeover == true)
+        #expect(me.features?.speakers?.hold == true)
+        #expect(me.features?.speakers?.queueRemove == true)
         let older = try fixture(TracksideMe.self, "me-without-acquisition.json")
         #expect(older.features?.catalog == nil)
     }

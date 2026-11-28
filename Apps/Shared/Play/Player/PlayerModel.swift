@@ -142,7 +142,7 @@ final class PlayerModel {
             relay.onRemoteNext = { [weak self] in self?.skipToNext() }
             relay.onRemotePrevious = { [weak self] in self?.skipToPrevious() }
             relay.onRadioUnavailable = { [weak self] seed in
-                Task { await self?.startRadio(seededBy: seed) }
+                Task { [weak self] in await self?.startRadio(seededBy: seed) }
             }
             return
         }

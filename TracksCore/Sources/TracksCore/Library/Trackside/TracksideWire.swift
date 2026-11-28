@@ -581,12 +581,32 @@ public struct TracksideMe: Codable, Sendable, Hashable {
     public struct Speakers: Codable, Sendable, Hashable {
         /// The key may control them too, not just see them.
         public var control: Bool?
-        /// A play can take a service's only stream from the player holding it.
+        /// A play can take a service's only stream from the player holding it, and a failed
+        /// command says why.
         public var takeover: Bool?
+        /// A play can load its queue paused at the start, to begin on a later command.
+        public var hold: Bool?
+        /// One queued item can be removed from a speaker's queue.
+        public var queueRemove: Bool?
 
-        public init(control: Bool? = nil, takeover: Bool? = nil) {
+        public init(control: Bool? = nil, takeover: Bool? = nil, hold: Bool? = nil, queueRemove: Bool? = nil) {
             self.control = control
             self.takeover = takeover
+            self.hold = hold
+            self.queueRemove = queueRemove
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case control, takeover, hold
+            case queueRemove = "queue_remove"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            control = try? container.decodeIfPresent(Bool.self, forKey: .control)
+            takeover = try? container.decodeIfPresent(Bool.self, forKey: .takeover)
+            hold = try? container.decodeIfPresent(Bool.self, forKey: .hold)
+            queueRemove = try? container.decodeIfPresent(Bool.self, forKey: .queueRemove)
         }
     }
 

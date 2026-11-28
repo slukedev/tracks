@@ -303,7 +303,9 @@ out: it plays natively through MusicKit.
   again happens where the server's services are set up.
 - The star in Now Playing, and Save in a service song's menu, save it to the service's library
   (Spotify's Liked Songs) and remove it, where the server has `features.catalog.save` and the
-  service lists the kind in `library_edit_kinds`. Hear Less stays in Tracks.
+  service lists the kind in `library_edit_kinds`. Hear Less stays in Tracks. A song the
+  service can't take out of its library (`not_removable`: the server's own copy shares the
+  entry) stays starred, and Now Playing says it couldn't be removed.
 - Start Radio in a service song's menu plays the service's own radio from it (`"radio": true`,
   where the server has `features.catalog.radio` and the service has `similar`). When the
   service can't make one (`radio_unavailable`), songs picked from it the way Tracks Radio
@@ -461,6 +463,9 @@ From Android:
 - A queue sent to a service starts at the song asked for: songs before it in the list aren't
   part of the relay's queue.
 - Speakers' plays aren't kept in the history here, so they aren't scrobbled from this device.
+- Removing one song from a relay or speaker queue (`features.speakers.queue_remove`), and the
+  held start that hands over to a service's song without a gap (`"hold": true`, api.md 22.5).
+  `/me` reads both flags here, but nothing uses them yet.
 
 From Android (planned there):
 

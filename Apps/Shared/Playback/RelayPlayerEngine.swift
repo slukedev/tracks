@@ -173,7 +173,8 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
     /// said; nil for one of the server's own songs.
     var currentServiceItem: (ref: String, saved: Bool?)? {
         if let playing = heard?.nowPlaying, !entries.indices.contains(index) || !entries[index].relay.isSame(as: playing) {
-            return playing.ref.map { (ref: $0, saved: nil) }
+            guard let ref = playing.ref else { return nil }
+            return (ref: ref, saved: nil)
         }
         guard entries.indices.contains(index), case .ref(let ref) = entries[index].relay.item else { return nil }
         return (ref: ref, saved: entries[index].relay.saved)
@@ -558,10 +559,11 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
 
     /// How a command to the relay went, as the server says once it's done.
     private func settled(_ outcome: TracksideSpeakerCommandOutcome) {
-        let seed = radioSeed
-        radioSeed = nil
         guard outcome.outcome == .failed else { return }
-        if outcome.error?.reason == .radioUnavailable, let seed {
+        // Only a radio play fails this way; the seed stays until the next queue starts, as
+        // another command's outcome can come first.
+        if outcome.error?.reason == .radioUnavailable, let seed = radioSeed {
+            radioSeed = nil
             // Quietly: the service has no radio for it today, so Tracks picks from the song.
             onRadioUnavailable?(seed)
             return

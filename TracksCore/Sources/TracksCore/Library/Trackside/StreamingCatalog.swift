@@ -288,7 +288,7 @@ public final class StreamingCatalog {
     }
 
     /// Saves an item to its service's library, or removes it. Shown at once, and put back
-    /// when the server refuses.
+    /// when the server refuses; one the service can't remove (`not_removable`) shows saved.
     public func setSaved(_ isSaved: Bool, ref: String, on serverID: String) async throws {
         guard let client = clients[serverID] else { throw TracksideError.featureUnavailable }
         let key = "\(serverID)/\(ref)"
@@ -297,6 +297,10 @@ public final class StreamingCatalog {
         do {
             let answer = try await client.setCatalogSaved(isSaved, ref: ref)
             saved[key] = answer.isSaved
+        } catch TracksideError.conflict(let reason) where reason == "not_removable" {
+            // The service's library entry holds it for another source too: it stays saved.
+            saved[key] = true
+            throw TracksideError.conflict(reason: reason)
         } catch {
             saved[key] = was
             throw error

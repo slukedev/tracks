@@ -50,27 +50,37 @@ struct ServicePlayFromTests {
 
     @Test("a batch match reads each song's answer, and a state this build doesn't know")
     func matchWire() throws {
-        let answer = try T.decode(TracksideCatalogMatch.self, #"""
-        {"complete": false, "retry_after_s": 20, "results": [
-          {"id": "0", "matches": [{"service_id": "B1", "state": "found", "track": {"kind": "track", "ref": "mc1.a", "service_id": "b1", "title": "Halo", "artist": "Beyoncé"}}]},
-          {"id": "1", "matches": [{"service_id": "b1", "state": "none"}]},
-          {"id": "2", "matches": [{"service_id": "b1", "state": "deferred"}, {"service_id": "b2", "state": "brand_new"}]}
-        ]}
-        """#)
+        let answer = try TracksideJSON.decoder.decode(TracksideCatalogMatch.self, from: TracksideFixtures.data("catalog-match.json"))
         #expect(!answer.isComplete)
-        #expect(answer.retryAfter == 20)
-        #expect(answer.results.map(\.id) == ["0", "1", "2"])
-        #expect(answer.results[0].matches.first?.serviceID == "b1")
-        #expect(answer.results[0].matches.first?.track?.ref == "mc1.a")
-        #expect(answer.results[1].matches.first?.state == .notFound)
-        #expect(answer.results[2].matches.map(\.state) == [.deferred, .unknown])
+        #expect(answer.retryAfter == 12)
+        #expect(answer.results.map(\.id) == ["sdjcz08vf67h7cx28snq6", "local-2"])
+        let halo = try #require(answer.results.first)
+        #expect(halo.matches.map(\.serviceID) == ["bqtyy4kcexcsg6wa0y4w5", "bnr6z9ds6zzv5xjpv0j1s"])
+        #expect(halo.matches.map(\.state) == [.found, .timedOut])
+        #expect(halo.matches[0].track?.ref == "mc1.dHJhY2sfc3BvdGlmeR8wV3FkMHpBNXdOcFFuUUJHRVVIMGY0")
+        #expect(halo.matches[0].track?.songID == "sdjcz08vf67h7cx28snq6")
+        #expect(halo.matches[1].track == nil)
+        #expect(answer.results[1].matches.map(\.state) == [.deferred, .notFound])
 
-        let request = TracksideCatalogMatchRequest(items: [.init(id: "0", title: "Halo", artist: "Beyoncé", durationMS: 261_640)], services: ["b1"])
-        let body = try #require(JSONSerialization.jsonObject(with: TracksideJSON.encoder.encode(request)) as? [String: Any])
-        let item = try #require((body["items"] as? [[String: Any]])?.first)
-        #expect(item["duration_ms"] as? Int == 261_640)
-        #expect(item["album"] == nil)
-        #expect(body["services"] as? [String] == ["b1"])
+        let newer = try T.decode(TracksideCatalogMatch.self, #"{"complete": true, "results": [{"id": "0", "matches": [{"service_id": "B1", "state": "brand_new"}]}]}"#)
+        #expect(newer.results.first?.matches.first?.state == .unknown)
+        #expect(newer.results.first?.matches.first?.serviceID == "b1")
+        #expect(newer.retryAfter == nil)
+    }
+
+    @Test("a batch match asks as the server's example does")
+    func matchRequest() throws {
+        let request = TracksideCatalogMatchRequest(
+            items: [
+                .init(id: "sdjcz08vf67h7cx28snq6", title: "Halo", artist: "Beyoncé", album: "I Am... Sasha Fierce", durationMS: 261_640, isrc: "USSM10804555"),
+                .init(id: "local-2", title: "Single Ladies (Put a Ring on It)", artist: "Beyoncé", durationMS: 193_213),
+            ],
+            services: ["bqtyy4kcexcsg6wa0y4w5", "bnr6z9ds6zzv5xjpv0j1s"]
+        )
+        let written = try #require(JSONSerialization.jsonObject(with: TracksideJSON.encoder.encode(request)) as? NSDictionary)
+        let example = try #require(JSONSerialization.jsonObject(with: TracksideFixtures.data("catalog-match-request.json")) as? NSDictionary)
+        #expect(written == example)
+        #expect(try TracksideJSON.decoder.decode(TracksideCatalogMatchRequest.self, from: TracksideFixtures.data("catalog-match-request.json")) == request)
     }
 
     @Test("found songs are kept a week, missing ones a day, and read back from the file")
@@ -210,50 +220,72 @@ struct ServiceLibraryEditTests {
 
     @Test("a service says which kinds it saves, and a track whether it's saved")
     func wire() throws {
-        let service = try T.decode(TracksideCatalogService.self, #"{"id": "B1", "name": "Spotify", "logo_key": "spotify", "capabilities": ["library_edit", "search"], "library_edit_kinds": ["album", "track", 7], "account": {"state": "ok"}}"#)
-        #expect(service.can(.libraryEdit))
-        #expect(service.libraryEditKinds == ["album", "track"])
-        #expect(service.canSave("track"))
-        #expect(!service.canSave("playlist"))
-        #expect(service.placeKind == "spotify")
+        let services = try TracksideJSON.decoder.decode(TracksideCatalogServiceList.self, from: TracksideFixtures.data("catalog-services.json")).services
+        let spotify = services[0]
+        #expect(spotify.can(.libraryEdit))
+        #expect(spotify.libraryEditKinds == ["album", "artist", "playlist", "track"])
+        #expect(spotify.canSave("track"))
+        #expect(spotify.placeKind == "spotify")
+        #expect(!services[1].canSave("track"))
+
+        // A kind in a shape this build doesn't expect is left out, never the service.
+        let odd = try T.decode(TracksideCatalogService.self, #"{"id": "B1", "name": "Spotify", "logo_key": "spotify", "capabilities": ["library_edit", "search"], "library_edit_kinds": ["album", "track", 7], "account": {"state": "ok"}}"#)
+        #expect(odd.libraryEditKinds == ["album", "track"])
+        #expect(!odd.canSave("playlist"))
 
         let unnamed = try T.decode(TracksideCatalogService.self, #"{"id": "b2", "name": "Elsewhere"}"#)
         #expect(unnamed.placeKind == "b2")
         #expect(!unnamed.canSave("track"))
 
-        let track = try T.decode(TracksideCatalogTrack.self, #"{"ref": "mc1.a", "service_id": "b1", "title": "Halo", "saved": true}"#)
-        #expect(track.saved == true)
-        #expect(try T.decode(TracksideCatalogTrack.self, #"{"ref": "mc1.a", "title": "Halo"}"#).saved == nil)
+        guard case .album(_, let tracks) = try TracksideJSON.decoder.decode(TracksideCatalogItem.self, from: TracksideFixtures.data("catalog-album.json")) else {
+            Issue.record("expected an album")
+            return
+        }
+        #expect(tracks.map(\.saved) == [true, false])
+        let search = try TracksideJSON.decoder.decode(TracksideCatalogSearch.self, from: TracksideFixtures.data("catalog-search.json"))
+        // Search results don't say, which isn't the same as not saved.
+        #expect(search.tracks.first?.saved == nil)
 
-        let answer = try T.decode(TracksideCatalogSaved.self, #"{"ref": "mc1.a", "saved": false, "service_id": "B1"}"#)
-        #expect(!answer.isSaved)
-        #expect(answer.serviceID == "b1")
+        let answer = try TracksideJSON.decoder.decode(TracksideCatalogSaved.self, from: TracksideFixtures.data("catalog-saved.json"))
+        #expect(answer.ref == "mc1.dHJhY2sfc3BvdGlmeR8wV3FkMHpBNXdOcFFuUUJHRVVIMGY0")
+        #expect(answer.isSaved)
+        #expect(answer.serviceID == "bqtyy4kcexcsg6wa0y4w5")
 
-        let me = try T.decode(TracksideMe.Features.self, #"{"catalog": {"save": true, "radio": true, "match": true}, "speakers": {"control": true, "takeover": true}}"#)
-        #expect(me.catalog?.save == true)
-        #expect(me.catalog?.radio == true)
-        #expect(me.catalog?.match == true)
-        #expect(me.speakers?.takeover == true)
+        let me = try TracksideJSON.decoder.decode(TracksideMe.self, from: TracksideFixtures.data("me.json"))
+        #expect(me.features?.catalog?.save == true)
+        #expect(me.features?.catalog?.radio == true)
+        #expect(me.features?.catalog?.match == true)
+        #expect(me.features?.speakers?.takeover == true)
+        let older = try TracksideJSON.decoder.decode(TracksideMe.self, from: TracksideFixtures.data("me-without-acquisition.json"))
+        #expect(older.features?.catalog?.save == nil)
+        #expect(older.features?.speakers?.takeover == nil)
     }
 
     @Test("saving puts the ref in the path, PUT to save and DELETE to remove")
     func requests() async throws {
+        let saved = String(decoding: try TracksideFixtures.data("catalog-saved.json"), as: UTF8.self)
+        let removed = saved.replacingOccurrences(of: #""saved": true"#, with: #""saved": false"#)
         let stub = StubTracksideTransport { request -> StubTracksideTransport.Answer in
-            (200, #"{"ref": "mc1.Ab", "saved": \#(request.httpMethod == "PUT"), "service_id": "b1"}"#, [:])
+            (200, request.httpMethod == "PUT" ? saved : removed, [:])
         }
         let client = T.client(stub)
-        #expect(try await client.setCatalogSaved(true, ref: "mc1.Ab").isSaved)
-        #expect(try await client.setCatalogSaved(false, ref: "mc1.Ab").isSaved == false)
+        let ref = "mc1.dHJhY2sfc3BvdGlmeR8wV3FkMHpBNXdOcFFuUUJHRVVIMGY0"
+        #expect(try await client.setCatalogSaved(true, ref: ref).isSaved)
+        #expect(try await client.setCatalogSaved(false, ref: ref).isSaved == false)
         #expect(stub.requests.map(\.httpMethod) == ["PUT", "DELETE"])
-        #expect(stub.requests.map { $0.url?.path() } == ["/api/v1/catalog/items/mc1.Ab/saved", "/api/v1/catalog/items/mc1.Ab/saved"])
+        #expect(stub.requests.map { $0.url?.path() } == ["/api/v1/catalog/items/\(ref)/saved", "/api/v1/catalog/items/\(ref)/saved"])
     }
 
     @Test("a failed command says why, a reason this build doesn't know read as unknown")
     func reasons() throws {
-        let failed = try T.decode(TracksideSpeakerCommandOutcome.self, #"{"command_id": "j1", "speaker_id": "O1", "outcome": "failed", "error": {"code": "command_failed", "reason": "service_busy", "service_id": "B1", "holder_name": "Kitchen"}}"#)
+        let failed = try TracksideJSON.decoder.decode(TracksideSpeakerCommandOutcome.self, from: TracksideFixtures.data("speaker-command-failed-event.json"))
+        #expect(failed.outcome == .failed)
+        #expect(failed.speakerID == "o4j8fccgajqsqxancbfcz")
+        #expect(failed.error?.code == "command_failed")
         #expect(failed.error?.reason == .serviceBusy)
-        #expect(failed.error?.serviceID == "b1")
-        #expect(failed.error?.holderName == "Kitchen")
+        #expect(failed.error?.serviceID == "bqtyy4kcexcsg6wa0y4w5")
+        #expect(failed.error?.holderID == "o7sny3kfnvsjbbhx01f2j")
+        #expect(failed.error?.holderName == "Living Room")
         let newer = try T.decode(TracksideSpeakerCommandOutcome.self, #"{"command_id": "j2", "outcome": "failed", "error": {"code": "command_failed", "reason": "brand_new"}}"#)
         #expect(newer.error?.reason == .unknown)
         let older = try T.decode(TracksideSpeakerCommandOutcome.self, #"{"command_id": "j3", "outcome": "failed", "error": {"code": "powered_off"}}"#)
@@ -265,12 +297,16 @@ struct ServiceLibraryEditTests {
         #expect(SpeakerProblem.reason(code: "region_unavailable") == .regionUnavailable)
         #expect(SpeakerProblem.reason(code: "subscription_required") == .subscriptionRequired)
         #expect(SpeakerProblem.reason(code: "drm_failed") == .notPlayable)
+        #expect(SpeakerProblem.reason(code: "radio_unavailable") == .notPlayable)
     }
 
-    @Test("a radio play sends its one item and nothing else, and takeover only when asked")
+    @Test("a radio play sends its one item and nothing else, as the server's example does")
     func playBodies() throws {
-        var radio = TracksideSpeakerPlayRequest.serviceRadio(from: "mc1.a")
+        var radio = TracksideSpeakerPlayRequest.serviceRadio(from: "mc1.dHJhY2sfc3BvdGlmeR8wV3FkMHpBNXdOcFFuUUJHRVVIMGY0", context: TracksideSpeaker.Context(kind: .station, name: "Halo Radio"))
         radio.takeover = true
+        let example = try TracksideJSON.decoder.decode(TracksideSpeakerPlayRequest.self, from: TracksideFixtures.data("speaker-play-radio-request.json"))
+        // The example leaves `mode` out, which is `replace`, as sent here.
+        #expect(example == radio)
         let body = try #require(JSONSerialization.jsonObject(with: TracksideJSON.encoder.encode(radio)) as? [String: Any])
         #expect(body["radio"] as? Bool == true)
         #expect(body["takeover"] as? Bool == true)
@@ -278,20 +314,25 @@ struct ServiceLibraryEditTests {
         #expect(body["start_index"] == nil)
         #expect(body["position_ms"] == nil)
         #expect(body["shuffle"] == nil)
-        #expect((body["items"] as? [[String: String]]) == [["ref": "mc1.a"]])
+        #expect(body["hold"] == nil)
+
+        let held = try TracksideJSON.decoder.decode(TracksideSpeakerPlayRequest.self, from: TracksideFixtures.data("speaker-play-held-request.json"))
+        #expect(held.hold == true)
+        #expect(held.takeover == true)
+        #expect(held.mode == .replace)
+        #expect(held.radio == nil)
 
         let plain = try #require(JSONSerialization.jsonObject(with: TracksideJSON.encoder.encode(TracksideSpeakerPlayRequest(items: [.song("s1")]))) as? [String: Any])
         #expect(plain["radio"] == nil)
         #expect(plain["takeover"] == nil)
+        #expect(plain["hold"] == nil)
     }
 
-    @Test("a save shows at once, and is put back when the server refuses")
+    @Test("a save shows at once, is put back when the server refuses, and stays where it can't be removed")
     @MainActor
     func saving() async throws {
-        var list = try TracksideJSON.decoder.decode(TracksideCatalogServiceList.self, from: TracksideFixtures.data("catalog-services.json"))
-        list.services[0].capabilities.insert(.libraryEdit)
-        list.services[0].libraryEditKinds = ["track"]
-        let refusing = SavingCatalog(services: list, refuses: true)
+        let list = try TracksideJSON.decoder.decode(TracksideCatalogServiceList.self, from: TracksideFixtures.data("catalog-services.json"))
+        let refusing = SavingCatalog(services: list, refusal: "service_signed_out")
         let catalog = StreamingCatalog()
         catalog.attach(serverID: "home", name: "Home", service: refusing, features: TracksideMe.Catalog(relay: true, save: true))
         for _ in 0..<100 where catalog.services["home"] == nil {
@@ -305,6 +346,17 @@ struct ServiceLibraryEditTests {
         }
         #expect(catalog.isSaved("mc1.a", on: "home", known: false) == false)
 
+        // Held for another source in the service's library: it stays saved.
+        let shared = StreamingCatalog()
+        shared.attach(serverID: "home", name: "Home", service: SavingCatalog(services: list, refusal: "not_removable"), features: TracksideMe.Catalog(relay: true, save: true))
+        for _ in 0..<100 where shared.services["home"] == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        await #expect(throws: TracksideError.conflict(reason: "not_removable")) {
+            try await shared.setSaved(false, ref: "mc1.a", on: "home")
+        }
+        #expect(shared.isSaved("mc1.a", on: "home") == true)
+
         let older = StreamingCatalog()
         older.attach(serverID: "home", name: "Home", service: refusing, features: TracksideMe.Catalog(relay: true))
         for _ in 0..<100 where older.services["home"] == nil {
@@ -316,11 +368,12 @@ struct ServiceLibraryEditTests {
 
 private final class SavingCatalog: CatalogService {
     let services: TracksideCatalogServiceList
-    let refuses: Bool
+    /// The conflict every save and removal is refused with; nil to take them.
+    let refusal: String?
 
-    init(services: TracksideCatalogServiceList, refuses: Bool) {
+    init(services: TracksideCatalogServiceList, refusal: String?) {
         self.services = services
-        self.refuses = refuses
+        self.refusal = refusal
     }
 
     func catalogServices() async throws -> TracksideCatalogServiceList { services }
@@ -336,7 +389,7 @@ private final class SavingCatalog: CatalogService {
     func matchCatalog(_ request: TracksideCatalogMatchRequest) async throws -> TracksideCatalogMatch { throw TracksideError.notFound }
 
     func setCatalogSaved(_ saved: Bool, ref: String) async throws -> TracksideCatalogSaved {
-        if refuses { throw TracksideError.conflict(reason: "service_signed_out") }
+        if let refusal { throw TracksideError.conflict(reason: refusal) }
         return try TracksideTesting.decode(TracksideCatalogSaved.self, #"{"ref": "\#(ref)", "saved": \#(saved), "service_id": "b1"}"#)
     }
 }
