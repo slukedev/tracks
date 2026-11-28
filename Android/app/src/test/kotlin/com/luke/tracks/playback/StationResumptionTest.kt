@@ -68,4 +68,19 @@ class StationResumptionTest {
         assertEquals(radio, Resumption.origin(radio, listOf(song("local:2"))))
         assertTrue(Resumption.streams(station))
     }
+
+    @Test fun tracksRadioPlayingFromAServiceStartsAgainAsTracksRadio() {
+        val songs = listOf(song("subsonic:home:1"), song(CatalogMedia.mediaId("home", "am:song:1")))
+        val radio = QueueOrigin("Tracks Radio", QueueOrigin.Kind.Radio)
+        assertTrue(Resumption.restartsTracksRadio(radio, songs, tracksRadio = true))
+        assertEquals(radio, Resumption.origin(radio, songs, tracksRadio = true))
+        // Saved and read back, it's known for Tracks Radio.
+        val memory = QueueMemory(app)
+        memory.save(songs, 1, 5_000, radio)
+        val restored = memory.restore()!!
+        assertTrue(restored.tracksRadio)
+        assertTrue(Resumption.restartsTracksRadio(restored.origin, restored.songs, restored.tracksRadio))
+        memory.save(songs, 1, 5_000, QueueOrigin("Chill Mix", QueueOrigin.Kind.Station))
+        assertFalse(memory.restore()!!.tracksRadio)
+    }
 }

@@ -22,7 +22,10 @@ class QueueMemory(context: Context) {
     private val prefs = context.getSharedPreferences("playback", Context.MODE_PRIVATE)
 
     @Serializable
-    private data class Saved(val songs: List<SavedSong>, val index: Int, val positionMs: Long, val origin: String? = null, val originKind: String? = null)
+    private data class Saved(val songs: List<SavedSong>, val index: Int, val positionMs: Long, val origin: String? = null, val originKind: String? = null,
+        /** Saved by a version where only Tracks Radio is kind Radio; before, a service's station could be too. */
+        val tracksRadio: Boolean? = null,
+    )
 
     @Serializable
     private data class SavedSong(
@@ -31,7 +34,8 @@ class QueueMemory(context: Context) {
         val year: Int? = null, val genre: String? = null,
     )
 
-    data class Restored(val songs: List<PlayableSong>, val index: Int, val positionMs: Long, val origin: QueueOrigin?)
+    /** [tracksRadio]: known to be Tracks Radio, even with a service's songs in it. */
+    data class Restored(val songs: List<PlayableSong>, val index: Int, val positionMs: Long, val origin: QueueOrigin?, val tracksRadio: Boolean = false)
 
     fun save(songs: List<PlayableSong>, index: Int, positionMs: Long, origin: QueueOrigin?) {
         if (songs.isEmpty()) return
@@ -50,6 +54,7 @@ class QueueMemory(context: Context) {
             positionMs = positionMs,
             origin = origin?.title,
             originKind = origin?.kind?.name,
+            tracksRadio = (origin?.kind == QueueOrigin.Kind.Radio).takeIf { it },
         )
         prefs.edit().putString(KEY, json.encodeToString(Saved.serializer(), saved)).apply()
     }
@@ -68,7 +73,7 @@ class QueueMemory(context: Context) {
         val origin = saved.origin?.let { title ->
             QueueOrigin(title, runCatching { QueueOrigin.Kind.valueOf(saved.originKind.orEmpty()) }.getOrDefault(QueueOrigin.Kind.Other))
         }
-        return Restored(songs, saved.index.coerceIn(0, songs.lastIndex), saved.positionMs, origin)
+        return Restored(songs, saved.index.coerceIn(0, songs.lastIndex), saved.positionMs, origin, tracksRadio = saved.tracksRadio == true)
     }
 
     companion object {
