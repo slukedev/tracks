@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -30,6 +31,8 @@ class CombinedLibrary(
     val servers: ServerLibrary,
     private val engine: Engine,
     private val sampleData: Boolean,
+    /** False on TV: the device's music files are never read there. */
+    private val deviceFiles: Boolean = true,
 ) : MusicLibrary {
     private val sampleTracks = MutableStateFlow<List<LibraryTrack>>(emptyList())
     private val sampleFolder = File(context.cacheDir, "sample-music")
@@ -43,7 +46,7 @@ class CombinedLibrary(
 
     @OptIn(FlowPreview::class)
     fun start() {
-        if (!sampleData) device.start()
+        if (deviceFiles && !sampleData) device.start()
         servers.start()
         if (sampleData) {
             // The sample history fills in the background at launch; build once it's there.
@@ -55,7 +58,11 @@ class CombinedLibrary(
         }
         scope.launch {
             combine(
-                device.tracks, device.hasPermission, device.loading, servers.tracks, servers.loading,
+                if (deviceFiles) device.tracks else flowOf(emptyList()),
+                if (deviceFiles) device.hasPermission else flowOf(false),
+                if (deviceFiles) device.loading else flowOf(false),
+                servers.tracks,
+                servers.loading,
             ) { local, allowed, localLoading, remote, remoteLoading ->
                 Sources(local, allowed, localLoading && !sampleData, remote, remoteLoading)
             }.combine(sampleTracks) { sources, samples -> sources to samples }
@@ -83,7 +90,7 @@ class CombinedLibrary(
     )
 
     override suspend fun refresh() {
-        if (!sampleData) device.refresh()
+        if (deviceFiles && !sampleData) device.refresh()
         servers.syncAll()
     }
 

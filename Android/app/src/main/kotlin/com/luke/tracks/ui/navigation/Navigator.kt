@@ -15,7 +15,7 @@ import androidx.compose.runtime.toMutableStateList
  * tapping the current tab again goes back to its top.
  */
 @Stable
-class Navigator(start: Tab = Tab.Play) {
+class Navigator(start: Tab = Tab.Play) : AppNavigation {
     var tab by mutableStateOf(start)
         private set
 
@@ -28,6 +28,9 @@ class Navigator(start: Tab = Tab.Play) {
 
     /** Whether the full-screen player is showing. */
     var nowPlayingOpen by mutableStateOf(false)
+
+    /** A search asked for from outside the app, for Search to fill in once and clear. */
+    var pendingSearch by mutableStateOf<String?>(null)
 
     /** Whether the mini player is on screen, set by the mini player itself. */
     var miniPlayerVisible by mutableStateOf(false)
@@ -52,6 +55,20 @@ class Navigator(start: Tab = Tab.Play) {
         }
         val tabRoot = Tab.entries.firstOrNull { it.root() == route }
         if (tabRoot != null) select(tabRoot) else backStack.add(route)
+    }
+
+    override fun openNowPlaying() {
+        nowPlayingOpen = true
+    }
+
+    override fun openSearch(query: String) {
+        pendingSearch = query.takeIf { it.isNotBlank() }
+        open(SearchRoute)
+    }
+
+    /** tracks://link: the phone's page for approving a TV, on top of where you are. Both values are checked by then. */
+    override fun openLinkApproval(serverId: String, userCode: String) {
+        open(SettingsPageRoute(com.luke.tracks.ui.link.linkApprovalPage(serverId, userCode)))
     }
 
     /** False when there was nothing to go back to. */

@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -257,6 +258,19 @@ class MediaControllerPlayer(private val context: Context) : PlayerController {
 
     override fun playMoreLikeThis() = run {
         sendCustomCommand(TracksCommands.command(TracksCommands.MORE_LIKE_THIS), Bundle.EMPTY)
+    }
+
+    override fun playFromSearch(query: String) {
+        if (query.isBlank()) return startRadio()
+        // The service resolves the query in onSetMediaItems, as it does for Assistant and cars.
+        val request = MediaItem.Builder()
+            .setRequestMetadata(MediaItem.RequestMetadata.Builder().setSearchQuery(query).build())
+            .build()
+        run {
+            setMediaItem(request)
+            prepare()
+            play()
+        }
     }
 
     /** Likes or unlikes the song playing now, as the notification's heart does. */

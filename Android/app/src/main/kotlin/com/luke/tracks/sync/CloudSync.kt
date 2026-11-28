@@ -58,7 +58,7 @@ data class SyncStatus(
  * server says something changed (its `cloud` event), and in the background every few hours
  * on any network, backing off when the server can't be reached.
  */
-class CloudSync(private val graph: AppGraph, private val servers: ServerLibrary) {
+class CloudSync(private val graph: AppGraph, private val servers: ServerLibrary) : SyncChoice {
     private val dao = graph.history.database.cloud()
     private val runLock = Mutex()
     private val _status = MutableStateFlow(SyncStatus())
@@ -91,8 +91,10 @@ class CloudSync(private val graph: AppGraph, private val servers: ServerLibrary)
         }
     }
 
+    override suspend fun chosen(): String? = dao.state(SERVER)
+
     /** Turns sync off (null), or on with a server. A new server starts with everything here going up. */
-    suspend fun choose(serverId: String?) {
+    override suspend fun choose(serverId: String?) {
         val previous = dao.state(SERVER)
         if (previous == serverId) return
         dao.setState(SERVER, serverId)
@@ -105,7 +107,7 @@ class CloudSync(private val graph: AppGraph, private val servers: ServerLibrary)
     }
 
     /** Syncs with the server again after it was paired again, sending everything here as for a new one. */
-    suspend fun confirm() {
+    override suspend fun confirm() {
         val serverId = dao.state(SERVER) ?: return
         _status.update { SyncStatus(serverId = serverId) }
         startOver(serverId)

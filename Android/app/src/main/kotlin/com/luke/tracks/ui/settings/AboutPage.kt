@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.settings
 
+import com.luke.tracks.system.isTv
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.animateContentSize
@@ -158,7 +159,7 @@ fun LicensesPage() {
                 icon = Icons.Rounded.Code,
                 tone = Tone.Primary,
             ) {
-                runCatching {
+                if (!context.isTv) runCatching {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.gnu.org/licenses/gpl-3.0.html")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }
             }

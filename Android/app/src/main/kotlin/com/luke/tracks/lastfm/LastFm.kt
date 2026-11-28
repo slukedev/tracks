@@ -11,6 +11,7 @@ import com.luke.tracks.BuildConfig
 import com.luke.tracks.data.PlayEntity
 import com.luke.tracks.data.PlayKindValue
 import com.luke.tracks.data.PlaySourceValue
+import com.luke.tracks.system.isTv
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -272,6 +273,7 @@ class LastFm internal constructor(private val context: Context, private val grap
     }
 
     private fun open(activity: Context, url: String) {
+        if (activity.isTv) return
         val intent = CustomTabsIntent.Builder().setShowTitle(true).setShareState(CustomTabsIntent.SHARE_STATE_OFF).build()
         if (activity !is Activity) intent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { intent.launchUrl(activity, Uri.parse(url)) }.onFailure {

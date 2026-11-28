@@ -77,6 +77,8 @@ import com.luke.tracks.ui.library.libraryFoundItems
 import com.luke.tracks.ui.insights.rememberGraph
 import com.luke.tracks.ui.insights.segmentedShape
 import com.luke.tracks.ui.navigation.LocalNavigator
+import com.luke.tracks.ui.services.serviceLibraryItems
+import com.luke.tracks.ui.services.serviceSearchItems
 import com.luke.tracks.ui.discover.NotYours
 import com.luke.tracks.ui.discover.Remote
 import com.luke.tracks.ui.discover.catalogSearchItems
@@ -149,6 +151,10 @@ fun SearchScreen(initialQuery: String = "", initialScope: SearchScope = SearchSc
         results = graph.engine.read { search(text, 24u) }
     }
     LaunchedEffect(Unit) { if (query.isEmpty()) runCatching { focus.requestFocus() } }
+    // A search from Assistant or the system's search: shown as if typed.
+    LaunchedEffect(navigator.pendingSearch) {
+        navigator.pendingSearch?.let { query = it; navigator.pendingSearch = null }
+    }
 
     fun remember(text: String = query) = recents.add(text)
 
@@ -225,12 +231,12 @@ fun SearchScreen(initialQuery: String = "", initialScope: SearchScope = SearchSc
                 query.isBlank() && serviceKey != null && savedOnService != null -> LazyColumn(
                     contentPadding = PaddingValues(top = 8.dp, bottom = com.luke.tracks.ui.navigation.bottomClearance),
                 ) {
-                    com.luke.tracks.ui.services.serviceLibraryItems(serviceKey, chosenService, savedOnService, onRetry = { retry++ })
+                    serviceLibraryItems(serviceKey, chosenService, savedOnService, onRetry = { retry++ })
                 }
                 query.isBlank() -> Recents(recents, onPick = { query = it })
                 serviceKey != null -> com.luke.tracks.ui.library.WithLibraryActions {
                     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = com.luke.tracks.ui.navigation.bottomClearance)) {
-                        com.luke.tracks.ui.services.serviceSearchItems(
+                        serviceSearchItems(
                             services, streaming, serviceKey, query.trim(), current, edge = 20.dp, listPadding = 16.dp,
                             onRetry = { streamingRepository?.refreshIfStale(0); serviceSearch.retry() },
                         )
@@ -356,7 +362,7 @@ private fun Results(
             libraryFoundItems(library, query, { graph.library.index.value }, currentMediaId, rowModifier = Modifier.bleed(16.dp))
         }
         // The services come after your library, as their own sections; songs you have are shown once, above.
-        com.luke.tracks.ui.services.serviceSearchItems(services, streaming, null, query, currentMediaId, edge = 20.dp, listPadding = 16.dp, onRetry = onRetryServices)
+        serviceSearchItems(services, streaming, null, query, currentMediaId, edge = 20.dp, listPadding = 16.dp, onRetry = onRetryServices)
         if (r == null) {
             catalogSearchItems(catalog, edge = 20.dp, onRetry = onRetry, listPadding = 16.dp)
             return@LazyColumn

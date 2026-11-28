@@ -22,4 +22,5 @@ class IdlePlayer(initial: PlayerState = PlayerState()) : PlayerController {
     override fun setSleepTimer(minutes: Int?) = Unit
     override fun startRadio() = Unit
     override fun playMoreLikeThis() = Unit
+    override fun playFromSearch(query: String) = Unit
 }

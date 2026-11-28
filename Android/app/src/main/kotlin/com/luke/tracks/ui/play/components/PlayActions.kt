@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.play.components
 
+import com.luke.tracks.system.isTv
 import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -166,6 +167,7 @@ fun shareSong(context: Context, title: String, artist: String) = share(context, 
 fun shareText(context: Context, text: String) = share(context, text)
 
 private fun share(context: Context, text: String) {
+    if (context.isTv) return
     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
     context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
@@ -175,6 +177,7 @@ private fun share(context: Context, text: String) {
  * like), the way Assistant asks them: play from search.
  */
 fun openInAnotherApp(context: Context, title: String, artist: String, album: String?) {
+    if (context.isTv) return
     val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
         putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Media.ENTRY_CONTENT_TYPE)
         putExtra(SearchManager.QUERY, "$title $artist")

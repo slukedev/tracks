@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.nowplaying
 
+import com.luke.tracks.system.isTv
 import android.content.Context
 import android.content.Intent
 import android.media.MediaRouter2
@@ -56,6 +57,7 @@ fun seedFromName(name: String): Color {
  * settings panel, then to Bluetooth settings.
  */
 fun openOutputSwitcher(context: Context) {
+    if (context.isTv) return
     if (Build.VERSION.SDK_INT >= 34) {
         val shown = runCatching { MediaRouter2.getInstance(context).showSystemOutputSwitcher() }.getOrDefault(false)
         if (shown) return

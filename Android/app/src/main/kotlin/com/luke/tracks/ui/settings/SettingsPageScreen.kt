@@ -3,6 +3,9 @@ package com.luke.tracks.ui.settings
 import androidx.compose.runtime.Composable
 
 /**
+ * A page inside Settings, by name: sources, source/<id>, link/<server>[/<code>], lastfm,
+ * appearance, radio, devices, device/<server>/<speaker>, hidden, privacy, about, licenses.
+ * "servers" is the old name for Sources, kept for links.
  * A page inside Settings, by name: sources, source/<id>, lastfm, appearance, radio, devices,
  * device/<server>/<speaker>, hidden, privacy, about, licenses. "servers" is the old name for Sources, kept for links.
  */
@@ -10,6 +13,10 @@ import androidx.compose.runtime.Composable
 fun SettingsPageScreen(page: String) {
     when {
         page.startsWith("source/") -> com.luke.tracks.ui.sources.SourceDetailPage(page.removePrefix("source/"))
+        page.startsWith("link/") -> {
+            val navigator = com.luke.tracks.ui.navigation.LocalNavigator.current
+            com.luke.tracks.ui.link.LinkApprovalFromPage(page, onDone = { navigator.back() })
+        }
         page.startsWith("device/") -> com.luke.tracks.ui.devices.parseSpeakerPage(page)
             ?.let { com.luke.tracks.ui.devices.SpeakerSettingsPage(it) }
             ?: com.luke.tracks.ui.devices.DevicesSettingsPage()

@@ -40,7 +40,10 @@ val uploadKey: UploadKey? = run {
 
 android {
     namespace = "com.luke.tracks"
-    compileSdk = 37
+    // Compose 1.13 (BOM 2026.11.01) needs 37.1.
+    compileSdk {
+        version = release(37) { minorApiLevel = 1 }
+    }
 
     defaultConfig {
         applicationId = "com.luke.tracks"
@@ -51,7 +54,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "LASTFM_API_KEY", "\"${secrets.getProperty("lastfm.apiKey", "")}\"")
         buildConfigField("String", "LASTFM_SECRET", "\"${secrets.getProperty("lastfm.secret", "")}\"")
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        // armeabi-v7a for Google TV boxes that run 32-bit, which many do even on 64-bit chips.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
     signingConfigs {
@@ -123,10 +127,10 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
-    implementation(libs.compose.ui.text.google.fonts)
     implementation(libs.compose.material3)
     implementation(libs.compose.material3.adaptive.navigation.suite)
     implementation(libs.compose.material.icons)
+    implementation(libs.tv.material)
     implementation(libs.adaptive)
     implementation(libs.adaptive.layout)
     implementation(libs.navigation3.runtime)
@@ -146,6 +150,7 @@ dependencies {
     implementation(libs.glance.material3)
     implementation(libs.coil.compose)
     implementation(libs.coil.network)
+    implementation(libs.zxing.core)
     implementation(libs.okhttp)
     implementation("${libs.jna.get()}@aar")
     implementation(libs.material.kolor)

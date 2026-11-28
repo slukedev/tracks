@@ -88,14 +88,19 @@ class SourcesRegistry(
     builtIn: List<SourceProvider>,
     /** The servers once they're read, for writing out an order saved before; null until then. */
     loadedServers: Flow<List<String>?>? = null,
+    /** The kinds this device offers at all; on TV only servers (Trackside). Others are never registered. */
+    private val allowedKinds: Set<SourceKind> = SourceKind.entries.toSet(),
 ) {
-    private val providers = MutableStateFlow(builtIn)
+    private val providers = MutableStateFlow(builtIn.filter { allows(it.kind) })
+
+    private fun allows(kind: SourceKind) = kind in allowedKinds
 
     /** Every provider, the built-in ones first. */
     val registered: StateFlow<List<SourceProvider>> = providers.asStateFlow()
 
     /** Adds a kind of source. A second provider of the same kind replaces the first. */
     fun register(provider: SourceProvider) {
+        if (!allows(provider.kind)) return
         providers.update { list -> list.filter { it.kind != provider.kind || it.kind == SourceKind.Server } + provider }
     }
 
@@ -283,6 +288,9 @@ class ServerSourceProvider(
     }
 }
 
+/** TV plays from Trackside only (Apple Music reaches it through Trackside); see [ServerLibrary]'s tracksideOnly. */
+val TV_SOURCE_KINDS: Set<SourceKind> = setOf(SourceKind.Server)
+
 private val instances = WeakHashMap<AppGraph, SourcesRegistry>()
 private val libraries = WeakHashMap<AppGraph, MusicLibrary>()
 
@@ -292,6 +300,7 @@ val AppGraph.sources: SourcesRegistry
         val existing = instances[this]
         if (existing != null && libraries[this] === library) return existing
         val combined = library as? CombinedLibrary
+        val allowed = if (formFactor.tv) TV_SOURCE_KINDS else SourceKind.entries.toSet()
         val device = DeviceSourceProvider(
             library = library,
             hasPermission = combined?.device?.hasPermission?.takeUnless { sampleData } ?: MutableStateFlow(true),
@@ -305,7 +314,7 @@ val AppGraph.sources: SourcesRegistry
         val loadedServers = combined?.servers?.let { library ->
             combine(library.loading, library.entries) { loading, entries -> if (loading) null else entries.map { it.server.id } }
         } ?: flowOf(emptyList())
-        SourcesRegistry(SourcesRegistry.prefs(context), scope, listOfNotNull(device, servers) + carried, loadedServers = loadedServers).also {
+        SourcesRegistry(SourcesRegistry.prefs(context), scope, listOfNotNull(device, servers) + carried, loadedServers = loadedServers, allowedKinds = allowed).also {
             instances[this] = it
             libraries[this] = library
         }

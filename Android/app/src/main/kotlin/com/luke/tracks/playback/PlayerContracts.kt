@@ -93,6 +93,12 @@ interface PlayerController {
 
     /** Tracks Radio plays more like the song on now, from the next song. */
     fun playMoreLikeThis()
+
+    /**
+     * Plays what a spoken or typed request names ("Play Saltwater on Tracks"), as the service
+     * finds it; a blank one plays Tracks Radio.
+     */
+    fun playFromSearch(query: String)
 }
 
 /** What Tracks Radio is doing, for the player's screens. */

@@ -26,6 +26,8 @@ See [README.md](README.md) for the legend and how to keep this current.
   registry (`sources/`), are managed in Settings > Sources, and filter Play and Library once
   there are two or more. The tabs are Play, Library, Summary, History and Search, with Charts
   as History's second mode. Plays stay in History when a source is removed.
+- 2026-11-27: Google TV is the same APK with its own interface, playing from Trackside only.
+  See Google TV below.
 - 2026-11-27: Apple Music and Spotify are no longer sources on Android. MusicKit for Android
   (the optional AARs, sign-in, the silent stand-in it played beside) and the sideload
   variant's librespot Spotify are gone; streaming services are to come through Trackside.
@@ -641,6 +643,64 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
   playlist, Play Back, Merge with Apple Music, Explicit Songs, Offline Mode for Apple Music,
   Motif import, Handoff, CarPlay (Android Auto instead), the menu bar extra and the Mac's
   windows.
+
+## Google TV
+
+One APK serves phones and Google TV. The launcher filter carries `LEANBACK_LAUNCHER`, the
+app has a TV banner (`res/drawable-xhdpi/tv_banner.png`, 320x180, and an xxxhdpi copy, both
+from `tools/generate_icon.py`), and no hardware is required: leanback, touchscreen, camera,
+microphone and a portrait screen (ML Kit's scanner activity asks for one) are all
+`required="false"`. The build includes `armeabi-v7a`, since many TV
+boxes run a 32-bit userspace even on 64-bit chips (Play's TV quality rule TV-G6).
+
+`system/FormFactor.kt` decides once per process: a TV is `UI_MODE_TYPE_TELEVISION` (from
+`UiModeManager` or the configuration) or a device with `FEATURE_LEANBACK`; low RAM is
+`ActivityManager.isLowRamDevice()`. `AppGraph` holds it and `LocalFormFactor` hands it to
+Compose. On a TV:
+
+- `MainActivity` shows the TV interface (`ui/tv`, built with `androidx.tv:tv-material`)
+  instead of the phone shell. Links, searches and Assistant requests go through
+  `AppNavigation`, which both shells implement.
+- Trackside is the only source. `SourcesRegistry` is made with `allowedKinds` set to
+  servers, and `ServerLibrary` with `tracksideOnly`, so device files and Subsonic servers
+  never register (a Subsonic server restored from a phone's backup stays saved, unused), and
+  nothing says they're missing. Startup never reads MediaStore or asks for music permission,
+  and skips Last.fm scrobbling, widgets and shortcuts. Trackside's address refreshes and
+  services run as on a phone.
+- A TV is linked to Trackside from its own screen (`ui/tv/link`, api.md section 6): it picks
+  a server found nearby or a typed address, checks `capabilities.auth.device_link` (without
+  it, the one line "Update Trackside to link this TV."), starts a link as `android_tv`, shows
+  the code and a QR of its `tracks://link`, and asks how it's going at the server's interval,
+  longer after `slow_down`, with a new code when one runs out. A link is kept with
+  `ServerLibrary.saveLink`, replacing the entry for the same server. `trackside://pair` links
+  and `tracks://link` approvals are ignored there.
+- Speakers, Devices and streaming services through Trackside have no TV screens yet, so the
+  TV shows none of them; their repositories run as on a phone.
+- Trackside Cloud syncs the TV's history (Summary, Charts, History) with the server it's
+  linked to, and no other (`sync/TvSync.kt`). A link turns it on when the server offers the
+  cloud (`capabilities.features.cloud`); a server without it is left quietly off. Settings,
+  Trackside has a Sync switch with a few words on how it's going (Syncing, Up to date, or what
+  went wrong), shown while sync is on or the server offers it. Linking the same server again
+  is the confirmation a re-paired server waits for; unlinking turns sync off. At launch, once
+  the saved servers are read and before sync starts, a choice of any other server (a phone's,
+  restored from its backup) is turned off; the linked server's choice stays as it was, so a
+  switch turned off stays off.
+- Shared helpers never open a browser, share sheet, chooser, QR scanner or output switcher.
+- The splash shows the cassette still (`res/values-television/themes.xml`). Debug builds turn
+  on StrictMode with logging, and low-RAM devices keep a smaller cover cache in memory.
+- The screen may go to the system screensaver while music plays, as other music apps on TV
+  do.
+
+`ACTION_SEARCH` opens Search with the query, and `MEDIA_PLAY_FROM_SEARCH` plays what it names
+(blank plays Tracks Radio), on phones as well as TVs. Both queries are treated as plain text:
+control characters are dropped and they're cut at 200 characters.
+`tracks://link?server=<id>&code=<code>` asks a phone to approve linking a TV: the server id
+must be a UUID and the code eight letters or digits (`Q7RM-4X2K`), or the link is dropped.
+The phone looks the code up on that paired server before Approve and Deny, and warns when the
+TV isn't nearby. A server's page has Link a TV unless its capabilities, once read, leave
+`device_link` out.
+
+Still needs a TV: everything. Robolectric screenshots cover the TV screens at 960x540dp.
 
 ## Sync (Trackside Cloud)
 

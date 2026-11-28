@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.library.servers
 
+import com.luke.tracks.system.isTv
 import android.content.Context
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
  * needs no camera permission. Hands over the link it read; [onProblem] says why it couldn't.
  */
 fun scanPairingCode(context: Context, onLink: (String) -> Unit, onProblem: (String) -> Unit) {
+    if (context.isTv) return
     val options = GmsBarcodeScannerOptions.Builder()
         .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
         .enableAutoZoom()

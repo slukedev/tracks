@@ -268,6 +268,9 @@ class TracksideClient(
     suspend fun capabilities(): TracksideCapabilities =
         capabilities ?: decode(call { base -> request(base, "capabilities") }, TracksideCapabilities.serializer()).also { capabilities = it }
 
+    /** The capabilities once something has asked for them; null before, without asking. */
+    val knownCapabilities: TracksideCapabilities? get() = capabilities
+
     /** The profile to stream on cellular: the server's suggestion, or AAC at 256 kbps. */
     suspend fun cellularProfile(): String =
         runCatching { capabilities().media?.suggestedCellularProfile }.getOrNull()?.takeIf { it.isNotBlank() } ?: "aac-256"

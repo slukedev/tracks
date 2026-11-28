@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.insights
 
+import com.luke.tracks.system.isTv
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -322,6 +323,7 @@ suspend fun playableSongs(graph: AppGraph, target: ItemTarget): List<PlayableSon
 }
 
 fun share(context: Context, text: String) {
+    if (context.isTv) return
     val send = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, text)
