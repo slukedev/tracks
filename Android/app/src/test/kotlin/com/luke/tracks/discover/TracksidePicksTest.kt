@@ -473,6 +473,9 @@ class TracksidePicksTest {
     @Test fun withInstantPlayATappedSongIsKeptAndStreamsWhileItDownloads(): Unit = runBlocking {
         meWith(instant = true, external = true)
         instantCandidate()
+        // Still downloading whenever it's checked on, as it is while it streams. (Answering
+        // "done" here raced the request's follow-up, which let go of it before the asserts.)
+        status = { json(fixture("acquisition-downloading.json")) }
         val (picks, song) = suggestedNewSong()
         val heard = CopyOnWriteArrayList<String>()
         val got = picks.getToPlay(queued(picks, song)) { heard += it }
@@ -486,6 +489,9 @@ class TracksidePicksTest {
         assertEquals(song.song.identity, ready.identity)
         assertTrue("on its way to your library", octo.isWaiting(song.song.identity))
         assertTrue("$heard", heard.contains("Asking Home for it"))
+        // The request is still followed after it starts playing: once it's done, it's no longer on its way.
+        status = { json(fixture("acquisition-done.json")) }
+        withTimeout(10_000) { octo.waiting.first { song.song.identity !in it } }
     }
 
     @Test fun withPlayingWithoutKeepingATappedSongIsRequestedAndStreamedAtOnce(): Unit = runBlocking {
