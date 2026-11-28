@@ -45,7 +45,8 @@ sealed interface LaunchRequest {
         }
 
         private val serverIdPattern = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-        private val userCodePattern = Regex("([A-Z0-9]{4})-?([A-Z0-9]{4})")
+        // Crockford base32, as Trackside makes codes: no I, L, O or U.
+        private val userCodePattern = Regex("([0-9A-HJKMNP-TV-Z]{4})-?([0-9A-HJKMNP-TV-Z]{4})")
 
         /** Both parts or nothing: a server id (a UUID, as Trackside gives) and a code shaped as Trackside shows it. */
         private fun linkApproval(data: Uri): LinkApproval? {

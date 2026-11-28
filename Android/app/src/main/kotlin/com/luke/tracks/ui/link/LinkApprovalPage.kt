@@ -70,35 +70,38 @@ fun LinkApprovalPage(serverId: String, userCode: String?, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val servers = (graph.library as? CombinedLibrary)?.servers
     val entries by remember(servers) { servers?.entries ?: MutableStateFlow(emptyList()) }.collectAsState()
+    val loading by remember(servers) { servers?.loading ?: MutableStateFlow(false) }.collectAsState()
     val server = entries.firstOrNull { it.server.isTrackside && (it.server.serverUuid.equals(serverId, ignoreCase = true) || it.server.id == serverId) }?.server
     val target = server?.serverUuid ?: server?.id
     var code by rememberSaveable { mutableStateOf(userCode?.let(::normalizedUserCode)) }
     var approval by remember { mutableStateOf<Approval>(if (code == null) Approval.Typing else Approval.LookingUp) }
     var attempt by remember { mutableStateOf(0) }
 
-    fun run(step: suspend () -> Approval) {
-        scope.launch {
-            approval = try {
-                step()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: LinkException) {
-                haptics.performHapticFeedback(HapticFeedbackType.Reject)
-                Approval.Failed(error.problem)
-            } catch (_: Exception) {
-                Approval.Failed(LinkProblem.Offline)
-            }
-        }
+    suspend fun attempt(step: suspend () -> Approval): Approval = try {
+        step()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: LinkException) {
+        haptics.performHapticFeedback(HapticFeedbackType.Reject)
+        Approval.Failed(error.problem)
+    } catch (_: Exception) {
+        Approval.Failed(LinkProblem.Offline)
     }
+
+    fun run(step: suspend () -> Approval) {
+        scope.launch { approval = attempt(step) }
+    }
+    // In the effect's own scope, so a newer code or retry cancels a look-up still on its way.
     LaunchedEffect(target, code, attempt) {
         val id = target ?: return@LaunchedEffect
         val typed = code ?: return@LaunchedEffect
         approval = Approval.LookingUp
-        run { Approval.Asking(linker.lookUp(id, typed).clean()) }
+        approval = attempt { Approval.Asking(linker.lookUp(id, typed).clean()) }
     }
 
     LinkApprovalContent(
         serverName = server?.name,
+        readingServers = server == null && loading,
         userCode = code,
         approval = approval,
         onCode = { code = it },
@@ -140,12 +143,15 @@ fun LinkApprovalContent(
     onApprove: () -> Unit,
     onDeny: () -> Unit,
     onDone: () -> Unit,
+    readingServers: Boolean = false,
 ) {
     var typed by rememberSaveable { mutableStateOf("") }
     SettingsScaffold(title = "Link a TV") {
         item(key = "hero") {
             val done: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = { Button(onClick = onDone) { Text("Done") } }
             when {
+                // The saved servers are still being read: not yet a reason to send you away.
+                serverName == null && readingServers -> Hero(Tone.Secondary, "Finding the TV…")
                 serverName == null -> Hero(Tone.Error, "Pair this phone with that server first", actions = done)
                 approval is Approval.Linked -> Hero(Tone.Primary, "${approval.deviceName} is linked", actions = done)
                 approval is Approval.Denied -> Hero(Tone.Neutral, "${approval.deviceName} wasn't linked", actions = done)

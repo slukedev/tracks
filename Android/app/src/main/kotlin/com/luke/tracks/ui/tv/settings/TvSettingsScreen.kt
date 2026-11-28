@@ -29,6 +29,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -67,7 +69,9 @@ fun TvSettingsScreen(initial: String? = null) {
     val memory = rememberFocusMemory()
     var page by rememberSaveable { mutableStateOf(TvSettingsPage.of(initial)) }
     var inPage by remember { mutableStateOf(false) }
-    memory.ClaimFocus(fallback = memory.requester(page.key))
+    val pageFocus = remember { FocusRequester() }
+    // Opened at a page (Library's Link opens Trackside): focus goes into it, not the list.
+    memory.ClaimFocus(fallback = if (initial != null) pageFocus else memory.requester(page.key))
     BackHandler(enabled = inPage) { memory.requester(page.key).requestFocus() }
 
     Row(Modifier.fillMaxSize().padding(start = TvLayout.ContentStart, end = TvLayout.SafeEnd)) {
@@ -97,6 +101,7 @@ fun TvSettingsScreen(initial: String? = null) {
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
+                .focusRequester(pageFocus)
                 .onFocusChanged { inPage = it.hasFocus }
                 .focusGroup(),
         ) {

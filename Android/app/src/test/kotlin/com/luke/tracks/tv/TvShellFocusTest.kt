@@ -1,5 +1,11 @@
 package com.luke.tracks.tv
 
+import androidx.compose.runtime.CompositionLocalProvider
+import com.luke.tracks.library.LibrarySnapshot
+import com.luke.tracks.ui.navigation.SettingsPageRoute
+import com.luke.tracks.ui.tv.library.TvLibraryContent
+import com.luke.tracks.ui.tv.link.LocalLinkDirectory
+import com.luke.tracks.ui.tv.settings.TvSettingsScreen
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -57,6 +63,7 @@ class TvShellFocusTest {
     private val originalAlbum = TvScreens.album
     private val originalLibrary = TvScreens.library
     private val originalHistory = TvScreens.history
+    private val originalSettingsPage = TvScreens.settingsPage
     private val navigator = TvNavigator()
     private val albums = TvDemo.albums
 
@@ -78,6 +85,7 @@ class TvShellFocusTest {
         TvScreens.album = originalAlbum
         TvScreens.library = originalLibrary
         TvScreens.history = originalHistory
+        TvScreens.settingsPage = originalSettingsPage
     }
 
     @Test fun launchFocusesTheFirstCard() {
@@ -150,6 +158,21 @@ class TvShellFocusTest {
         back()
         assertEquals("Queue", focused())
         assertEquals(TvDestination.Library, navigator.destination)
+    }
+
+    @Test fun linkFromLibraryLandsInTheLinkFlowNotTheSettingsList() {
+        TvScreens.library = {
+            TvLibraryContent(LibrarySnapshot(), linked = false, onLink = { navigator.open(SettingsPageRoute("trackside")) })
+        }
+        TvScreens.settingsPage = { route ->
+            CompositionLocalProvider(LocalLinkDirectory provides FakeDirectory(emptyList())) { TvSettingsScreen(initial = route.page) }
+        }
+        compose.runOnIdle { navigator.select(TvDestination.Library) }
+        settle()
+        assertEquals("Link", focused())
+        press(listOf(Key.DirectionCenter))
+        assertEquals(2, navigator.backStack.size)
+        assertEquals("Enter Address", focused())
     }
 
     @OptIn(ExperimentalTestApi::class)

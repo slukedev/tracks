@@ -105,6 +105,7 @@ class MainActivityIntentTest {
         assertNull(of("tracks://link?server=$server&code=Q7RM-4X2K-EXTRA"))
         assertNull(of("tracks://link?server=$server%0A&code=Q7RM-4X2K"))
         assertNull(of("tracks://link?server=$server&code=Q7RM--4X2K"))
+        assertNull(of("tracks://link?server=$server&code=Q7RM-4X2U"))
     }
 
     @Test fun linksAreReadByScheme() {

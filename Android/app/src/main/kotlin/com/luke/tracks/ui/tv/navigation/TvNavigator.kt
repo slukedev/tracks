@@ -109,6 +109,9 @@ class TvNavigator(start: TvDestination = TvDestination.Play) : AppNavigation {
         select(TvDestination.Search)
     }
 
+    /** A query waiting for Search, read in composition so a Search already on screen sees it. */
+    val pendingSearchQuery: String? get() = searchQuery
+
     /** The query Search was opened with, once. */
     fun consumeSearchQuery(): String? = searchQuery.also { searchQuery = null }
 

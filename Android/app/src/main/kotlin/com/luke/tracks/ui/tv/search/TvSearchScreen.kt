@@ -107,7 +107,8 @@ fun TvSearchScreen() {
     val graph = LocalContext.current.graph
     val navigator = LocalTvNavigator.current
     val field = rememberTextFieldState()
-    LaunchedEffect(Unit) { navigator.consumeSearchQuery()?.let(field::setTextAndPlaceCursorAtEnd) }
+    // Keyed on the waiting query, so a search from outside also reaches a Search already showing.
+    LaunchedEffect(navigator.pendingSearchQuery) { navigator.consumeSearchQuery()?.let(field::setTextAndPlaceCursorAtEnd) }
     val query = field.text.toString()
     // Asked for only after a short pause in typing, so each key doesn't start a search.
     var settled by remember { mutableStateOf(query) }
