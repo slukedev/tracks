@@ -581,9 +581,12 @@ public struct TracksideMe: Codable, Sendable, Hashable {
     public struct Speakers: Codable, Sendable, Hashable {
         /// The key may control them too, not just see them.
         public var control: Bool?
+        /// A play can take a service's only stream from the player holding it.
+        public var takeover: Bool?
 
-        public init(control: Bool? = nil) {
+        public init(control: Bool? = nil, takeover: Bool? = nil) {
             self.control = control
+            self.takeover = takeover
         }
     }
 
@@ -594,15 +597,24 @@ public struct TracksideMe: Codable, Sendable, Hashable {
         public var relayCellular: Bool?
         /// The server has the services' own picks. Older servers leave it out.
         public var recommendations: Bool?
+        /// A service's item can be saved to its library, and removed from it.
+        public var save: Bool?
+        /// A play can start the service's own radio from one item.
+        public var radio: Bool?
+        /// Many songs can be matched to the services' in one request.
+        public var match: Bool?
 
-        public init(relay: Bool? = nil, relayCellular: Bool? = nil, recommendations: Bool? = nil) {
+        public init(relay: Bool? = nil, relayCellular: Bool? = nil, recommendations: Bool? = nil, save: Bool? = nil, radio: Bool? = nil, match: Bool? = nil) {
             self.relay = relay
             self.relayCellular = relayCellular
             self.recommendations = recommendations
+            self.save = save
+            self.radio = radio
+            self.match = match
         }
 
         enum CodingKeys: String, CodingKey {
-            case relay, recommendations
+            case relay, recommendations, save, radio, match
             case relayCellular = "relay_cellular"
         }
 
@@ -611,6 +623,9 @@ public struct TracksideMe: Codable, Sendable, Hashable {
             relay = try? container.decodeIfPresent(Bool.self, forKey: .relay)
             relayCellular = try? container.decodeIfPresent(Bool.self, forKey: .relayCellular)
             recommendations = try? container.decodeIfPresent(Bool.self, forKey: .recommendations)
+            save = try? container.decodeIfPresent(Bool.self, forKey: .save)
+            radio = try? container.decodeIfPresent(Bool.self, forKey: .radio)
+            match = try? container.decodeIfPresent(Bool.self, forKey: .match)
         }
     }
 

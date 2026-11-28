@@ -11,7 +11,7 @@ struct PlayFromSection: View {
     @AppStorage(PlayFromOrder.storageKey) private var stored = ""
 
     var body: some View {
-        let places = visiblePlaces
+        let places = Self.places(model: model, order: order)
         if places.count > 1 {
             Section {
                 ForEach(places, id: \.self) { place in
@@ -35,17 +35,20 @@ struct PlayFromSection: View {
 
     private var order: PlayFromOrder { PlayFromOrder(rawValue: stored) }
 
-    /// The places that can hold a copy on this device now, servers in the order they were added.
-    private var visiblePlaces: [PlayFromPlace] {
+    /// The places that can hold a copy on this device now, servers in the order they were
+    /// added, and the music services your servers play here after them.
+    static func places(model: AppModel, order: PlayFromOrder) -> [PlayFromPlace] {
         let added = model.sourceEntries.filter(\.canPlay).map(\.id)
         let servers = added.filter(\.isServer).map(PlayFromPlace.source)
         let others = PlayFromOrder.starting.filter { place in
             switch place {
             case .downloads: !servers.isEmpty
             case .source(let source): added.contains(source)
+            case .service: false
             }
         }
-        return order.arranged(others + servers)
+        let services = model.servicePlaces.map { PlayFromPlace.service($0.kind) }
+        return order.arranged(others + servers + services)
     }
 
     private func save(_ moved: [PlayFromPlace]) {
@@ -57,6 +60,8 @@ struct PlayFromSection: View {
         case .downloads: String(localized: "Downloads")
         case .source(let source):
             model.sourceEntries.first { $0.id == source }?.name ?? String(localized: "Server")
+        case .service(let kind):
+            model.servicePlaces.first { $0.kind == kind }?.name ?? kind
         }
     }
 
@@ -67,6 +72,10 @@ struct PlayFromSection: View {
             SettingsIconTile(systemImage: "arrow.down.circle.fill", color: .green)
         case .source(let source):
             SettingsIconTile(systemImage: SourceWords.symbol(for: source), color: SourceWords.tint(for: source))
+        case .service(let kind):
+            ServiceGlyph(logoKey: kind, side: 20)
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
         }
     }
 }
@@ -99,6 +108,7 @@ struct SourcesRow: View {
 struct SourcesPage: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(PlayFromOrder.storageKey) private var storedOrder = ""
 
     var body: some View {
         let entries = model.sourceEntries
@@ -121,7 +131,7 @@ struct SourcesPage: View {
         .navigationTitle("Sources")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if entries.filter(\.canPlay).count > 1 {
+            if PlayFromSection.places(model: model, order: PlayFromOrder(rawValue: storedOrder)).count > 1 {
                 ToolbarItem(placement: .primaryAction) { EditButton() }
             }
         }

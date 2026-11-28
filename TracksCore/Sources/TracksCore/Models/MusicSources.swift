@@ -86,15 +86,33 @@ public enum PlayFromPlace: Hashable, Sendable, RawRepresentable {
     /// A server's song kept on this device.
     case downloads
     case source(SourceID)
+    /// A music service your servers play through their relay, by its kind ("spotify"): one
+    /// place for every server that has it. Stored as Android stores it, so an order travels.
+    /// Apple Music is never one: it plays here natively, as ``SourceID/appleMusic``.
+    case service(String)
+
+    private static let servicePrefix = "service:"
 
     public init(rawValue: String) {
-        self = rawValue == "downloads" ? .downloads : .source(SourceID(rawValue: rawValue))
+        if rawValue == "downloads" {
+            self = .downloads
+        } else if rawValue.hasPrefix(Self.servicePrefix), rawValue.count > Self.servicePrefix.count {
+            self = .place(forService: String(rawValue.dropFirst(Self.servicePrefix.count)))
+        } else {
+            self = .source(SourceID(rawValue: rawValue))
+        }
+    }
+
+    /// A service's place by its kind, Apple Music's being its own source.
+    public static func place(forService kind: String) -> PlayFromPlace {
+        kind == TracksideCatalogService.nativeOnAppleKey ? .source(.appleMusic) : .service(kind)
     }
 
     public var rawValue: String {
         switch self {
         case .downloads: "downloads"
         case .source(let source): source.rawValue
+        case .service(let kind): Self.servicePrefix + kind
         }
     }
 }
@@ -166,6 +184,19 @@ public struct PlayFromOrder: Hashable, Sendable, RawRepresentable {
     /// The copy to play: the best that can play now, or nil when none can.
     public func choose<Copy>(_ copies: [Copy], place: (Copy) -> PlayFromPlace, canPlay: (Copy) -> Bool) -> Copy? {
         ranked(copies, place: place).first(where: canPlay)
+    }
+
+    /// The services, by kind, that come before every place a song has a copy that can play
+    /// from, best first: where the order says to look for the song before playing yours.
+    /// Empty when one of your copies comes first.
+    public func servicesFirst(_ kinds: [String], before owned: [PlayFromPlace]) -> [String] {
+        let services = kinds.map(PlayFromPlace.place(forService:))
+        var first: [String] = []
+        for place in arranged(owned + services) {
+            guard case .service(let kind) = place else { break }
+            first.append(kind)
+        }
+        return first
     }
 
     // MARK: - Orders saved before places could go anywhere

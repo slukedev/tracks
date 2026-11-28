@@ -255,6 +255,9 @@ final class AppModel {
             player.carryIntoRelay = { [weak self] request, next in
                 await self?.carryIntoRelay(request, next: next) ?? false
             }
+            player.throughService = { [weak self] request, context in
+                await self?.throughService(request, context: context)
+            }
             yourMusic.servers.onEvent = { [weak self] event, serverID in
                 self?.relayEngineStorage?.handle(event, from: serverID)
             }

@@ -428,6 +428,10 @@ struct StreamingCatalogTests {
             guard let picks else { throw TracksideError.notFound }
             return picks
         }
+
+        func matchCatalog(_ request: TracksideCatalogMatchRequest) async throws -> TracksideCatalogMatch {
+            throw TracksideError.notFound
+        }
     }
 
     private func services(_ extra: [TracksideCatalogService] = []) throws -> TracksideCatalogServiceList {

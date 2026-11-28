@@ -110,6 +110,11 @@ final class PlayerModel {
     /// server's relay with them, from where it's got to. Set by the app; false where the
     /// queue can't go there, and the tracks play instead.
     @ObservationIgnored var carryIntoRelay: ((_ request: PlayRequest, _ next: Bool) async -> Bool)?
+    /// The request as the server's relay queue, where Play From puts a music service before
+    /// your copies and the service has the song. Set by the app; nil plays it as it is.
+    @ObservationIgnored var throughService: ((_ request: PlayRequest, _ context: PlayContext) async -> PlayRequest?)?
+    /// Counts requests looked up on the services, so a slow lookup can't start over a newer one.
+    @ObservationIgnored private var serviceLookups = 0
 
     /// Why a song can't play now, in a few words where there's one reason.
     struct Unavailable: Equatable {
@@ -240,6 +245,15 @@ final class PlayerModel {
     /// ``play(_:from:shuffled:)``, returning once the player has started or failed: for Siri
     /// and Shortcuts, which mustn't finish before the music does start.
     func start(_ request: PlayRequest, from context: PlayContext, shuffled: Bool = false) async {
+        var request = request
+        if let throughService {
+            serviceLookups += 1
+            let lookup = serviceLookups
+            let resolved = await throughService(request, context)
+            // A newer request came while the services were asked: it plays instead.
+            guard lookup == serviceLookups else { return }
+            if let resolved { request = resolved }
+        }
         takeOverIfSwitched()
         if let mixed = mixing?(request) {
             // Its songs play best from more than one source: one queue across them.

@@ -9,6 +9,7 @@ public protocol CatalogService: Sendable {
     func catalogItem(_ ref: String, cursor: String?, limit: Int?) async throws -> TracksideCatalogItem
     func catalogLibrary(service id: String, kind: TracksideCatalogLibraryPage.Kind, cursor: String?, limit: Int) async throws -> TracksideCatalogLibraryPage
     func catalogRecommendations(services: [String], limit: Int) async throws -> TracksideCatalogRecommendations
+    func matchCatalog(_ request: TracksideCatalogMatchRequest) async throws -> TracksideCatalogMatch
 }
 
 extension TracksideClient: CatalogService {}
