@@ -2,6 +2,8 @@ package com.luke.tracks.streaming
 
 import com.luke.tracks.AppGraph
 import com.luke.tracks.library.CombinedLibrary
+import com.luke.tracks.library.trackside.TracksideCatalogMatch
+import com.luke.tracks.library.trackside.TracksideCatalogMatchRequest
 import com.luke.tracks.library.trackside.TracksideCatalogService
 import com.luke.tracks.library.trackside.TracksideCatalogTrack
 import com.luke.tracks.sources.PlayFromPlace
@@ -14,6 +16,7 @@ import com.luke.tracks.sources.WantedSong
 import com.luke.tracks.sources.sources
 import java.io.File
 import java.util.WeakHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -36,11 +39,18 @@ fun StreamingState.streamers(): List<Streamer> = servers
     .filter { it.plays && it.status == StreamingServer.Status.Ok }
     .flatMap { server -> server.services.filter { it.isSignedIn }.map { Streamer(server.serverId, it.id, it.placeKind) } }
 
-/** The services as places in Play From: one per kind, named as the first server names it. */
+/**
+ * The services as places in Play From: one per kind, named for what it is. One that's signed
+ * out or out of reach stays, with where it stands, so the order keeps it; a kind ready on any
+ * server is ready.
+ */
 fun StreamingState.servicePlaces(): List<ServicePlace> = servers
     .filter { it.plays }
-    .flatMap { server -> server.services.filter { it.isSignedIn }.map { ServicePlace(it.placeKind, it.name.ifBlank { it.placeKind }) } }
-    .distinctBy { it.kind }
+    .flatMap { server ->
+        server.services.map { ServicePlace(it.placeKind, ServiceBrand.name(it.logoKey, it.name.ifBlank { it.placeKind }), ServiceStanding.of(server, it)) }
+    }
+    .groupBy { it.kind }
+    .map { (_, same) -> same.firstOrNull { it.standing == ServiceStanding.Ready } ?: same.first() }
 
 /**
  * A service's song that is the same song as one asked for, by identity, from one search of that
@@ -50,6 +60,8 @@ fun StreamingState.servicePlaces(): List<ServicePlace> = servers
  */
 class ServiceMatches(
     private val search: suspend (query: String, key: ServiceKey) -> List<TracksideCatalogTrack>?,
+    /** Many songs matched on one service in one request, where its server can; null where it can't. */
+    private val batch: suspend (key: ServiceKey, request: TracksideCatalogMatchRequest) -> TracksideCatalogMatch? = { _, _ -> null },
     private val file: File? = null,
     private val now: () -> Long = System::currentTimeMillis,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -59,6 +71,9 @@ class ServiceMatches(
             // Songs only: a match is one search's worth of the rate limit, no more.
             val answers = repository.search(query, key, limit = SEARCH_LIMIT, types = listOf("track"))
             if (answers.isEmpty()) null else answers.flatMap { it.second.tracks?.items.orEmpty() }
+        },
+        batch = { key, request ->
+            if (repository.state.value.server(key.serverId)?.features?.match == true) repository.match(key.serverId, request) else null
         },
         file = file,
     )
@@ -90,6 +105,45 @@ class ServiceMatches(
         synchronized(kept) { kept[key(streamer, wanted)] = Answer(found, now()) }
         save()
         return found
+    }
+
+    /**
+     * Matches the songs not known yet on [streamer]'s service, up to 50 a request, so a queue
+     * costs a request or two rather than a search a song. Only settled answers are kept; one the
+     * server put off, or couldn't get in time, is left to [find]. Does nothing on a server
+     * that can't match many at once.
+     */
+    suspend fun warm(streamer: Streamer, wanted: List<WantedSong>) {
+        val missing = wanted.distinctBy { it.identity }.filter { known(streamer, it) == null }
+        if (missing.isEmpty()) return
+        val key = ServiceKey(streamer.serverId, streamer.serviceId)
+        var changed = false
+        for (chunk in missing.chunked(TracksideCatalogMatchRequest.MAX_ITEMS)) {
+            val request = TracksideCatalogMatchRequest(
+                items = chunk.mapIndexed { i, song -> TracksideCatalogMatchRequest.Item("$i", song.title, song.artist, song.album, song.durationMs) },
+                services = listOf(streamer.serviceId),
+            )
+            val answer = try {
+                batch(key, request) ?: return
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                break
+            }
+            val at = now()
+            synchronized(kept) {
+                answer.results.forEach { result ->
+                    val song = result.id.toIntOrNull()?.let(chunk::getOrNull) ?: return@forEach
+                    val match = result.matches.firstOrNull { it.serviceId == streamer.serviceId && it.settled } ?: return@forEach
+                    val track = match.track?.takeIf { match.state == "found" && it.canPlay }
+                    kept[key(streamer, song)] = Answer(track, at)
+                    changed = true
+                }
+            }
+            // Its budget is spent for now: the rest wait for their turn.
+            if (answer.retryAfterS != null) break
+        }
+        if (changed) save()
     }
 
     /** A kept answer: [track] is null when the service has no such song. */
@@ -160,6 +214,7 @@ val AppGraph.playResolver: PlayResolver
                 canPlay = { graph.sources.canPlay(it) },
                 streamers = { Streaming.of(graph)?.repository?.state?.value?.streamers().orEmpty() },
                 find = { streamer, wanted -> Streaming.of(graph)?.matches?.find(streamer, wanted) },
+                warm = { streamer, wanted -> Streaming.of(graph)?.matches?.warm(streamer, wanted) },
                 streamed = CatalogMedia::playable,
             )
         }

@@ -385,6 +385,16 @@ data class TracksideMe(
     /** Whether the server has the services' own picks (an older one leaves the key out). */
     val offersRecommendations: Boolean get() = features?.catalog?.recommendations == true
 
+    /** What the server can do beyond browsing and playing, each absent on a server that can't. */
+    val catalogFeatures: CatalogFeatures get() = CatalogFeatures(
+        save = features?.catalog?.save == true,
+        radio = features?.catalog?.radio == true,
+        match = features?.catalog?.match == true,
+        queueRemove = features?.speakers?.queueRemove == true,
+        hold = features?.speakers?.hold == true,
+        takeover = features?.speakers?.takeover == true,
+    )
+
     @Serializable
     data class Features(
         val acquisition: Acquisition? = null,
@@ -393,13 +403,21 @@ data class TracksideMe(
     )
 
     @Serializable
-    data class Speakers(val control: Boolean? = null)
+    data class Speakers(
+        val control: Boolean? = null,
+        @SerialName("queue_remove") val queueRemove: Boolean? = null,
+        val hold: Boolean? = null,
+        val takeover: Boolean? = null,
+    )
 
     @Serializable
     data class Catalog(
         val relay: Boolean? = null,
         @SerialName("relay_cellular") val relayCellular: Boolean? = null,
         val recommendations: Boolean? = null,
+        val save: Boolean? = null,
+        val radio: Boolean? = null,
+        val match: Boolean? = null,
     )
 
     @Serializable

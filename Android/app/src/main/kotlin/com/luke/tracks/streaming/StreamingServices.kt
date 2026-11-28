@@ -1,8 +1,13 @@
 package com.luke.tracks.streaming
 
+import com.luke.tracks.library.trackside.CatalogCapability
 import com.luke.tracks.library.trackside.CatalogEvents
+import com.luke.tracks.library.trackside.CatalogFeatures
 import com.luke.tracks.library.trackside.TracksideCatalogItem
 import com.luke.tracks.library.trackside.TracksideCatalogLibrary
+import com.luke.tracks.library.trackside.TracksideCatalogMatch
+import com.luke.tracks.library.trackside.TracksideCatalogMatchRequest
+import com.luke.tracks.library.trackside.TracksideCatalogSaved
 import com.luke.tracks.library.trackside.TracksideCatalogPage
 import com.luke.tracks.library.trackside.TracksideCatalogRecommendations
 import com.luke.tracks.library.trackside.TracksideCatalogSearch
@@ -38,6 +43,8 @@ interface CatalogClient {
     suspend fun library(serviceId: String, kind: String, cursor: String?): TracksideCatalogLibrary<TracksideCatalogItem>
     suspend fun libraryTracks(serviceId: String, cursor: String?): TracksideCatalogLibrary<TracksideCatalogTrack>
     suspend fun recommendations(services: List<String>, limit: Int): TracksideCatalogRecommendations
+    suspend fun setSaved(ref: String, saved: Boolean): TracksideCatalogSaved = throw TracksideError.NotFound
+    suspend fun match(request: TracksideCatalogMatchRequest): TracksideCatalogMatch = throw TracksideError.NotFound
 }
 
 class TracksideCatalogClient(private val client: TracksideClient) : CatalogClient {
@@ -49,6 +56,8 @@ class TracksideCatalogClient(private val client: TracksideClient) : CatalogClien
     override suspend fun library(serviceId: String, kind: String, cursor: String?) = client.catalogLibrary(serviceId, kind, cursor)
     override suspend fun libraryTracks(serviceId: String, cursor: String?) = client.catalogLibraryTracks(serviceId, cursor)
     override suspend fun recommendations(services: List<String>, limit: Int) = client.catalogRecommendations(services, limit)
+    override suspend fun setSaved(ref: String, saved: Boolean) = client.setCatalogSaved(ref, saved)
+    override suspend fun match(request: TracksideCatalogMatchRequest) = client.catalogMatch(request)
 }
 
 /** One service on one of your servers. */
@@ -85,6 +94,9 @@ data class StreamingServer(
 
     val relayCellular: Boolean get() = (access as? TracksideClient.CatalogAccess.Play)?.cellular == true
 
+    /** What else this server can do with its services. */
+    val features: CatalogFeatures get() = access.features
+
     fun service(id: String) = services.firstOrNull { it.id == id }
 }
 
@@ -99,6 +111,13 @@ data class StreamingState(val servers: List<StreamingServer> = emptyList()) {
     /** Every service you could search, each with its server. */
     val services: List<Pair<ServiceKey, TracksideCatalogService>>
         get() = servers.flatMap { server -> server.services.map { ServiceKey(server.serverId, it.id) to it } }
+
+    /** Whether the service can make its own radio here: its server plays here and can ask, and it finds similar songs. */
+    fun makesRadio(key: ServiceKey): Boolean {
+        val server = server(key.serverId) ?: return false
+        val service = server.service(key.serviceId) ?: return false
+        return server.plays && server.features.radio && service.isSignedIn && service.can(CatalogCapability.SIMILAR)
+    }
 
     /** Services searched unless one is chosen: signed in, and offering search. */
     val searchable: List<Pair<ServiceKey, TracksideCatalogService>> get() = services.filter { it.second.searches }
@@ -249,6 +268,18 @@ class StreamingRepository(
     suspend fun libraryTracks(key: ServiceKey, cursor: String? = null): TracksideCatalogLibrary<TracksideCatalogTrack> {
         val client = clientFor(key.serverId) ?: throw TracksideError.NotFound
         return withContext(io) { client.libraryTracks(key.serviceId, cursor) }
+    }
+
+    /** Saves [ref] to its service's own library, or takes it out. */
+    suspend fun setSaved(serverId: String, ref: String, saved: Boolean): TracksideCatalogSaved {
+        val client = clientFor(serverId) ?: throw TracksideError.NotFound
+        return withContext(io) { client.setSaved(ref, saved) }
+    }
+
+    /** Up to 50 songs matched on one server's services at once. */
+    suspend fun match(serverId: String, request: TracksideCatalogMatchRequest): TracksideCatalogMatch {
+        val client = clientFor(serverId) ?: throw TracksideError.NotFound
+        return withContext(io) { client.match(request) }
     }
 }
 

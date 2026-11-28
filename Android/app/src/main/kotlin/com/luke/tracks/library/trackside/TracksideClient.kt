@@ -365,6 +365,10 @@ class TracksideClient(
     suspend fun playOnSpeaker(id: String, play: TracksideSpeakerPlayRequest, key: String = java.util.UUID.randomUUID().toString()): TracksideSpeakerCommand =
         speakerCommand("speakers/$id/play", "POST", TracksideJson.encodeToString(TracksideSpeakerPlayRequest.serializer(), play), key = key)
 
+    /** Takes one song out of a speaker's queue (not the one playing). */
+    suspend fun removeFromSpeakerQueue(id: String, itemId: String): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id/queue/$itemId", "DELETE", null)
+
     suspend fun transferSpeaker(id: String, transfer: TracksideSpeakerTransfer, key: String = java.util.UUID.randomUUID().toString()): TracksideSpeakerCommand =
         speakerCommand("speakers/$id/transfer", "POST", TracksideJson.encodeToString(TracksideSpeakerTransfer.serializer(), transfer), key = key)
 
@@ -405,8 +409,8 @@ class TracksideClient(
         val me = me()
         return when {
             !me.offersCatalog -> CatalogAccess.None
-            me.offersRelay -> CatalogAccess.Play(cellular = me.offersRelayCellular, recommends = me.offersRecommendations)
-            else -> CatalogAccess.Browse(recommends = me.offersRecommendations)
+            me.offersRelay -> CatalogAccess.Play(cellular = me.offersRelayCellular, recommends = me.offersRecommendations, features = me.catalogFeatures)
+            else -> CatalogAccess.Browse(recommends = me.offersRecommendations, features = me.catalogFeatures)
         }
     }
 
@@ -414,10 +418,13 @@ class TracksideClient(
         /** Whether the server has the services' own picks. */
         val recommends: Boolean get() = false
 
+        /** What else the server can do with them. */
+        val features: CatalogFeatures get() = CatalogFeatures()
+
         data object None : CatalogAccess
-        data class Browse(override val recommends: Boolean = false) : CatalogAccess
+        data class Browse(override val recommends: Boolean = false, override val features: CatalogFeatures = CatalogFeatures()) : CatalogAccess
         /** Plays here through the relay; [cellular] when it can send the smaller tier. */
-        data class Play(val cellular: Boolean, override val recommends: Boolean = false) : CatalogAccess
+        data class Play(val cellular: Boolean, override val recommends: Boolean = false, override val features: CatalogFeatures = CatalogFeatures()) : CatalogAccess
     }
 
     suspend fun catalogServices(): TracksideCatalogServices = get("catalog/services", TracksideCatalogServices.serializer())
@@ -463,6 +470,14 @@ class TracksideClient(
     /** A track, album, artist, playlist or radio; a playlist's tracks come a page at a time. */
     suspend fun catalogItem(ref: String, cursor: String? = null, limit: Int? = null): TracksideCatalogPage =
         get("catalog/items/$ref", TracksideCatalogPage.serializer(), listOfNotNull(cursor?.let { "cursor" to it }, limit?.let { "limit" to "$it" }).toMap())
+
+    /** Saves the item to its service's own library, or takes it out; both are safe to send twice. */
+    suspend fun setCatalogSaved(ref: String, saved: Boolean): TracksideCatalogSaved =
+        send("catalog/items/$ref/saved", if (saved) "PUT" else "DELETE", null, TracksideCatalogSaved.serializer())
+
+    /** Up to 50 songs matched to the services in one request, waiting up to 8 s. */
+    suspend fun catalogMatch(request: TracksideCatalogMatchRequest): TracksideCatalogMatch =
+        send("catalog/match", "POST", TracksideJson.encodeToString(TracksideCatalogMatchRequest.serializer(), request), TracksideCatalogMatch.serializer())
 
     /** Playlists, albums or artists saved on a service. */
     suspend fun catalogLibrary(serviceId: String, kind: String = "playlist", cursor: String? = null, limit: Int = 100): TracksideCatalogLibrary<TracksideCatalogItem> =

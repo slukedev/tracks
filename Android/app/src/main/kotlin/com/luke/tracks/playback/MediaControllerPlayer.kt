@@ -256,6 +256,16 @@ class MediaControllerPlayer(private val context: Context) : PlayerController {
         sendCustomCommand(TracksCommands.command(TracksCommands.RADIO), Bundle.EMPTY)
     }
 
+    override fun startRadio(song: PlayableSong, service: Boolean) = run {
+        sendCustomCommand(
+            TracksCommands.command(TracksCommands.SONG_RADIO),
+            Bundle().apply {
+                putBundle(TracksCommands.SONG, song.toMediaItem().toBundle())
+                putBoolean(TracksCommands.SERVICE, service)
+            },
+        )
+    }
+
     override fun playMoreLikeThis() = run {
         sendCustomCommand(TracksCommands.command(TracksCommands.MORE_LIKE_THIS), Bundle.EMPTY)
     }

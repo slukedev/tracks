@@ -47,6 +47,7 @@ class PlayResolverTest {
         lookupMs: Long = 1_000,
     ) {
         val asked = mutableListOf<String>()
+        val warmed = mutableListOf<Pair<String, Int>>()
         val resolver = PlayResolver(
             order = { PlayFromOrder(order) },
             getOn = { getOn },
@@ -60,6 +61,7 @@ class PlayResolverTest {
             },
             streamed = { serverId, track, identity -> song("catalog:$serverId:${track.ref}").copy(identity = identity) },
             lookupMs = lookupMs,
+            warm = { streamer, songs -> warmed += streamer.serviceId to songs.size },
         )
 
         fun wanted(picked: PickedTrack? = null, canGet: Boolean = true) =
@@ -67,6 +69,18 @@ class PlayResolverTest {
     }
 
     private suspend fun Setup.played(picked: PickedTrack? = null): String? = resolver.resolve(wanted(picked)).song?.mediaId
+
+    @Test fun aQueueIsMatchedOnEachServiceItWouldAskBeforeAnySongIs() = runBlocking {
+        val queue = (1..5).map { WantedSong("Song $it", "Radiohead", null, null, "id$it") }
+        // Your copy of the third song comes first: it isn't asked of anyone.
+        val setup = Setup(listOf(phone, apple, spotify), owned = listOf(song("local:3").copy(identity = "id3")), answers = emptyMap())
+        setup.resolver.resolveAll(queue)
+        assertEquals(listOf("am1" to 4, "sp1" to 4), setup.warmed.sortedBy { it.first })
+        // One song alone is looked up as before, with nothing to batch.
+        val one = Setup(listOf(apple))
+        one.resolver.resolveAll(queue.take(1))
+        assertTrue(one.warmed.isEmpty())
+    }
 
     @Test fun everyOrderOfServicesAndGetPlaysFromTheFirst() = runBlocking {
         val expected = mapOf(apple to "catalog:home:am:1", spotify to "catalog:home:sp:1", get to gotten.mediaId)

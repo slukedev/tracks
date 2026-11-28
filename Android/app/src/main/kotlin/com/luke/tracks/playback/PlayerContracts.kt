@@ -99,6 +99,12 @@ interface PlayerController {
     fun playMoreLikeThis()
 
     /**
+     * A radio from [song]: the service's own when [service] (its server and service can make
+     * one), else, or when that fails, Tracks Radio opening on it.
+     */
+    fun startRadio(song: PlayableSong, service: Boolean) {}
+
+    /**
      * Plays what a spoken or typed request names ("Play Saltwater on Tracks"), as the service
      * finds it; a blank one plays Tracks Radio.
      */
