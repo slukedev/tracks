@@ -709,7 +709,7 @@ class PlaybackService : MediaLibraryService() {
      * A heart on a service's song also saves it to your library on that service (Spotify's Liked
      * Songs), where the server can; null for any other song. Hear Less never leaves Tracks.
      */
-    private fun serviceSave(mediaId: String): (suspend (Boolean) -> Unit)? {
+    private fun serviceSave(mediaId: String): (suspend (Boolean) -> Boolean)? {
         val streaming = Streaming.of(graph) ?: return null
         val (serverId, ref) = CatalogMedia.parse(mediaId) ?: return null
         val state = streaming.repository.state.value
@@ -718,12 +718,14 @@ class PlaybackService : MediaLibraryService() {
         return { on ->
             try {
                 streaming.repository.setSaved(serverId, ref, on)
+                true
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 Logs.w("Couldn't ${if (on) "save" else "unsave"} on the service: ${com.luke.tracks.streaming.RelayWords.describe(error)}")
                 val name = ServiceBrand.name(service)
                 withContext(Dispatchers.Main) { say(if (on) "Couldn't save it to $name." else "Couldn't remove it from $name.") }
+                false
             }
         }
     }
@@ -1076,7 +1078,14 @@ class PlaybackService : MediaLibraryService() {
         graph.scope.launch {
             graph.settings.update { it.copy(likedSongs = if (on) it.likedSongs + identity else it.likedSongs - identity) }
             (graph.library as? CombinedLibrary)?.servers?.star(mediaId, on)
-            saving?.invoke(on)
+            // Still saved on the service: the heart stays on, as the service has it.
+            if (saving?.invoke(on) == false && !on) {
+                graph.settings.update { it.copy(likedSongs = it.likedSongs + identity) }
+                withContext(Dispatchers.Main) {
+                    liked = liked + identity
+                    refreshButtons()
+                }
+            }
         }
     }
 
