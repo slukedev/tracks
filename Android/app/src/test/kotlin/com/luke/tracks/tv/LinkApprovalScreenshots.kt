@@ -38,5 +38,7 @@ class LinkApprovalScreenshots(dark: Boolean) : ScreenshotTest(dark) {
 
     @Test fun expired() = snap("link-approve-expired") { Shot("Q7RM-4X2K", Approval.Failed(LinkProblem.CodeExpired)) }
 
+    @Test fun notFound() = snap("link-approve-not-found") { Shot("Q7RM-4X2K", Approval.Failed(LinkProblem.NotFound)) }
+
     @Test fun notPaired() = snap("link-approve-not-paired") { Shot("Q7RM-4X2K", Approval.LookingUp, server = null) }
 }

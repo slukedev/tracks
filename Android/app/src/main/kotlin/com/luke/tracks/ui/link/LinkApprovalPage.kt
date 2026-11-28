@@ -106,6 +106,10 @@ fun LinkApprovalPage(serverId: String, userCode: String?, onDone: () -> Unit) {
         approval = approval,
         onCode = { code = it },
         onRetry = { attempt++ },
+        onRetype = {
+            code = null
+            approval = Approval.Typing
+        },
         onApprove = {
             val asking = approval as? Approval.Asking ?: return@LinkApprovalContent
             val id = target ?: return@LinkApprovalContent
@@ -144,6 +148,7 @@ fun LinkApprovalContent(
     onDeny: () -> Unit,
     onDone: () -> Unit,
     readingServers: Boolean = false,
+    onRetype: () -> Unit = {},
 ) {
     var typed by rememberSaveable { mutableStateOf("") }
     SettingsScaffold(title = "Link a TV") {
@@ -155,6 +160,10 @@ fun LinkApprovalContent(
                 serverName == null -> Hero(Tone.Error, "Pair this phone with that server first", actions = done)
                 approval is Approval.Linked -> Hero(Tone.Primary, "${approval.deviceName} is linked", actions = done)
                 approval is Approval.Denied -> Hero(Tone.Neutral, "${approval.deviceName} wasn't linked", actions = done)
+                approval is Approval.Failed && approval.problem == LinkProblem.NotFound -> Hero(Tone.Error, approval.problem.message, actions = {
+                    Button(onClick = onRetype) { Text("Change Code") }
+                    OutlinedButton(onClick = onDone) { Text("Done") }
+                })
                 approval is Approval.Failed -> Hero(Tone.Error, approval.problem.message, actions = {
                     if (approval.problem == LinkProblem.Offline) OutlinedButton(onClick = onRetry) { Text("Try again") }
                     Button(onClick = onDone) { Text("Done") }

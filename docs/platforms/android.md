@@ -710,10 +710,19 @@ Compose. On a TV:
   `tracksideOnly`, so device files, Subsonic servers, Spotify and Apple Music's SDK never
   register (a Subsonic server restored from a phone's backup stays saved, unused), and nothing
   says they're missing. Startup never reads MediaStore or asks for music permission, and skips
-  Spotify, Apple Music's SDK, Last.fm scrobbling, widgets, shortcuts and Trackside Cloud sync.
-  Trackside's address refreshes and services run as on a phone.
+  Spotify, Apple Music's SDK, Last.fm scrobbling, widgets and shortcuts. Trackside's address
+  refreshes and services run as on a phone.
 - A TV is linked to Trackside from its own screen. `trackside://pair` links and
   `tracks://link` approvals are ignored there.
+- Trackside Cloud syncs the TV's history (Summary, Charts, History) with the server it's
+  linked to, and no other (`sync/TvSync.kt`). A link turns it on when the server offers the
+  cloud (`capabilities.features.cloud`); a server without it is left quietly off. Settings,
+  Trackside has a Sync switch with a few words on how it's going (Syncing, Up to date, or what
+  went wrong), shown while sync is on or the server offers it. Linking the same server again
+  is the confirmation a re-paired server waits for; unlinking turns sync off. At launch, once
+  the saved servers are read and before sync starts, a choice of any other server (a phone's,
+  restored from its backup) is turned off; the linked server's choice stays as it was, so a
+  switch turned off stays off.
 - Shared helpers never open a browser, share sheet, chooser, QR scanner or output switcher.
 - The splash shows the cassette still (`res/values-television/themes.xml`). Debug builds turn
   on StrictMode with logging, and low-RAM devices keep a smaller cover cache in memory.

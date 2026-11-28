@@ -34,6 +34,7 @@ import com.luke.tracks.ui.tv.nowplaying.TvQueuePanel
 import com.luke.tracks.ui.tv.onboarding.TvOnboarding
 import com.luke.tracks.ui.tv.onboarding.TvOnboardingStep
 import com.luke.tracks.ui.tv.settings.HiddenSong
+import com.luke.tracks.ui.tv.settings.SyncSwitch
 import com.luke.tracks.ui.tv.settings.TracksideLink
 import com.luke.tracks.ui.tv.settings.TvAppearanceContent
 import com.luke.tracks.ui.tv.settings.TvHiddenSongsContent
@@ -185,6 +186,22 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
     @Test fun tracksideOffline() {
         snap("settings-trackside-offline") { Claimed { Pane { TvTracksideContent(TracksideLink.Linked("Living Room Server", ServerStatus.Failed("Couldn't reach your server. Check that you're online.")), {}, {}) } } }
     }
+
+    private fun Synced(sync: SyncSwitch) = @Composable {
+        Claimed { Pane { TvTracksideContent(TracksideLink.Linked("Living Room Server", ServerStatus.Ready(12_480)), {}, {}, sync = sync) } }
+    }
+
+    @Test fun tracksideSyncOn() = snap("settings-trackside-sync-on", content = Synced(SyncSwitch(on = true, line = "Up to date", problem = false)))
+
+    @Test fun tracksideSyncSyncing() = snap("settings-trackside-sync-syncing", content = Synced(SyncSwitch(on = true, line = "Syncing", problem = false)))
+
+    @Test fun tracksideSyncOff() = snap("settings-trackside-sync-off", content = Synced(SyncSwitch(on = false, line = null, problem = false)))
+
+    @Test fun tracksideSyncProblem() =
+        snap("settings-trackside-sync-problem", content = Synced(SyncSwitch(on = true, line = "Couldn't reach Living Room Server. Tracks will try again.", problem = true)))
+
+    @Test fun tracksideSyncPairedAgain() =
+        snap("settings-trackside-sync-paired-again", content = Synced(SyncSwitch(on = false, line = "Living Room Server was paired again. Tap to keep syncing.", problem = true)))
 
     @Test fun appearanceCustom() {
         snap("settings-appearance-custom") {

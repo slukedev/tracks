@@ -7,6 +7,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.luke.tracks.sync.CloudSync
+import com.luke.tracks.sync.SyncStatus
+import com.luke.tracks.sync.TvSync
+import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,18 +54,68 @@ sealed interface TracksideLink {
 
 fun ServerEntry?.toLink(): TracksideLink = this?.let { TracksideLink.Linked(it.server.name, it.status) } ?: TracksideLink.None
 
-/** Settings > Trackside: the server this TV plays from, refreshing it and unlinking; linking when there's none. */
+/** The Sync switch: on while history goes to and from the linked server, with how it's going in a few words. */
+data class SyncSwitch(val on: Boolean, val line: String?, val problem: Boolean)
+
+/**
+ * The switch for [status] on the server this TV is linked to; null hides it, where that
+ * server doesn't keep Trackside Cloud (or hasn't said) and sync isn't on with it. A server
+ * paired again reads as off until it's switched on again, since nothing syncs until then.
+ */
+fun syncSwitch(status: SyncStatus, linkedServerId: String?, offersCloud: Boolean?): SyncSwitch? {
+    linkedServerId ?: return null
+    val chosen = status.serverId == linkedServerId
+    if (!chosen && offersCloud != true) return null
+    if (!chosen) return SyncSwitch(on = false, line = null, problem = false)
+    val problem = status.problem.takeUnless { status.syncing }
+    val line = when {
+        status.syncing -> "Syncing"
+        problem != null -> problem
+        status.lastSyncedAt != null -> "Up to date"
+        else -> "Syncing"
+    }
+    return SyncSwitch(on = !status.needsConfirmation, line = line, problem = problem != null)
+}
+
+/** Settings > Trackside: the server this TV plays from, syncing with it, refreshing it and unlinking; linking when there's none. */
 @Composable
 fun TvTracksidePage() {
     val graph = LocalContext.current.graph
     val servers = (graph.library as? CombinedLibrary)?.servers
+    val sync = remember(graph) { CloudSync.of(graph) }
     val entries by remember(servers) { servers?.entries ?: MutableStateFlow(emptyList()) }.collectAsState()
-    val entry = entries.firstOrNull { it.server.isTrackside }
+    val status by remember(sync) { sync?.status ?: MutableStateFlow(SyncStatus()) }.collectAsStateWithLifecycle()
+    val entry = TvSync.linkedServer(entries)
+    val serverId = entry?.server?.id
+    val offersCloud by produceState<Boolean?>(null, servers, serverId) {
+        value = serverId?.let { id ->
+            try {
+                servers?.tracksideClient(id)?.capabilities()?.offersCloud
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
     val scope = rememberCoroutineScope()
     TvTracksideContent(
         link = entry.toLink(),
         onRefresh = { entry?.let { scope.launch { servers?.sync(it.server) } } },
-        onUnlink = { entry?.let { scope.launch { servers?.remove(it.server.id) } } },
+        onUnlink = {
+            entry?.let {
+                scope.launch {
+                    // Sync goes with the link.
+                    if (sync?.chosen() == it.server.id) sync.choose(null)
+                    servers?.remove(it.server.id)
+                }
+            }
+        },
+        sync = if (sync == null) null else syncSwitch(status, serverId, offersCloud),
+        onSync = { on ->
+            val id = serverId
+            if (sync != null && id != null) scope.launch { if (on) TvSync.turnOn(sync, id) else sync.choose(null) }
+        },
     )
 }
 
@@ -64,23 +125,37 @@ fun TvTracksideContent(
     link: TracksideLink,
     onRefresh: () -> Unit,
     onUnlink: () -> Unit,
+    sync: SyncSwitch? = null,
+    onSync: (Boolean) -> Unit = {},
     linkAgain: Boolean = false,
 ) {
     var relinking by remember(link) { mutableStateOf(linkAgain) }
     var confirming by remember { mutableStateOf(false) }
+    var unlinking by remember { mutableStateOf(false) }
+    val unlinkButton = remember { FocusRequester() }
     Box(Modifier.fillMaxSize()) {
     PageColumn {
         when {
-            link is TracksideLink.Linked && !relinking -> Linked(link, onRefresh, onRelink = { relinking = true }, onUnlink = { confirming = true })
+            link is TracksideLink.Linked && !relinking -> Linked(link, sync, onSync, onRefresh, onRelink = { relinking = true }, onUnlink = {
+                unlinking = false
+                confirming = true
+            }, unlinkButton)
             else -> {
                 PageHeading("Link This TV")
                 TvLinkFlow(onLinked = { relinking = false }, claimFocus = false)
             }
         }
     }
-    TvSidePanel(visible = confirming, onDismiss = { confirming = false }, title = "Unlink This TV?", width = 400.dp) {
+    TvSidePanel(
+        visible = confirming,
+        onDismiss = { confirming = false },
+        title = "Unlink This TV?",
+        width = 400.dp,
+        returnFocus = unlinkButton.takeUnless { unlinking },
+    ) {
         Text("Your plays stay in History.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
         TvButton("Unlink", onClick = {
+            unlinking = true
             confirming = false
             onUnlink()
         }, style = TvButtonStyle.Primary)
@@ -90,7 +165,15 @@ fun TvTracksideContent(
 }
 
 @Composable
-private fun Linked(link: TracksideLink.Linked, onRefresh: () -> Unit, onRelink: () -> Unit, onUnlink: () -> Unit) {
+private fun Linked(
+    link: TracksideLink.Linked,
+    sync: SyncSwitch?,
+    onSync: (Boolean) -> Unit,
+    onRefresh: () -> Unit,
+    onRelink: () -> Unit,
+    onUnlink: () -> Unit,
+    unlinkButton: FocusRequester,
+) {
     val colors = MaterialTheme.colorScheme
     val status = link.status
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 20.dp)) {
@@ -108,7 +191,20 @@ private fun Linked(link: TracksideLink.Linked, onRefresh: () -> Unit, onRelink: 
         } else {
             TvButton("Refresh", onClick = onRefresh, pending = status == ServerStatus.Syncing)
         }
-        TvButton("Unlink", onClick = onUnlink)
+        TvButton("Unlink", onClick = onUnlink, modifier = Modifier.focusRequester(unlinkButton))
+    }
+    if (sync != null) {
+        Box(Modifier.padding(top = 24.dp)) {
+            ToggleRow(
+                "Sync",
+                checked = sync.on,
+                onChange = onSync,
+                icon = Icons.Rounded.Sync,
+                supporting = sync.line,
+                supportingColor = if (sync.problem) colors.error else Color.Unspecified,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+        }
     }
 }
 

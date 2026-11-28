@@ -14,6 +14,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
@@ -39,6 +41,9 @@ fun TvListRow(
     headline: String,
     modifier: Modifier = Modifier,
     supporting: String? = null,
+    /** For a [supporting] line that says what went wrong; unspecified keeps the row's own. */
+    supportingColor: Color = Color.Unspecified,
+    supportingLines: Int = 1,
     overline: String? = null,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
@@ -90,7 +95,13 @@ fun TvListRow(
                 }
                 Text(headline, style = if (dense) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (supporting != null) {
-                    Text(supporting, style = MaterialTheme.typography.bodyMedium, color = LocalContentColor.current.copy(alpha = 0.72f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        supporting,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = supportingColor.takeOrElse { LocalContentColor.current.copy(alpha = 0.72f) },
+                        maxLines = supportingLines,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
             trailing?.invoke()

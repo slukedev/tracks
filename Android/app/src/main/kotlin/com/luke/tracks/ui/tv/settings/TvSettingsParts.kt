@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -60,11 +61,21 @@ internal fun PageHeading(text: String, modifier: Modifier = Modifier) {
 
 /** A setting that's on or off, as a row with a switch drawn at its end. */
 @Composable
-internal fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null, supporting: String? = null) {
+internal fun ToggleRow(
+    title: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    supporting: String? = null,
+    supportingColor: Color = Color.Unspecified,
+) {
     TvListRow(
         onClick = { onChange(!checked) },
         headline = title,
         supporting = supporting,
+        supportingColor = supportingColor,
+        supportingLines = 2,
         leading = icon?.let { { RowIcon(it) } },
         trailing = { Switch(checked) },
         modifier = modifier.semantics {

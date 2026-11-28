@@ -59,6 +59,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.luke.tracks.graph
 import com.luke.tracks.ui.tv.components.TvButton
 import com.luke.tracks.ui.tv.components.TvButtonStyle
 import com.luke.tracks.ui.tv.components.TvListRow
@@ -76,8 +77,8 @@ private sealed interface Phase {
 
 /**
  * Linking this TV to Trackside: pick a server found nearby or type its address, then show the
- * code and QR until a phone approves it. Polls only while on screen. [onLinked] runs a beat
- * after success, so the check registers. [claimFocus] moves focus in as each step opens;
+ * code and QR until a phone approves it. Polls only while on screen. Success turns on sync
+ * with that server ([syncAfterLink]), and [onLinked] runs a beat later, so the check registers. [claimFocus] moves focus in as each step opens;
  * off where the flow sits beside other focusable things (Settings) until it has focus.
  */
 @Composable
@@ -303,8 +304,10 @@ private fun LinkCode(
     val steps = remember(linker, server, attempt) { linkSteps(linker, server) }
     val step by steps.collectAsStateWithLifecycle(LinkStep.Starting)
     val done by rememberUpdatedState(onLinked)
+    val graph = LocalContext.current.graph
     LaunchedEffect(step) {
         if (step is LinkStep.Linked) {
+            syncAfterLink(graph, server)
             delay(LinkedPauseMs)
             done()
         }

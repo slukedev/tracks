@@ -44,7 +44,8 @@ import androidx.compose.material3.MaterialTheme as M3Theme
 /**
  * A panel that slides in from the right over a dimmed page, for the queue and for options.
  * Focus moves into it and can't wander out; Back closes it, and focus goes back to the item
- * that had it before. Place it last in a full-size Box so it draws over the page.
+ * that had it before ([returnFocus] when the page doesn't remember it). Place it last in a
+ * full-size Box so it draws over the page.
  */
 @Composable
 fun TvSidePanel(
@@ -53,6 +54,8 @@ fun TvSidePanel(
     modifier: Modifier = Modifier,
     title: String? = null,
     width: Dp = 420.dp,
+    /** Where focus goes when it closes; null is the item the page remembers. */
+    returnFocus: FocusRequester? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val reduced = LocalReducedMotion.current
@@ -66,7 +69,7 @@ fun TvSidePanel(
     LaunchedEffect(visible) {
         if (!visible && opened.value) {
             withFrameNanos { }
-            store.restore(routeKey)
+            if (returnFocus?.requestFocus() != true) store.restore(routeKey)
         }
         opened.value = visible
     }
