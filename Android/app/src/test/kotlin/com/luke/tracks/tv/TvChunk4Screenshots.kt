@@ -201,7 +201,7 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
         snap("settings-trackside-sync-problem", content = Synced(SyncSwitch(on = true, line = "Couldn't reach Living Room Server. Tracks will try again.", problem = true)))
 
     @Test fun tracksideSyncPairedAgain() =
-        snap("settings-trackside-sync-paired-again", content = Synced(SyncSwitch(on = false, line = "Living Room Server was paired again. Tap to keep syncing.", problem = true)))
+        snap("settings-trackside-sync-paired-again", content = Synced(SyncSwitch(on = false, line = "Paired again. Select to keep syncing.", problem = true)))
 
     @Test fun appearanceCustom() {
         snap("settings-appearance-custom") {

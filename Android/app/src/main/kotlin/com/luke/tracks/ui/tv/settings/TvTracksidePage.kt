@@ -67,7 +67,8 @@ fun syncSwitch(status: SyncStatus, linkedServerId: String?, offersCloud: Boolean
     val chosen = status.serverId == linkedServerId
     if (!chosen && offersCloud != true) return null
     if (!chosen) return SyncSwitch(on = false, line = null, problem = false)
-    val problem = status.problem.takeUnless { status.syncing }
+    // The phone's sentence says to tap; a TV is driven with a remote.
+    val problem = (if (status.needsConfirmation) PairedAgain else status.problem).takeUnless { status.syncing }
     val line = when {
         status.syncing -> "Syncing"
         problem != null -> problem
@@ -76,6 +77,8 @@ fun syncSwitch(status: SyncStatus, linkedServerId: String?, offersCloud: Boolean
     }
     return SyncSwitch(on = !status.needsConfirmation, line = line, problem = problem != null)
 }
+
+internal const val PairedAgain = "Paired again. Select to keep syncing."
 
 /** Settings > Trackside: the server this TV plays from, syncing with it, refreshing it and unlinking; linking when there's none. */
 @Composable
@@ -208,8 +211,9 @@ private fun Linked(
     }
 }
 
+// "Refreshing", like its button, so it never reads as a second "Syncing" beside the Sync switch's.
 private fun statusLine(status: ServerStatus): String = when (status) {
-    ServerStatus.Syncing -> "Syncing"
+    ServerStatus.Syncing -> "Refreshing"
     is ServerStatus.Ready -> "Connected, ${songs(status.songCount)}"
     is ServerStatus.Failed -> status.message
     ServerStatus.NeedsPassword -> "This TV was signed out."

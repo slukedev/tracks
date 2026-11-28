@@ -87,8 +87,8 @@ class TvSyncTest {
 
         val problem = "Couldn't reach Den. Tracks will try again."
         assertEquals(SyncSwitch(on = true, line = problem, problem = true), syncSwitch(on.copy(problem = problem), "tv", true))
-        val paired = "Den was paired again. Tap to keep syncing."
-        assertEquals(SyncSwitch(on = false, line = paired, problem = true), syncSwitch(on.copy(problem = paired, needsConfirmation = true), "tv", true))
+        val paired = on.copy(problem = "Den was paired again. Tap to keep syncing.", needsConfirmation = true)
+        assertEquals(SyncSwitch(on = false, line = "Paired again. Select to keep syncing.", problem = true), syncSwitch(paired, "tv", true))
 
         val off = SyncSwitch(on = false, line = null, problem = false)
         assertEquals(off, syncSwitch(SyncStatus(), "tv", offersCloud = true))
