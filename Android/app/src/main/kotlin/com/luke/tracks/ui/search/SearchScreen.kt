@@ -122,6 +122,7 @@ fun SearchScreen(initialQuery: String = "", initialScope: SearchScope = SearchSc
     var query by rememberSaveable { mutableStateOf(initialQuery) }
     var scope by rememberSaveable { mutableStateOf(initialScope) }
     var onlySource by rememberSaveable { mutableStateOf<String?>(null) }
+    var onlyService by rememberSaveable { mutableStateOf<String?>(null) }
     var results by remember { mutableStateOf<SearchResults?>(null) }
     val revision by graph.engine.revision.collectAsState()
     val focus = remember { FocusRequester() }
@@ -129,6 +130,16 @@ fun SearchScreen(initialQuery: String = "", initialScope: SearchScope = SearchSc
     val sources by com.luke.tracks.ui.sources.sourceList()
     val current by remember { graph.player.state.map { it.current?.mediaId } }.collectAsState(null)
     val atRoot = navigator.backStack.size <= 1
+    // Your servers' streaming services: searched after the library, or alone when one is chosen.
+    val streaming = com.luke.tracks.ui.services.streamingState()
+    val serviceKey = com.luke.tracks.streaming.ServiceKey.parse(onlyService)?.takeIf { key -> streaming.services.any { it.first == key } }
+    val serviceSearch = com.luke.tracks.ui.services.serviceSearchViewModel()
+    val services by serviceSearch.state.collectAsState()
+    val streamingRepository = com.luke.tracks.ui.services.rememberStreaming()?.repository
+    LaunchedEffect(streamingRepository) { streamingRepository?.refreshIfStale() }
+    LaunchedEffect(query, serviceKey, scope) {
+        serviceSearch.search(if (scope == SearchScope.Everything) query else "", serviceKey)
+    }
 
     // Instant, but not on every keystroke: wait for a short pause in typing.
     LaunchedEffect(query, revision) {
@@ -190,22 +201,46 @@ fun SearchScreen(initialQuery: String = "", initialScope: SearchScope = SearchSc
                     onScope = { scope = it },
                     sources = if (scope == SearchScope.History || sources.size < 2) emptyList() else sources,
                     onlySource = onlySource,
-                    onSource = { onlySource = it },
+                    onSource = { onlySource = it; if (it != null) onlyService = null },
+                    services = if (scope == SearchScope.Everything) streaming.services else emptyList(),
+                    onlyService = serviceKey,
+                    onService = { onlyService = it?.raw; if (it != null) onlySource = null },
                 )
             }
         },
     ) { inner ->
         val r = results
         var retry by remember { mutableIntStateOf(0) }
-        val catalog = rememberCatalogSearch(query, retry)
+        val catalog = rememberCatalogSearch(if (serviceKey == null) query else "", retry)
         val catalogEmpty = catalog is Remote.Idle || (catalog is Remote.Loaded && catalog.value.isEmpty)
-        val historyShown = scope != SearchScope.Library && r != null && (r.songs.isNotEmpty() || r.artists.isNotEmpty() || r.albums.isNotEmpty())
-        val libraryShown = scope != SearchScope.History && !library.isEmpty
+        // With a service chosen, only it is searched: your library and history step aside.
+        val historyShown = serviceKey == null && scope != SearchScope.Library && r != null && (r.songs.isNotEmpty() || r.artists.isNotEmpty() || r.albums.isNotEmpty())
+        val libraryShown = serviceKey == null && scope != SearchScope.History && !library.isEmpty
+        val servicesEmpty = services is com.luke.tracks.ui.services.ServiceSearch.Idle ||
+            (services as? com.luke.tracks.ui.services.ServiceSearch.Loaded)?.results?.isEmpty == true
+        val chosenService = serviceKey?.let(streaming::service)
+        val savedOnService = com.luke.tracks.ui.services.rememberServiceLibrary(serviceKey.takeIf { query.isBlank() }, chosenService, retry)
         Box(Modifier.padding(top = inner.calculateTopPadding()).fillMaxSize()) {
             when {
+                query.isBlank() && serviceKey != null && savedOnService != null -> LazyColumn(
+                    contentPadding = PaddingValues(top = 8.dp, bottom = com.luke.tracks.ui.navigation.bottomClearance),
+                ) {
+                    com.luke.tracks.ui.services.serviceLibraryItems(serviceKey, chosenService, savedOnService, onRetry = { retry++ })
+                }
                 query.isBlank() -> Recents(recents, onPick = { query = it })
+                serviceKey != null -> com.luke.tracks.ui.library.WithLibraryActions {
+                    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = com.luke.tracks.ui.navigation.bottomClearance)) {
+                        com.luke.tracks.ui.services.serviceSearchItems(
+                            services, streaming, serviceKey, query.trim(), current, edge = 20.dp, listPadding = 16.dp,
+                            onRetry = { streamingRepository?.refreshIfStale(0); serviceSearch.retry() },
+                        )
+                        if (servicesEmpty && services !is com.luke.tracks.ui.services.ServiceSearch.Idle) item(key = "services-none") {
+                            EmptyState(icon = Icons.Rounded.SearchOff, title = "No results on ${chosenService?.name ?: "this service"}")
+                        }
+                    }
+                }
                 r == null && library.isEmpty -> Spacer(Modifier.height(1.dp))
-                !historyShown && !libraryShown && catalogEmpty -> EmptyState(
+                !historyShown && !libraryShown && catalogEmpty && servicesEmpty -> EmptyState(
                     icon = Icons.Rounded.SearchOff,
                     title = "No results",
                 )
@@ -216,7 +251,10 @@ fun SearchScreen(initialQuery: String = "", initialScope: SearchScope = SearchSc
                         query = query.trim(),
                         currentMediaId = current,
                         catalog = catalog,
+                        services = services,
+                        streaming = streaming,
                         onRetry = { retry++ },
+                        onRetryServices = { streamingRepository?.refreshIfStale(0); serviceSearch.retry() },
                         onOpen = { remember() },
                     )
                 }
@@ -232,6 +270,9 @@ private fun ScopeChips(
     sources: List<com.luke.tracks.sources.Source>,
     onlySource: String?,
     onSource: (String?) -> Unit,
+    services: List<Pair<com.luke.tracks.streaming.ServiceKey, com.luke.tracks.library.trackside.TracksideCatalogService>> = emptyList(),
+    onlyService: com.luke.tracks.streaming.ServiceKey? = null,
+    onService: (com.luke.tracks.streaming.ServiceKey?) -> Unit = {},
 ) {
     val haptics = LocalHapticFeedback.current
     Row(
@@ -259,6 +300,7 @@ private fun ScopeChips(
                 leadingIcon = { com.luke.tracks.ui.sources.SourceMark(source, size = FilterChipDefaults.IconSize) },
             )
         }
+        com.luke.tracks.ui.services.ServiceChips(services, onlyService, onService)
     }
 }
 
@@ -299,7 +341,10 @@ private fun Results(
     query: String,
     currentMediaId: String?,
     catalog: Remote<NotYours>,
+    services: com.luke.tracks.ui.services.ServiceSearch,
+    streaming: com.luke.tracks.streaming.StreamingState,
     onRetry: () -> Unit,
+    onRetryServices: () -> Unit,
     onOpen: () -> Unit,
 ) {
     val navigator = LocalNavigator.current
@@ -310,6 +355,8 @@ private fun Results(
             item(key = "library-h") { com.luke.tracks.ui.discover.GroupHeading("Library", Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp)) }
             libraryFoundItems(library, query, { graph.library.index.value }, currentMediaId, rowModifier = Modifier.bleed(16.dp))
         }
+        // The services come after your library, as their own sections; songs you have are shown once, above.
+        com.luke.tracks.ui.services.serviceSearchItems(services, streaming, null, query, currentMediaId, edge = 20.dp, listPadding = 16.dp, onRetry = onRetryServices)
         if (r == null) {
             catalogSearchItems(catalog, edge = 20.dp, onRetry = onRetry, listPadding = 16.dp)
             return@LazyColumn

@@ -70,8 +70,8 @@ class Streaming private constructor(val repository: StreamingRepository, val rel
  * on. Kept from the system's default-network callback, so it's current without polling.
  */
 class MeteredNetwork(context: Context) {
-    private val manager = context.getSystemService(ConnectivityManager::class.java)
-    private val _metered = MutableStateFlow(read(manager?.getNetworkCapabilities(manager.activeNetwork)))
+    private val manager: ConnectivityManager? = context.getSystemService(ConnectivityManager::class.java)
+    private val _metered = MutableStateFlow(read(current()))
     val metered: StateFlow<Boolean> = _metered.asStateFlow()
 
     init {
@@ -82,11 +82,13 @@ class MeteredNetwork(context: Context) {
                 }
 
                 override fun onLost(network: Network) {
-                    _metered.value = read(manager.getNetworkCapabilities(manager.activeNetwork))
+                    _metered.value = read(current())
                 }
             })
         }
     }
+
+    private fun current(): NetworkCapabilities? = manager?.let { it.getNetworkCapabilities(it.activeNetwork) }
 
     private fun read(capabilities: NetworkCapabilities?): Boolean {
         if (capabilities == null) return false

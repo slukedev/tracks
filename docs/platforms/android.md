@@ -317,6 +317,17 @@ See [README.md](README.md) for the legend and how to keep this current.
   moves every frame from the last one the server said, never by asking again. This phone in
   Devices brings the music back here when all of it is in your library, else leaves the
   speaker playing. *(untested on a device)*
+- Music services through Trackside (`streaming/`, `ui/services/`, `playback/RelayPlayer.kt`):
+  Search shows each service your server is signed in to as its own section after your
+  library, with a chip per service (Apple Music included); a service's song that names one of
+  your library songs is folded into it. Albums, artists, playlists (paged as you scroll) and
+  stations open as pages; a chosen service with nothing typed shows what you saved there.
+  A queue with any service's song plays through the server's relay as live HLS, the rest of
+  the queue with it; a queue of library songs alone stays native. The relay's tier follows a
+  metered network. Controls show at once and go to the relay's speaker; a seek, skip, pause
+  or tier change never plays what was buffered before it. A speaker in Devices takes the
+  relay's queue by transfer, and a speaker playing a service comes back here the same way.
+  Old servers, and accounts without services, show none of it. *(untested on a device)*
 - Mini player as a floating toolbar across the screen beside a round play button, tinted
   from the cover (or in the app's colors, from Settings, Appearance), with the song's progress filling the play button's edge: tap or swipe up
   to expand, swipe to skip, press and hold (or TalkBack's Show queue action) for the queue.
