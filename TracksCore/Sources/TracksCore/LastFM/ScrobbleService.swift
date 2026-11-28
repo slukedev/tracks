@@ -39,6 +39,11 @@ public final class ScrobbleService {
     @ObservationIgnored private(set) var backoff = RetryBackoff()
     /// The clock, replaceable so tests can step past the backoff.
     @ObservationIgnored var now: () -> Date = { .now }
+    /// Spotify's plays held back by earlier versions have been put back in the queue.
+    @ObservationIgnored private var releasedSpotifyHolds = false
+
+    /// How far apart Spotify's own scrobble of a play and Tracks' can be and still be one play.
+    static let spotifyReach: TimeInterval = 3 * 60
 
     /// How old a play Last.fm still takes.
     static let lastFMReach: TimeInterval = 14 * 24 * 60 * 60
@@ -100,6 +105,10 @@ public final class ScrobbleService {
         guard settings.scrobblesToLastFM else { return 0 }
         guard let session = currentSession(), let client = makeClient() else { return 0 }
         guard backoff.allows(at: now()) else { return 0 }
+        if !releasedSpotifyHolds {
+            guard await releaseSpotifyHolds() else { return 0 }
+            releasedSpotifyHolds = true
+        }
 
         var sent = 0
         // Rows looked for on Last.fm and not found there, so safe to send.
@@ -108,15 +117,6 @@ public final class ScrobbleService {
             // Saved first, so every row has the identity it will keep.
             store.saveMainContext()
             guard let owed = await owedRows(), !owed.isEmpty else { break }
-
-            // Spotify sends its own plays, unless Scrobble Spotify is on: held, quietly.
-            if !settings.scrobblesSpotify {
-                let spotify = owed.filter(\.isFromSpotify).map(\.id)
-                if !spotify.isEmpty {
-                    guard await change(spotify, { $0.holdFromScrobbling(reason: ScrobblePolicy.spotifyReason) }) else { return sent }
-                    continue
-                }
-            }
 
             let unsendable = owed.filter { !$0.isSendable }
             if !unsendable.isEmpty {
@@ -213,6 +213,27 @@ public final class ScrobbleService {
         })
     }
 
+    /// Puts back in the queue the Spotify plays earlier versions left to Spotify, those Last.fm
+    /// still takes. Each is looked for in the history before it's sent, so one Spotify sent
+    /// itself isn't sent again.
+    ///
+    /// - Returns: false when the store couldn't be written, to try again next time.
+    private func releaseSpotifyHolds() async -> Bool {
+        let devices = [deviceID] + predecessors()
+        let oldest = now().addingTimeInterval(-Self.lastFMReach)
+        do {
+            try await writer.write { context in
+                for row in try context.fetch(Self.givenUp(devices: devices))
+                where row.lastScrobbleError == ScrobblePolicy.spotifyReason && row.capturedAt >= oldest {
+                    row.releaseForScrobbling()
+                }
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// The oldest rows owed: this device's, and its predecessors' once they've waited.
     private func owedRows() async -> [OwedScrobble]? {
         let deviceID = deviceID
@@ -249,6 +270,8 @@ public final class ScrobbleService {
         return owed.compactMap { row in
             guard !cleared.contains(row.id) else { return nil }
             if row.kind == .imported { return HistoryCheck(row, reach: .foundAfter(window)) }
+            // Spotify may send the same play itself, at its own moment around this one.
+            if row.isFromSpotify { return HistoryCheck(row, reach: .around(Self.spotifyReach)) }
             if row.deviceID != deviceID || inFlight.contains(row) { return HistoryCheck(row, reach: .exact) }
             return nil
         }
@@ -414,7 +437,7 @@ public final class ScrobbleService {
         session: LastFMSession
     ) async -> HistoryCheckOutcome? {
         var checks = checks.sorted { $0.at < $1.at }
-        while let earliest = checks.map(\.earliest).min(), let latest = checks.map(\.at).max() {
+        while let earliest = checks.map(\.earliest).min(), let latest = checks.map(\.latest).max() {
             let pageLimit = checks.count == 1 ? Self.singleRowHistoryPageLimit : Self.historyPageLimit
             let history: [ScrobbledTrack]?
             do {
@@ -507,6 +530,8 @@ public final class ScrobbleService {
             /// A scrobble Tracks may already have sent: the same second, and the same title
             /// or artist, since Last.fm can correct one of them.
             case exact
+            /// A play another app may have sent too: the same song up to this long either side.
+            case around(TimeInterval)
         }
 
         let id: PersistentIdentifier
@@ -532,6 +557,15 @@ public final class ScrobbleService {
             switch reach {
             case .foundAfter(let window): at.addingTimeInterval(-window)
             case .exact: at.addingTimeInterval(-1)
+            case .around(let window): at.addingTimeInterval(-window)
+            }
+        }
+
+        /// The newest scrobble that could be this play.
+        var latest: Date {
+            switch reach {
+            case .foundAfter, .exact: at
+            case .around(let window): at.addingTimeInterval(window)
             }
         }
 
@@ -542,6 +576,10 @@ public final class ScrobbleService {
                     == SongIdentity.key(title: title, artistName: artistName)
                     && track.playedAt <= at
                     && at.timeIntervalSince(track.playedAt) <= window
+            case .around(let window):
+                return SongIdentity.key(title: track.title, artistName: track.artistName)
+                    == SongIdentity.key(title: title, artistName: artistName)
+                    && abs(track.playedAt.timeIntervalSince(at)) <= window
             case .exact:
                 guard Int(track.playedAt.timeIntervalSince1970) == Int(at.timeIntervalSince1970) else { return false }
                 return Self.folded(track.title) == Self.folded(title)

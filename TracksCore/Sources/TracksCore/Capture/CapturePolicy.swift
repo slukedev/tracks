@@ -126,7 +126,7 @@ public struct ScrobblePolicy: Sendable, Equatable {
     /// Also how a row held back by this policy is told from one Last.fm refused.
     public static let tooShortReason = "Last.fm doesn’t count tracks of 30 seconds or less."
     public static let notPlayedEnoughReason = "Last.fm counts a song once half of it or four minutes has played."
-    /// A Spotify play while Scrobble Spotify is off: Spotify sends its own.
+    /// A Spotify play an earlier version left to Spotify to send. Tracks sends them now.
     public static let spotifyReason = "Spotify sends its own plays to Last.fm."
 }
 

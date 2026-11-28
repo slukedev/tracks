@@ -279,9 +279,10 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Imports your Last.fm history from Settings, without asking first; Sync Now adds what you've
   scrobbled since, from any app. Progress shows in the row, and it picks up where it stopped.
 - Scrobble queue with retries; scrobbling can be paused.
-- Spotify plays in the history (from earlier versions) aren't scrobbled unless
-  `scrobblesSpotifyToLastFM` is on (synced, off by default): Spotify sends its own. Held plays
-  show as left to Spotify.
+- Every play is scrobbled, Spotify's and the other music services' through your server
+  included. A Spotify play is first looked for in the Last.fm history, up to three minutes
+  either side, so one Spotify sent itself isn't sent twice. Spotify plays earlier versions left
+  to Spotify are sent too while Last.fm still takes them (14 days).
 - Imported scrobbles get the same id on every device and on Android: a UUIDv5 of
   `playedAtMs␟lastFM␟appleMusic␟songIdentity` (`PlayID.lastFM`).
 

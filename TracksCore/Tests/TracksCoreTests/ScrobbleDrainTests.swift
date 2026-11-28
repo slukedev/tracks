@@ -366,6 +366,45 @@ struct ScrobbleDrainTests {
         #expect(try store.stored(fresh).scrobbledAt != nil)
     }
 
+    @Test("Spotify's and other services' plays are scrobbled, but not one Spotify already sent")
+    func servicePlaysAreScrobbled() async throws {
+        let rows = [
+            Capture(songID: "1", title: "Sent by Spotify", artistName: "An Artist", capturedAt: base, source: .spotify),
+            Capture(songID: "2", title: "Not Sent", artistName: "An Artist", capturedAt: base.addingTimeInterval(60), source: .spotify),
+            Capture(songID: "3", title: "From Tidal", artistName: "An Artist", capturedAt: base.addingTimeInterval(120), source: .unknown("tidal")),
+        ]
+        for row in rows { store.context.insert(row) }
+        try store.context.save()
+        // Spotify's own scrobble, a moment after the play began here.
+        lastFM.history = [(title: "Sent by Spotify", artist: "An Artist", playedAt: base.addingTimeInterval(20))]
+        lastFM.acceptEverything()
+
+        #expect(await service().drain() == 2)
+
+        #expect(lastFM.sentTitles == ["Not Sent", "From Tidal"])
+        #expect(try store.stored(rows).allSatisfy { $0.scrobbledAt != nil })
+    }
+
+    @Test("Spotify's plays an earlier version left to Spotify are sent now, unless too old for Last.fm")
+    func heldSpotifyPlaysAreReleased() async throws {
+        let recent = Capture(songID: "1", title: "Held", artistName: "An Artist", capturedAt: base.addingTimeInterval(-60 * 60), source: .spotify)
+        let old = Capture(songID: "2", title: "Long Ago", artistName: "An Artist", capturedAt: base.addingTimeInterval(-20 * 24 * 60 * 60), source: .spotify)
+        for row in [recent, old] {
+            row.holdFromScrobbling(reason: ScrobblePolicy.spotifyReason)
+            store.context.insert(row)
+        }
+        try store.context.save()
+        lastFM.acceptEverything()
+
+        #expect(await service().drain() == 1)
+
+        #expect(lastFM.sentTitles == ["Held"])
+        // Looked for in the history first, in case Spotify sent it.
+        #expect(lastFM.methods.first == "user.getRecentTracks")
+        #expect(try store.stored(recent).scrobbledAt != nil)
+        #expect(try store.stored(old).isHeldFromScrobbling)
+    }
+
     @Test("an import is held when Last.fm's history can't be read")
     func importWaitsForHistory() async throws {
         let imported = Capture(

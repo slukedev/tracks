@@ -173,8 +173,9 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Scrobbles every kept song, radio included; Now Playing updates.
 - Import Last.fm history and Sync Now. Imported scrobbles get the same id as on iPhone and
   Android (`PlayID.lastFM`).
-- Spotify plays in the history (from earlier versions) are scrobbled only with
-  `scrobblesSpotifyToLastFM` on; off by default, since Spotify sends its own.
+- Every play is scrobbled, Spotify's and the other music services' included, as on iPhone: a
+  Spotify play is looked for in the Last.fm history first, so one Spotify sent itself isn't
+  sent twice.
 
 ### Sync and backup
 
