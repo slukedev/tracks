@@ -85,6 +85,7 @@ import com.luke.tracks.library.ServerAddress
 import com.luke.tracks.library.ServerEntry
 import com.luke.tracks.library.ServerStatus
 import com.luke.tracks.library.SubsonicServer
+import com.luke.tracks.system.isTv
 import androidx.compose.animation.animateContentSize
 import androidx.compose.material.icons.rounded.GppMaybe
 import androidx.compose.material.icons.rounded.Lock
@@ -412,10 +413,13 @@ fun ServerEditorForm(
                 onLink = { address = it; check = Check.Idle; approval = null },
                 onProblem = { check = Check.Failed(it) },
             )
-            FilledTonalButton(onClick = scan, modifier = Modifier.heightIn(min = 48.dp)) {
-                Icon(Icons.Rounded.QrCodeScanner, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Scan code")
+            // A TV has no camera to scan with.
+            if (!LocalContext.current.isTv) {
+                FilledTonalButton(onClick = scan, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Rounded.QrCodeScanner, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Scan code")
+                }
             }
             // Trackside servers on this network, as they announce themselves; a tap fills the address.
             val context = LocalContext.current

@@ -62,6 +62,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luke.tracks.library.trackside.TracksideSpeaker
 import com.luke.tracks.speakers.ServerSpeakers
 import com.luke.tracks.speakers.SpeakerKey
+import com.luke.tracks.system.isTv
 import com.luke.tracks.ui.nowplaying.openOutputSwitcher
 
 /**
@@ -151,7 +152,8 @@ fun DevicesSheet(onDismiss: () -> Unit, onOpenSpeaker: (SpeakerKey) -> Unit) {
                         )
                     }
                 }
-                item(key = "outputs") {
+                // A TV has no output switcher to open.
+                if (!context.isTv) item(key = "outputs") {
                     Column {
                     SectionTitle("Other outputs")
                     DeviceRow(

@@ -153,14 +153,16 @@ fun LicensesPage() {
     }
     SettingsScaffold(title = "Licenses") {
         group("Tracks", key = "tracks") {
-            link(
-                "GNU General Public License v3.0",
-                summary = "You can use, study, share and change Tracks. Copies you share must stay under the same license.",
-                icon = Icons.Rounded.Code,
-                tone = Tone.Primary,
-            ) {
-                if (!context.isTv) runCatching {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.gnu.org/licenses/gpl-3.0.html")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val title = "GNU General Public License v3.0"
+            val summary = "You can use, study, share and change Tracks. Copies you share must stay under the same license."
+            // A TV has no browser to open the license in.
+            if (context.isTv) {
+                info(title, summary)
+            } else {
+                link(title, summary = summary, icon = Icons.Rounded.Code, tone = Tone.Primary) {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.gnu.org/licenses/gpl-3.0.html")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
                 }
             }
         }
