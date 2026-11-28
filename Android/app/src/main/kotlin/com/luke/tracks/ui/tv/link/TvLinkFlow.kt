@@ -5,9 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,9 +18,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.maxLengthTrim
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Dns
@@ -42,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -63,6 +62,7 @@ import com.luke.tracks.graph
 import com.luke.tracks.ui.tv.components.TvButton
 import com.luke.tracks.ui.tv.components.TvButtonStyle
 import com.luke.tracks.ui.tv.components.TvListRow
+import com.luke.tracks.ui.tv.components.TvTextField
 import com.luke.tracks.ui.tv.theme.TvMotion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -207,10 +207,11 @@ private fun TypeAddress(
     onCancel: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var text by remember { mutableStateOf("") }
+    val address = rememberTextFieldState()
     var checking by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<LinkProblem?>(null) }
     val submit = {
+        val text = address.text.toString()
         if (!checking && text.isNotBlank()) {
             checking = true
             problem = null
@@ -229,14 +230,13 @@ private fun TypeAddress(
             }
         }
     }
-    TypeAddressContent(text, { text = it.filterNot(Char::isISOControl).take(256) }, checking, problem, first, submit, onCancel)
+    TypeAddressContent(address, checking, problem, first, submit, onCancel)
 }
 
 /** The address field, then Continue and Back; a problem says itself under the field. */
 @Composable
 fun TypeAddressContent(
-    text: String,
-    onText: (String) -> Unit,
+    address: TextFieldState,
     checking: Boolean,
     problem: LinkProblem?,
     first: FocusRequester,
@@ -244,37 +244,17 @@ fun TypeAddressContent(
     onCancel: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    var focused by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        BasicTextField(
-            value = text,
-            onValueChange = onText,
-            singleLine = true,
-            textStyle = MaterialTheme.typography.titleLarge.copy(color = colors.onSurface),
-            cursorBrush = SolidColor(colors.primary),
+        TvTextField(
+            state = address,
+            label = "Server Address",
+            placeholder = "music.example.com",
+            inputTransformation = AddressInput,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
-            keyboardActions = KeyboardActions(onGo = { onSubmit() }),
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(first)
-                .onFocusChanged { focused = it.isFocused }
-                .semantics { contentDescription = "Server Address" },
-            decorationBox = { field ->
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 60.dp)
-                        .background(M3Theme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
-                        .border(BorderStroke(if (focused) TvMotion.FocusBorderWidth else 0.dp, if (focused) colors.primary else colors.surface.copy(alpha = 0f)), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    if (text.isEmpty()) {
-                        Text("music.example.com", style = MaterialTheme.typography.titleLarge, color = colors.onSurfaceVariant.copy(alpha = 0.7f))
-                    }
-                    field()
-                }
-            },
+            onKeyboardAction = { onSubmit() },
+            shape = RoundedCornerShape(16.dp),
+            minHeight = 60.dp,
+            modifier = Modifier.fillMaxWidth().focusRequester(first),
         )
         if (problem != null) {
             Text(
@@ -285,11 +265,17 @@ fun TypeAddressContent(
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TvButton("Continue", onClick = onSubmit, style = TvButtonStyle.Primary, pending = checking, enabled = text.isNotBlank() || checking)
+            TvButton("Continue", onClick = onSubmit, style = TvButtonStyle.Primary, pending = checking, enabled = address.text.isNotBlank() || checking)
             TvButton("Back", onClick = onCancel)
         }
     }
 }
+
+/** Control characters are dropped, as from a paste, and an address stops at 256 characters. */
+private val AddressInput = InputTransformation {
+    val typed = asCharSequence().toString()
+    if (typed.any(Char::isISOControl)) replace(0, length, typed.filterNot(Char::isISOControl))
+}.maxLengthTrim(256)
 
 @Composable
 private fun LinkCode(

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -309,7 +310,7 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
     }
 
     @Test fun linkAddressProblem() {
-        snap("link-address") { Claimed { Framed { TypeAddressContent("music.example", {}, false, LinkProblem.NotTrackside, remember { FocusRequester() }, {}, {}) } } }
+        snap("link-address") { Claimed { Framed { TypeAddressContent(rememberTextFieldState("music.example"), false, LinkProblem.NotTrackside, remember { FocusRequester() }, {}, {}) } } }
     }
 
     @Test fun linkCode() {

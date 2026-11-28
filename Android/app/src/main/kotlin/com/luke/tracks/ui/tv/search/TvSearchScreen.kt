@@ -5,29 +5,18 @@ import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.InputTransformation
-import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.maxLengthTrim
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -48,24 +37,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Icon
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
 import com.luke.tracks.graph
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
@@ -84,6 +61,7 @@ import com.luke.tracks.ui.tv.components.TvCoverCard
 import com.luke.tracks.ui.tv.components.TvIconButton
 import com.luke.tracks.ui.tv.components.TvSectionTitle
 import com.luke.tracks.ui.tv.components.TvShelf
+import com.luke.tracks.ui.tv.components.TvTextField
 import com.luke.tracks.ui.tv.components.rememberFocus
 import com.luke.tracks.ui.tv.components.rememberFocusMemory
 import com.luke.tracks.ui.tv.detail.PendingPlay
@@ -93,10 +71,8 @@ import com.luke.tracks.ui.tv.detail.TvRowScroll
 import com.luke.tracks.ui.tv.detail.TvShelfScroll
 import com.luke.tracks.ui.tv.navigation.LocalTvNavigator
 import com.luke.tracks.ui.tv.theme.TvLayout
-import com.luke.tracks.ui.tv.theme.TvMotion
 import kotlinx.coroutines.delay
 import uniffi.tracks_engine.SearchResults
-import androidx.compose.material3.MaterialTheme as M3Theme
 
 private const val PauseMs = 250L
 private const val MaxQuery = 200
@@ -229,16 +205,13 @@ private sealed interface Played {
 }
 
 /**
- * The search field: a pill that takes focus like any control, opens the keyboard when
- * pressed rather than on focus, and lets Down leave for the results. The mic beside it asks
- * the system's voice search, where the TV has one.
+ * The search field, which opens the keyboard when pressed rather than on focus, and the mic
+ * beside it, which asks the system's voice search where the TV has one.
  */
 @Composable
 private fun Field(field: TextFieldState, memory: FocusMemory) {
-    val scheme = MaterialTheme.colorScheme
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    var focused by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val voice = remember(context) {
         Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -254,44 +227,15 @@ private fun Field(field: TextFieldState, memory: FocusMemory) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        BasicTextField(
+        TvTextField(
             state = field,
+            label = "Search",
+            placeholder = "Songs, Artists and Albums",
+            leadingIcon = Icons.Rounded.Search,
             inputTransformation = InputTransformation.maxLengthTrim(MaxQuery),
-            lineLimits = TextFieldLineLimits.SingleLine,
-            textStyle = MaterialTheme.typography.titleLarge.copy(color = scheme.onSurface),
-            cursorBrush = SolidColor(scheme.primary),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, showKeyboardOnFocus = false),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             onKeyboardAction = { keyboard?.hide(); focusManager.moveFocus(FocusDirection.Down) },
-            modifier = Modifier
-                .weight(1f)
-                .rememberFocus(memory, "field")
-                .onFocusChanged { focused = it.isFocused }
-                .onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    when (event.key) {
-                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { keyboard?.show(); true }
-                        Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
-                        else -> false
-                    }
-                }
-                .semantics { contentDescription = "Search" },
-            decorator = { inner ->
-                Row(
-                    Modifier
-                        .height(56.dp)
-                        .background(if (focused) M3Theme.colorScheme.surfaceContainerHighest else M3Theme.colorScheme.surfaceContainerHigh, CircleShape)
-                        .border(BorderStroke(if (focused) TvMotion.FocusBorderWidth else 0.dp, if (focused) scheme.primary else scheme.surface.copy(alpha = 0f)), CircleShape)
-                        .padding(horizontal = 22.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Rounded.Search, null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(26.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Box(Modifier.weight(1f)) {
-                        if (field.text.isEmpty()) Text("Songs, Artists and Albums", style = MaterialTheme.typography.titleLarge, color = scheme.onSurfaceVariant, maxLines = 1)
-                        inner()
-                    }
-                }
-            },
+            modifier = Modifier.weight(1f).rememberFocus(memory, "field"),
         )
         if (voice != null) {
             TvIconButton(Icons.Rounded.Mic, "Voice Search", { runCatching { listen.launch(voice) } }, Modifier.rememberFocus(memory, "mic"))
