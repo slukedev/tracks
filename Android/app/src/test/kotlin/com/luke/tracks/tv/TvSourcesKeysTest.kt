@@ -1,6 +1,7 @@
 package com.luke.tracks.tv
 
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,7 @@ import com.luke.tracks.sources.SourceStatus
 import com.luke.tracks.ui.theme.TracksBrand
 import com.luke.tracks.ui.tv.components.LocalTvFocusStore
 import com.luke.tracks.ui.tv.components.TvFocusStore
+import com.luke.tracks.ui.tv.settings.TvSettingsScreen
 import com.luke.tracks.ui.tv.settings.TvSourcesContent
 import com.luke.tracks.ui.tv.theme.TvTracksTheme
 import org.junit.Assert.assertEquals
@@ -50,23 +52,26 @@ class TvSourcesKeysTest {
     private val saved = mutableListOf<List<String>>()
     private val chosen = mutableListOf<SourceSelection>()
 
-    private fun show() {
+    private fun show(sources: List<Source> = TvSourcesDemo.servers, inSettings: Boolean = false) {
         compose.mainClock.autoAdvance = false
         val store = TvFocusStore().apply { requestClaim("") }
         compose.setContent {
-            var order by mutableStateOf(TvSourcesDemo.servers.map { PlayFromPlace.From(it.id) as PlayFromPlace })
+            var order by mutableStateOf(sources.map { PlayFromPlace.From(it.id) as PlayFromPlace })
             var selection by mutableStateOf<SourceSelection>(SourceSelection.All)
             TvTracksTheme(dark = true, dynamic = false, seed = TracksBrand) {
                 CompositionLocalProvider(LocalTvFocusStore provides store) {
-                    TvSourcesContent(
-                        sources = TvSourcesDemo.servers,
-                        selection = selection,
-                        playFrom = order,
-                        onSelect = { selection = it; chosen += it },
-                        onReorder = { order = it; saved += it.map(PlayFromPlace::raw) },
-                        onRefresh = {},
-                        onUnlink = {},
-                    )
+                    val page = @Composable {
+                        TvSourcesContent(
+                            sources = sources,
+                            selection = selection,
+                            playFrom = order,
+                            onSelect = { selection = it; chosen += it },
+                            onReorder = { order = it; saved += it.map(PlayFromPlace::raw) },
+                            onRefresh = {},
+                            onUnlink = {},
+                        )
+                    }
+                    if (inSettings) TvSettingsScreen { page() } else page()
                 }
             }
         }
@@ -122,6 +127,24 @@ class TvSourcesKeysTest {
         assertEquals("Picked up, 3 of 3", focusedState())
         press(Key.DirectionCenter)
         assertEquals(1, saved.size)
+    }
+
+    @Test fun theSettingsListStaysPutWhileThePageScrolls() {
+        val many = TvSourcesDemo.servers + (1..6).map { i ->
+            Source(SourceId.Server("extra-$i"), "Server $i", SourceKind.Server, SourceStatus.Connected, songCount = i * 1_000)
+        }
+        show(many, inSettings = true)
+        fun top(matcher: SemanticsMatcher) = compose.onNode(matcher).fetchSemanticsNode().boundsInRoot.top
+        // A row that never takes focus, so its focus scale can't move it.
+        val list = hasText("About")
+        val listTop = top(list)
+        val headingTop = top(hasText("Servers"))
+        focusPlayFrom("8 of 9")
+        press(Key.DirectionCenter)
+        press(Key.DirectionDown)
+        assertEquals("Picked up, 9 of 9", focusedState())
+        assertTrue("the page scrolled", top(hasText("Servers")) < headingTop)
+        assertEquals("the list didn't", listTop, top(list), 0f)
     }
 
     @Test fun talkBackMovesARowStraightAway() {

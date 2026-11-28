@@ -63,9 +63,10 @@ enum class TvSettingsPage(val key: String, val label: String, val icon: ImageVec
 /**
  * Settings in two panes: the pages down the left, the one with focus open on the right, as
  * Google TV's own settings are. Right goes into the page; Back or Left comes out to the list.
+ * Only the page scrolls. [pageContent] lets screenshots fill a page from plain values.
  */
 @Composable
-fun TvSettingsScreen(initial: String? = null) {
+fun TvSettingsScreen(initial: String? = null, pageContent: @Composable (TvSettingsPage) -> Unit = { Page(it) }) {
     val memory = rememberFocusMemory()
     var page by rememberSaveable { mutableStateOf(TvSettingsPage.of(initial)) }
     var inPage by remember { mutableStateOf(false) }
@@ -109,7 +110,7 @@ fun TvSettingsScreen(initial: String? = null) {
                 targetState = page,
                 transitionSpec = { fadeIn(tween(150, delayMillis = 40)) togetherWith fadeOut(tween(90)) },
                 label = "settings page",
-            ) { shown -> Page(shown) }
+            ) { shown -> pageContent(shown) }
         }
     }
 }

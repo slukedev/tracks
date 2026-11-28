@@ -188,8 +188,9 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
     ) {
         var order by remember { mutableStateOf(sources.map { PlayFromPlace.From(it.id) as PlayFromPlace }) }
         var chosen by remember { mutableStateOf(selection) }
+        // In the whole screen, as it's seen: the list stays put while the page scrolls.
         Claimed {
-            Pane {
+            TvSettingsScreen {
                 TvSourcesContent(
                     sources = sources,
                     selection = chosen,
@@ -215,6 +216,19 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
         snap("settings-sources") {
             CompositionLocalProvider(com.luke.tracks.ui.sources.LocalSources provides registry) { Claimed { TvSettingsScreen() } }
         }
+    }
+
+    @Test fun sourcesManyScrolled() {
+        val many = TvSourcesDemo.servers + (1..6).map { i ->
+            com.luke.tracks.sources.Source(
+                com.luke.tracks.sources.SourceId.Server("extra-$i"), "Server $i",
+                com.luke.tracks.sources.SourceKind.Server, com.luke.tracks.sources.SourceStatus.Connected, songCount = i * 1_000,
+            )
+        }
+        show { Sources(many) }
+        focus(hasStateDescription("8 of 9"))
+        press(listOf(Key.DirectionCenter, Key.DirectionDown))
+        capture("settings-sources-many")
     }
 
     @Test fun sourcesOne() = snap("settings-sources-one") { Sources(listOf(TvSourcesDemo.living)) }
