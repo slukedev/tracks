@@ -273,7 +273,7 @@ fun qualityLabel(quality: String): String? = when (quality) {
     else -> null
 }
 
-private fun playStation(context: android.content.Context, serverId: String, station: TracksideCatalogItem) {
+internal fun playStation(context: android.content.Context, serverId: String, station: TracksideCatalogItem) {
     val song = com.luke.tracks.playback.PlayableSong(
         mediaId = CatalogMedia.mediaId(serverId, station.ref),
         uri = android.net.Uri.parse("tracks-catalog://$serverId/${station.ref}"),

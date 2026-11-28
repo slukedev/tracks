@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,6 +66,8 @@ import com.luke.tracks.library.ServerEntry
 import com.luke.tracks.library.ServerStatus
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
+import com.luke.tracks.streaming.ServerRecommendations
+import com.luke.tracks.ui.services.fromSeveralServices
 import com.luke.tracks.ui.components.Artwork
 import com.luke.tracks.ui.insights.LocalInsightsSnackbar
 import com.luke.tracks.ui.library.LibraryTarget
@@ -140,6 +143,8 @@ fun PlayScreen() {
         val hidden = servers.filter { server -> shownServers.none { it.id == server.id } }
         if (hidden.isNotEmpty()) com.luke.tracks.net.Logs.i("Play: ${hidden.joinToString { it.name }} hidden by the source filter, or because it can't play now")
     }
+    val recommendations = com.luke.tracks.ui.services.rememberRecommendationRows(current?.recentlyPlayed.orEmpty(), selection)
+    val namesServices = recommendations.fromSeveralServices()
     // Picks are made again when the artists you play change, not for every song played.
     val taste = remember(current?.topArtists) { current?.topArtists.orEmpty().take(8).map { it.identity }.toSet() }
 
@@ -227,9 +232,13 @@ fun PlayScreen() {
                         item(key = "picks-${server.id}", contentType = "server-songs") {
                             ServerForYouShelf(server, ForYouShelf.PICKS, taste, Modifier.animateItem())
                         }
+                        recommendationItems(server.id, recommendations[server.id], namesServices)
                         item(key = "albums-${server.id}", contentType = "server-albums") {
                             ServerAlbumShelves(server, Modifier.animateItem())
                         }
+                    }
+                    recommendations.filterKeys { id -> servers.none { it.id == id } }.forEach { (id, recs) ->
+                        recommendationItems(id, recs, namesServices)
                     }
                     if (shownServers.isNotEmpty() && (exploring.isNotEmpty() || canExploreMore)) {
                         item(key = "keep-exploring", contentType = "explore") {
@@ -238,6 +247,19 @@ fun PlayScreen() {
                     }
                 }
             }
+        }
+    }
+}
+
+/** A server's rows of its services' picks, or one shelf's place while they come. */
+private fun LazyListScope.recommendationItems(serverId: String, recs: ServerRecommendations?, namesServices: Boolean) {
+    when (recs) {
+        null -> Unit
+        ServerRecommendations.Loading -> item(key = "recs-loading-$serverId", contentType = "recs-loading") {
+            RecommendationShelfLoading(Modifier.animateItem())
+        }
+        is ServerRecommendations.Ready -> recs.shelves.forEach { row ->
+            item(key = "recs-${row.key}", contentType = "recs") { RecommendationShelfRow(row, namesServices, Modifier.animateItem()) }
         }
     }
 }
