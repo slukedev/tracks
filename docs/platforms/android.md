@@ -736,7 +736,8 @@ the device, and a phone that was on a TV shouldn't restore into the TV interface
   swatches) take taps and long presses through `Modifier.tvTouch` (`ui/tv/components/TvTouch.kt`):
   a tap focuses and clicks, a press shows the pressed look, a drag scrolls the list instead.
   A tap on the rail picks the page without opening it. The seek bar seeks where it's tapped
-  and scrubs with a drag, and a touch wakes a resting Now Playing as a key does.
+  and scrubs with a drag, and a touch wakes a resting Now Playing as a key does. In Settings,
+  Sources, a tap picks a Play From row up or puts it down, and a lifted row's arrows carry it.
 - The phone interface works by remote: in key mode every row and button takes focus with
   Material's focus highlight, and D-pad Down reaches TV mode in Settings.
 

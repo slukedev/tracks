@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -61,6 +63,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LookaheadScope
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -101,6 +104,7 @@ import com.luke.tracks.ui.tv.components.TvButtonStyle
 import com.luke.tracks.ui.tv.components.TvChip
 import com.luke.tracks.ui.tv.components.TvListRow
 import com.luke.tracks.ui.tv.components.TvSidePanel
+import com.luke.tracks.ui.tv.components.tvTouch
 import com.luke.tracks.ui.tv.link.TvLinkFlow
 import com.luke.tracks.ui.tv.theme.LocalReducedMotion
 import com.luke.tracks.ui.tv.theme.TvMotion
@@ -400,8 +404,9 @@ private fun ServerPanel(
 
 /**
  * Which copy plays when a song is on more than one server. Select a row to pick it up, Up and
- * Down to carry it, select to put it down; Back puts it back. TalkBack offers Move Up and Move
- * Down. Saved when it's put down.
+ * Down to carry it, select to put it down; Back puts it back. By touch, a tap picks it up, its
+ * arrows carry it and another tap puts it down. TalkBack offers Move Up and Move Down. Saved
+ * when it's put down.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -511,6 +516,7 @@ private fun PlayFromRow(
                 scaleY = raise
             }
             .tvFocusScale(interaction, TvMotion.RowFocusScale)
+            .tvTouch(interaction, onClick = onClick)
             .semantics(mergeDescendants = true) {
                 stateDescription = if (lifted) "Picked up, $number of $count" else "$number of $count"
                 customActions = listOfNotNull(
@@ -550,8 +556,8 @@ private fun PlayFromRow(
             Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             when {
                 lifted -> Row {
-                    Arrow(Icons.Rounded.KeyboardArrowUp, canUp)
-                    Arrow(Icons.Rounded.KeyboardArrowDown, canDown)
+                    Arrow(Icons.Rounded.KeyboardArrowUp, canUp) { onCarry(-1) }
+                    Arrow(Icons.Rounded.KeyboardArrowDown, canDown) { onCarry(1) }
                 }
                 focused -> Icon(Icons.Rounded.DragHandle, contentDescription = null, tint = LocalContentColor.current.copy(alpha = 0.72f), modifier = Modifier.size(24.dp))
             }
@@ -559,10 +565,21 @@ private fun PlayFromRow(
     }
 }
 
+/** Where a lifted row can go. A tap carries it; at an end, a tap does nothing rather than put it down. */
 @Composable
-private fun Arrow(icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean) {
-    Icon(icon, contentDescription = null, tint = LocalContentColor.current.copy(alpha = if (enabled) 1f else 0.38f), modifier = Modifier.size(24.dp))
+private fun Arrow(icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, onTap: () -> Unit) {
+    val canTap by rememberUpdatedState(enabled)
+    val tap by rememberUpdatedState(onTap)
+    Box(
+        Modifier.size(ArrowTarget).pointerInput(Unit) { detectTapGestures { if (canTap) tap() } },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = LocalContentColor.current.copy(alpha = if (enabled) 1f else 0.38f), modifier = Modifier.size(24.dp))
+    }
 }
+
+/** As big as a finger needs that still fits the row's 56dp, so lifting it doesn't change its height. */
+private val ArrowTarget = 40.dp
 
 /** A server's word on its row. */
 internal fun SourceStatus.rowLine(songCount: Int?): String = when (this) {

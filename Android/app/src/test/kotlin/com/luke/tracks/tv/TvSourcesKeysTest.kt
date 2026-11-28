@@ -6,6 +6,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
@@ -18,10 +19,14 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
+import androidx.compose.ui.unit.dp
 import com.luke.tracks.sources.PlayFromPlace
 import com.luke.tracks.sources.Source
 import com.luke.tracks.sources.SourceId
@@ -42,7 +47,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Settings > Sources with the remote: choosing a server, and Play From's pick up, carry, put down and Back. */
+/** Settings > Sources with the remote and by touch: choosing a server, and Play From's pick up, carry, put down and Back. */
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "w960dp-h540dp-land-television-xhdpi")
@@ -155,6 +160,49 @@ class TvSourcesKeysTest {
         compose.runOnIdle { actions.single().action() }
         advance(300)
         assertEquals(listOf(listOf("server:den", "server:living-room", "server:attic")), saved)
+    }
+
+    @Test fun byTouchATapPicksARowUpItsArrowsCarryItAndATapPutsItDown() {
+        show()
+        fun row(state: String) = compose.onNode(hasStateDescription(state))
+        // From the row's end: Down's target, then Up's, each 40dp wide inside 16dp of padding.
+        val down = 16 + 20
+        val up = 16 + 40 + 20
+        fun tapArrow(state: String, fromEnd: Int) {
+            row(state).performTouchInput { click(Offset(width - fromEnd.dp.toPx(), centerY)) }
+            advance(300)
+        }
+        compose.mainClock.autoAdvance = true
+        row("1 of 3").performScrollTo()
+        compose.mainClock.autoAdvance = false
+        row("1 of 3").performTouchInput { click() }
+        advance(300)
+        assertEquals("Picked up, 1 of 3", focusedState())
+        // Up from the top goes nowhere, and doesn't put the row down either.
+        tapArrow("Picked up, 1 of 3", up)
+        assertEquals("Picked up, 1 of 3", focusedState())
+        tapArrow("Picked up, 1 of 3", down)
+        tapArrow("Picked up, 2 of 3", down)
+        tapArrow("Picked up, 3 of 3", up)
+        assertEquals("Picked up, 2 of 3", focusedState())
+        assertTrue(focusedText().contains("Living Room"))
+        assertEquals(emptyList<List<String>>(), saved)
+        row("Picked up, 2 of 3").performTouchInput { click() }
+        advance(300)
+        assertEquals("2 of 3", focusedState())
+        assertEquals(listOf(listOf("server:den", "server:living-room", "server:attic")), saved)
+        // The remote carries on from where the finger left off.
+        press(Key.DirectionCenter)
+        press(Key.DirectionDown)
+        press(Key.DirectionCenter)
+        assertEquals(listOf("server:den", "server:attic", "server:living-room"), saved.last())
+    }
+
+    @Test fun aTapOnAServerOpensItsPanel() {
+        show()
+        compose.onNode(hasText("Den") and hasText("3,210 songs")).performTouchInput { click() }
+        advance(600)
+        compose.onNode(hasText("Unlink")).assertExists()
     }
 
     @Test fun choosingAServerNarrowsToItAndAllSourcesWidensAgain() {
