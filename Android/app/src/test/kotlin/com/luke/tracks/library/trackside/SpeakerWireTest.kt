@@ -161,6 +161,7 @@ class SpeakerWireTest {
         assertTrue(me.offersSpeakers)
         assertTrue(me.controlsSpeakers)
         assertEquals(true, me.user.permissions?.canUseSpeakers)
+        assertEquals(true, me.user.permissions?.canPlayServices)
         val old = TracksideJson.decodeFromString(TracksideMe.serializer(), fixture("me-without-acquisition.json"))
         assertFalse(old.offersSpeakers)
     }

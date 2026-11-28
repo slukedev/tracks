@@ -169,6 +169,8 @@ struct TracksideSpeakersTests {
         #expect(me.features?.speakers?.control == true)
         #expect(me.features?.catalog?.relay == true)
         #expect(me.features?.acquisition?.instantPlay == true)
+        #expect(me.user.permissions?.canUseSpeakers == true)
+        #expect(me.user.permissions?.canPlayServices == true)
         let old = try fixture(TracksideMe.self, "me-without-acquisition.json")
         #expect(old.features?.speakers == nil)
         #expect(old.features?.catalog == nil)

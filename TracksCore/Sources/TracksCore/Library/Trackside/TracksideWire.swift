@@ -276,12 +276,16 @@ public struct TracksideUser: Codable, Sendable, Hashable, Identifiable {
         public var legacySubsonic: Bool?
         /// Nil when unlimited.
         public var maxBitrateKbps: Int?
+        public var canUseSpeakers: Bool?
+        public var canPlayServices: Bool?
 
         enum CodingKeys: String, CodingKey {
             case canDownload = "can_download"
             case canUpload = "can_upload"
             case legacySubsonic = "legacy_subsonic"
             case maxBitrateKbps = "max_bitrate_kbps"
+            case canUseSpeakers = "can_use_speakers"
+            case canPlayServices = "can_play_services"
         }
     }
 
