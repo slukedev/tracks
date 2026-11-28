@@ -167,7 +167,7 @@ class DevicesViewModel(private val graph: AppGraph, private val repository: Spea
             // A queue with any service's song comes here through the relay, as the server moves it.
             val streaming = com.luke.tracks.streaming.Streaming.of(graph)
             val relayed = queue?.items?.any { it.ref != null } == true || speaker?.nowPlaying?.ref != null
-            if (moved == null && relayed && speaker != null && streaming?.repository?.state?.value?.server(key.serverId)?.plays == true) {
+            if (moved == null && relayed && speaker != null && streaming != null && streaming.repository.state.value.server(key.serverId)?.plays == true) {
                 val names = streaming.repository.state.value.server(key.serverId)?.services.orEmpty().associate { it.id to it.name }
                 repository.release()
                 streaming.relay.takeFrom(key.serverId, key.speakerId, names)
