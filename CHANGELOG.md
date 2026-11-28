@@ -275,6 +275,14 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
 - Send what a service plays to one of your server's speakers, or bring a speaker's music back
   to this device, from where it's got to. Plays from a service are kept in your history under
   that service
+- On Android, your Trackside server's music services join Search: Spotify, Tidal, Qobuz,
+  Apple Music and the others it's signed in to, each with its own section after your library
+  and its own chip to search it alone. A song you already have shows once, as yours. Albums,
+  artists and playlists open as pages of their own, and a service's chip with nothing typed
+  shows what you saved there. They play on the phone through your server, in the background
+  and on the lock screen like the rest of your music, in lossless on Wi-Fi and a smaller
+  stream on cellular. Tap a speaker in Devices and the music moves there; bring it back and it
+  carries on here. Plays are kept with the service they came from
 - Search asks your servers as you type, so songs newer than the last sync turn up too. With a
   music server that adds songs on request, search finds songs you don't own yet to play straight
   away, and Add to Your Music has the server fetch the file, which joins your music a few
@@ -389,6 +397,13 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   shape): the approving calls for phones and Macs, the start and poll calls for a TV (Android
   sends `android_tv` from a TV), `link_expired`, `link_locked` and `link_used`, and the
   `device_linked` event. The link fixtures are copied from the server and decoded in the tests
+- The Android client speaks Trackside's streaming catalog and phone relay: services, search
+  (alone and as `types=catalog`), item pages with their cursor, saved libraries, and relay
+  sessions with their tier and generations. `RelayEngine` plays a queue with any service's
+  song through the relay and never plays a generation it has moved on from; `RelayPlayer`
+  stands in for it in the media session, over an ExoPlayer for the live HLS
+  (`media3-exoplayer-hls`). The catalog and relay fixtures are copied from the contract and
+  decoded in the tests
 
 ## Motif 1.0
 

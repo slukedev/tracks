@@ -60,6 +60,9 @@ class TracksideServices(private val graph: AppGraph, private val servers: Server
     /** Each server's speakers, kept current from its events. */
     val speakers = com.luke.tracks.speakers.Speakers.install(graph, servers)
 
+    /** Each server's streaming services, and this phone's relay for playing them. */
+    val streaming = com.luke.tracks.streaming.Streaming.install(graph, servers)
+
     @OptIn(FlowPreview::class)
     fun start() {
         if (graph.sampleData) return
@@ -145,13 +148,19 @@ class TracksideServices(private val graph: AppGraph, private val servers: Server
                     syncLibrarySoon()
                     if (cloudHere()) cloud?.pull(null)
                     speakers.connected(serverId)
+                    streaming.repository.connected(serverId)
+                    streaming.relay.refresh()
                 },
                 onEvent = { event ->
                     when (event.type) {
                         "changed", "resync" -> syncLibrarySoon()
                         "server_urls" -> servers.refreshAddresses()
                         "cloud" -> if (cloudHere()) cloud?.pull(event.cloudEntity)
-                        else -> speakers.handle(serverId, event)
+                        else -> {
+                            speakers.handle(serverId, event)
+                            streaming.repository.handle(serverId, event)
+                            streaming.relay.handle(serverId, event)
+                        }
                     }
                 },
             )
@@ -161,6 +170,8 @@ class TracksideServices(private val graph: AppGraph, private val servers: Server
         // Signed out: the library's sync finds out and asks to pair again.
         if (ending == TracksideEvents.Ending.SignedOut) {
             speakers.signedOut(serverId)
+            streaming.repository.signedOut(serverId)
+            streaming.relay.forget(serverId, "Your server doesn't know this phone anymore.")
             server()?.let { servers.sync(it) }
         }
     }

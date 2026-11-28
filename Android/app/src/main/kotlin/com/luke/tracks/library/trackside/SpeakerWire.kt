@@ -146,6 +146,8 @@ data class TracksideSpeakerCommand(
     @SerialName("command_id") val commandId: String,
     @SerialName("settle_by") val settleBy: String? = null,
     val speaker: TracksideSpeaker,
+    /** For the relay's speaker: its session, whose `stream.hls` names the generation to play next. */
+    val relay: TracksideRelaySession? = null,
 )
 
 /** `POST /speakers/{id}/playback`. */

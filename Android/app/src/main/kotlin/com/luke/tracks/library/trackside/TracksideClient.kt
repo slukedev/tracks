@@ -41,6 +41,10 @@ sealed class TracksideError(message: String) : Exception(message) {
         val reason: String? = null,
         /** With `unsupported`: the capability that's missing. */
         val capability: String? = null,
+        /** With `service_signed_out`: the service to sign in to again. */
+        val serviceId: String? = null,
+        /** With `relay_limit`: how many relay sessions are allowed. */
+        val limit: Int? = null,
     ) : TracksideError(detail.ifBlank { "The server had a problem." })
     /** The server can't reach its speakers right now; it says so again when they're back. */
     class SpeakersUnavailable(val retryAfterSeconds: Long?) : TracksideError("Speakers aren't available right now.")
@@ -387,6 +391,105 @@ class TracksideClient(
         clockSkewMs = if (kotlin.math.abs(skew) > 2_000) skew else 0
     }
 
+    // MARK: Streaming services and the relay (the wire contract's sections 2 and 3)
+
+    /**
+     * What this key may do with the server's streaming services: nothing on an old server or
+     * one without them set up for this account, browse them, or play them here too.
+     */
+    suspend fun catalogAccess(): CatalogAccess {
+        if (capabilities().features?.speakers != true) return CatalogAccess.None
+        val me = me()
+        return when {
+            !me.offersCatalog -> CatalogAccess.None
+            me.offersRelay -> CatalogAccess.Play(cellular = me.offersRelayCellular)
+            else -> CatalogAccess.Browse
+        }
+    }
+
+    sealed interface CatalogAccess {
+        data object None : CatalogAccess
+        data object Browse : CatalogAccess
+        /** Plays here through the relay; [cellular] when it can send the smaller tier. */
+        data class Play(val cellular: Boolean) : CatalogAccess
+    }
+
+    suspend fun catalogServices(): TracksideCatalogServices = get("catalog/services", TracksideCatalogServices.serializer())
+
+    /** The services alone, waiting up to 5 s for them. Empty [services] means every service that can search. */
+    suspend fun catalogSearch(query: String, types: List<String> = DEFAULT_CATALOG_TYPES, services: List<String> = emptyList(), limit: Int = 20): TracksideCatalogSearch =
+        get(
+            "catalog/search",
+            TracksideCatalogSearch.serializer(),
+            listOfNotNull(
+                "q" to query,
+                "types" to types.joinToString(","),
+                services.takeIf { it.isNotEmpty() }?.let { "services" to it.joinToString(",") },
+                "limit" to "$limit",
+            ).toMap(),
+        )
+
+    /**
+     * The library and the services in one search. The server leaves `catalog` out for a key
+     * that can't use the services, so this is safe to ask any server that has them.
+     */
+    suspend fun searchWithCatalog(query: String, types: List<String>, catalogTypes: List<String> = DEFAULT_CATALOG_TYPES, limit: Int = 20): TracksideSearchResults =
+        get(
+            "search",
+            TracksideSearchResults.serializer(),
+            mapOf("q" to query, "types" to (types + "catalog").distinct().joinToString(","), "catalog_types" to catalogTypes.joinToString(","), "limit" to "$limit"),
+        )
+
+    /** A track, album, artist, playlist or radio; a playlist's tracks come a page at a time. */
+    suspend fun catalogItem(ref: String, cursor: String? = null, limit: Int? = null): TracksideCatalogPage =
+        get("catalog/items/$ref", TracksideCatalogPage.serializer(), listOfNotNull(cursor?.let { "cursor" to it }, limit?.let { "limit" to "$it" }).toMap())
+
+    /** Playlists, albums or artists saved on a service. */
+    suspend fun catalogLibrary(serviceId: String, kind: String = "playlist", cursor: String? = null, limit: Int = 100): TracksideCatalogLibrary<TracksideCatalogItem> =
+        get(
+            "catalog/services/$serviceId/library",
+            TracksideCatalogLibrary.serializer(TracksideCatalogItem.serializer()),
+            listOfNotNull("kind" to kind, "limit" to "$limit", cursor?.let { "cursor" to it }).toMap(),
+        )
+
+    /** Songs saved on a service. */
+    suspend fun catalogLibraryTracks(serviceId: String, cursor: String? = null, limit: Int = 100): TracksideCatalogLibrary<TracksideCatalogTrack> =
+        get(
+            "catalog/services/$serviceId/library",
+            TracksideCatalogLibrary.serializer(TracksideCatalogTrack.serializer()),
+            listOfNotNull("kind" to "track", "limit" to "$limit", cursor?.let { "cursor" to it }).toMap(),
+        )
+
+    /**
+     * This phone's relay session, made or reused (one per device), playing [request]'s `play`
+     * at once when it has one. Sent once more with the same `Idempotency-Key` if it's lost on
+     * the way, so the server starts it once.
+     */
+    suspend fun startRelay(request: TracksideRelayRequest, key: String = java.util.UUID.randomUUID().toString()): TracksideRelaySession {
+        val body = TracksideJson.encodeToString(TracksideRelayRequest.serializer(), request)
+        val build = { base: HttpUrl ->
+            request(base, "relay/sessions", method = "POST", body = body, authorization = bearer).newBuilder().header("Idempotency-Key", key).build()
+        }
+        val answer = try {
+            call(build)
+        } catch (_: IOException) {
+            call(build)
+        }
+        noteClock(answer)
+        return decode(answer, TracksideRelaySession.serializer())
+    }
+
+    suspend fun relaySession(id: String): TracksideRelaySession = get("relay/sessions/$id", TracksideRelaySession.serializer())
+
+    suspend fun relaySessions(): List<TracksideRelaySession> = get("relay/sessions", TracksideRelaySessions.serializer()).sessions
+
+    /** lossless or cellular; while playing, the answer names a new generation. */
+    suspend fun setRelayTier(id: String, tier: String): TracksideRelaySession =
+        send("relay/sessions/$id", "PATCH", TracksideJson.encodeToString(TracksideRelayPatch.serializer(), TracksideRelayPatch(tier)), TracksideRelaySession.serializer())
+
+    /** Ends the session; the server's player for this phone keeps its queue for the next one. */
+    suspend fun endRelay(id: String) = perform("relay/sessions/$id", "DELETE")
+
     // MARK: Requests
 
     private suspend fun <T> get(path: String, serializer: KSerializer<T>, query: Map<String, String> = emptyMap()): T =
@@ -552,6 +655,9 @@ class TracksideClient(
 
         const val PROBE_TIMEOUT_MS = 2_000L
 
+        /** Tracks, albums, artists and playlists: what a search on the services asks for unless told otherwise. */
+        val DEFAULT_CATALOG_TYPES = listOf("track", "album", "artist", "playlist")
+
         private fun requireSafe(base: HttpUrl) {
             if (!Nearby.allowsCredentials(base)) throw TracksideError.InsecureAddress
         }
@@ -638,7 +744,10 @@ class TracksideClient(
                 "catalog_unavailable" -> TracksideError.CatalogUnavailable(retryAfter)
                 "link_expired" -> TracksideError.LinkExpired
                 "link_locked" -> TracksideError.LinkLocked
-                else -> TracksideError.Server(answer.status, body.code, body.message.orEmpty(), body.details?.field, body.details?.reason, body.details?.capability)
+                else -> TracksideError.Server(
+                    answer.status, body.code, body.message.orEmpty(), body.details?.field, body.details?.reason, body.details?.capability,
+                    body.details?.serviceId, body.details?.limit,
+                )
             }
         }
     }
