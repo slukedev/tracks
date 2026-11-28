@@ -155,6 +155,16 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
         return entries.indices.contains(index) ? track(entries[index]) : nil
     }
 
+    /// The music service the song on is from, by its id on the relay's server; nil for one of
+    /// the server's own songs.
+    var currentServiceID: String? {
+        if let playing = heard?.nowPlaying, !entries.indices.contains(index) || !entries[index].relay.isSame(as: playing) {
+            return playing.ref == nil ? nil : playing.serviceID
+        }
+        guard entries.indices.contains(index), entries[index].relay.isFromService else { return nil }
+        return entries[index].relay.serviceID
+    }
+
     var upNext: [PlayerTrack] {
         guard entries.indices.contains(index) else { return [] }
         return entries[(index + 1)...].map(track)

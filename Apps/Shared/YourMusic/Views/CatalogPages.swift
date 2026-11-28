@@ -36,6 +36,17 @@ struct CatalogRoute: Hashable, Identifiable {
     }
 }
 
+extension TracksideCatalogService.Quality {
+    /// How it's shown: Lossless only where the server says the service plays it.
+    var label: String? {
+        switch self {
+        case .lossless: String(localized: "Lossless")
+        case .high: String(localized: "High Quality")
+        case .standard, .unknown: nil
+        }
+    }
+}
+
 extension YourMusic {
     /// A service's picture, through the server: never from the service itself.
     func catalogCover(_ artworkID: String?, on serverID: String, seed: String) -> CoverArt {
@@ -272,6 +283,7 @@ struct CatalogCollectionPage: View {
             onSubtitle: facts.artistRef == nil ? nil : { openArtist() },
             facts: CollectionFacts.line([
                 serviceName,
+                quality,
                 facts.year.map { Format.year($0) },
                 CollectionFacts.length(count: facts.count ?? tracks.count, seconds: seconds),
             ]),
@@ -297,8 +309,16 @@ struct CatalogCollectionPage: View {
         return nil
     }
 
-    private var serviceName: String? {
-        model.streaming.services[route.serverID]?.first { service in tracks.first?.serviceID == service.id }?.name
+    private var service: TracksideCatalogService? {
+        model.streaming.services[route.serverID]?.first { service in tracks.first?.serviceID == service.id }
+    }
+
+    private var serviceName: String? { service?.name }
+
+    /// The tracks' own quality where they all say one, otherwise the service's.
+    private var quality: String? {
+        let qualities = Set(tracks.compactMap(\.quality))
+        return (qualities.count == 1 ? qualities.first : service?.quality)?.label
     }
 
     private func row(_ track: TracksideCatalogTrack, position: Int) -> some View {

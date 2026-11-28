@@ -290,6 +290,7 @@ struct ServerDetailPage: View {
                         LabeledContent("Signed In With", value: server.usesAPIKey ? String(localized: "API Key") : server.username)
                     }
                 }
+                ServerServicesSection(serverID: serverID)
                 if music.servers.movedToTrackside.contains(serverID) {
                     Section {
                         MatchSongsRow(serverID: serverID)
@@ -1508,3 +1509,47 @@ private struct PairingScanner: UIViewControllerRepresentable {
     }
 }
 #endif
+
+/// The music services a server plays from, each with whether it works now. Only for a server
+/// that has some; signing in to one happens where the server's services are set up.
+private struct ServerServicesSection: View {
+    let serverID: String
+    @Environment(YourMusic.self) private var music
+
+    var body: some View {
+        let streaming = music.servers.streaming
+        if let services = streaming.services[serverID], !services.isEmpty {
+            let isUnavailable = streaming.isUnavailable(serverID)
+            Section {
+                ForEach(services) { service in
+                    LabeledContent {
+                        Text(state(of: service, isUnavailable: isUnavailable))
+                    } label: {
+                        Label {
+                            Text(verbatim: service.name)
+                                .lineLimit(1)
+                        } icon: {
+                            ServiceGlyph(logoKey: service.logoKey ?? "", side: 18)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("Music Services")
+            } footer: {
+                if !isUnavailable, services.contains(where: { $0.account.state == .signedOut }) {
+                    Text("Sign in again where your server's music services are set up.")
+                }
+            }
+        }
+    }
+
+    private func state(of service: TracksideCatalogService, isUnavailable: Bool) -> String {
+        if isUnavailable { return String(localized: "Unavailable") }
+        switch service.account.state {
+        case .ok: return String(localized: "Signed In")
+        case .signedOut: return String(localized: "Signed Out")
+        case .error, .unavailable, .unknown: return String(localized: "Unavailable")
+        }
+    }
+}

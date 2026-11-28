@@ -847,6 +847,15 @@ final class PlayerModel {
         return nil
     }
 
+    /// The music service the song on plays from through a server's relay, and that server.
+    /// Nil for anything else, the server's own songs included.
+    var playingService: CatalogServiceAddress? {
+        guard current != nil, let relay = engine as? RelayPlayerEngine, let serverID = relay.serverID,
+              let serviceID = relay.currentServiceID
+        else { return nil }
+        return CatalogServiceAddress(serverID: serverID, serviceID: serviceID)
+    }
+
     /// A short confirmation, shown over everything for a moment, like Music's.
     private(set) var confirmation: String?
     @ObservationIgnored private var confirmationTask: Task<Void, Never>?

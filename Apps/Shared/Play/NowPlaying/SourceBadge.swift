@@ -13,7 +13,10 @@ struct SourceBadge: View {
 
     var body: some View {
         let sources = model.sourceEntries.filter(\.canPlay)
-        if let track = player.current, let source = player.playingSource, sources.count > 1 {
+        if let address = player.playingService, let service = model.streaming.service(address) {
+            // A music service through your server: the service is where it plays from.
+            ServiceSourceLabel(service: service)
+        } else if let track = player.current, let source = player.playingSource, sources.count > 1 {
             let name = sources.first { $0.id == source }?.name ?? SourceWords.fallbackName(for: source)
             Menu {
                 let copies = model.mixesSources ? model.otherCopies(of: track, playingFrom: source) : []
@@ -84,6 +87,26 @@ struct SourceBadge: View {
         guard let album = track.albumTitle.map(StatsCalculator.folded), !album.isEmpty else { return nil }
         let artist = ArtistCredits.song(artist: track.artistName, title: track.title).first?.identity ?? StatsCalculator.folded(track.artistName)
         return { navigate(.stats(.album("\(album)\u{1F}\(artist)"))) }
+    }
+}
+
+/// A music service's glyph and name, as the other sources' are shown.
+private struct ServiceSourceLabel: View {
+    let service: TracksideCatalogService
+
+    var body: some View {
+        HStack(spacing: Design.Spacing.xSmall) {
+            ServiceGlyph(logoKey: service.logoKey ?? "", side: 12)
+                .imageScale(.small)
+            Text(verbatim: service.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .frame(minHeight: Design.Control.minimumTarget)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Playing from \(service.name)"))
     }
 }
 
