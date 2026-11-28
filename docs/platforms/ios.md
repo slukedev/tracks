@@ -271,6 +271,48 @@ See [README.md](README.md) for the legend and how to keep this current.
   `If-Range`), on its own up to three times when the connection dropped.
 - Logs never hold a signed address: errors go through `URLRedaction.describe`.
 
+#### Music services through your server
+
+A Trackside server connected to Music Assistant plays its music services (Spotify, Tidal and
+the like) here through its relay (`StreamingCatalog`, `RelayPlayerEngine`). Apple Music is left
+out: it plays natively through MusicKit.
+
+- Search has a Music Services section, with a chip for each service; albums, artists and
+  playlists open their pages; Your Services opens each saved library. A song you have plays
+  as your own copy.
+- Play shows the services' own picks (`GET /catalog/recommendations`, where `/me` has
+  `features.catalog.recommendations`) after your servers' picks: up to three rows a service,
+  none that's the service's own recently played or mostly repeats Recently Played, and
+  without what Recently Played holds (`CatalogRecommendationRows`). Kept 20 minutes; a partial
+  answer is asked for once more.
+- Play From lists each service your servers play here as a place (`service:<kind>`, the kind
+  being its logo key; the same stored form as Android's). A new order puts services after
+  your own sources. With a service above your copies of a song, a queue of songs plays through
+  that service's relay: its first song from the first service that has it, the rest from the
+  service where the order says so, or from the same server's copy; a song that can be
+  neither is left out and the queue says so. Matches are one batch request per queue where
+  the server has `features.catalog.match`, otherwise one search for each of the first 12
+  songs, and are kept a week (a day for songs the service doesn't have) in a small file of
+  refs and titles (`ServiceMatches`). Without a match for the first song, the queue plays as
+  it would without services.
+- Now Playing names the service, with its glyph (Spotify's mark, monochrome, beside its
+  name; a waveform for services without one), rather than the server.
+- Album and playlist pages show the quality the server reports: Lossless only where it says
+  the service plays lossless, otherwise High Quality.
+- A server's page lists its services, each Signed In, Signed Out or Unavailable; signing in
+  again happens where the server's services are set up.
+- The star in Now Playing, and Save in a service song's menu, save it to the service's library
+  (Spotify's Liked Songs) and remove it, where the server has `features.catalog.save` and the
+  service lists the kind in `library_edit_kinds`. Hear Less stays in Tracks.
+- Start Radio in a service song's menu plays the service's own radio from it (`"radio": true`,
+  where the server has `features.catalog.radio` and the service has `similar`). When the
+  service can't make one (`radio_unavailable`), songs picked from it the way Tracks Radio
+  picks play instead, quietly.
+- A service with one stream (Spotify) moves here when you play, as Spotify's own apps do:
+  plays carry `"takeover": true` where the server has `features.speakers.takeover`. A
+  command that fails says why: the service is playing somewhere else, signed out, not
+  available where you are, or needs a subscription.
+
 ### Scrobbling and Last.fm
 
 - Connect a Last.fm account in a web sheet; the session key is kept in the Keychain.
@@ -410,6 +452,15 @@ From the Mac:
 - A sortable history with more than one order, as the Mac's table has (the list is newest
   first only).
 - Select and delete several plays at once.
+
+From Android:
+
+- Tracks Radio through the relay: with a service first in Play From, Android's Tracks Radio
+  plays its picks from the service. Here Tracks Radio plays your copies and Apple Music, and
+  only queues of songs go to a service.
+- A queue sent to a service starts at the song asked for: songs before it in the list aren't
+  part of the relay's queue.
+- Speakers' plays aren't kept in the history here, so they aren't scrobbled from this device.
 
 From Android (planned there):
 

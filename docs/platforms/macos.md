@@ -167,6 +167,14 @@ See [README.md](README.md) for the legend and how to keep this current.
   `If-Range`), on its own up to three times when the connection dropped.
 - Logs never hold a signed address: errors go through `URLRedaction.describe`.
 
+### Music services through your server
+
+The same as on iPhone (shared code, see the iPhone document): Search's Music Services section
+and pages, the services' picks on Play, services as places in Play From, the service's name
+and glyph in Now Playing, quality on album and playlist pages, each server's services and
+their state on its page, saving to the service with the star, Start Radio with its quiet
+fallback, and taking over a service's one stream.
+
 ### Scrobbling and Last.fm
 
 - Connect a Last.fm account (Connect… in a browser), key in the Keychain.
@@ -280,6 +288,10 @@ From the iPhone:
 - Lock Screen-style widget sizes (no equivalent on the Mac; listed for completeness).
 - Siri can learn to use Tracks for a plain "Play music": SiriKit's media intent is iOS only;
   the App Shortcuts cover the Mac.
+
+From Android:
+
+- Tracks Radio through the relay, as on iPhone (see the iPhone document).
 
 From Android (planned there):
 
