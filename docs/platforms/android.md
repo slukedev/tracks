@@ -648,8 +648,9 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 
 One APK serves phones and Google TV. The launcher filter carries `LEANBACK_LAUNCHER`, the
 app has a TV banner (`res/drawable-xhdpi/tv_banner.png`, 320x180, and an xxxhdpi copy, both
-from `tools/generate_icon.py`), and no hardware is required: leanback, touchscreen, camera
-and microphone are all `required="false"`. The build includes `armeabi-v7a`, since many TV
+from `tools/generate_icon.py`), and no hardware is required: leanback, touchscreen, camera,
+microphone and a portrait screen (ML Kit's scanner activity asks for one) are all
+`required="false"`. The build includes `armeabi-v7a`, since many TV
 boxes run a 32-bit userspace even on 64-bit chips (Play's TV quality rule TV-G6).
 
 `system/FormFactor.kt` decides once per process: a TV is `UI_MODE_TYPE_TELEVISION` (from
