@@ -1,5 +1,13 @@
 package com.luke.tracks.ui.services
 
+import com.luke.tracks.discover.ServerSong
+import com.luke.tracks.discover.newSong
+import com.luke.tracks.discover.serverPicks
+import com.luke.tracks.sources.PickedTrack
+import com.luke.tracks.sources.WantedSong
+import com.luke.tracks.streaming.ServiceKey
+import com.luke.tracks.streaming.placeKind
+import com.luke.tracks.streaming.playResolver
 import com.luke.tracks.system.isTv
 import android.content.Context
 import android.net.Uri
@@ -86,10 +94,32 @@ fun streamingState(): StreamingState {
     return state
 }
 
-/** A service's song as Tracks plays it; your own copy instead where the library has the song it names. */
-fun Context.playableFor(serverId: String, track: TracksideCatalogTrack): PlayableSong {
+/**
+ * A service's song as Tracks plays it, where Play From has it play from: the service, or your own
+ * copy where Play From ranks its source above the service, or the next place when the service
+ * can't play here. The service's song itself when nothing can, for the relay to say why.
+ */
+fun Context.playableFor(serverId: String, track: TracksideCatalogTrack): PlayableSong =
+    graph.playResolver.resolveNow(wantedFor(serverId, track)).song
+        ?: CatalogMedia.playable(serverId, track, songIdentity(track.title, track.artist))
+
+/** A service's song as Play From is asked for it: picked on that service, with the library song it names. */
+fun Context.wantedFor(serverId: String, track: TracksideCatalogTrack): WantedSong {
+    val kind = Streaming.of(graph)?.repository?.state?.value?.service(ServiceKey(serverId, track.serviceId))?.placeKind ?: track.serviceId
     val owned = track.songId?.let { id -> graph.library.index.value.song(ServerLibrary.mediaId(serverId, id)) }
-    return owned ?: CatalogMedia.playable(serverId, track, songIdentity(track.title, track.artist))
+    return WantedSong(
+        title = track.title,
+        artist = track.artist,
+        album = track.album,
+        durationMs = track.durationMs,
+        identity = songIdentity(track.title, track.artist),
+        known = listOfNotNull(owned),
+        picked = PickedTrack(serverId, track, kind),
+        get = {
+            val found = newSong(track.title, track.artist, track.album, track.durationMs)
+            graph.serverPicks.toGet(ServerSong(serverId, found), cover(serverId, track.artworkId)?.toString())
+        },
+    )
 }
 
 /** Plays [tracks] from [start]: through the relay, unless every one of them is yours. */

@@ -4,8 +4,8 @@ import uniffi.tracks_engine.PlaySource
 
 /**
  * Where a song can come from, as the iPhone's `SourceID` names it: files on this device or a
- * server by its id. Anything else, Apple Music from an iPhone's synced Play From order or a
- * source an earlier version had, is kept as it was stored.
+ * server by its id. Anything else, such as a source an earlier version had, is kept as it was
+ * stored. Streaming services are places in Play From ([PlayFromPlace.Service]), not sources.
  */
 sealed interface SourceId {
     /** The stored form, the same on every platform: "device", "server:<id>". */
@@ -128,7 +128,7 @@ sealed interface SourceSelection {
     }
 }
 
-/** A place a copy of a song can play from, in the order Play From ranks them. */
+/** A place a song can play from, in the order Play From ranks them. */
 sealed interface PlayFromPlace {
     val raw: String
 
@@ -141,8 +141,32 @@ sealed interface PlayFromPlace {
         override val raw get() = source.raw
     }
 
+    /**
+     * A streaming service a linked server plays through its relay, by the service's kind
+     * ("apple_music", "spotify"). Every server offering the same kind shares the one place.
+     * Apple Music is stored as the iPhone stores its own Apple Music place.
+     */
+    data class Service(val kind: String) : PlayFromPlace {
+        override val raw get() = if (kind == APPLE_MUSIC) APPLE_MUSIC_RAW else SERVICE_PREFIX + kind
+    }
+
+    /** A Trackside server gets a copy into your library: instant play, playing without keeping, or a request. */
+    data object Get : PlayFromPlace {
+        override val raw = "get"
+    }
+
     companion object {
-        fun parse(raw: String): PlayFromPlace = if (raw == Downloads.raw) Downloads else From(SourceId.parse(raw))
+        const val APPLE_MUSIC = "apple_music"
+        private const val APPLE_MUSIC_RAW = "appleMusic"
+        private const val SERVICE_PREFIX = "service:"
+
+        fun parse(raw: String): PlayFromPlace = when {
+            raw == Downloads.raw -> Downloads
+            raw == Get.raw -> Get
+            raw == APPLE_MUSIC_RAW -> Service(APPLE_MUSIC)
+            raw.startsWith(SERVICE_PREFIX) && raw.length > SERVICE_PREFIX.length -> Service(raw.removePrefix(SERVICE_PREFIX))
+            else -> From(SourceId.parse(raw))
+        }
     }
 }
 
@@ -155,8 +179,18 @@ sealed interface PlayFromPlace {
 data class PlayFromOrder(val places: List<PlayFromPlace>) {
     val raw: String get() = places.joinToString("\n") { it.raw }
 
-    /** This order with the places it doesn't name yet added at the end, in the order given. */
-    fun including(new: List<PlayFromPlace>): PlayFromOrder = PlayFromOrder((places + new).distinct())
+    /**
+     * This order with the places it doesn't name yet added at the end, in the order given; while
+     * Get is last, before it, so getting a copy stays the last resort.
+     */
+    fun including(new: List<PlayFromPlace>): PlayFromOrder {
+        val added = new.distinct().filter { it !in places && it != PlayFromPlace.Get }
+        val get = listOfNotNull(PlayFromPlace.Get.takeIf { it in new && it !in places })
+        if (added.isEmpty() && get.isEmpty()) return this
+        val keepsGetLast = places.lastOrNull() == PlayFromPlace.Get
+        val list = if (keepsGetLast) places.dropLast(1) + added + PlayFromPlace.Get else places + added + get
+        return PlayFromOrder(list)
+    }
 
     /** The order of these places, the ones it doesn't name yet last. */
     fun arranged(present: List<PlayFromPlace>): List<PlayFromPlace> {
@@ -212,9 +246,16 @@ data class PlayFromOrder(val places: List<PlayFromPlace>) {
  * message: "Skipped 3 songs", and why when there's a single reason ("Home is offline").
  * [nothingLeft] once the music stopped because nothing in Up Next could play.
  */
-data class SkippedSongs(val count: Int, val reason: String? = null, val nothingLeft: Boolean = false) {
+data class SkippedSongs(
+    val count: Int,
+    val reason: String? = null,
+    val nothingLeft: Boolean = false,
+    /** Nothing in Play From could play the song asked for; its title, where there's one. */
+    val cantPlay: String? = null,
+) {
     val message: String
         get() = when {
+            cantPlay != null -> PlayResolver.cantPlay(cantPlay)
             nothingLeft -> "Nothing in Up Next can play right now."
             count == 1 -> "Skipped 1 song"
             else -> "Skipped $count songs"

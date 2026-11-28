@@ -241,7 +241,7 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
                 )
                 SourceBadge(song, onGoToAlbum = { onClose(); it() })
                 Spacer(Modifier.height(12.dp))
-                Transport(state, player, isStation = radio != null)
+                Transport(state, player, isStation = radio != null || state.origin?.isStation == true)
             }
             // Wide and short (a tablet, a phone on its side, a foldable open): cover beside the controls.
             if (maxWidth > maxHeight && maxWidth >= 600.dp) {

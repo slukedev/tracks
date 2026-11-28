@@ -132,6 +132,32 @@ class SourcesRegistry(
     /** The Play From order as stored; [arrangedPlayFrom] for the places here. */
     val playFrom: StateFlow<PlayFromOrder> = order.asStateFlow()
 
+    private val _services = MutableStateFlow<List<ServicePlace>>(emptyList())
+
+    /** The streaming services your servers play here, one place per kind, as Play From lists them. */
+    val services: StateFlow<List<ServicePlace>> = _services.asStateFlow()
+
+    private val _getsCopies = MutableStateFlow(false)
+
+    /** Whether a linked server could get a copy of a song, so Get is a place at all. */
+    val getsCopies: StateFlow<Boolean> = _getsCopies.asStateFlow()
+
+    private val _getOn = MutableStateFlow(prefs.getBoolean(GET_KEY, true))
+
+    /** Whether Get is in the order; off, nothing is ever got to play. */
+    val getOn: StateFlow<Boolean> = _getOn.asStateFlow()
+
+    fun setGet(on: Boolean) {
+        _getOn.value = on
+        prefs.edit().putBoolean(GET_KEY, on).apply()
+    }
+
+    /** What the servers offer beyond their own songs, as they say it. */
+    fun noteOffered(services: List<ServicePlace>, getsCopies: Boolean) {
+        _services.value = services.distinctBy { it.place }
+        _getsCopies.value = getsCopies
+    }
+
     init {
         scope.launch {
             if (!prefs.getBoolean(MIGRATED_KEY, false)) {
@@ -139,12 +165,22 @@ class SourcesRegistry(
                 save(order.value.migrated(servers))
                 prefs.edit().putBoolean(MIGRATED_KEY, true).apply()
             }
-            // A source added later goes last.
-            sources.collect { list -> save(order.value.including(list.places())) }
+            // A place added later goes last, before Get while Get is last.
+            combine(sources, _services, _getsCopies) { list, offered, gets -> places(list, offered, gets) }
+                .collect { places -> save(order.value.including(places)) }
         }
     }
 
-    fun arrangedPlayFrom(list: List<Source> = sources.value): List<PlayFromPlace> = order.value.arranged(list.places())
+    /** Every place here in the order; Get among them where a server could get a song, on or off. */
+    fun arrangedPlayFrom(list: List<Source> = sources.value): List<PlayFromPlace> =
+        order.value.arranged(places(list, _services.value, _getsCopies.value))
+
+    /** Every place here, named, in the order, for Play From. Get keeps its place while it's off. */
+    val playFromChoices: StateFlow<List<PlayFromChoice>> = combine(order, sources, _services, _getsCopies) { stored, list, offered, gets ->
+        val names = list.associate { PlayFromPlace.From(it.id) as PlayFromPlace to it.name } +
+            offered.associate { it.place to it.name } + (PlayFromPlace.Get to GET_NAME)
+        stored.arranged(places(list, offered, gets)).map { PlayFromChoice(it, names.getValue(it)) }
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /** Saves a new order of the places shown; the rest keep their positions. */
     fun setPlayFrom(places: List<PlayFromPlace>) = save(order.value.reordered(places))
@@ -194,19 +230,37 @@ class SourcesRegistry(
         if (songs.count > 0 || songs.nothingLeft) skipped.tryEmit(songs)
     }
 
+    /** Nothing in Play From could play a song you asked for: the one line that says so. */
+    fun reportCantPlay(title: String) {
+        skipped.tryEmit(SkippedSongs(1, cantPlay = title))
+    }
+
     private fun List<Source>.serverIds() = mapNotNull { (it.id as? SourceId.Server)?.id }
 
     private fun List<Source>.places() = map { PlayFromPlace.From(it.id) }
+
+    private fun places(list: List<Source>, offered: List<ServicePlace>, gets: Boolean): List<PlayFromPlace> =
+        list.places() + offered.map { it.place } + listOfNotNull(PlayFromPlace.Get.takeIf { gets })
 
     companion object {
         private const val SELECTION_KEY = "sourceFilter"
         private const val ORDER_KEY = "playFromOrder"
         private const val MIGRATED_KEY = "playFromOrderMigrated"
+        private const val GET_KEY = "playFromGet"
+        const val GET_NAME = "Get"
         const val PREFS = "sources"
 
         fun prefs(context: Context): SharedPreferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     }
 }
+
+/** A streaming service as a place in Play From: its kind's place and the name it goes by. */
+data class ServicePlace(val kind: String, val name: String) {
+    val place: PlayFromPlace.Service get() = PlayFromPlace.Service(kind)
+}
+
+/** One row of Play From. */
+data class PlayFromChoice(val place: PlayFromPlace, val name: String)
 
 /** The phone's music files: there once access is allowed or songs are there (the sample library). */
 class DeviceSourceProvider(

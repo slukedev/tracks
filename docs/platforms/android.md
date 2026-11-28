@@ -342,7 +342,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   reached outside home, Offline, Sign in, Check certificate, Syncing with a percentage on a
   Trackside server's first sync, a song count), Add source (a container transform from the button;
   On This Device asks for music access, Server opens the server form),
-  the Play From order once there are two or more (drag a row by its handle or after a long
+  the Play From order once there are two or more places (drag a row by its handle or after a long
   press, or TalkBack's Move up and Move down; any source can go anywhere and a new one goes
   last), and remove with a confirmation that
   counts what goes and says plays stay. Each source has a page: a server's status, name,
@@ -354,6 +354,28 @@ See [README.md](README.md) for the legend and how to keep this current.
   minute before a song ends, songs next whose source can't play are switched to another copy
   or skipped with one Snackbar (`Skipped 2 songs`, `Home is offline`); when nothing left can
   play, `Nothing in Up Next can play right now.` once the music stops.
+- Play From also lists each streaming service a linked Trackside server plays here through its
+  relay (signed in; servers offering the same service share one place; Apple Music is stored as
+  `appleMusic`, as the iPhone stores it, others as `service:<kind>`) and Get (a Trackside server
+  gets a copy into your library: instant play, playing without keeping, or a request). Get's row
+  is its own switch (phone: the switch on the row; TV: Select toggles it, holding Select or a
+  long press picks it up); off, it keeps its place unnumbered and is passed over. Get starts on and last; an existing order keeps its
+  places and gains the services, then Get; a place added later goes before Get while Get is last;
+  places this device doesn't have round-trip. Phone and TV (remote and touch) reorder them as any
+  source.
+- One resolver (`PlayResolver`) picks where every song plays from: the player's copy choice,
+  Discover's songs and albums, Search's "Not in your library", Play's new songs, Something
+  different, Tracks Radio's new songs and services' songs. A song you have plays from your
+  copies while one can (no lookups). Otherwise it walks the order: a service by one search of it
+  matched on song identity (2.5 s budget, answers cached), then Get. A service's song you picked
+  starts at that service's place, so only your copies ranked above it come first. Lookups run off
+  the main thread with a ring on the row; when nothing can play, one line: `Can't play “Song”
+  here.`, never a silent download. Explicit Get, Get Album and Add stay explicit.
+- A service's station plays as a Station, not Tracks Radio: no shuffle or repeat, and a saved one
+  (or one saved as Tracks Radio before) resumes through the relay. Tracks Radio never tops up,
+  takes More Like This or restarts from a queue that holds a service's song, and its new songs
+  come only while Get is on. Without a relay, a service's song is left out with the one line,
+  never swapped for another copy.
 - Library: one library across sources, with the source filter and Artists, Albums and Songs
   as chips. "No music yet" with Add source when there's nothing.
 - Device files through MediaStore, with permission handling and change watching. *(untested

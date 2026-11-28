@@ -18,6 +18,7 @@ import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.playback.RadioSource
 import com.luke.tracks.playback.RadioState
 import com.luke.tracks.playback.radio.RadioWords.isTurningAway
+import com.luke.tracks.streaming.playResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -138,9 +139,11 @@ class TracksRadio(
     /**
      * A new song from a Trackside server that gets songs, made playable as the server allows
      * (streamed without keeping it, or got with instant play); null when there's none it can
-     * play, so the station's own song comes instead.
+     * play, so the station's own song comes instead. Only while Get is in Play From: the station
+     * plays on this device's own player, which a streaming service's song would take it off.
      */
     private suspend fun newSong(): PlayableSong? {
+        if (!graph.playResolver.gets()) return null
         val source = runCatching { picks() }.getOrNull() ?: return null
         val skipped = graph.settings.settings.first().hiddenSongs
         val waiting = runCatching { source.newForRadio() }.getOrDefault(emptyList())

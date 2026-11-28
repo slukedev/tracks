@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -60,6 +61,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -69,6 +71,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -79,6 +82,7 @@ import androidx.window.core.layout.WindowSizeClass
 import com.luke.tracks.graph
 import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.library.musicPermission
+import com.luke.tracks.sources.PlayFromChoice
 import com.luke.tracks.sources.PlayFromPlace
 import com.luke.tracks.sources.Removal
 import com.luke.tracks.sources.Source
@@ -89,7 +93,9 @@ import com.luke.tracks.ui.navigation.SettingsPageRoute
 import com.luke.tracks.ui.navigation.bottomClearance
 import com.luke.tracks.ui.settings.GroupTitle
 import com.luke.tracks.ui.settings.SettingsScaffold
+import com.luke.tracks.ui.settings.TracksSwitch
 import com.luke.tracks.ui.settings.rowColors
+import com.luke.tracks.ui.settings.toggle
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -139,10 +145,15 @@ fun SourcesSettingsPage(adding: Boolean = false) {
     val open = { source: Source ->
         if (wide) shown = source.id.raw else navigator.open(SettingsPageRoute(sourcePage(source.id)))
     }
+    val playFrom by registry.playFromChoices.collectAsState()
+    val getOn by registry.getOn.collectAsState()
+    val getsCopies by registry.getsCopies.collectAsState()
     val list: @Composable (Modifier) -> Unit = { modifier ->
         SourcesPageContent(
             sources = sources,
-            playFrom = registry.arrangedPlayFrom(sources),
+            playFrom = playFrom,
+            get = getOn.takeIf { getsCopies },
+            onGet = registry::setGet,
             options = options,
             onOpen = open,
             onRemove = { removing = it },
@@ -184,7 +195,7 @@ fun SourcesSettingsPage(adding: Boolean = false) {
 @Composable
 fun SourcesPageContent(
     sources: List<Source>,
-    playFrom: List<PlayFromPlace>,
+    playFrom: List<PlayFromChoice>,
     options: List<AddOption>,
     onOpen: (Source) -> Unit,
     onRemove: (Source) -> Unit,
@@ -193,6 +204,9 @@ fun SourcesPageContent(
     showBack: Boolean = true,
     selected: String? = null,
     initiallyAdding: Boolean = false,
+    /** Whether Get is on; null when no server could get a song. */
+    get: Boolean? = null,
+    onGet: (Boolean) -> Unit = {},
 ) {
     var adding by rememberSaveable { mutableStateOf(initiallyAdding) }
     val list = rememberLazyListState()
@@ -215,9 +229,9 @@ fun SourcesPageContent(
                         modifier = Modifier.padding(bottom = ListItemDefaults.SegmentedGap).animateItem(),
                     )
                 }
-                if (sources.size >= 2) {
+                if (playFrom.size >= 2) {
                     item(key = "play-from") {
-                        PlayFromSection(sources, playFrom, onReorder, Modifier.padding(top = 20.dp).animateItem())
+                        PlayFromSection(playFrom, onReorder, get, onGet, Modifier.padding(top = 20.dp).animateItem())
                     }
                 }
                 // Room for the button over the end of the list.
@@ -349,17 +363,22 @@ private fun SourceRow(
 }
 
 /**
- * Which copy plays when a song is in more than one source. Drag a row by its handle, or press
- * and hold anywhere on it; TalkBack offers Move up and Move down. Any row can go anywhere.
+ * Where a song plays from: the first of these that can, your sources, the streaming services
+ * your servers play and Get. Drag a row by its handle, or press and hold anywhere on it;
+ * TalkBack offers Move up and Move down. Any row can go anywhere. Get's switch turns it off:
+ * it keeps its place, unnumbered, and is passed over.
  */
 @Composable
-private fun PlayFromSection(sources: List<Source>, places: List<PlayFromPlace>, onReorder: (List<PlayFromPlace>) -> Unit, modifier: Modifier = Modifier) {
+private fun PlayFromSection(
+    choices: List<PlayFromChoice>,
+    onReorder: (List<PlayFromPlace>) -> Unit,
+    get: Boolean?,
+    onGet: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val haptics = LocalHapticFeedback.current
     val gapPx = with(LocalDensity.current) { ListItemDefaults.SegmentedGap.toPx() }
-    val names = places.mapNotNull { place ->
-        val source = (place as? PlayFromPlace.From)?.source?.let { id -> sources.firstOrNull { it.id == id } } ?: return@mapNotNull null
-        place to source
-    }
+    val names = choices.map { it.place to it.name }
     var dragging by remember { mutableStateOf<PlayFromPlace?>(null) }
     var offset by remember { mutableFloatStateOf(0f) }
     var rowPx by remember { mutableFloatStateOf(1f) }
@@ -400,8 +419,12 @@ private fun PlayFromSection(sources: List<Source>, places: List<PlayFromPlace>, 
         GroupTitle("Play from")
         val from = fromIndex()
         val target = targetIndex()
-        names.forEachIndexed { i, (place, source) ->
+        names.forEachIndexed { i, (place, name) ->
             key(place.raw) {
+                val isGet = place == PlayFromPlace.Get && get != null
+                val off = isGet && get == false
+                // Numbered by when each is tried, so one that's off takes no number.
+                val number = names.take(i + 1).count { it.first != PlayFromPlace.Get || get != false }
                 val lifted = place == dragging
                 val shift = when {
                     from < 0 || lifted -> 0f
@@ -420,6 +443,9 @@ private fun PlayFromSection(sources: List<Source>, places: List<PlayFromPlace>, 
                         .onSizeChanged { rowPx = it.height + gapPx }
                         .zIndex(if (lifted) 1f else 0f)
                         .graphicsLayer { translationY = if (lifted) offset else slide }
+                        .then(
+                            if (isGet) Modifier.toggleable(get == true, role = Role.Switch) { on -> haptics.toggle(on); onGet(on) } else Modifier,
+                        )
                         .semantics(mergeDescendants = true) {
                             stateDescription = "${i + 1} of ${names.size}"
                             customActions = listOfNotNull(
@@ -444,12 +470,16 @@ private fun PlayFromSection(sources: List<Source>, places: List<PlayFromPlace>, 
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "${i + 1}",
+                            if (off) "" else "$number",
                             style = MaterialTheme.typography.titleMediumEmphasized,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.width(28.dp),
                         )
-                        Text(source.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Column(Modifier.weight(1f).alpha(if (off) 0.6f else 1f)) {
+                            Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (isGet) Text(GetSummary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (isGet) TracksSwitch(get == true, onCheckedChange = null)
                         Box(
                             Modifier
                                 .size(56.dp)
@@ -471,6 +501,9 @@ private fun PlayFromSection(sources: List<Source>, places: List<PlayFromPlace>, 
         }
     }
 }
+
+/** What Get does, under its name in Play From, on phone and TV. */
+internal const val GetSummary = "Adds it to your library"
 
 /** Always confirms, with what goes and what stays. */
 @Composable

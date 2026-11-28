@@ -68,11 +68,20 @@ interface Discovery {
     fun holding(album: CatalogAlbum): AlbumHolding
     suspend fun availability(song: CatalogSong): Availability
 
+    /** Whether Play From has anywhere beyond your library to play from: a streaming service, or Get. */
+    fun reachesBeyondLibrary(): Boolean = false
+
+    /** Whether tapping [song] tries to play it rather than its preview: it's yours, or Play From may find it. */
+    fun mayPlay(song: CatalogSong, availability: Availability): Boolean = availability is Availability.Owned || reachesBeyondLibrary()
+
     /**
-     * What tapping [song] plays: yours, or where a Trackside server can get it or is getting it
-     * already, a song to get as it's reached. Null when neither.
+     * What tapping [song] plays, where Play From finds it: yours, a streaming service's song that
+     * is the same song, or a song to get as it's reached. Null when nothing in the order can.
      */
-    fun toPlay(song: CatalogSong, availability: Availability): PlayableSong? = (availability as? Availability.Owned)?.song
+    suspend fun toPlay(song: CatalogSong, availability: Availability): PlayableSong? = (availability as? Availability.Owned)?.song
+
+    /** Every song of an album, as [toPlay] has each play; null for ones nothing in the order can play. */
+    suspend fun toPlayAll(songs: List<CatalogSong>, first: Int): List<PlayableSong?> = songs.map { toPlay(it, availability(it)) }
 
     /** Asks for a song, and returns what to tell the person. */
     suspend fun get(song: CatalogSong): String

@@ -12,14 +12,27 @@ class SongCopies(private val lists: () -> List<List<LibraryTrack>>) {
     private var byIdentity: Map<String, List<PlayableSong>> = emptyMap()
 
     /** The song and its other copies, the song first. */
-    @Synchronized
     fun of(song: PlayableSong): List<PlayableSong> {
         if (song.identity.isEmpty()) return listOf(song)
+        return (listOf(song) + of(song.identity)).distinctBy { it.mediaId }
+    }
+
+    /** Every copy of the song with this identity. */
+    @Synchronized
+    fun of(identity: String): List<PlayableSong> {
+        if (identity.isEmpty()) return emptyList()
+        rebuildIfChanged()
+        return byIdentity[identity].orEmpty()
+    }
+
+    /** Builds the lookup now, off the main thread, so the first song asked for doesn't wait on it. */
+    @Synchronized
+    fun warm() = rebuildIfChanged()
+
+    private fun rebuildIfChanged() {
         val current = lists()
-        if (current.size != builtFrom.size || current.indices.any { current[it] !== builtFrom[it] }) {
-            byIdentity = current.asSequence().flatten().map { it.song }.filter { it.identity.isNotEmpty() }.groupBy { it.identity }
-            builtFrom = current
-        }
-        return (listOf(song) + byIdentity[song.identity].orEmpty()).distinctBy { it.mediaId }
+        if (current.size == builtFrom.size && current.indices.all { current[it] === builtFrom[it] }) return
+        byIdentity = current.asSequence().flatten().map { it.song }.filter { it.identity.isNotEmpty() }.groupBy { it.identity }
+        builtFrom = current
     }
 }

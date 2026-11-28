@@ -52,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -69,10 +70,14 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -95,6 +100,7 @@ import com.luke.tracks.sources.SourceStatus
 import com.luke.tracks.sync.CloudSync
 import com.luke.tracks.sync.SyncStatus
 import com.luke.tracks.sync.TvSync
+import com.luke.tracks.ui.sources.GetSummary
 import com.luke.tracks.ui.sources.rememberSources
 import com.luke.tracks.ui.sources.songs
 import com.luke.tracks.ui.sources.sourceList
@@ -153,14 +159,18 @@ fun TvSourcesPage() {
     val registry = rememberSources()
     val sources by sourceList()
     val selection by sourceSelection()
-    val order by registry.playFrom.collectAsState()
-    val playFrom = remember(order, sources) { order.arranged(sources.map { PlayFromPlace.From(it.id) }) }
+    val choices by registry.playFromChoices.collectAsState()
+    val getOn by registry.getOn.collectAsState()
+    val getsCopies by registry.getsCopies.collectAsState()
     val status by remember(sync) { sync?.status ?: MutableStateFlow(SyncStatus()) }.collectAsStateWithLifecycle()
     fun serverId(source: Source) = (source.id as? SourceId.Server)?.id
     TvSourcesContent(
         sources = sources,
         selection = selection,
-        playFrom = playFrom,
+        playFrom = choices.map { it.place },
+        placeNames = choices.associate { it.place to it.name },
+        get = getOn.takeIf { getsCopies },
+        onGet = registry::setGet,
         onSelect = registry::select,
         onReorder = registry::setPlayFrom,
         onRefresh = { source ->
@@ -213,6 +223,11 @@ fun TvSourcesContent(
     onUnlink: (Source) -> Unit,
     syncFor: @Composable (Source) -> SyncSwitch? = { null },
     onSync: (Source, Boolean) -> Unit = { _, _ -> },
+    /** Names for places that aren't servers: the streaming services, and Get. */
+    placeNames: Map<PlayFromPlace, String> = emptyMap(),
+    /** Whether Get is on; null when no server could get a song. */
+    get: Boolean? = null,
+    onGet: (Boolean) -> Unit = {},
 ) {
     var linking by remember { mutableStateOf<Linking?>(null) }
     var shown by remember { mutableStateOf<SourceId?>(null) }
@@ -299,8 +314,10 @@ fun TvSourcesContent(
                                 }
                             }
                         }
+                    }
+                    if (playFrom.size >= 2) {
                         PageHeading("Play From")
-                        PlayFromList(sources, playFrom, onReorder)
+                        PlayFromList(sources, playFrom, placeNames, onReorder, get, onGet)
                     }
                 }
             }
@@ -403,14 +420,24 @@ private fun ServerPanel(
 }
 
 /**
- * Which copy plays when a song is on more than one server. Select a row to pick it up, Up and
- * Down to carry it, select to put it down; Back puts it back. By touch, a tap picks it up, its
- * arrows carry it and another tap puts it down. TalkBack offers Move Up and Move Down. Saved
- * when it's put down.
+ * Where a song plays from: the first of these that can, the servers, the streaming services
+ * they play and Get. Select a row to pick it up, Up and Down to carry it, select to put it
+ * down; Back puts it back. By touch, a tap picks it up, its arrows carry it and another tap
+ * puts it down. TalkBack offers Move Up and Move Down. Saved when it's put down.
+ *
+ * Get's row is a switch: select turns it on or off, and holding select (or a long press) picks
+ * it up. Off, it keeps its place, unnumbered, and is passed over.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun PlayFromList(sources: List<Source>, places: List<PlayFromPlace>, onReorder: (List<PlayFromPlace>) -> Unit) {
+private fun PlayFromList(
+    sources: List<Source>,
+    places: List<PlayFromPlace>,
+    placeNames: Map<PlayFromPlace, String>,
+    onReorder: (List<PlayFromPlace>) -> Unit,
+    get: Boolean?,
+    onGet: (Boolean) -> Unit,
+) {
     var reorder by remember { mutableStateOf(RemoteReorder(places)) }
     LaunchedEffect(places) { reorder = reorder.following(places) }
     BackHandler(enabled = reorder.isLifted) { reorder = reorder.cancel() }
@@ -425,21 +452,32 @@ private fun PlayFromList(sources: List<Source>, places: List<PlayFromPlace>, onR
         reorder = next
         save?.let(onReorder)
     }
-    val names = sources.associate { PlayFromPlace.From(it.id) as PlayFromPlace to it.name }
+    val names = placeNames + sources.associate { PlayFromPlace.From(it.id) as PlayFromPlace to it.name }
     val shown = reorder.items.filter { it in names }
     LookaheadScope {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             shown.forEachIndexed { i, place ->
                 key(place.raw) {
                     val lifted = reorder.lifted == place
+                    val getSwitch = get.takeIf { place == PlayFromPlace.Get }
                     PlayFromRow(
                         number = i + 1,
                         count = shown.size,
+                        // Numbered by when each is tried, so Get takes no number while it's off.
+                        shownNumber = if (getSwitch == false) null else shown.take(i + 1).count { it != PlayFromPlace.Get || get != false },
                         name = names.getValue(place),
+                        switch = getSwitch,
                         lifted = lifted,
                         canUp = lifted && reorder.canMove(-1),
                         canDown = lifted && reorder.canMove(1),
-                        onClick = { if (lifted) drop() else reorder = reorder.pickUp(place) },
+                        onClick = {
+                            when {
+                                lifted -> drop()
+                                getSwitch != null -> onGet(!getSwitch)
+                                else -> reorder = reorder.pickUp(place)
+                            }
+                        },
+                        onLongClick = if (getSwitch != null) ({ if (!lifted) reorder = reorder.pickUp(place) }) else null,
                         onCarry = { by -> reorder = reorder.move(by) },
                         onLeave = { reorder = reorder.cancel() },
                         onMoveNow = { by -> moveNow(place, by) },
@@ -468,11 +506,15 @@ private val ChipMax = 360.dp
 private fun PlayFromRow(
     number: Int,
     count: Int,
+    shownNumber: Int?,
     name: String,
+    /** Get's on or off, drawn as a switch at the row's end; null for every other place. */
+    switch: Boolean?,
     lifted: Boolean,
     canUp: Boolean,
     canDown: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
     onCarry: (Int) -> Unit,
     onLeave: () -> Unit,
     onMoveNow: (Int) -> Unit,
@@ -494,6 +536,7 @@ private fun PlayFromRow(
     }
     Surface(
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier
             .fillMaxWidth()
             .zIndex(if (lifted) 1f else 0f)
@@ -516,9 +559,13 @@ private fun PlayFromRow(
                 scaleY = raise
             }
             .tvFocusScale(interaction, TvMotion.RowFocusScale)
-            .tvTouch(interaction, onClick = onClick)
+            .tvTouch(interaction, onLongClick = onLongClick, onClick = onClick)
             .semantics(mergeDescendants = true) {
                 stateDescription = if (lifted) "Picked up, $number of $count" else "$number of $count"
+                if (switch != null) {
+                    role = Role.Switch
+                    toggleableState = ToggleableState(switch)
+                }
                 customActions = listOfNotNull(
                     CustomAccessibilityAction("Move Up") { onMoveNow(-1); true }.takeIf { number > 1 },
                     CustomAccessibilityAction("Move Down") { onMoveNow(1); true }.takeIf { number < count },
@@ -548,17 +595,23 @@ private fun PlayFromRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "$number",
+                shownNumber?.toString().orEmpty(),
                 style = MaterialTheme.typography.titleMedium,
                 color = if (lifted) LocalContentColor.current else colors.primary,
                 modifier = Modifier.width(24.dp),
             )
-            Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f).alpha(if (switch == false && !lifted) 0.6f else 1f)) {
+                Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (switch != null) {
+                    Text(GetSummary, style = MaterialTheme.typography.bodyMedium, color = LocalContentColor.current.copy(alpha = 0.72f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
             when {
                 lifted -> Row {
                     Arrow(Icons.Rounded.KeyboardArrowUp, canUp) { onCarry(-1) }
                     Arrow(Icons.Rounded.KeyboardArrowDown, canDown) { onCarry(1) }
                 }
+                switch != null -> Switch(switch)
                 focused -> Icon(Icons.Rounded.DragHandle, contentDescription = null, tint = LocalContentColor.current.copy(alpha = 0.72f), modifier = Modifier.size(24.dp))
             }
         }

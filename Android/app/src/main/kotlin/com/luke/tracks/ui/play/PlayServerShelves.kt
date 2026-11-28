@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -54,6 +56,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -69,6 +73,8 @@ import com.luke.tracks.discover.isNew
 import com.luke.tracks.discover.ServerAlbum
 import com.luke.tracks.discover.ServerAlbums
 import com.luke.tracks.discover.sprinkle
+import com.luke.tracks.sources.PlayResolver
+import com.luke.tracks.streaming.playResolver
 import com.luke.tracks.ui.discover.CatalogAlbumCell
 import uniffi.tracks_engine.CatalogAlbum
 import com.luke.tracks.discover.ServerForYouState
@@ -334,14 +340,22 @@ fun ServerSongRow(song: ServerSong, queue: List<ServerSong>, index: Int, from: S
     val snackbar = LocalInsightsSnackbar.current
     // A new song has no cover on the server yet: Apple's catalog lends one, as in search.
     val newCover by androidx.compose.runtime.produceState<String?>(null, song) { if (song.song.isNew) value = picks.newCover(song) }
-    val play = {
-        // New songs the server can get are queued too: each is got as it's reached, then plays.
-        val songs = queue.mapNotNull { picks.queueable(it, if (it == song) newCover else null) }
-        val start = songs.indexOfFirst { it.identity == song.song.identity }
-        when {
-            // A new song that can't be got here: say so rather than play something else.
-            start < 0 && song.song.isNew -> tell(context, snackbar, scope, "“${song.song.title}” isn't in your library yet.")
-            songs.isNotEmpty() -> graph.player.play(songs, start.coerceAtLeast(0), QueueOrigin(from, QueueOrigin.Kind.Other))
+    var finding by remember(song) { mutableStateOf(false) }
+    val play = play@{
+        if (finding) return@play
+        finding = true
+        // New songs play from wherever Play From finds them: a service, or got as each is reached.
+        scope.launch {
+            val at = queue.indexOf(song).takeIf { it >= 0 } ?: index
+            val found = graph.playResolver.resolveAll(queue.map { picks.wanted(it, if (it == song) newCover else null) }, at).map { it.song }
+            finding = false
+            val songs = found.filterNotNull()
+            val start = found.getOrNull(at)?.let { songs.indexOf(it) } ?: -1
+            when {
+                // The song asked for can't play here: say so rather than play something else.
+                start < 0 -> tell(context, snackbar, scope, PlayResolver.cantPlay(song.song.title))
+                else -> graph.player.play(songs, start, QueueOrigin(from, QueueOrigin.Kind.Other))
+            }
         }
     }
     Row(
@@ -353,7 +367,14 @@ fun ServerSongRow(song: ServerSong, queue: List<ServerSong>, index: Int, from: S
             .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Artwork(newCover ?: ref.artworkUrl, ref.coverSeed + ref.artistName, Modifier.size(52.dp), shape = RoundedCornerShape(12.dp), showInitials = false)
+        Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+            Artwork(newCover ?: ref.artworkUrl, ref.coverSeed + ref.artistName, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp), showInitials = false)
+            if (finding) {
+                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                    LoadingIndicator(Modifier.size(32.dp).semantics { contentDescription = "Finding it" }, color = Color.White)
+                }
+            }
+        }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(

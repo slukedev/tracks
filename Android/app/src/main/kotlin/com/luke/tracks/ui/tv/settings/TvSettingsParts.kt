@@ -109,7 +109,7 @@ internal fun RowIcon(icon: ImageVector) {
 }
 
 @Composable
-private fun Switch(checked: Boolean) {
+internal fun Switch(checked: Boolean) {
     val reduced = LocalReducedMotion.current
     val on by animateFloatAsState(if (checked) 1f else 0f, tween(if (reduced) 0 else TvMotion.FocusInMs, easing = TvMotion.EaseOut), label = "switch")
     val colors = MaterialTheme.colorScheme

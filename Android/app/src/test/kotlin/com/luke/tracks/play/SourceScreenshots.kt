@@ -9,7 +9,7 @@ import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.PlayerState
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.sources.FakeSources
-import com.luke.tracks.sources.PlayFromOrder
+import com.luke.tracks.sources.PlayFromChoice
 import com.luke.tracks.sources.PlayFromPlace
 import com.luke.tracks.sources.Source
 import com.luke.tracks.sources.SourceKind
@@ -37,11 +37,17 @@ class SourceScreenshots(dark: Boolean) : ScreenshotTest(dark) {
         CompositionLocalProvider(LocalNavigator provides Navigator(), LocalSources provides registry) { content() }
     }
 
-    private fun page(name: String, sources: List<Source>, adding: Boolean = false) = snap(name) {
+    private fun page(
+        name: String,
+        sources: List<Source>,
+        adding: Boolean = false,
+        extra: List<PlayFromChoice> = emptyList(),
+        get: Boolean? = null,
+    ) = snap(name) {
         Frame {
             SourcesPageContent(
                 sources = sources,
-                playFrom = PlayFromOrder.Standard.arranged(all.map { PlayFromPlace.From(it.id) }),
+                playFrom = sources.map { PlayFromChoice(PlayFromPlace.From(it.id), it.name) } + extra,
                 options = listOf(
                     AddOption("server", "Server", SourceKind.Server) {},
                 ),
@@ -49,9 +55,27 @@ class SourceScreenshots(dark: Boolean) : ScreenshotTest(dark) {
                 onRemove = {},
                 onReorder = {},
                 initiallyAdding = adding,
+                get = get,
             )
         }
     }
+
+    private val services = listOf(
+        PlayFromChoice(PlayFromPlace.Service(PlayFromPlace.APPLE_MUSIC), "Apple Music"),
+        PlayFromChoice(PlayFromPlace.Service("tidal"), "Tidal"),
+    )
+
+    /** Play From with the services your servers play and Get, last. */
+    @Test fun playFromWithServices() = page(
+        "sources-play-from-services", listOf(FakeSources.device, FakeSources.home),
+        extra = services + PlayFromChoice(PlayFromPlace.Get, "Get"), get = true,
+    )
+
+    /** Get turned off: it keeps its place, unnumbered, its switch off. */
+    @Test fun playFromGetOff() = page(
+        "sources-play-from-get-off", listOf(FakeSources.home),
+        extra = listOf(PlayFromChoice(PlayFromPlace.Get, "Get")) + services.take(1), get = false,
+    )
 
     @Test fun sources() = page("sources", all)
 

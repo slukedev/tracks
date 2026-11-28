@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isFocused
@@ -56,13 +57,20 @@ class TvSourcesKeysTest {
 
     private val saved = mutableListOf<List<String>>()
     private val chosen = mutableListOf<SourceSelection>()
+    private val gets = mutableListOf<Boolean>()
 
-    private fun show(sources: List<Source> = TvSourcesDemo.servers, inSettings: Boolean = false) {
+    private fun show(
+        sources: List<Source> = TvSourcesDemo.servers,
+        inSettings: Boolean = false,
+        extra: Map<PlayFromPlace, String> = emptyMap(),
+        get: Boolean? = null,
+    ) {
         compose.mainClock.autoAdvance = false
         val store = TvFocusStore().apply { requestClaim("") }
         compose.setContent {
-            var order by mutableStateOf(sources.map { PlayFromPlace.From(it.id) as PlayFromPlace })
+            var order by mutableStateOf(sources.map { PlayFromPlace.From(it.id) as PlayFromPlace } + extra.keys)
             var selection by mutableStateOf<SourceSelection>(SourceSelection.All)
+            var getOn by mutableStateOf(get)
             TvTracksTheme(dark = true, dynamic = false, seed = TracksBrand) {
                 CompositionLocalProvider(LocalTvFocusStore provides store) {
                     val page = @Composable {
@@ -70,6 +78,9 @@ class TvSourcesKeysTest {
                             sources = sources,
                             selection = selection,
                             playFrom = order,
+                            placeNames = extra,
+                            get = getOn,
+                            onGet = { getOn = it; gets += it },
                             onSelect = { selection = it; chosen += it },
                             onReorder = { order = it; saved += it.map(PlayFromPlace::raw) },
                             onRefresh = {},
@@ -150,6 +161,36 @@ class TvSourcesKeysTest {
         assertEquals("Picked up, 9 of 9", focusedState())
         assertTrue("the page scrolled", top(hasText("Servers")) < headingTop)
         assertEquals("the list didn't", listTop, top(list), 0f)
+    }
+
+    private val servicesAndGet = mapOf<PlayFromPlace, String>(PlayFromPlace.Service(PlayFromPlace.APPLE_MUSIC) to "Apple Music", PlayFromPlace.Get to "Get")
+
+    @Test fun oneServerWithAServiceAndGetHasPlayFromAndHoldingSelectCarriesGet() {
+        show(listOf(TvSourcesDemo.living), extra = servicesAndGet, get = true)
+        focusPlayFrom("3 of 3")
+        assertTrue(focusedText().contains("Get"))
+        compose.onNode(isFocused()).performSemanticsAction(SemanticsActions.OnLongClick)
+        advance(300)
+        assertEquals("Picked up, 3 of 3", focusedState())
+        press(Key.DirectionUp)
+        press(Key.DirectionUp)
+        press(Key.DirectionCenter)
+        assertEquals(listOf(listOf("get", "server:living-room", "appleMusic")), saved)
+        assertEquals(emptyList<Boolean>(), gets)
+    }
+
+    @Test fun selectOnGetTurnsItOffAndOnAndItKeepsItsPlace() {
+        show(listOf(TvSourcesDemo.living), extra = servicesAndGet, get = true)
+        focusPlayFrom("3 of 3")
+        val on = SemanticsMatcher.expectValue(SemanticsProperties.ToggleableState, androidx.compose.ui.state.ToggleableState.On)
+        compose.onNode(isFocused()).assert(on)
+        press(Key.DirectionCenter)
+        assertEquals(listOf(false), gets)
+        assertEquals("3 of 3", focusedState())
+        compose.onNode(isFocused()).assert(on.not())
+        assertEquals(emptyList<List<String>>(), saved)
+        press(Key.DirectionCenter)
+        assertEquals(listOf(false, true), gets)
     }
 
     @Test fun talkBackMovesARowStraightAway() {
