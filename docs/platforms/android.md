@@ -355,7 +355,9 @@ See [README.md](README.md) for the legend and how to keep this current.
   or skipped with one Snackbar (`Skipped 2 songs`, `Home is offline`); when nothing left can
   play, `Nothing in Up Next can play right now.` once the music stops.
 - Play From also lists each streaming service a linked Trackside server plays here through its
-  relay (signed in; servers offering the same service share one place; Apple Music is stored as
+  relay (servers offering the same service share one place; one signed out, or that the server
+  can't reach, stays dimmed and unnumbered with "Signed Out" or "Unavailable", is passed over,
+  and a tap or Select says to sign in again on the server; Apple Music is stored as
   `appleMusic`, as the iPhone stores it, others as `service:<kind>`) and Get (a Trackside server
   gets a copy into your library: instant play, playing without keeping, or a request). Get's row
   is its own switch (phone: the switch on the row; TV: Select toggles it, holding Select or a
@@ -399,8 +401,26 @@ See [README.md](README.md) for the legend and how to keep this current.
 - A service's station plays as a Station, not Tracks Radio: no shuffle or repeat, and a saved one
   (or one saved as Tracks Radio by an older version) resumes through the relay. Without a relay,
   a service's song is left out with the one line, never swapped for another copy.
+- Spotify (and any service) through Trackside: Now Playing says "Spotify" with Spotify's own
+  logo (`res/drawable/ic_service_spotify.xml`, unaltered) and the quality the server reports
+  (Lossless only when it says so, else High); Apple Music and other services get the neutral
+  initial mark, as Tracks ships no other logo. A heart on a service's song also saves it to
+  that service's library (Spotify's Liked Songs) where the server offers
+  `features.catalog.save` and the service lists `track` in `library_edit_kinds`; Hear Less
+  stays in Tracks. Start radio (a song's menu, Now Playing's menu, Radio on TV pages) asks the
+  server for the service's own radio (`features.catalog.radio`, the service's `similar`) and,
+  if it can't make one (`radio_unavailable`, or refused), starts Tracks Radio from the song
+  without a word. Every relay and speaker play asks to take a service's only stream over
+  (Spotify allows one) where the server offers `features.speakers.takeover`.
+- With the server's newer features: a queue is matched on the services 50 songs a request
+  (`POST /catalog/match`) before songs are looked up one by one; More Like This can replace a
+  Tracks Radio pick already sent to the relay (`DELETE /speakers/{id}/queue/{item}`); and about
+  15 s before the device's own song ends with a service's song next, the relay's queue is held
+  paused at its start (`hold`), so the change of player only has to resume it. Each is skipped
+  on a server that doesn't offer it.
 - The relay says why it can't play in one line, by the server's reason: signed out of a
-  service, not playable, services not set up, at its limit, can't relay on this device, the
+  service, the service playing somewhere else (and where), not available in your country, the
+  plan can't play it, not playable, services not set up, at its limit, can't relay on this device, the
   music system unreachable, the library offline, a command the server couldn't carry out or
   took too long over, and for the stream lost connection, turned down (4xx) or the server's own
   error (5xx). The log keeps the code, reason and status class, never an address or token.
@@ -728,8 +748,19 @@ choice (below), which on a TV is the TV interface unless turned off. On a TV:
   longer after `slow_down`, with a new code when one runs out. A link is kept with
   `ServerLibrary.saveLink`, replacing the entry for the same server. `trackside://pair` links
   and `tracks://link` approvals are ignored there.
-- Speakers, Devices and streaming services through Trackside have no TV screens yet, so the
-  TV shows none of them; their repositories run as on a phone.
+- Streaming services through Trackside work on TV as on a phone: search and item pages
+  (`ui/tv/search`, `ui/tv/detail/TvServiceItemScreen.kt`, with Radio and the service's
+  quality), Play's recommendation shelves, Play From reordering, the relay, and a Library tab
+  per service with a saved library (`ui/tv/library/TvServiceLibrary.kt`: playlists, albums,
+  artists and songs as shelves; a signed-out service's tab says to sign in on the server).
+  Now Playing names the service under the song.
+- Play On (`ui/tv/nowplaying/TvDevices.kt`): a side panel from Now Playing's actions, shown
+  when a server has speakers, with This TV, each server's speakers (offline ones dimmed) and,
+  for the speaker playing, Volume (Minus and Plus, 5 at a time) and Play With (group). It uses
+  the phone's `DevicesViewModel`, so moving the queue there and back follows the same rules.
+  While a speaker plays, Now Playing shows and steers it (`SpeakerPlayer`): its song, seek,
+  transport, shuffle and repeat where it can, without Like, Hear Less, Up Next or the sleep
+  timer.
 - Trackside Cloud syncs the TV's history (Summary, Charts, History) with the server it's
   linked to, and no other (`sync/TvSync.kt`). A link turns it on when the server offers the
   cloud (`capabilities.features.cloud`); a server without it is left quietly off. Settings,
