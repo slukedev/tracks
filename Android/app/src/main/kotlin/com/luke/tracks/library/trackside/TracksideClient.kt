@@ -405,16 +405,19 @@ class TracksideClient(
         val me = me()
         return when {
             !me.offersCatalog -> CatalogAccess.None
-            me.offersRelay -> CatalogAccess.Play(cellular = me.offersRelayCellular)
-            else -> CatalogAccess.Browse
+            me.offersRelay -> CatalogAccess.Play(cellular = me.offersRelayCellular, recommends = me.offersRecommendations)
+            else -> CatalogAccess.Browse(recommends = me.offersRecommendations)
         }
     }
 
     sealed interface CatalogAccess {
+        /** Whether the server has the services' own picks. */
+        val recommends: Boolean get() = false
+
         data object None : CatalogAccess
-        data object Browse : CatalogAccess
+        data class Browse(override val recommends: Boolean = false) : CatalogAccess
         /** Plays here through the relay; [cellular] when it can send the smaller tier. */
-        data class Play(val cellular: Boolean) : CatalogAccess
+        data class Play(val cellular: Boolean, override val recommends: Boolean = false) : CatalogAccess
     }
 
     suspend fun catalogServices(): TracksideCatalogServices = get("catalog/services", TracksideCatalogServices.serializer())
@@ -441,6 +444,20 @@ class TracksideClient(
             "search",
             TracksideSearchResults.serializer(),
             mapOf("q" to query, "types" to (types + "catalog").distinct().joinToString(","), "catalog_types" to catalogTypes.joinToString(","), "limit" to "$limit"),
+        )
+
+    /**
+     * The services' own rows of picks, waiting up to 5 s for them. Empty [services] means every
+     * signed-in service that has them; [limit] is items per row, 1 to 50.
+     */
+    suspend fun catalogRecommendations(services: List<String> = emptyList(), limit: Int = 20): TracksideCatalogRecommendations =
+        get(
+            "catalog/recommendations",
+            TracksideCatalogRecommendations.serializer(),
+            listOfNotNull(
+                services.takeIf { it.isNotEmpty() }?.let { "services" to it.take(MAX_RECOMMENDATION_SERVICES).joinToString(",") },
+                "limit" to "${limit.coerceIn(1, 50)}",
+            ).toMap(),
         )
 
     /** A track, album, artist, playlist or radio; a playlist's tracks come a page at a time. */
@@ -660,6 +677,7 @@ class TracksideClient(
 
         /** Tracks, albums, artists and playlists: what a search on the services asks for unless told otherwise. */
         val DEFAULT_CATALOG_TYPES = listOf("track", "album", "artist", "playlist")
+        private const val MAX_RECOMMENDATION_SERVICES = 50
 
         private fun requireSafe(base: HttpUrl) {
             if (!Nearby.allowsCredentials(base)) throw TracksideError.InsecureAddress

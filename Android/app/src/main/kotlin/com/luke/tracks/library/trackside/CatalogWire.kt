@@ -1,7 +1,18 @@
 package com.luke.tracks.library.trackside
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 // Streaming services connected to a Trackside server (the wire contract's section 2). Every
 // enum stays a String and every capability list keeps names this build doesn't know; refs are
@@ -42,6 +53,7 @@ object CatalogCapability {
     const val TOP_TRACKS = "top_tracks"
     const val SIMILAR = "similar"
     const val RADIO = "radio"
+    const val RECOMMENDATIONS = "recommendations"
 }
 
 /** `GET /catalog/services`. */
@@ -180,6 +192,76 @@ data class TracksideCatalogLibrary<T>(
     @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("synced_at") val syncedAt: String? = null,
 )
+
+/**
+ * `GET /catalog/recommendations`: the services' own rows of picks, in Music Assistant's order.
+ * [complete] is false when a service didn't answer in time; the rows that did are still here.
+ */
+@Serializable
+data class TracksideCatalogRecommendations(
+    val complete: Boolean = true,
+    val services: List<TracksideCatalogSearch.ServiceState> = emptyList(),
+    val shelves: List<TracksideCatalogShelf> = emptyList(),
+)
+
+/** One of a service's rows: never empty, each ref at most once. */
+@Serializable
+data class TracksideCatalogShelf(
+    /** Stays the same while Music Assistant keeps the row. */
+    val id: String,
+    @SerialName("service_id") val serviceId: String,
+    val title: String,
+    val subtitle: String? = null,
+    /** Left out for a row of tiles; `timeline` for recently played. Open. */
+    val type: String? = null,
+    @Serializable(with = CatalogEntryListSerializer::class)
+    val items: List<TracksideCatalogEntry> = emptyList(),
+) {
+    val isTimeline: Boolean get() = type == "timeline"
+}
+
+/** A song, or an album, artist, playlist or station, told apart by `kind`. */
+sealed interface TracksideCatalogEntry {
+    val ref: String
+    val serviceId: String
+    val artworkId: String?
+
+    data class Track(val track: TracksideCatalogTrack) : TracksideCatalogEntry {
+        override val ref get() = track.ref
+        override val serviceId get() = track.serviceId
+        override val artworkId get() = track.artworkId
+    }
+
+    data class Item(val item: TracksideCatalogItem) : TracksideCatalogEntry {
+        override val ref get() = item.ref
+        override val serviceId get() = item.serviceId
+        override val artworkId get() = item.artworkId
+    }
+}
+
+/** Reads each entry by its kind; one of a kind this build doesn't know, or that doesn't read, is left out. */
+internal object CatalogEntryListSerializer : KSerializer<List<TracksideCatalogEntry>> {
+    override val descriptor: SerialDescriptor = ListSerializer(JsonElement.serializer()).descriptor
+
+    override fun deserialize(decoder: Decoder): List<TracksideCatalogEntry> {
+        val input = decoder as? JsonDecoder ?: error("Recommendations are read from JSON")
+        val array = input.decodeJsonElement() as? JsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            val kind = ((element as? JsonObject)?.get("kind") as? JsonPrimitive)?.contentOrNull
+            runCatching {
+                when (kind) {
+                    "track" -> TracksideCatalogEntry.Track(input.json.decodeFromJsonElement(TracksideCatalogTrack.serializer(), element))
+                    "album", "artist", "playlist", "radio" -> TracksideCatalogEntry.Item(input.json.decodeFromJsonElement(TracksideCatalogItem.serializer(), element))
+                    else -> null
+                }
+            }.getOrNull()
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: List<TracksideCatalogEntry>) {
+        error("Recommendations are only read")
+    }
+}
 
 /** The event saying a service was added, removed, or signed in or out. Re-read the list. */
 object CatalogEvents {

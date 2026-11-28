@@ -382,6 +382,9 @@ data class TracksideMe(
     /** Whether the relay can send the cellular tier (it has an encoder). */
     val offersRelayCellular: Boolean get() = offersRelay && features?.catalog?.relayCellular == true
 
+    /** Whether the server has the services' own picks (an older one leaves the key out). */
+    val offersRecommendations: Boolean get() = features?.catalog?.recommendations == true
+
     @Serializable
     data class Features(
         val acquisition: Acquisition? = null,
@@ -396,6 +399,7 @@ data class TracksideMe(
     data class Catalog(
         val relay: Boolean? = null,
         @SerialName("relay_cellular") val relayCellular: Boolean? = null,
+        val recommendations: Boolean? = null,
     )
 
     @Serializable

@@ -125,8 +125,69 @@ class CatalogWireTest {
         assertTrue(track.isExplicit)
     }
 
+    @Test fun theServicesPicks() {
+        val picks = TracksideJson.decodeFromString(TracksideCatalogRecommendations.serializer(), fixture("catalog-recommendations.json"))
+        assertFalse(picks.complete)
+        assertEquals(listOf("ok", "ok", "timed_out"), picks.services.map { it.state })
+        assertEquals(listOf("Stations for You", "Jump back in"), picks.shelves.map { it.title })
+        val stations = picks.shelves[0]
+        assertEquals("w1dgyc462epk20x8myctx", stations.id)
+        assertEquals("bm1zt0k6dk6mzz0n3vw5d", stations.serviceId)
+        assertNull(stations.subtitle)
+        assertFalse(stations.isTimeline)
+        val station = (stations.items.single() as TracksideCatalogEntry.Item).item
+        assertEquals(TracksideCatalogItem.Kind.Radio, station.kindValue)
+        assertEquals("Beyoncé & Similar Artists Station", station.name)
+        assertEquals("mf3w0g2x8kq1v7r5nd9ce", station.artworkId)
+        val recent = picks.shelves[1]
+        assertEquals("Your recent rotation", recent.subtitle)
+        assertTrue(recent.isTimeline)
+        assertEquals(listOf("track", "album", "playlist", "artist"), recent.items.map {
+            when (it) {
+                is TracksideCatalogEntry.Track -> it.track.kind
+                is TracksideCatalogEntry.Item -> it.item.kind
+            }
+        })
+        val halo = (recent.items[0] as TracksideCatalogEntry.Track).track
+        assertEquals("Halo", halo.title)
+        assertEquals("sdjcz08vf67h7cx28snq6", halo.songId)
+        assertEquals("mc1.dHJhY2sfc3BvdGlmeR8wV3FkMHpBNXdOcFFuUUJHRVVIMGY0", recent.items[0].ref)
+        assertEquals("bqtyy4kcexcsg6wa0y4w5", recent.items[0].serviceId)
+        val album = (recent.items[1] as TracksideCatalogEntry.Item).item
+        assertEquals("i am... sasha fierce\u001fbeyonce", album.albumKey)
+        assertEquals(11, album.trackCount)
+        assertEquals("beyonce", (recent.items[3] as TracksideCatalogEntry.Item).item.identity)
+    }
+
+    @Test fun picksOfAKindThisBuildDoesntKnowAreLeftOut() {
+        val picks = TracksideJson.decodeFromString(
+            TracksideCatalogRecommendations.serializer(),
+            """{"shelves": [{"id": "w1", "service_id": "b1", "title": "Mixed", "type": "carousel", "items": [
+                {"kind": "podcast", "ref": "mc1.p", "name": "Show"},
+                {"kind": "album", "ref": "mc1.a", "name": "Album"},
+                {"kind": "track"},
+                "nonsense"
+            ]}]}""",
+        )
+        assertTrue("left out, it's taken as whole", picks.complete)
+        val shelf = picks.shelves.single()
+        assertEquals("carousel", shelf.type)
+        assertFalse(shelf.isTimeline)
+        assertEquals(listOf("mc1.a"), shelf.items.map { it.ref })
+    }
+
+    @Test fun servicesUnavailableReadsItsWaitAndOldServicesLackThePicks() {
+        val error = TracksideClient.error(TracksideAnswer(503, fixture("error-catalog-unavailable.json"), retryAfter = "10"))
+        assertEquals(10L, (error as TracksideError.CatalogUnavailable).retryAfterSeconds)
+        val list = TracksideJson.decodeFromString(TracksideCatalogServices.serializer(), fixture("catalog-services.json"))
+        assertTrue(list.services[0].can(CatalogCapability.RECOMMENDATIONS))
+        assertFalse(list.services[1].can(CatalogCapability.RECOMMENDATIONS))
+        assertFalse(TracksideJson.decodeFromString(TracksideMe.serializer(), fixture("me-without-acquisition.json")).offersRecommendations)
+    }
+
     @Test fun theMeFeaturesSayWhatThisKeyMayDo() {
         val me = TracksideJson.decodeFromString(TracksideMe.serializer(), fixture("me.json"))
+        assertTrue(me.offersRecommendations)
         assertTrue(me.offersCatalog)
         assertTrue(me.offersRelay)
         assertTrue(me.offersRelayCellular)
@@ -199,7 +260,13 @@ class CatalogClientTest {
             }
         }
         val endpoints = ServerEndpoints(listOf(home), home.url, backgroundScope, { _, _ -> true })
-        assertEquals(TracksideClient.CatalogAccess.Play(cellular = true), TracksideClient(endpoints, key, "d1", null, transport).catalogAccess())
+        assertEquals(TracksideClient.CatalogAccess.Play(cellular = true, recommends = true), TracksideClient(endpoints, key, "d1", null, transport).catalogAccess())
+        me = fixture("me.json").replace("\"recommendations\": true,", "")
+        assertEquals("a server from before the picks", TracksideClient.CatalogAccess.Play(cellular = true, recommends = false), TracksideClient(endpoints, key, "d1", null, transport).catalogAccess())
+        me = fixture("me.json").replace("\"relay\": true,", "")
+        val browse = TracksideClient(endpoints, key, "d1", null, transport).catalogAccess()
+        assertEquals("browsing only still has the picks", TracksideClient.CatalogAccess.Browse(recommends = true), browse)
+        assertTrue(browse.recommends)
         me = fixture("me-without-acquisition.json")
         assertEquals(TracksideClient.CatalogAccess.None, TracksideClient(endpoints, key, "d1", null, transport).catalogAccess())
         me = fixture("me.json")
@@ -217,6 +284,7 @@ class CatalogClientTest {
                 path.endsWith("/search") -> TracksideAnswer(200, fixture("search-with-catalog.json"))
                 path.contains("/catalog/items/") -> TracksideAnswer(200, fixture("catalog-playlist.json"))
                 path.endsWith("/library") -> TracksideAnswer(200, fixture("catalog-library.json"))
+                path.endsWith("/catalog/recommendations") -> TracksideAnswer(200, fixture("catalog-recommendations.json"))
                 else -> TracksideAnswer(404, fixture("error-not-found.json"))
             }
         }
@@ -237,6 +305,15 @@ class CatalogClientTest {
         assertEquals("/api/v1/catalog/items/$ref", sent.last().url.encodedPath)
         assertEquals("the ref is sent exactly as given", ref, sent.last().url.pathSegments.last())
         assertEquals("eyJvIjoxMDB9", sent.last().url.queryParameter("cursor"))
+
+        client.catalogRecommendations()
+        assertEquals("/api/v1/catalog/recommendations", sent.last().url.encodedPath)
+        assertNull("every service unless told", sent.last().url.queryParameter("services"))
+        assertEquals("20", sent.last().url.queryParameter("limit"))
+        val picks = client.catalogRecommendations(listOf("b1", "b2"), limit = 80)
+        assertEquals("b1,b2", sent.last().url.queryParameter("services"))
+        assertEquals("never past the server's 50", "50", sent.last().url.queryParameter("limit"))
+        assertEquals(2, picks.shelves.size)
 
         client.catalogLibrary("bqtyy4kcexcsg6wa0y4w5")
         assertEquals("/api/v1/catalog/services/bqtyy4kcexcsg6wa0y4w5/library", sent.last().url.encodedPath)
