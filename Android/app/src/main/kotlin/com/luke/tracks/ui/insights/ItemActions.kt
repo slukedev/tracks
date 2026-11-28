@@ -257,7 +257,7 @@ fun ItemMenu(
         albumRoute?.let { route ->
             MenuEntry("Go to album", Icons.Rounded.Album) { act { navigator.open(route) } }
         }
-        MenuEntry("Share", Icons.Rounded.Share) { act { share(context, target.shareText) } }
+        if (!context.isTv) MenuEntry("Share", Icons.Rounded.Share) { act { share(context, target.shareText) } }
         MenuEntry("Copy", Icons.Rounded.ContentCopy) {
             act { copy(context, target.shareText); tell("Copied") }
         }

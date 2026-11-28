@@ -80,8 +80,8 @@ private fun songSheetActions(
         song.plays?.takeIf { it > 0 }?.let {
             SheetAction("Your stats", Icons.Rounded.BarChart) { actions.open(SongRoute(song.identity, song.title, song.artistName)) }
         },
-        if (song.playable == null) SheetAction("Open in another app", Icons.AutoMirrored.Rounded.OpenInNew) { actions.openElsewhere(song) } else null,
-        SheetAction("Share", Icons.Rounded.Share) { actions.share(song) },
+        if (song.playable == null && actions.canHandOff) SheetAction("Open in another app", Icons.AutoMirrored.Rounded.OpenInNew) { actions.openElsewhere(song) } else null,
+        if (actions.canHandOff) SheetAction("Share", Icons.Rounded.Share) { actions.share(song) } else null,
         SheetAction("Hear less of this", Icons.Rounded.RemoveCircleOutline, supporting = "Leaves your mixes and Tracks Radio") {
             onHearLess?.invoke(song) ?: actions.hearLess(song.identity)
         },

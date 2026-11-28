@@ -56,9 +56,11 @@ fun MixMenu(
             onDismiss()
             actions.pinMix(mix)
         }
-        MenuItem(Icons.Rounded.Share, "Share") {
-            onDismiss()
-            actions.shareMix(mix)
+        if (actions.canHandOff) {
+            MenuItem(Icons.Rounded.Share, "Share") {
+                onDismiss()
+                actions.shareMix(mix)
+            }
         }
     }
 }
@@ -77,9 +79,11 @@ fun ArtistMenu(expanded: Boolean, onDismiss: () -> Unit, page: Route, stats: Rou
                 actions.open(stats)
             }
         }
-        MenuItem(Icons.Rounded.Share, "Share") {
-            onDismiss()
-            onShare()
+        if (actions.canHandOff) {
+            MenuItem(Icons.Rounded.Share, "Share") {
+                onDismiss()
+                onShare()
+            }
         }
     }
 }

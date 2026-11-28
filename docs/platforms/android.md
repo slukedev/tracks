@@ -690,8 +690,8 @@ choice (below), which on a TV is the TV interface unless turned off. On a TV:
   switch turned off stays off.
 - Shared helpers never open a browser, share sheet, chooser, QR scanner or output switcher,
   and the phone interface, when TV Mode is off, doesn't offer Last.fm, Scan code, the output
-  switcher or Now Playing's Share and Devices without speakers. Its other Share and "Open in
-  another app" menu items are still there and do nothing.
+  switcher, Devices without speakers, or any Share or "Open in another app" (menus, sheets,
+  album pages and the Open In button on a song that can't play).
 - The splash shows the cassette still (`res/values-television/themes.xml`). Debug builds turn
   on StrictMode with logging, and low-RAM devices keep a smaller cover cache in memory.
 - The screen may go to the system screensaver while music plays, as other music apps on TV

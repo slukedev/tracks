@@ -220,7 +220,7 @@ private fun actionsFor(target: LibraryTarget, context: Context, player: PlayerCo
             ) to listOfNotNull(
                 albumId?.let { SheetAction("Go to album", Icons.Rounded.Album) { navigator.open(LibraryAlbumRoute(it)) } },
                 artistId?.let { SheetAction("Go to artist", Icons.Rounded.Person) { navigator.open(LibraryArtistRoute(it)) } },
-                SheetAction("Share", Icons.Rounded.Share) { share(context, "${song.title} by ${song.artistName}") },
+                SheetAction("Share", Icons.Rounded.Share) { share(context, "${song.title} by ${song.artistName}") }.takeUnless { context.isTv },
             )
         }
         is LibraryTarget.Album -> {
@@ -234,7 +234,7 @@ private fun actionsFor(target: LibraryTarget, context: Context, player: PlayerCo
             ) to listOfNotNull(
                 SheetAction("Add to queue", Icons.AutoMirrored.Rounded.PlaylistAdd) { queueLast(album.songs) },
                 artistId?.let { SheetAction("Go to artist", Icons.Rounded.Person) { navigator.open(LibraryArtistRoute(it)) } },
-                SheetAction("Share", Icons.Rounded.Share) { share(context, "${album.title} by ${album.artistName}") },
+                SheetAction("Share", Icons.Rounded.Share) { share(context, "${album.title} by ${album.artistName}") }.takeUnless { context.isTv },
             )
         }
         is LibraryTarget.Artist -> {
@@ -244,9 +244,9 @@ private fun actionsFor(target: LibraryTarget, context: Context, player: PlayerCo
                 SheetAction("Play", Icons.Rounded.PlayArrow) { player.play(songs, origin = origin) },
                 SheetAction("Shuffle", Icons.Rounded.Shuffle) { player.play(songs, origin = origin, shuffle = true) },
                 SheetAction("Play next", Icons.AutoMirrored.Rounded.QueueMusic) { queueNext(songs) },
-            ) to listOf(
+            ) to listOfNotNull(
                 SheetAction("Add to queue", Icons.AutoMirrored.Rounded.PlaylistAdd) { queueLast(songs) },
-                SheetAction("Share", Icons.Rounded.Share) { share(context, target.artist.name) },
+                SheetAction("Share", Icons.Rounded.Share) { share(context, target.artist.name) }.takeUnless { context.isTv },
             )
         }
     }

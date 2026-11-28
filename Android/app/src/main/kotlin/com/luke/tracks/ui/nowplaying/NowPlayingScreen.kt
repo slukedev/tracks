@@ -405,13 +405,15 @@ private fun TopRow(
                         actions.goToArtist(song.artistName)
                     }
                 }
-                MenuItem(Icons.Rounded.Share, "Share") {
-                    menu = false
-                    actions.share(song.ref())
-                }
-                MenuItem(Icons.AutoMirrored.Rounded.OpenInNew, "Open in another app") {
-                    menu = false
-                    actions.openElsewhere(song.ref())
+                if (actions.canHandOff) {
+                    MenuItem(Icons.Rounded.Share, "Share") {
+                        menu = false
+                        actions.share(song.ref())
+                    }
+                    MenuItem(Icons.AutoMirrored.Rounded.OpenInNew, "Open in another app") {
+                        menu = false
+                        actions.openElsewhere(song.ref())
+                    }
                 }
                 MenuItem(Icons.Rounded.RemoveCircleOutline, "Hear less of this") {
                     menu = false

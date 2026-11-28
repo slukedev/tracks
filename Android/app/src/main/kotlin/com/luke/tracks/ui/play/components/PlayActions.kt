@@ -134,6 +134,9 @@ class PlayActions(
 
     fun openElsewhere(song: SongRef) = openInAnotherApp(context, song.title, song.artistName, song.albumTitle)
 
+    /** Whether Share and Open In are offered: a TV has no share sheet or chooser to hand off to. */
+    val canHandOff: Boolean get() = !context.isTv
+
     fun shareMix(mix: Mix) {
         val lines = mix.songs.take(10).joinToString("\n") { "${it.title}, ${it.artistName}" }
         share(context, "${mix.kind.title} from Tracks\n\n$lines")

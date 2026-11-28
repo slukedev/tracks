@@ -156,9 +156,11 @@ private fun MixPage(mix: Mix, feed: PlayFeed) {
                                 menu = false
                                 actions.pinMix(mix)
                             }
-                            MenuItem(Icons.Rounded.Share, "Share") {
-                                menu = false
-                                actions.shareMix(mix)
+                            if (actions.canHandOff) {
+                                MenuItem(Icons.Rounded.Share, "Share") {
+                                    menu = false
+                                    actions.shareMix(mix)
+                                }
                             }
                         }
                     }

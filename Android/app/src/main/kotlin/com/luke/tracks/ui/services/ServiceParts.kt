@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.services
 
+import com.luke.tracks.system.isTv
 import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.layout.Box
@@ -212,7 +213,7 @@ fun ServiceTrackMenu(serverId: String, track: TracksideCatalogTrack, song: Playa
         track.artists?.firstOrNull { it.ref != null }?.let { artist ->
             Entry("Go to artist", Icons.Rounded.Mic) { act { navigator.open(ServiceItemRoute(serverId, artist.ref!!, "artist", artist.name, null)) } }
         }
-        Entry("Share", Icons.Rounded.Share) { act { share(context, "${track.title} by ${track.artist}") } }
+        if (!context.isTv) Entry("Share", Icons.Rounded.Share) { act { share(context, "${track.title} by ${track.artist}") } }
     }
 }
 
