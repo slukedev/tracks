@@ -496,8 +496,9 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Connect through a Custom Tab, with the session key sealed by an Android Keystore key.
 - Scrobbles in batches of 50 with WorkManager, settled by Last.fm's answer, with backoff.
 - Now playing updates.
-- Spotify's plays (from earlier sideload builds, or synced from another device) aren't
-  scrobbled, since Spotify scrobbles them itself.
+- Every play this device recorded is scrobbled, a streaming service's too (Spotify, Apple
+  Music, through the relay or a speaker). A play another device recorded is that device's to
+  send, and a play sent or turned down never goes again.
 - Import from Last.fm, skipping plays already kept. The row says what it does before you tap
   it and shows progress; there is no confirmation dialog.
 - A notification when the session is revoked.

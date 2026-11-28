@@ -106,7 +106,7 @@ class LastFm internal constructor(private val context: Context, private val grap
     private var connecting: Job? = null
     private val poke = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
-    /** Plays still to go to Last.fm. Spotify's past plays stay with Spotify, which scrobbles them itself. */
+    /** Plays still to go to Last.fm, from every source. */
     fun owedCount(): Flow<Int> = graph.history.database.plays().owedScrobbleCount(owedSince())
 
     /** Starts connecting: asks for a token and opens Last.fm's approval page. */
