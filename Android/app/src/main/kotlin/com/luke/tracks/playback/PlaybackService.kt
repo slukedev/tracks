@@ -53,12 +53,15 @@ import com.luke.tracks.sources.SourceSelection
 import com.luke.tracks.sources.WantedSong
 import com.luke.tracks.sources.sources
 import com.luke.tracks.streaming.CatalogMedia
+import com.luke.tracks.streaming.ServiceBrand
+import com.luke.tracks.streaming.serviceOf
 import com.luke.tracks.streaming.CatalogPlays
 import com.luke.tracks.streaming.Streaming
 import com.luke.tracks.streaming.RelayStatus
 import com.luke.tracks.streaming.playResolver
 import com.luke.tracks.playback.radio.RadioOnRelay
 import com.luke.tracks.playback.radio.RadioPicks
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -88,9 +91,13 @@ object TracksCommands {
     const val SLEEP = "tracks.sleep"
     const val RADIO = "tracks.radio"
     const val MORE_LIKE_THIS = "tracks.moreLikeThis"
+    /** A radio from one song: the service's own where [SERVICE] says it can, else Tracks Radio from it. */
+    const val SONG_RADIO = "tracks.songRadio"
     const val MINUTES = "minutes"
+    const val SONG = "song"
+    const val SERVICE = "service"
 
-    val all = listOf(LIKE, SHUFFLE, REPEAT, SLEEP, RADIO, MORE_LIKE_THIS).map { SessionCommand(it, Bundle.EMPTY) }
+    val all = listOf(LIKE, SHUFFLE, REPEAT, SLEEP, RADIO, MORE_LIKE_THIS, SONG_RADIO).map { SessionCommand(it, Bundle.EMPTY) }
     fun command(action: String) = SessionCommand(action, Bundle.EMPTY)
 }
 
@@ -445,6 +452,7 @@ class PlaybackService : MediaLibraryService() {
             relayPlayer?.prefetch()
             return
         }
+        holdAhead()
         val key = "${player.currentMediaItemIndex}:${player.currentMediaItem?.mediaId}:${player.mediaItemCount}"
         if (key == lookedAheadOf && lookingAhead?.isActive == true) return
         lookedAheadOf = key
@@ -466,6 +474,32 @@ class PlaybackService : MediaLibraryService() {
                 if (index >= player.mediaItemCount || player.getMediaItemAt(index).mediaId != item.mediaId) continue
                 player.replaceMediaItem(index, place)
                 CatalogMedia.parse(place.mediaId)?.first?.let { Streaming.of(graph)?.relay?.warm(it) }
+            }
+        }
+    }
+
+    private var holding: Job? = null
+
+    /**
+     * Shortly before the phone's own song ends with a service's song next, the server holds what
+     * comes next paused at its start, so the relay takes over with little gap. Checked every few
+     * seconds while it plays; nothing is held while it's paused.
+     */
+    private fun holdAhead() {
+        holding?.cancel()
+        val relay = relayPlayer ?: return
+        val next = player.currentMediaItemIndex + 1
+        if (usingRelay || !relayPlays || player.shuffleModeEnabled || player.repeatMode == Player.REPEAT_MODE_ONE) return
+        if (next >= player.mediaItemCount || !CatalogMedia.isCatalog(player.getMediaItemAt(next).mediaId)) return
+        val current = player.currentMediaItem?.mediaId
+        holding = scope.launch {
+            while (isActive && player.currentMediaItem?.mediaId == current && !usingRelay) {
+                val left = player.duration.takeIf { it != C.TIME_UNSET && it > 0 }?.minus(player.currentPosition) ?: return@launch
+                if (player.isPlaying && left <= HOLD_AHEAD_MS) {
+                    relay.holdAhead(List(player.mediaItemCount) { player.getMediaItemAt(it) }, next)
+                    return@launch
+                }
+                delay((left - HOLD_AHEAD_MS).coerceIn(1_000, 5_000))
             }
         }
     }
@@ -671,6 +705,31 @@ class PlaybackService : MediaLibraryService() {
         return Streaming.of(graph)?.repository?.state?.value?.server(serverId)?.service(serviceId)?.logoKey
     }
 
+    /**
+     * A heart on a service's song also saves it to your library on that service (Spotify's Liked
+     * Songs), where the server can; null for any other song. Hear Less never leaves Tracks.
+     */
+    private fun serviceSave(mediaId: String): (suspend (Boolean) -> Boolean)? {
+        val streaming = Streaming.of(graph) ?: return null
+        val (serverId, ref) = CatalogMedia.parse(mediaId) ?: return null
+        val state = streaming.repository.state.value
+        val service = state.serviceOf(mediaId, streaming.relay.status.value) ?: return null
+        if (state.server(serverId)?.features?.save != true || !service.saves("track")) return null
+        return { on ->
+            try {
+                streaming.repository.setSaved(serverId, ref, on)
+                true
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Logs.w("Couldn't ${if (on) "save" else "unsave"} on the service: ${com.luke.tracks.streaming.RelayWords.describe(error)}")
+                val name = ServiceBrand.name(service)
+                withContext(Dispatchers.Main) { say(if (on) "Couldn't save it to $name." else "Couldn't remove it from $name.") }
+                false
+            }
+        }
+    }
+
     private fun publishKeep() {
         val count = counter
         val progress = ((count?.progress ?: 0f) * 100).roundToInt() / 100f
@@ -796,7 +855,8 @@ class PlaybackService : MediaLibraryService() {
     private fun repickNext(unlessBy: String) {
         radioPicks.steered()
         val index = radioPickWaiting() ?: return
-        if (usingRelay && index < (relayPlayer?.sentCount ?: 0)) return
+        // A pick already in the server's queue is taken out again only where the server can.
+        if (usingRelay && index < (relayPlayer?.sentCount ?: 0) && relayPlayer?.removesSent != true) return
         val queue = active
         val waiting = queue.getMediaItemAt(index).toPlayableSong()
         if (waiting.artistName == unlessBy) return
@@ -847,14 +907,31 @@ class PlaybackService : MediaLibraryService() {
         return songs
     }
 
-    private fun startRadio() {
+    private fun startRadio(startingWith: PlayableSong? = null) {
         scope.launch {
-            val songs = radioSongs()
+            val songs = radioSongs(startingWith)
             if (songs.isEmpty()) return@launch
             active.setMediaItems(songs.map { it.toMediaItem() }, 0, 0)
             active.prepare()
             active.play()
         }
+    }
+
+    /** The seed of the service radio playing, so Tracks Radio can start from it if the service can't make one. */
+    private var serviceRadioSeed: PlayableSong? = null
+
+    /**
+     * A radio from [seed]: the service's own, through the relay, when [service] says it can make
+     * one; otherwise, or when it then can't, Tracks Radio opening on the song, without a word.
+     */
+    private fun startSongRadio(seed: PlayableSong, service: Boolean) {
+        val relay = relayPlayer
+        if (!service || relay == null || !CatalogMedia.isCatalog(seed.mediaId)) return startRadio(seed)
+        radioPicks.stop()
+        serviceRadioSeed = seed
+        PlaybackBridge.origin.value = QueueOrigin("${seed.title} Radio", QueueOrigin.Kind.Station)
+        useRelay()
+        relay.playRadio(seed.toMediaItem())
     }
 
     /** Tracks Radio picked up where it is if it's what's on, or started. */
@@ -997,9 +1074,18 @@ class PlaybackService : MediaLibraryService() {
             graph.radio.loved(current)
             repickNext(current.artistName)
         }
+        val saving = serviceSave(mediaId)
         graph.scope.launch {
             graph.settings.update { it.copy(likedSongs = if (on) it.likedSongs + identity else it.likedSongs - identity) }
             (graph.library as? CombinedLibrary)?.servers?.star(mediaId, on)
+            // Still saved on the service: the heart stays on, as the service has it.
+            if (saving?.invoke(on) == false && !on) {
+                graph.settings.update { it.copy(likedSongs = it.likedSongs + identity) }
+                withContext(Dispatchers.Main) {
+                    liked = liked + identity
+                    refreshButtons()
+                }
+            }
         }
     }
 
@@ -1041,6 +1127,13 @@ class PlaybackService : MediaLibraryService() {
         relayPlayer = relay
         // Under Tracks Radio, a relay that stops is met by playing on here; the station says if nothing can.
         scope.launch { streaming.relay.messages.collect { if (!(usingRelay && isRadio())) say(it) } }
+        scope.launch {
+            streaming.relay.radioFailed.collect { mediaId ->
+                val seed = serviceRadioSeed?.takeIf { it.mediaId == mediaId } ?: return@collect
+                serviceRadioSeed = null
+                startRadio(seed)
+            }
+        }
         scope.launch {
             streaming.relay.status.collect { status ->
                 if (status.phase == RelayStatus.Phase.Live) relayDown = false
@@ -1202,6 +1295,9 @@ class PlaybackService : MediaLibraryService() {
                 }
                 TracksCommands.SLEEP -> setSleep(args.getInt(TracksCommands.MINUTES, 0))
                 TracksCommands.RADIO -> startRadio()
+                TracksCommands.SONG_RADIO -> args.getBundle(TracksCommands.SONG)?.let { runCatching { MediaItem.fromBundle(it) }.getOrNull() }?.let { seed ->
+                    startSongRadio(seed.toPlayableSong(), args.getBoolean(TracksCommands.SERVICE))
+                }
                 TracksCommands.MORE_LIKE_THIS -> moreLikeThis()
                 else -> return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
             }
@@ -1310,6 +1406,8 @@ class PlaybackService : MediaLibraryService() {
         const val RESTARTS_AFTER_MS = 3_000L
         /** Songs coming up looked up in Play From ahead of being reached. */
         const val AHEAD_SONGS = 2
+        /** How long before a song ends the service's queue after it is held ready. */
+        const val HOLD_AHEAD_MS = 15_000L
         /** Where Tracks Radio's picks play when it isn't the relay: this device's own player. */
         const val HERE = "here"
         const val RADIO_CANT_PLAY = "Tracks Radio can't play anything right now."

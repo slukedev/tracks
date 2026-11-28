@@ -29,6 +29,8 @@ data class TracksideCatalogService(
     val account: Account = Account(),
     /** lossless, high or standard: the best it plays through the server. */
     val quality: String? = null,
+    /** The kinds a heart saves to the service's own library; only with [CatalogCapability.LIBRARY_EDIT]. */
+    @SerialName("library_edit_kinds") val libraryEditKinds: List<String> = emptyList(),
 ) {
     @Serializable
     data class Account(
@@ -44,6 +46,9 @@ data class TracksideCatalogService(
 
     /** Searchable now: it searches, and its account works. */
     val searches: Boolean get() = isSignedIn && can(CatalogCapability.SEARCH)
+
+    /** Whether an item of [kind] ("track", "album") can be saved to the service's library. */
+    fun saves(kind: String): Boolean = can(CatalogCapability.LIBRARY_EDIT) && kind in libraryEditKinds
 }
 
 object CatalogCapability {
@@ -54,6 +59,74 @@ object CatalogCapability {
     const val SIMILAR = "similar"
     const val RADIO = "radio"
     const val RECOMMENDATIONS = "recommendations"
+    const val LIBRARY_EDIT = "library_edit"
+}
+
+/** What a server can do with its services beyond browsing and playing: each false on a server that can't yet. */
+data class CatalogFeatures(
+    /** Save and unsave to a service's own library. */
+    val save: Boolean = false,
+    /** A service's own radio from one song, artist, album or playlist. */
+    val radio: Boolean = false,
+    /** Many songs matched to the services in one request. */
+    val match: Boolean = false,
+    /** A song taken out of a speaker's or the relay's queue. */
+    val queueRemove: Boolean = false,
+    /** A play held paused at its start, ready to begin on cue. */
+    val hold: Boolean = false,
+    /** A play that takes a service's only stream from another player. */
+    val takeover: Boolean = false,
+)
+
+/** `PUT` or `DELETE /catalog/items/{ref}/saved`: where the item now stands. */
+@Serializable
+data class TracksideCatalogSaved(
+    val ref: String,
+    val saved: Boolean,
+    @SerialName("service_id") val serviceId: String? = null,
+)
+
+/** `POST /catalog/match`: songs asked for by their own id, up to [MAX_ITEMS] at once. */
+@Serializable
+data class TracksideCatalogMatchRequest(
+    val items: List<Item>,
+    val services: List<String>? = null,
+) {
+    @Serializable
+    data class Item(
+        val id: String,
+        val title: String,
+        val artist: String,
+        val album: String? = null,
+        @SerialName("duration_ms") val durationMs: Long? = null,
+        val isrc: String? = null,
+    )
+
+    companion object {
+        const val MAX_ITEMS = 50
+    }
+}
+
+/** The answer to a match: each song asked for, with what each service had for it. */
+@Serializable
+data class TracksideCatalogMatch(
+    val complete: Boolean = true,
+    val results: List<Result> = emptyList(),
+    @SerialName("retry_after_s") val retryAfterS: Int? = null,
+) {
+    @Serializable
+    data class Result(val id: String, val matches: List<Match> = emptyList())
+
+    @Serializable
+    data class Match(
+        @SerialName("service_id") val serviceId: String,
+        /** found, none, timed_out, failed, signed_out, deferred. Open. */
+        val state: String = "failed",
+        val track: TracksideCatalogTrack? = null,
+    ) {
+        /** An answer that holds: found, or the service has no such song. The rest are asked again later. */
+        val settled: Boolean get() = state == "found" || state == "none"
+    }
 }
 
 /** `GET /catalog/services`. */
@@ -93,6 +166,8 @@ data class TracksideCatalogTrack(
     /** Sent only as false, when the service says it can't play. */
     val playable: Boolean? = null,
     val kind: String = "track",
+    /** Whether it's in your library on the service; left out when the server doesn't know. */
+    val saved: Boolean? = null,
 ) {
     val canPlay: Boolean get() = playable != false
     val isExplicit: Boolean get() = explicit == "explicit"
@@ -120,6 +195,8 @@ data class TracksideCatalogItem(
     /** A playlist's owner. */
     val owner: String? = null,
     val editable: Boolean? = null,
+    /** Whether it's in your library on the service; left out when the server doesn't know. */
+    val saved: Boolean? = null,
 ) {
     enum class Kind { Album, Artist, Playlist, Radio, Unknown }
 

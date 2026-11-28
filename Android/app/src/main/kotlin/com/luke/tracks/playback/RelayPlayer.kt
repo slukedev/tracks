@@ -268,20 +268,52 @@ class RelayPlayer(
         }
         remember(mediaItems)
         val start = (if (startIndex == C.INDEX_UNSET) 0 else startIndex).coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
-        val firstHeld = (start + 1 until mediaItems.size).firstOrNull { waits(serverId, mediaItems[it]) } ?: mediaItems.size
+        val firstHeld = firstWaiting(serverId, mediaItems, start)
         val sent = mediaItems.subList(0, firstHeld)
         clearHeld()
         held = mediaItems.subList(firstHeld, mediaItems.size).toList()
-        val kept = CatalogMedia.request(
-            sent.map { it.mediaId }, start, serverId,
-            positionMs = if (startPositionMs == C.TIME_UNSET) 0 else startPositionMs,
-            shuffle = status.shuffle,
-            repeat = status.repeat,
-            context = PlaybackBridge.origin.value?.let { com.luke.tracks.library.trackside.TracksideSpeaker.Context(kind = contextKind(it.kind), name = it.title) },
-        ) ?: return Futures.immediateVoidFuture()
+        val kept = kept(serverId, sent, start, if (startPositionMs == C.TIME_UNSET) 0 else startPositionMs) ?: return Futures.immediateVoidFuture()
         val preview = kept.positions.map { preview(sent[it]) }
         prefetch()
         return engine.play(serverId, kept, preview, services()).asFuture()
+    }
+
+    /**
+     * Has the server hold the queue that [mediaItems] from [startIndex] would send, paused at
+     * its start, while the phone's own player finishes the song before it: the same request
+     * [handleSetMediaItems] makes then, which the engine starts on cue.
+     */
+    fun holdAhead(mediaItems: List<MediaItem>, startIndex: Int) {
+        val serverId = CatalogMedia.parse(mediaItems.getOrNull(startIndex)?.mediaId ?: return)?.first ?: return
+        val sent = mediaItems.subList(0, firstWaiting(serverId, mediaItems, startIndex))
+        kept(serverId, sent, startIndex, 0)?.let { engine.hold(serverId, it) }
+    }
+
+    private fun firstWaiting(serverId: String, mediaItems: List<MediaItem>, start: Int): Int =
+        (start + 1 until mediaItems.size).firstOrNull { waits(serverId, mediaItems[it]) } ?: mediaItems.size
+
+    private fun kept(serverId: String, sent: List<MediaItem>, start: Int, positionMs: Long): CatalogMedia.Kept? = CatalogMedia.request(
+        sent.map { it.mediaId }, start, serverId,
+        positionMs = positionMs,
+        shuffle = status.shuffle,
+        repeat = status.repeat,
+        context = PlaybackBridge.origin.value?.let { com.luke.tracks.library.trackside.TracksideSpeaker.Context(kind = contextKind(it.kind), name = it.title) },
+    )
+
+    /**
+     * The service's own radio from [seed], a service's song: the server's music system picks
+     * the rest as it plays. If the service can't make one, the engine says so ([RelayEngine.radioFailed]).
+     */
+    fun playRadio(seed: MediaItem): ListenableFuture<*> {
+        val serverId = CatalogMedia.parse(seed.mediaId)?.first ?: return Futures.immediateVoidFuture()
+        remember(listOf(seed))
+        clearHeld()
+        val kept = CatalogMedia.request(
+            listOf(seed.mediaId), 0, serverId,
+            context = PlaybackBridge.origin.value?.let { com.luke.tracks.library.trackside.TracksideSpeaker.Context(kind = contextKind(it.kind), name = it.title) },
+        ) ?: return Futures.immediateVoidFuture()
+        val radio = kept.copy(request = kept.request.copy(radio = true, startIndex = null, positionMs = null, shuffle = null, repeat = null))
+        return engine.play(serverId, radio, listOf(preview(seed)), services(), radioOf = seed.mediaId).asFuture()
     }
 
     override fun handleAddMediaItems(index: Int, mediaItems: List<MediaItem>): ListenableFuture<*> {
@@ -371,8 +403,12 @@ class RelayPlayer(
     }
 
     /** Songs that wait can be taken out and moved; the server's own queue can't be from here. */
+    /** Whether a song already sent to the server can be taken out again: not on every server. */
+    val removesSent: Boolean get() = engine.removesQueued
+
     override fun handleRemoveMediaItems(fromIndex: Int, toIndex: Int): ListenableFuture<*> {
         val sent = status.items.size
+        if (fromIndex < sent && removesSent) engine.remove(fromIndex, toIndex.coerceAtMost(sent))
         if (toIndex <= sent || held.isEmpty()) return Futures.immediateVoidFuture()
         val from = (fromIndex - sent).coerceAtLeast(0)
         val to = (toIndex - sent).coerceAtMost(held.size)

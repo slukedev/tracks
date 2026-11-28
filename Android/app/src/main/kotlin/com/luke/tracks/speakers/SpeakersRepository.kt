@@ -115,6 +115,8 @@ class SpeakersRepository(
     private val now: () -> Instant = Instant::now,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val work: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1),
+    /** A server's streaming service by id, named as people know it ("Spotify"), for the lines a failed play says. */
+    private val serviceName: (serverId: String, serviceId: String) -> String? = { _, _ -> null },
 ) {
     private val _state = MutableStateFlow(SpeakersState())
     val state: StateFlow<SpeakersState> = _state.asStateFlow()
@@ -342,7 +344,10 @@ class SpeakersRepository(
             record.pending.remove(key)
             pending.onFailure?.invoke()
             val name = record.confirmed[pending.speakerId]?.label ?: "The speaker"
-            say(failureText(name, event.error?.code), SpeakerKey(record.serverId, pending.speakerId))
+            val error = event.error
+            val service = error?.serviceId?.let { serviceName(record.serverId, it) }
+            val line = error?.reason?.let { com.luke.tracks.streaming.RelayWords.serviceReason(it, service, error.holderName) } ?: failureText(name, error?.code)
+            say(line, SpeakerKey(record.serverId, pending.speakerId))
             return
         }
         val confirmedRevision = record.confirmed[pending.speakerId]?.revision ?: 0

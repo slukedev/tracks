@@ -39,6 +39,7 @@ class Streaming private constructor(
                     scope = graph.scope,
                     clientFor = { id -> servers.tracksideClient(id)?.let(::TracksideRelayClient) },
                     deviceName = { deviceName(graph.context) },
+                    features = { id -> repository.state.value.server(id)?.features ?: com.luke.tracks.library.trackside.CatalogFeatures() },
                 )
                 repository.watchServers(
                     servers.entries

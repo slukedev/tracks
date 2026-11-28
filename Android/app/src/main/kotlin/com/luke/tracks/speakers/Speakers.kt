@@ -27,6 +27,10 @@ object Speakers {
                 scope = graph.scope,
                 clientFor = { id -> servers.tracksideClient(id)?.let(::TracksideSpeakerClient) },
                 store = PreferencesSpeakerStore(graph.context),
+                serviceName = { serverId, serviceId ->
+                    com.luke.tracks.streaming.Streaming.of(graph)?.repository?.state?.value?.server(serverId)?.service(serviceId)
+                        ?.let { com.luke.tracks.streaming.ServiceBrand.name(it) }
+                },
             ).also { repository ->
                 repository.watchServers(
                     servers.entries

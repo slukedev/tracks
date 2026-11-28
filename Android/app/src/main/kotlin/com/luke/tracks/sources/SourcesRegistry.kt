@@ -8,6 +8,7 @@ import com.luke.tracks.AppGraph
 import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.library.MusicLibrary
 import com.luke.tracks.library.ServerEntry
+import com.luke.tracks.streaming.ServiceStanding
 import com.luke.tracks.library.ServerStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -179,7 +180,8 @@ class SourcesRegistry(
     val playFromChoices: StateFlow<List<PlayFromChoice>> = combine(order, sources, _services, _getsCopies) { stored, list, offered, gets ->
         val names = list.associate { PlayFromPlace.From(it.id) as PlayFromPlace to it.name } +
             offered.associate { it.place to it.name } + (PlayFromPlace.Get to GET_NAME)
-        stored.arranged(places(list, offered, gets)).map { PlayFromChoice(it, names.getValue(it)) }
+        val standings = offered.associate { it.place as PlayFromPlace to it.standing }
+        stored.arranged(places(list, offered, gets)).map { PlayFromChoice(it, names.getValue(it), standings[it] ?: ServiceStanding.Ready) }
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /** Saves a new order of the places shown; the rest keep their positions. */
@@ -254,13 +256,13 @@ class SourcesRegistry(
     }
 }
 
-/** A streaming service as a place in Play From: its kind's place and the name it goes by. */
-data class ServicePlace(val kind: String, val name: String) {
+/** A streaming service as a place in Play From: its kind's place, the name it goes by, and where it stands. */
+data class ServicePlace(val kind: String, val name: String, val standing: ServiceStanding = ServiceStanding.Ready) {
     val place: PlayFromPlace.Service get() = PlayFromPlace.Service(kind)
 }
 
-/** One row of Play From. */
-data class PlayFromChoice(val place: PlayFromPlace, val name: String)
+/** One row of Play From; a service that can't play now says why in [standing], and is passed over. */
+data class PlayFromChoice(val place: PlayFromPlace, val name: String, val standing: ServiceStanding = ServiceStanding.Ready)
 
 /** The phone's music files: there once access is allowed or songs are there (the sample library). */
 class DeviceSourceProvider(

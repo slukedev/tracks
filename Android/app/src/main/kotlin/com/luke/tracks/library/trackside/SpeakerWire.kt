@@ -184,6 +184,12 @@ data class TracksideSpeakerPlayRequest(
     val shuffle: Boolean? = null,
     val repeat: String? = null,
     val context: TracksideSpeaker.Context? = null,
+    /** The service's own radio from the one item: a song, artist, album or playlist. */
+    val radio: Boolean? = null,
+    /** Take a service's only stream from the player holding it (Spotify allows one). */
+    val takeover: Boolean? = null,
+    /** Queue it paused at its start, ready to begin on a playback `play`. */
+    val hold: Boolean? = null,
 ) {
     /** Exactly one of [songId] and [ref]. */
     @Serializable
@@ -265,7 +271,16 @@ object SpeakerEvents {
         val error: Error? = null,
     ) {
         @Serializable
-        data class Error(val code: String = "", val message: String? = null)
+        data class Error(
+            val code: String = "",
+            val message: String? = null,
+            /** service_busy, service_signed_out, not_playable, radio_unavailable, ... Open. */
+            val reason: String? = null,
+            @SerialName("service_id") val serviceId: String? = null,
+            /** The speaker holding the service's stream, when this key can see it. */
+            @SerialName("holder_id") val holderId: String? = null,
+            @SerialName("holder_name") val holderName: String? = null,
+        )
     }
 
     @Serializable

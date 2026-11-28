@@ -63,20 +63,23 @@ interface PlayDao {
     @Query("SELECT * FROM plays ORDER BY playedAt DESC LIMIT 1")
     suspend fun last(): PlayEntity?
 
-    /** Plays still owed to Last.fm, oldest first. Spotify's only when [spotify]: it scrobbles them itself. */
+    /**
+     * Plays still owed to Last.fm, oldest first: every source's, the services' too. A play
+     * another device recorded is that device's to send, and one sent or turned down never
+     * comes back, so no play goes twice.
+     */
     @Query(
         "SELECT * FROM plays WHERE scrobbledAt IS NULL AND scrobbleError IS NULL " +
             "AND kind != 'LastFm' AND recordedBy IS NULL AND playedAt >= :since " +
-            "AND (source != 'Spotify' OR :spotify) ORDER BY playedAt LIMIT :limit"
+            "ORDER BY playedAt LIMIT :limit"
     )
-    suspend fun owedScrobbles(since: Long, limit: Int, spotify: Boolean = false): List<PlayEntity>
+    suspend fun owedScrobbles(since: Long, limit: Int): List<PlayEntity>
 
     @Query(
         "SELECT COUNT(*) FROM plays WHERE scrobbledAt IS NULL AND scrobbleError IS NULL " +
-            "AND kind != 'LastFm' AND recordedBy IS NULL AND playedAt >= :since " +
-            "AND (source != 'Spotify' OR :spotify)"
+            "AND kind != 'LastFm' AND recordedBy IS NULL AND playedAt >= :since"
     )
-    fun owedScrobbleCount(since: Long, spotify: Boolean = false): Flow<Int>
+    fun owedScrobbleCount(since: Long): Flow<Int>
 
     @Query("UPDATE plays SET scrobbledAt = :at, scrobbleError = NULL, cloudPending = cloudPending + 1 WHERE id IN (:ids)")
     suspend fun markScrobbled(ids: List<String>, at: Long)

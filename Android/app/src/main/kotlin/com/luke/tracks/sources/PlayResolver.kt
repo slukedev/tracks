@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
@@ -68,6 +69,8 @@ class PlayResolver(
     private val streamers: () -> List<Streamer>,
     /** The service's song that is this song, on one server's service; null when it has none. */
     private val find: suspend (Streamer, WantedSong) -> TracksideCatalogTrack?,
+    /** Many songs looked up on one server's service at once, ahead of [find], where it can. */
+    private val warm: suspend (Streamer, List<WantedSong>) -> Unit = { _, _ -> },
     /** A service's song as the player carries it. */
     private val streamed: (serverId: String, track: TracksideCatalogTrack, identity: String) -> PlayableSong,
     private val lookupMs: Long = LOOKUP_MS,
@@ -145,6 +148,7 @@ class PlayResolver(
      * player looks it up as it comes near ([resolve]), so the queue starts without waiting on all of it.
      */
     suspend fun resolveAll(wanted: List<WantedSong>, first: Int = 0): List<Resolution> = coroutineScope {
+        warmAll(wanted)
         val gate = Semaphore(parallel)
         val start = first.coerceIn(0, (wanted.size - 1).coerceAtLeast(0))
         val order = wanted.indices.sortedBy { if (it == start) -1 else it }
@@ -156,6 +160,30 @@ class PlayResolver(
             }
         }
         wanted.indices.map { answers.getValue(it) }.awaitAll()
+    }
+
+    /**
+     * The songs each service would be asked for, matched a batch at a time first, so a long
+     * queue doesn't cost a search a song. Waits at most [lookupMs]; anything it didn't settle is
+     * looked up one at a time as before.
+     */
+    private suspend fun warmAll(wanted: List<WantedSong>) {
+        if (wanted.size < 2) return
+        val asked = HashMap<Streamer, MutableList<WantedSong>>()
+        for (song in wanted) {
+            for (step in steps(song)) {
+                if (step is Step.Look) asked.getOrPut(step.streamer) { mutableListOf() } += song
+                // Past a copy that plays, or a song picked on a service, nothing more is asked.
+                if ((step is Step.Copy && canPlay(step.song.mediaId)) || step is Step.Picked) break
+            }
+        }
+        if (asked.isEmpty()) return
+        try {
+            withTimeoutOrNull(lookupMs) { coroutineScope { asked.forEach { (streamer, songs) -> launch { warm(streamer, songs) } } } }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun look(streamer: Streamer, wanted: WantedSong): PlayableSong? {

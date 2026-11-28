@@ -260,12 +260,12 @@ class CatalogClientTest {
             }
         }
         val endpoints = ServerEndpoints(listOf(home), home.url, backgroundScope, { _, _ -> true })
-        assertEquals(TracksideClient.CatalogAccess.Play(cellular = true, recommends = true), TracksideClient(endpoints, key, "d1", null, transport).catalogAccess())
+        assertEquals(TracksideClient.CatalogAccess.Play(cellular = true, recommends = true, features = CatalogFeatures(save = true, radio = true, match = true, queueRemove = true, hold = true, takeover = true)), TracksideClient(endpoints, key, "d1", null, transport).catalogAccess())
         me = fixture("me.json").replace("\"recommendations\": true,", "")
-        assertEquals("a server from before the picks", TracksideClient.CatalogAccess.Play(cellular = true, recommends = false), TracksideClient(endpoints, key, "d1", null, transport).catalogAccess())
+        assertEquals("a server from before the picks", TracksideClient.CatalogAccess.Play(cellular = true, recommends = false, features = CatalogFeatures(save = true, radio = true, match = true, queueRemove = true, hold = true, takeover = true)), TracksideClient(endpoints, key, "d1", null, transport).catalogAccess())
         me = fixture("me.json").replace("\"relay\": true,", "")
         val browse = TracksideClient(endpoints, key, "d1", null, transport).catalogAccess()
-        assertEquals("browsing only still has the picks", TracksideClient.CatalogAccess.Browse(recommends = true), browse)
+        assertEquals("browsing only still has the picks", TracksideClient.CatalogAccess.Browse(recommends = true, features = CatalogFeatures(save = true, radio = true, match = true, queueRemove = true, hold = true, takeover = true)), browse)
         assertTrue(browse.recommends)
         me = fixture("me-without-acquisition.json")
         assertEquals(TracksideClient.CatalogAccess.None, TracksideClient(endpoints, key, "d1", null, transport).catalogAccess())

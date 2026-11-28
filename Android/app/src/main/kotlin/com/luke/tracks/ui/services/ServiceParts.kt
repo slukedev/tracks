@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -42,9 +43,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -66,6 +70,8 @@ import com.luke.tracks.net.ServerLinks
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.streaming.CatalogMedia
+import com.luke.tracks.streaming.ServiceBrand
+import com.luke.tracks.streaming.serviceOf
 import com.luke.tracks.streaming.Streaming
 import com.luke.tracks.streaming.StreamingState
 import com.luke.tracks.ui.components.Artwork
@@ -92,6 +98,20 @@ fun streamingState(): StreamingState {
     val streaming = rememberStreaming()
     val state by (streaming?.repository?.state ?: NoServices).collectAsState()
     return state
+}
+
+/** Stands in for the servers' services in screenshots: the service a song plays from, by its media id. */
+val LocalServiceOf = staticCompositionLocalOf<((String) -> TracksideCatalogService?)?> { null }
+
+/** The service the song with [mediaId] plays from, while it's a service's song; null for every other song. */
+@Composable
+fun rememberServiceOf(mediaId: String?): TracksideCatalogService? {
+    LocalServiceOf.current?.let { lookup -> return mediaId?.let(lookup) }
+    val streaming = rememberStreaming()
+    val state = streamingState()
+    if (mediaId == null || streaming == null || !CatalogMedia.isCatalog(mediaId)) return null
+    val relay by streaming.relay.status.collectAsState()
+    return remember(mediaId, state, relay.serverId, relay.items) { state.serviceOf(mediaId, relay) }
 }
 
 /**
@@ -130,6 +150,12 @@ fun Context.playTracks(serverId: String, tracks: List<TracksideCatalogTrack>, st
     graph.player.play(playable.map { playableFor(serverId, it) }, from, origin, shuffle)
 }
 
+/** A radio from a service's song: the service's own where it can make one, else Tracks Radio from the song. */
+fun Context.startRadioFrom(serverId: String, track: TracksideCatalogTrack) {
+    val service = Streaming.of(graph)?.repository?.state?.value?.makesRadio(ServiceKey(serverId, track.serviceId)) == true
+    graph.player.startRadio(CatalogMedia.playable(serverId, track, songIdentity(track.title, track.artist)), service)
+}
+
 fun cover(serverId: String, artworkId: String?, size: Int = 300): Uri? =
     artworkId?.takeIf { it.isNotEmpty() }?.let { ServerLinks.cover(serverId, it, size) }
 
@@ -145,12 +171,20 @@ fun TracksideCatalogItem.kindLabel(): String = when (kindValue) {
 fun TracksideCatalogItem.route(serverId: String) = ServiceItemRoute(serverId, ref, kind, name, artist ?: owner)
 
 /**
- * A service's mark: its initial in a small round tile, in the theme's own colours. Tracks
- * ships no service logos, so the name is what tells them apart, and every service has one.
+ * A service's mark: its own logo where Tracks carries one (Spotify's, unaltered, as its
+ * guidelines ask), else its initial in a small round tile in the theme's own colours.
  */
 @Composable
-fun ServiceMark(service: TracksideCatalogService?, size: Dp = 20.dp, modifier: Modifier = Modifier) {
-    val name = service?.name.orEmpty()
+fun ServiceMark(service: TracksideCatalogService?, size: Dp = 20.dp, modifier: Modifier = Modifier) =
+    ServiceMark(service?.logoKey, service?.let { ServiceBrand.name(it) }.orEmpty(), size, modifier)
+
+@Composable
+fun ServiceMark(logoKey: String?, name: String, size: Dp = 20.dp, modifier: Modifier = Modifier) {
+    val logo = ServiceBrand.logo(logoKey)
+    if (logo != null) {
+        Icon(painterResource(logo), contentDescription = name, tint = Color.Unspecified, modifier = modifier.size(size))
+        return
+    }
     Surface(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.secondaryContainer,
@@ -234,6 +268,11 @@ fun ServiceTrackMenu(serverId: String, track: TracksideCatalogTrack, song: Playa
             Entry("Play", Icons.Rounded.PlayArrow) { act { context.graph.player.play(listOf(song), origin = QueueOrigin(track.title, QueueOrigin.Kind.Search)) } }
             Entry("Play next", Icons.AutoMirrored.Rounded.QueueMusic) { act { context.graph.player.playNext(song) } }
             Entry("Add to queue", Icons.AutoMirrored.Rounded.PlaylistAdd) { act { context.graph.player.addToQueue(song) } }
+        }
+        if (track.canPlay) {
+            Entry("Start radio", Icons.Rounded.Radio) {
+                act { context.startRadioFrom(serverId, track) }
+            }
         }
         track.albumRef?.let { ref ->
             Entry("Go to album", Icons.Rounded.Album) {

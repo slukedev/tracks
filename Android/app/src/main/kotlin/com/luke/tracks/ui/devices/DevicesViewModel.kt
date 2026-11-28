@@ -133,9 +133,13 @@ class DevicesViewModel(private val graph: AppGraph, private val repository: Spea
                 return@launch
             }
             val player = graph.player
+            // A service's only stream (Spotify's) comes here from whatever else holds it, where the server can.
+            val takeover = com.luke.tracks.streaming.Streaming.of(graph)?.repository?.state?.value?.server(key.serverId)?.features?.takeover == true
             val built = withContext(Dispatchers.Default) {
                 val playerState = player.state.value
-                CastQueue.request(playerState, player.position.value, key.serverId)?.let { it to CastQueue.preview(playerState, it) }
+                CastQueue.request(playerState, player.position.value, key.serverId)
+                    ?.let { if (takeover) it.copy(takeover = true) else it }
+                    ?.let { it to CastQueue.preview(playerState, it) }
             }
             val speaker = repository.state.value.speaker(key)
             when {
