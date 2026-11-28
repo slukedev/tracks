@@ -12,6 +12,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.luke.tracks.net.Http
 import com.luke.tracks.data.SampleData
 import com.luke.tracks.system.FormFactor
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 class TracksApplication : Application(), Configuration.Provider, SingletonImageLoader.Factory {
@@ -35,6 +36,15 @@ class TracksApplication : Application(), Configuration.Provider, SingletonImageL
             if (sample) SampleData.fillIfEmpty(graph.history)
             graph.history.syncIndex()
         }
+    }
+
+    /**
+     * Never called on a device; Robolectric calls it as each test ends, so this graph's work
+     * (MediaStore reads, server sync) stops instead of failing in a later test.
+     */
+    override fun onTerminate() {
+        if (::graph.isInitialized) graph.scope.cancel()
+        super.onTerminate()
     }
 
     /**
