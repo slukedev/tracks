@@ -46,13 +46,16 @@ import com.luke.tracks.graph
 import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.net.Http
 import com.luke.tracks.net.Logs
+import com.luke.tracks.sources.PlayResolver
 import com.luke.tracks.sources.SkippedSongs
 import com.luke.tracks.sources.SongCopies
 import com.luke.tracks.sources.SourceSelection
+import com.luke.tracks.sources.WantedSong
 import com.luke.tracks.sources.sources
 import com.luke.tracks.streaming.CatalogMedia
 import com.luke.tracks.streaming.CatalogPlays
 import com.luke.tracks.streaming.Streaming
+import com.luke.tracks.streaming.playResolver
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.CoroutineScope
@@ -177,7 +180,10 @@ class PlaybackService : MediaLibraryService() {
         getting = GetAsReached(
             queue = gettingQueue,
             scope = scope,
-            get = { song, status -> graph.serverPicks.getToPlay(song, status) },
+            // Get taken out of Play From since the song was queued: it isn't got after all.
+            get = { song, status ->
+                if (graph.playResolver.gets()) graph.serverPicks.getToPlay(song, status) else ToPlay.Failed(PlayResolver.cantPlay(song.title))
+            },
             cover = { song ->
                 SongsToGet.parse(song.mediaId)?.let { (server, _) ->
                     graph.serverPicks.newCover(ServerSong(server, newSong(song.title, song.artistName, song.albumTitle, song.durationMs)))?.let(Uri::parse)
@@ -320,6 +326,8 @@ class PlaybackService : MediaLibraryService() {
         // Its source can't play now (a server offline): the same quiet message as songs skipped ahead.
         if (moveOn && !graph.sources.canPlay(mediaId)) {
             graph.sources.reportSkipped(SkippedSongs(1, graph.sources.whyUnavailable(mediaId)))
+        } else if (CatalogMedia.isCatalog(mediaId)) {
+            say(PlayResolver.cantPlay(player.currentMediaItem?.mediaMetadata?.title?.toString()))
         } else {
             say(if (moveOn) "Couldn't play $title. Playing the next song." else "Couldn't play $title.")
         }
@@ -333,22 +341,38 @@ class PlaybackService : MediaLibraryService() {
 
     /**
      * The copy of a song to queue. With every source on, the first in the Play From order that
-     * can play now; filtered to one source, the one asked for, unless it can't play.
+     * can play now; filtered to one source, the one asked for, unless it can't play. A service's
+     * song stays as it is: Play From chose it when it was asked for.
      */
     private fun preferred(item: MediaItem): MediaItem {
+        if (CatalogMedia.isCatalog(item.mediaId)) return item
         val song = item.toPlayableSong()
         val all = copies.of(song)
         if (all.size < 2) return item
         val registry = graph.sources
         if (registry.selection.value != SourceSelection.All && registry.canPlay(song.mediaId)) return item
-        val best = registry.ranked(all) { it.mediaId }.firstOrNull { registry.canPlay(it.mediaId) } ?: return item
+        val best = graph.playResolver.resolveNow(WantedSong(song.title, song.artistName, song.albumTitle, song.durationMs, song.identity, known = all)).song ?: return item
         return if (best.mediaId == song.mediaId) item else best.toMediaItem()
     }
 
     private suspend fun preferred(items: List<MediaItem>): List<MediaItem> = withContext(Dispatchers.Default) { items.map(::preferred) }
 
+    /**
+     * Without a relay, a service's song can't play here: it's left out and said so once, never
+     * swapped for another copy or got instead.
+     */
+    private fun withoutServiceSongs(items: List<MediaItem>): List<MediaItem> {
+        if (relayPlayer != null) return items
+        val (services, rest) = items.partition { CatalogMedia.isCatalog(it.mediaId) }
+        if (services.isEmpty()) return items
+        say(PlayResolver.cantPlay(services.singleOrNull()?.mediaMetadata?.title?.toString()))
+        if (rest.isEmpty()) throw UnsupportedOperationException("A service's songs, with no relay to play them")
+        return rest
+    }
+
     /** Another copy of a song that can play now, in the Play From order, other than the ones in [besides]. */
     private fun otherCopy(song: PlayableSong, besides: Set<String>): PlayableSong? {
+        if (CatalogMedia.isCatalog(song.mediaId)) return null
         val registry = graph.sources
         return registry.ranked(copies.of(song)) { it.mediaId }
             .firstOrNull { it.mediaId !in besides && it.mediaId != song.mediaId && registry.canPlay(it.mediaId) }
@@ -585,7 +609,15 @@ class PlaybackService : MediaLibraryService() {
         if (isRadio()) graph.radio.note(song, listen)
     }
 
-    private fun isRadio() = PlaybackBridge.origin.value?.kind == QueueOrigin.Kind.Radio
+    /**
+     * Whether Tracks Radio is what's on. Never for a queue that holds a service's song: that's a
+     * station or a service's queue (or one saved as Tracks Radio before stations had their own
+     * kind), which the relay plays, and Tracks Radio never picks after it.
+     */
+    private fun isRadio() = PlaybackBridge.origin.value?.kind == QueueOrigin.Kind.Radio && !holdsServiceSongs()
+
+    private fun holdsServiceSongs(): Boolean =
+        usingRelay || (0 until player.mediaItemCount).any { CatalogMedia.isCatalog(player.getMediaItemAt(it).mediaId) }
 
     /** Whether one of the station's songs is waiting in Up next, after any you've queued. */
     private fun radioPickWaiting(): Int? {
@@ -724,7 +756,7 @@ class PlaybackService : MediaLibraryService() {
             .setSlots(CommandButton.SLOT_BACK_SECONDARY, CommandButton.SLOT_OVERFLOW)
             .build()
         // A station picks as it goes: there's no order to shuffle, or end to repeat.
-        if (isRadio()) return listOf(like)
+        if (PlaybackBridge.origin.value?.isStation == true) return listOf(like)
         return listOf(
             like,
             CommandButton.Builder(if (shuffle) CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF)
@@ -961,7 +993,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
         override fun onAddMediaItems(mediaSession: MediaSession, controller: MediaSession.ControllerInfo, mediaItems: MutableList<MediaItem>): ListenableFuture<MutableList<MediaItem>> =
-            future { preferred(mediaItems.mapNotNull { resolve(it, controller) }).toMutableList() }
+            future { preferred(withoutServiceSongs(mediaItems.mapNotNull { resolve(it, controller) })).toMutableList() }
 
         override fun onSetMediaItems(
             mediaSession: MediaSession,
@@ -989,7 +1021,7 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
             }
-            val found = mediaItems.mapNotNull { resolve(it, controller) }
+            val found = withoutServiceSongs(mediaItems.mapNotNull { resolve(it, controller) })
             // Any service's song in the queue: all of it plays through the relay, which takes these items next.
             if (relayPlayer != null && CatalogMedia.relayServer(found.map { it.mediaId }) != null) {
                 useRelay()
@@ -1004,15 +1036,16 @@ class PlaybackService : MediaLibraryService() {
             future {
                 val saved = memory.restore()
                 val paused = saved?.songs?.getOrNull(saved.index)
-                if (saved?.origin?.kind == QueueOrigin.Kind.Radio && paused != null) {
+                val streams = saved != null && Resumption.streams(saved.songs)
+                if (saved != null && paused != null && Resumption.restartsTracksRadio(saved.origin, saved.songs)) {
                     // Tracks Radio starts again from the song it was on, and picks on from there.
                     val songs = radioSongs(startingWith = paused)
                     if (songs.isNotEmpty()) return@future MediaSession.MediaItemsWithStartPosition(songs.map { it.toMediaItem() }, 0, saved.positionMs)
                 }
                 if (saved != null) {
-                    PlaybackBridge.origin.value = saved.origin
+                    PlaybackBridge.origin.value = Resumption.origin(saved.origin, saved.songs)
                     // A queue with a service's song comes back through the relay, which starts a session for it.
-                    if (relayPlayer != null && CatalogMedia.relayServer(saved.songs.map { it.mediaId }) != null) useRelay() else useNative()
+                    if (relayPlayer != null && streams) useRelay() else useNative()
                     MediaSession.MediaItemsWithStartPosition(saved.songs.map { it.toMediaItem() }, saved.index, saved.positionMs)
                 } else {
                     val songs = if (isForPlayback) radioSongs() else emptyList()

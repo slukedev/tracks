@@ -445,6 +445,10 @@ class TracksidePicksTest {
         }
     }
 
+    /** What Play From has to choose from for a shelf's song: the song where you have it, else a song to get. */
+    private fun ServerPicksService.queueable(song: ServerSong, cover: String? = null) =
+        wanted(song, cover).let { it.known.firstOrNull() ?: it.get?.invoke() }
+
     /** The new song as tapping it queues it: a song to get, with its catalog cover. */
     private fun queued(picks: ServerPicksService, song: ServerSong): com.luke.tracks.playback.PlayableSong {
         val queued = picks.queueable(song, "https://is1-ssl.mzstatic.com/cover.jpg")!!

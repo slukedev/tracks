@@ -27,6 +27,7 @@ import com.luke.tracks.library.trackside.TracksideSuggestion
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.SongsToGet
 import com.luke.tracks.playback.ToPlay
+import com.luke.tracks.sources.WantedSong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -238,8 +239,11 @@ interface ServerPicks {
      */
     fun toGet(song: ServerSong, cover: String? = null): PlayableSong? = null
 
-    /** What tapping a song on a shelf queues: the song to play, or a new one to get as it's reached. */
-    fun queueable(song: ServerSong, cover: String? = null): PlayableSong? = playable(song) ?: toGet(song, cover)
+    /** A shelf's song as Play From is asked for it: the song where you have it, and how Get would get a new one. */
+    fun wanted(song: ServerSong, cover: String? = null): WantedSong {
+        val s = song.song
+        return WantedSong(s.title, s.artist, s.album, s.durationMs?.toLong(), s.identity, known = listOfNotNull(playable(song)), get = { toGet(song, cover) })
+    }
 
     /**
      * Gets a song queued by [toGet] so it plays: streamed as soon as the server can (instant

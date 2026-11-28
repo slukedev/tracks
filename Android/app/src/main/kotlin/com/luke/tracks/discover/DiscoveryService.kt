@@ -12,6 +12,8 @@ import com.luke.tracks.library.MusicServerClient
 import com.luke.tracks.library.SubsonicClient
 import com.luke.tracks.library.SubsonicServer
 import com.luke.tracks.playback.PlayableSong
+import com.luke.tracks.sources.WantedSong
+import com.luke.tracks.streaming.playResolver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -188,9 +190,34 @@ class DiscoveryService(
         return Availability.Unavailable
     }
 
-    override fun toPlay(song: CatalogSong, availability: Availability): PlayableSong? {
+    override fun reachesBeyondLibrary(): Boolean =
+        graph.playResolver.streams() || (graph.playResolver.gets() && tracksideGetting() != null)
+
+    override fun mayPlay(song: CatalogSong, availability: Availability): Boolean =
+        availability is Availability.Owned || graph.playResolver.streams() || (graph.playResolver.gets() && toGet(song, availability) != null)
+
+    override suspend fun toPlay(song: CatalogSong, availability: Availability): PlayableSong? =
+        graph.playResolver.resolve(wanted(song, availability)).song
+
+    override suspend fun toPlayAll(songs: List<CatalogSong>, first: Int): List<PlayableSong?> {
+        val wanted = coroutineScope { songs.map { song -> async { wanted(song, runCatching { availability(song) }.getOrDefault(Availability.Unavailable)) } }.awaitAll() }
+        return graph.playResolver.resolveAll(wanted, first).map { it.song }
+    }
+
+    /** A catalog song as Play From is asked for it, with how Get would get it. */
+    private fun wanted(song: CatalogSong, availability: Availability) = WantedSong(
+        title = song.title,
+        artist = song.artistName,
+        album = song.albumTitle,
+        durationMs = song.durationMs?.toLong(),
+        identity = song.identity,
+        known = listOfNotNull((availability as? Availability.Owned)?.song),
+        get = { toGet(song, availability) },
+    )
+
+    /** Where a Trackside server can get it or is getting it already, a song to get as it's reached. */
+    private fun toGet(song: CatalogSong, availability: Availability): PlayableSong? {
         val serverId = when (availability) {
-            is Availability.Owned -> return availability.song
             is Availability.FromTrackside -> availability.serverId
             // On its way: from a Trackside server when it asked for it, to wait on.
             Availability.Waiting -> octo.requests().lastOrNull { it.identity == song.asNew().identity }?.serverId

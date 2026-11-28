@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.discover
 
+import com.luke.tracks.sources.PlayResolver
 import com.luke.tracks.system.isTv
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
@@ -88,9 +89,6 @@ import com.luke.tracks.ui.navigation.bottomClearance
 import com.luke.tracks.ui.play.components.openInAnotherApp
 import kotlinx.coroutines.launch
 import uniffi.tracks_engine.CatalogSong
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.async
 import uniffi.tracks_engine.Ownership
 import uniffi.tracks_engine.CatalogAlbumKind
 import uniffi.tracks_engine.albumOwnership
@@ -245,6 +243,9 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
     val scope = rememberCoroutineScope()
     var missingOnly by rememberSaveable { mutableStateOf(false) }
     var getting by remember { mutableStateOf(false) }
+    // The song an album play is being looked for from, for its row's ring.
+    var finding by remember { mutableStateOf<ULong?>(null) }
+    val beyondLibrary = remember(discovery) { discovery.reachesBeyondLibrary() }
     CompositionLocalProvider(LocalInsightsSnackbar provides snackbar) {
         Scaffold(
             contentWindowInsets = WindowInsets(0),
@@ -270,16 +271,20 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
                     val ownedCount = owned.values.count { it }
                     val ownership = albumOwnership(ownedCount.toUInt(), page.songs.size.toUInt().takeIf { it > 0u })
                     val shown = if (missingOnly && ownership == Ownership.PARTLY_OWNED) page.songs.filter { owned[it.id] != true } else page.songs
-                    // The album from a song: yours, and where a Trackside server gets songs, the rest got as each is reached.
-                    val playFrom: (CatalogSong?) -> Unit = { from ->
+                    // The album from a song, each song from wherever Play From finds it; ones nothing can play are left out.
+                    val playFrom: (CatalogSong?) -> Unit = playFrom@{ from ->
+                        if (finding != null || page.songs.isEmpty()) return@playFrom
+                        val first = page.songs.indexOfFirst { it.id == from?.id }.coerceAtLeast(0)
+                        finding = page.songs[first].id
                         scope.launch {
-                            val songs = coroutineScope {
-                                page.songs.map { song ->
-                                    async { runCatching { discovery.toPlay(song, discovery.availability(song)) }.getOrNull()?.let { song to it } }
-                                }.awaitAll().filterNotNull()
+                            val found = runCatching { discovery.toPlayAll(page.songs, first) }.getOrDefault(emptyList())
+                            finding = null
+                            val songs = page.songs.zip(found).mapNotNull { (song, playable) -> playable?.let { song to it } }
+                            if (songs.isEmpty()) {
+                                tell(context, snackbar, scope, PlayResolver.cantPlay(page.songs[first].title))
+                                return@launch
                             }
-                            if (songs.isEmpty()) return@launch
-                            val start = songs.indexOfFirst { it.first.id == from?.id }.coerceAtLeast(0)
+                            val start = songs.indexOfFirst { it.first.id == page.songs[first].id }.coerceAtLeast(0)
                             context.graph.player.play(songs.map { it.second }, start, QueueOrigin(page.album.title, QueueOrigin.Kind.Album))
                         }
                     }
@@ -287,7 +292,7 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
                         item(key = "hero") { AlbumHero(page, ownership, ownedCount, onArtist = { navigator.open(CatalogArtistRoute(page.album.artistName, page.album.artistId?.toLong())) }) }
                         item(key = "actions") {
                             val actions = buildList {
-                                if (ownedCount > 0 || sources.trackside.isNotEmpty()) add(PageAction("Play", Icons.Rounded.PlayArrow, primary = ownedCount > 0) {
+                                if (ownedCount > 0 || beyondLibrary) add(PageAction("Play", Icons.Rounded.PlayArrow, primary = ownedCount > 0) {
                                     playFrom(null)
                                 })
                                 if (sources.canFetch && ownership != Ownership.OWNED) {
@@ -319,7 +324,7 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
                         itemsIndexed(shown, key = { _, s -> s.id.toLong() }) { i, song ->
                             CatalogSongRow(
                                 song, Modifier.animateItem(), showAlbum = false, showArtist = !song.artistName.equals(page.album.artistName, ignoreCase = true),
-                                trackNumber = song.trackNumber?.toInt() ?: (i + 1), onPlay = playFrom,
+                                trackNumber = song.trackNumber?.toInt() ?: (i + 1), onPlay = playFrom, pending = finding == song.id,
                             )
                         }
                     }

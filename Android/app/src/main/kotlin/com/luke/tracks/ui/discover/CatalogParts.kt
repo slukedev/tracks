@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.discover
 
+import com.luke.tracks.sources.PlayResolver
 import com.luke.tracks.system.isTv
 import android.content.Context
 import android.widget.Toast
@@ -153,10 +154,10 @@ fun rememberAvailability(song: CatalogSong): Availability {
 }
 
 /**
- * A song from the catalog: tap plays it if it's yours, or where a Trackside server can get it
- * (or is getting it), gets it and plays it as soon as it can; otherwise its preview. The cover
- * shows the preview's progress. At the end, what can be done: get it, see it coming, or a
- * tick when it's yours. Press and hold for everything else.
+ * A song from the catalog: tap plays it from wherever Play From finds it first (yours, a
+ * streaming service, or got for you), with a ring on the cover while it's looked for; with
+ * nowhere that could, its preview. The cover shows the preview's progress. At the end, what can
+ * be done: get it, see it coming, or a tick when it's yours. Press and hold for everything else.
  */
 @Composable
 fun CatalogSongRow(
@@ -168,24 +169,39 @@ fun CatalogSongRow(
     trackNumber: Int? = null,
     /** Plays the song among others (an album's), in place of playing it alone. */
     onPlay: ((CatalogSong) -> Unit)? = null,
+    /** The album it's in is being looked for, from this song. */
+    pending: Boolean = false,
 ) {
     val context = LocalContext.current
     val discovery = rememberDiscovery()
     val previews = rememberPreviews()
     val availability = rememberAvailability(song)
-    val toPlay = remember(song.identity, availability) { discovery.toPlay(song, availability) }
+    val mayPlay = remember(song.identity, availability) { discovery.mayPlay(song, availability) }
     val sources by discovery.sources.collectAsState()
+    val snackbar = LocalInsightsSnackbar.current
+    val scope = rememberCoroutineScope()
+    var looking by remember(song.identity) { mutableStateOf(false) }
+    val finding = looking || pending
     val haptics = LocalHapticFeedback.current
     val interaction = remember { MutableInteractionSource() }
     var menu by remember { mutableStateOf(false) }
     val key = "song:${song.id}"
     val previewing = previews.state.key == key
-    val onTap = {
+    val onTap: () -> Unit = {
         when {
-            toPlay != null -> {
+            finding -> Unit
+            mayPlay -> {
                 haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                 if (onPlay != null) onPlay(song)
-                else context.graph.player.play(listOf(toPlay), origin = QueueOrigin(song.title, QueueOrigin.Kind.Search))
+                else {
+                    looking = true
+                    scope.launch {
+                        val toPlay = discovery.toPlay(song, availability)
+                        looking = false
+                        if (toPlay != null) context.graph.player.play(listOf(toPlay), origin = QueueOrigin(song.title, QueueOrigin.Kind.Search))
+                        else tell(context, snackbar, scope, PlayResolver.cantPlay(song.title))
+                    }
+                }
             }
             song.previewUrl != null -> {
                 haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
@@ -211,15 +227,18 @@ fun CatalogSongRow(
         ) {
             if (trackNumber != null) {
                 Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-                    if (previewing) PreviewProgress(previews.state, Modifier.size(36.dp))
-                    else Text("$trackNumber", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    when {
+                        finding -> Finding(Modifier.size(28.dp))
+                        previewing -> PreviewProgress(previews.state, Modifier.size(36.dp))
+                        else -> Text("$trackNumber", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             } else {
                 Box(Modifier.size(52.dp).pressScale(interaction), contentAlignment = Alignment.Center) {
                     Artwork(song.artworkUrl, (song.albumTitle ?: song.title) + song.artistName, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp), showInitials = false)
-                    if (previewing) {
+                    if (previewing || finding) {
                         Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
-                            PreviewProgress(previews.state, Modifier.size(36.dp), onDark = true)
+                            if (finding) Finding(Modifier.size(32.dp), onDark = true) else PreviewProgress(previews.state, Modifier.size(36.dp), onDark = true)
                         }
                     }
                 }
@@ -245,6 +264,12 @@ fun CatalogSongRow(
         }
         CatalogSongMenu(song, availability, expanded = menu, onDismiss = { menu = false }, offset = DpOffset(72.dp, 0.dp))
     }
+}
+
+/** Looking for where a song plays from, before it starts. */
+@Composable
+private fun Finding(modifier: Modifier, onDark: Boolean = false) {
+    LoadingIndicator(modifier.semantics { contentDescription = "Finding it" }, color = if (onDark) Color.White else MaterialTheme.colorScheme.primary)
 }
 
 @Composable
