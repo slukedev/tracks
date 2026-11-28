@@ -949,10 +949,10 @@ final class PlayerModel {
 
     // MARK: - One queue across sources
 
-    /// The player playing now, as a source.
     /// Whether the relay plays the queue, so it can be sent on to a speaker as it is.
     var playsThroughRelay: Bool { engine is RelayPlayerEngine }
 
+    /// The player playing now, as a source.
     private var engineSource: MusicSource? {
         if engine is MusicKitPlayerEngine { return .appleMusic }
         if engine is LocalPlayerEngine { return .yourMusic }

@@ -33,7 +33,7 @@ struct CatalogSearchSection: View {
     /// How many songs show before See All.
     private static let songsShown = 6
 
-    struct Row: Identifiable, Sendable {
+    nonisolated struct Row: Identifiable, Sendable {
         let id: String
         let serverID: String
         let track: TracksideCatalogTrack

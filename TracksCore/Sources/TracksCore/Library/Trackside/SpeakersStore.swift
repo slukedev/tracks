@@ -237,10 +237,10 @@ public final class SpeakersStore {
             refreshes[serverID] = nil
             guard services[serverID] != nil else { return }
             switch answer {
-            case .changed(let list, let newETag, let serverDate):
+            case .changed(let list, let newETag, let serverDate)?:
                 if let serverDate { skews[serverID] = TracksideClock.skew(serverDate: serverDate, receivedAt: asked) }
                 boards[serverID, default: SpeakerBoard()].load(list, etag: newETag)
-            case .unchanged:
+            case .unchanged?:
                 boards[serverID]?.isServerReachable = true
             case nil:
                 if failure is URLError { boards[serverID]?.isServerReachable = false }
