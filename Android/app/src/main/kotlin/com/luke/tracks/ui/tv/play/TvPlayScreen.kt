@@ -49,6 +49,9 @@ import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.sources.SourceId
 import com.luke.tracks.sources.SourceSelection
+import com.luke.tracks.streaming.ServerRecommendations
+import com.luke.tracks.ui.services.fromSeveralServices
+import com.luke.tracks.ui.services.rememberRecommendationRows
 import com.luke.tracks.ui.components.LocalClock
 import com.luke.tracks.ui.sources.rememberSources
 import com.luke.tracks.ui.sources.sourceSelection
@@ -131,7 +134,8 @@ fun TvPlayScreen() {
             ServerShelves(server.id, playable(state?.picks), playable(state?.suggested), albums[server.id]?.random.orEmpty())
         }
     }
-    TvPlayContent(shownFeed, shelves, showsRadio = settings.showTracksRadio, greeting = tvGreeting(hourOf(LocalClock.current())))
+    val recommendations = rememberRecommendationRows(shownFeed?.recentlyPlayed.orEmpty(), selection)
+    TvPlayContent(shownFeed, shelves, recommendations, showsRadio = settings.showTracksRadio, greeting = tvGreeting(hourOf(LocalClock.current())))
 }
 
 /** "Good Evening", by the hour. */
@@ -143,7 +147,13 @@ fun tvGreeting(hour: Int): String = when (hour) {
 }
 
 @Composable
-private fun TvPlayContent(feed: PlayFeed?, servers: List<ServerShelves>, showsRadio: Boolean, greeting: String) {
+private fun TvPlayContent(
+    feed: PlayFeed?,
+    servers: List<ServerShelves>,
+    recommendations: Map<String, ServerRecommendations>,
+    showsRadio: Boolean,
+    greeting: String,
+) {
     val memory = rememberFocusMemory()
     val pending = rememberPendingPlay()
     val navigator = LocalTvNavigator.current
@@ -212,6 +222,8 @@ private fun TvPlayContent(feed: PlayFeed?, servers: List<ServerShelves>, showsRa
                     SongShelf("Picked for You", "picks-${server.id}", server.picks.mapNotNull { s -> picks.playable(s)?.let { it to picks.coverUrl(s) } }, memory, pending)
                 }
             }
+            val namesServices = recommendations.fromSeveralServices()
+            recommendations.forEach { (serverId, recs) -> tvRecommendationItems(serverId, recs, namesServices, memory, pending) }
             if (feed.recentlyPlayed.isNotEmpty()) item(key = "recent", contentType = "shelf") {
                 AlbumShelf("Recently Played", "recent", feed.recentlyPlayed, memory)
             }

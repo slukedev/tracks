@@ -77,12 +77,14 @@ import com.luke.tracks.ui.navigation.MixRoute
 import com.luke.tracks.ui.navigation.PlayRoute
 import com.luke.tracks.ui.navigation.Route
 import com.luke.tracks.ui.navigation.SearchRoute
+import com.luke.tracks.ui.navigation.ServiceItemRoute
 import com.luke.tracks.ui.navigation.SettingsPageRoute
 import com.luke.tracks.ui.navigation.SettingsRoute
 import com.luke.tracks.ui.navigation.SongRoute
 import com.luke.tracks.ui.navigation.SummaryRoute
 import com.luke.tracks.ui.tv.components.LocalTvFocusStore
 import com.luke.tracks.ui.tv.components.LocalTvRouteKey
+import com.luke.tracks.ui.tv.components.tvTouch
 import com.luke.tracks.ui.tv.theme.LocalReducedMotion
 import com.luke.tracks.ui.tv.theme.TvLayout
 import com.luke.tracks.ui.tv.theme.TvMotion
@@ -329,6 +331,7 @@ private fun Screen(route: Route) {
         is LibraryArtistRoute -> TvScreens.libraryArtist(route)
         is CatalogAlbumRoute -> TvScreens.catalogAlbum(route)
         is CatalogArtistRoute -> TvScreens.catalogArtist(route)
+        is ServiceItemRoute -> TvScreens.serviceItem(route)
         // Sources that never show on TV.
         else -> Unit
     }

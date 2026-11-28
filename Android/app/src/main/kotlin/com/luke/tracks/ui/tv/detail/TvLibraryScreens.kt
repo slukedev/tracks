@@ -148,7 +148,7 @@ private fun LibraryArtistPage(artist: LibraryArtist, songs: List<PlayableSong>, 
 }
 
 @Composable
-private fun SongsPage(
+internal fun SongsPage(
     memory: FocusMemory,
     art: @Composable () -> Unit,
     title: String,
