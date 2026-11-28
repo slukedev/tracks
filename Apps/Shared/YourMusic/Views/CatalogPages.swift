@@ -12,7 +12,8 @@ struct CatalogRoute: Hashable, Identifiable {
         case album, artist, playlist
     }
 
-    var id: String { ref }
+    /// Refs are a server's own, so two servers can give the same one.
+    var id: String { "\(serverID)/\(ref)" }
 
     let serverID: String
     let ref: String

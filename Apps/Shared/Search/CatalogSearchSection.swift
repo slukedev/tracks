@@ -259,7 +259,7 @@ struct CatalogSearchSection: View {
                     rows.append(Row(id: "owned.\(copy.id)", serverID: serverID, track: track, owned: copy))
                     if let key = track.songKey { seen.insert(key) }
                 case .track(let track):
-                    rows.append(Row(id: track.ref, serverID: serverID, track: track, owned: nil))
+                    rows.append(Row(id: "\(serverID)/\(track.ref)", serverID: serverID, track: track, owned: nil))
                     if let key = track.songKey { seen.insert(key) }
                 }
             }
