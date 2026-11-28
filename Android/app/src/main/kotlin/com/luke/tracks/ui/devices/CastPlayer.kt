@@ -1,7 +1,7 @@
 package com.luke.tracks.ui.devices
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.MutableTransitionState
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
