@@ -666,8 +666,15 @@ Compose. On a TV:
   nothing says they're missing. Startup never reads MediaStore or asks for music permission,
   and skips Last.fm scrobbling, widgets and shortcuts. Trackside's address refreshes and
   services run as on a phone.
-- A TV is linked to Trackside from its own screen. `trackside://pair` links and
-  `tracks://link` approvals are ignored there.
+- A TV is linked to Trackside from its own screen (`ui/tv/link`, api.md section 6): it picks
+  a server found nearby or a typed address, checks `capabilities.auth.device_link` (without
+  it, the one line "Update Trackside to link this TV."), starts a link as `android_tv`, shows
+  the code and a QR of its `tracks://link`, and asks how it's going at the server's interval,
+  longer after `slow_down`, with a new code when one runs out. A link is kept with
+  `ServerLibrary.saveLink`, replacing the entry for the same server. `trackside://pair` links
+  and `tracks://link` approvals are ignored there.
+- Speakers, Devices and streaming services through Trackside have no TV screens yet, so the
+  TV shows none of them; their repositories run as on a phone.
 - Trackside Cloud syncs the TV's history (Summary, Charts, History) with the server it's
   linked to, and no other (`sync/TvSync.kt`). A link turns it on when the server offers the
   cloud (`capabilities.features.cloud`); a server without it is left quietly off. Settings,
@@ -688,6 +695,9 @@ Compose. On a TV:
 control characters are dropped and they're cut at 200 characters.
 `tracks://link?server=<id>&code=<code>` asks a phone to approve linking a TV: the server id
 must be a UUID and the code eight letters or digits (`Q7RM-4X2K`), or the link is dropped.
+The phone looks the code up on that paired server before Approve and Deny, and warns when the
+TV isn't nearby. A server's page has Link a TV unless its capabilities, once read, leave
+`device_link` out.
 
 Still needs a TV: everything. Robolectric screenshots cover the TV screens at 960x540dp.
 

@@ -1,12 +1,20 @@
 package com.luke.tracks.ui.tv.link
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
+import com.luke.tracks.graph
+import com.luke.tracks.library.CombinedLibrary
 import okhttp3.HttpUrl
 import java.time.Instant
 
-/** A Trackside server a TV can link to: found on the network or typed in. */
-data class LinkServer(val id: String?, val name: String, val url: HttpUrl)
+/**
+ * A Trackside server a TV can link to: found on the network or typed in. [deviceLink] is what
+ * its capabilities say about linking, null until they've been read.
+ */
+data class LinkServer(val id: String?, val name: String, val url: HttpUrl, val deviceLink: Boolean? = null)
 
 /**
  * A link on offer: the code to show and the QR's link, until [expiresAt]. [deviceCode] is the
@@ -94,5 +102,15 @@ fun normalizedUserCode(text: String): String? {
 
 private const val CrockfordAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-/** The linker screens use; tests and screenshots provide a fake. */
-val LocalTvLinker: ProvidableCompositionLocal<TvLinker> = staticCompositionLocalOf { TracksideTvLinker }
+/** Null uses [TracksideTvLinker] on the app's servers; tests and screenshots provide a fake. */
+val LocalTvLinker: ProvidableCompositionLocal<TvLinker?> = staticCompositionLocalOf { null }
+
+/** The linker screens use. */
+@Composable
+fun rememberTvLinker(): TvLinker {
+    val context = LocalContext.current
+    return LocalTvLinker.current ?: remember(context) {
+        val app = context.applicationContext
+        TracksideTvLinker { (app.graph.library as? CombinedLibrary)?.servers }
+    }
+}

@@ -90,7 +90,7 @@ fun TvLinkFlow(
 ) {
     val context = LocalContext.current
     val directory = LocalLinkDirectory.current ?: remember(context) { AppLinkDirectory(context) }
-    val linker = LocalTvLinker.current
+    val linker = rememberTvLinker()
     var phase by remember { mutableStateOf<Phase>(Phase.Choose) }
     var inside by remember { mutableStateOf(false) }
     val first = remember { FocusRequester() }

@@ -48,7 +48,7 @@ class AppLinkDirectory(private val context: Context) : LinkDirectory {
             } ?: throw LinkException(LinkProblem.NotTrackside)
         }
         val name = capabilities.name?.trim()?.take(MaxName)?.ifEmpty { null } ?: ServerAddress.display(url.toString())
-        return LinkServer(capabilities.serverId, name, url)
+        return LinkServer(capabilities.serverId, name, url, deviceLink = capabilities.auth?.deviceLink == true)
     }
 }
 

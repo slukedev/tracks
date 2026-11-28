@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -146,6 +147,10 @@ fun ServerSourcePage(source: Source, entry: ServerEntry, showBack: Boolean = tru
     val navigator = LocalNavigator.current
     var removing by remember { mutableStateOf(false) }
     val uuid = entry.server.serverUuid?.takeIf { entry.server.isTrackside }
+    // Only what the server already said; null (not asked yet) keeps the row.
+    val linksTvs by produceState<Boolean?>(null, uuid, entry.server.id) {
+        if (uuid != null) value = library?.servers?.tracksideClient(entry.server.id)?.knownCapabilities?.let { it.auth?.deviceLink == true }
+    }
     ServerSourcePageContent(
         source = source,
         addresses = addresses(entry.server),
@@ -161,7 +166,7 @@ fun ServerSourcePage(source: Source, entry: ServerEntry, showBack: Boolean = tru
             else -> null
         },
         onRemove = { removing = true },
-        onLinkTv = uuid?.let { { navigator.open(SettingsPageRoute(linkApprovalPage(it))) } },
+        onLinkTv = uuid?.takeIf { linksTvs != false }?.let { { navigator.open(SettingsPageRoute(linkApprovalPage(it))) } },
     )
     editing.Sheets()
     if (removing) {

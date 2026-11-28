@@ -40,7 +40,7 @@ import com.luke.tracks.ui.settings.Tone
 import com.luke.tracks.ui.tv.link.LinkException
 import com.luke.tracks.ui.tv.link.LinkProblem
 import com.luke.tracks.ui.tv.link.LinkRequest
-import com.luke.tracks.ui.tv.link.LocalTvLinker
+import com.luke.tracks.ui.tv.link.rememberTvLinker
 import com.luke.tracks.ui.tv.link.normalizedUserCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,7 +65,7 @@ sealed interface Approval {
 @Composable
 fun LinkApprovalPage(serverId: String, userCode: String?, onDone: () -> Unit) {
     val graph = LocalContext.current.graph
-    val linker = LocalTvLinker.current
+    val linker = rememberTvLinker()
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val servers = (graph.library as? CombinedLibrary)?.servers

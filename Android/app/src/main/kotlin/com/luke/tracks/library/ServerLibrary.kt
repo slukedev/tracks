@@ -512,10 +512,14 @@ class ServerLibrary(
      * `linkUrl`, then [awaitLink], and keep a [TracksideLinkPoll.Linked] result with [saveLink].
      */
     suspend fun startLink(url: HttpUrl): TracksideLinkStart =
-        TracksideClient.startLink(url, deviceInfo(), tracksideTransport(adding.api))
+        TracksideClient.startLink(url, deviceInfo().copy(platform = TracksideDeviceInfo.ANDROID_TV), tracksideTransport(adding.api))
 
     suspend fun awaitLink(url: HttpUrl, start: TracksideLinkStart): TracksideLinkPoll =
         TracksideClient.awaitLink(url, start, tracksideTransport(adding.api))
+
+    /** One ask of how a link is going, for a caller that paces the asks itself. */
+    suspend fun pollLink(url: HttpUrl, deviceCode: String): TracksideLinkPoll =
+        TracksideClient.pollLink(url, deviceCode, tracksideTransport(adding.api))
 
     /**
      * Keeps a linked TV's credentials, replacing the entry for the same server when one is
