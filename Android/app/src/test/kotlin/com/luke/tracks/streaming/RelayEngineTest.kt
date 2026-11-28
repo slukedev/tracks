@@ -34,10 +34,10 @@ import java.time.Instant
 private fun fixture(name: String): String =
     requireNotNull(RelayEngineTest::class.java.classLoader!!.getResource("trackside/$name")) { name }.readText()
 
-private const val SERVER = "srv1"
+internal const val SERVER = "srv1"
 
 /** A relay server in memory: every generation has its own playlist path, as the contract says. */
-private class FakeRelay : RelayClient {
+internal class FakeRelay : RelayClient {
     val sent = mutableListOf<String>()
     var generation = 0L
     var state = "starting"
@@ -260,11 +260,88 @@ class RelayEngineTest {
         runCurrent()
         assertEquals(RelayStatus.Phase.Failed, engine.status.value.phase)
         assertFalse(engine.status.value.wantsToPlay)
-        assertTrue(said.single(), said.single().contains("as many phones"))
+        assertTrue(said.single(), said.single().contains("as many devices"))
         relay.failStart = TracksideError.CatalogUnavailable(10)
         engine.play(SERVER, kept, preview, emptyMap())
         runCurrent()
         assertEquals("Music services aren't available right now.", said.last())
+    }
+
+    @Test fun aSessionOpenedAheadTakesTheFirstSongWithoutStartingAgain() = runTest {
+        val relay = FakeRelay()
+        val engine = engine(relay)
+        engine.warm(SERVER)
+        runCurrent()
+        assertEquals("nothing plays yet", RelayStatus.Phase.Idle, engine.status.value.phase)
+        engine.play(SERVER, kept, preview, emptyMap())
+        runCurrent()
+        assertEquals(listOf("start:lossless:0", "play:replace:3"), relay.sent)
+        assertTrue(engine.status.value.wantsToPlay)
+    }
+
+    @Test fun aSongSkippedToBeforeItWasSentIsAddedNextThenPlayed() = runTest {
+        val relay = FakeRelay()
+        val engine = engine(relay)
+        engine.play(SERVER, kept, preview, emptyMap())
+        runCurrent()
+        val pick = RelayItem("", CatalogMedia.mediaId(SERVER, "mc1.c"), "C", "X", null, null, 200_000, "b1")
+        engine.enqueue(listOf(TracksideSpeakerPlayRequest.Item(ref = "mc1.c")), listOf(pick), next = false, skip = true)
+        runCurrent()
+        assertEquals(listOf("play:next:1", "next"), relay.sent.takeLast(2))
+        assertEquals("C", engine.status.value.current!!.title)
+    }
+
+    @Test fun aCommandTheServerCouldntCarryOutSaysSoAndStopsWaiting() = runTest {
+        val relay = FakeRelay().apply { answersWithRelay = false }
+        val engine = engine(relay)
+        val said = mutableListOf<String>()
+        backgroundScope.launchCollect(engine) { said += it }
+        engine.play(SERVER, kept, preview, emptyMap())
+        runCurrent()
+        engine.next()
+        runCurrent()
+        engine.handle(SERVER, TracksideEvent("speaker_command", """{"command_id":"j1","speaker_id":"o1","outcome":"failed","error":{"code":"command_failed"}}"""))
+        runCurrent()
+        assertEquals("Your server couldn't play that.", said.single())
+        assertEquals(RelayStatus.Phase.Failed, engine.status.value.phase)
+        advanceTimeBy(20_000)
+        runCurrent()
+        assertEquals("said once, not again when the wait runs out", 1, said.size)
+    }
+
+    @Test fun eachReasonTheServerGivesHasItsOwnLine() {
+        fun conflict(reason: String) = RelayWords.of(TracksideError.Server(409, "conflict", "", reason = reason, serviceId = "am1"), mapOf("am1" to "Apple Music"))
+        assertEquals("Sign in to Apple Music again on your server.", conflict("service_signed_out"))
+        assertEquals("That song can't play from your server right now.", conflict("not_playable"))
+        assertEquals("Music services aren't set up on your server.", conflict("not_set_up"))
+        assertEquals("Your server couldn't play that.", conflict("failed"))
+        assertEquals("Your server can't play music services on this device yet.", RelayWords.of(TracksideError.Server(422, "unsupported", "", capability = "relay")))
+        assertEquals("Your server had a problem playing that.", RelayWords.of(TracksideError.Server(500, "internal", "")))
+        assertEquals("That song's library is offline on your server.", RelayWords.of(TracksideError.Unavailable("library_unavailable", 30)))
+        assertEquals("Music services aren't available right now.", RelayWords.of(TracksideError.SpeakersUnavailable(10)))
+        assertEquals("Couldn't reach your server.", RelayWords.of(java.io.IOException("reset")))
+        assertEquals("Your server took too long to start that.", RelayWords.command("timed_out"))
+        // The stream: no answer, turned down, or the server's own fault.
+        assertEquals("Lost the connection to your server.", RelayWords.stream(null))
+        assertEquals("Your server turned the stream down.", RelayWords.stream(404))
+        assertEquals("Your server couldn't start the stream.", RelayWords.stream(503))
+        assertEquals("HTTP 403 (refused)", RelayWords.statusClass(403))
+        assertEquals("HTTP 409 conflict not_playable", RelayWords.describe(TracksideError.Server(409, "conflict", "secret detail", reason = "not_playable")))
+    }
+
+    @Test fun aPlaylistThatKeepsFailingSaysWhy() = runTest {
+        val relay = FakeRelay()
+        val engine = engine(relay)
+        val said = mutableListOf<String>()
+        backgroundScope.launchCollect(engine) { said += it }
+        engine.play(SERVER, kept, preview, emptyMap())
+        runCurrent()
+        repeat(RelayEngine.MAX_ATTEMPTS + 1) {
+            engine.streamFailed(engine.status.value.stream!!.url, 502)
+            runCurrent()
+        }
+        assertEquals("Your server couldn't start the stream.", said.single())
+        assertEquals(RelayStatus.Phase.Failed, engine.status.value.phase)
     }
 
     @Test fun movingToASpeakerStopsThePhone() = runTest {
