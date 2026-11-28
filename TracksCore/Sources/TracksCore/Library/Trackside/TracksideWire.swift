@@ -592,14 +592,17 @@ public struct TracksideMe: Codable, Sendable, Hashable {
         public var relay: Bool?
         /// And in the smaller cellular tier, not only lossless.
         public var relayCellular: Bool?
+        /// The server has the services' own picks. Older servers leave it out.
+        public var recommendations: Bool?
 
-        public init(relay: Bool? = nil, relayCellular: Bool? = nil) {
+        public init(relay: Bool? = nil, relayCellular: Bool? = nil, recommendations: Bool? = nil) {
             self.relay = relay
             self.relayCellular = relayCellular
+            self.recommendations = recommendations
         }
 
         enum CodingKeys: String, CodingKey {
-            case relay
+            case relay, recommendations
             case relayCellular = "relay_cellular"
         }
 
@@ -607,6 +610,7 @@ public struct TracksideMe: Codable, Sendable, Hashable {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             relay = try? container.decodeIfPresent(Bool.self, forKey: .relay)
             relayCellular = try? container.decodeIfPresent(Bool.self, forKey: .relayCellular)
+            recommendations = try? container.decodeIfPresent(Bool.self, forKey: .recommendations)
         }
     }
 

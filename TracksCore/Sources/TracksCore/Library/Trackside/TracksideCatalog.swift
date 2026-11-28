@@ -10,7 +10,7 @@ import Foundation
 /// server's to give; nothing here names a service.
 public struct TracksideCatalogService: Codable, Sendable, Hashable, Identifiable {
     public enum Capability: String, TracksideOpenEnum {
-        case search, library, playlists, similar, radio, unknown
+        case search, library, playlists, similar, radio, recommendations, unknown
         case topTracks = "top_tracks"
     }
 
@@ -589,6 +589,110 @@ public struct TracksideCatalogLibraryPage: Decodable, Sendable, Hashable {
     }
 }
 
+/// Any catalog item, read as the kind it says it is. One of a kind this build doesn't know
+/// fails to read, so a lenient list leaves it out.
+public enum TracksideCatalogEntry: Decodable, Sendable, Hashable, Identifiable {
+    case track(TracksideCatalogTrack)
+    case album(TracksideCatalogAlbum)
+    case artist(TracksideCatalogArtist)
+    case playlist(TracksideCatalogPlaylist)
+    case radio(TracksideCatalogRadio)
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+    }
+
+    private struct UnknownKind: Error {}
+
+    public init(from decoder: any Decoder) throws {
+        let kind = try decoder.container(keyedBy: CodingKeys.self).decode(String.self, forKey: .kind)
+        switch kind {
+        case "track": self = .track(try TracksideCatalogTrack(from: decoder))
+        case "album": self = .album(try TracksideCatalogAlbum(from: decoder))
+        case "artist": self = .artist(try TracksideCatalogArtist(from: decoder))
+        case "playlist": self = .playlist(try TracksideCatalogPlaylist(from: decoder))
+        case "radio": self = .radio(try TracksideCatalogRadio(from: decoder))
+        default: throw UnknownKind()
+        }
+    }
+
+    public var ref: String {
+        switch self {
+        case .track(let track): track.ref
+        case .album(let album): album.ref
+        case .artist(let artist): artist.ref
+        case .playlist(let playlist): playlist.ref
+        case .radio(let radio): radio.ref
+        }
+    }
+
+    public var id: String { ref }
+}
+
+/// One row of a service's own picks, as `GET /catalog/recommendations` gives it.
+public struct TracksideCatalogShelf: Decodable, Sendable, Hashable, Identifiable {
+    /// Stable for as long as the service keeps the row.
+    public var id: String
+    public var serviceID: String
+    /// The service's own words, usually English.
+    public var title: String
+    public var subtitle: String?
+    /// A row of what was played last, rather than of tiles.
+    public var isTimeline: Bool
+    public var items: [TracksideCatalogEntry]
+
+    public init(id: String, serviceID: String, title: String, subtitle: String? = nil, isTimeline: Bool = false, items: [TracksideCatalogEntry]) {
+        self.id = id
+        self.serviceID = serviceID
+        self.title = title
+        self.subtitle = subtitle
+        self.isTimeline = isTimeline
+        self.items = items
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, subtitle, items
+        case serviceID = "service_id"
+        case type
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        serviceID = ((try? container.decodeIfPresent(String.self, forKey: .serviceID)) ?? "").lowercased()
+        title = (try? container.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        subtitle = try? container.decodeIfPresent(String.self, forKey: .subtitle)
+        isTimeline = (try? container.decodeIfPresent(String.self, forKey: .type)) == "timeline"
+        items = (try? container.decodeIfPresent([TracksideLenientElement<TracksideCatalogEntry>].self, forKey: .items))?.compactMap(\.value) ?? []
+    }
+}
+
+/// `GET /catalog/recommendations`: the services' own picks, as shelves.
+public struct TracksideCatalogRecommendations: Decodable, Sendable, Hashable {
+    public var shelves: [TracksideCatalogShelf]
+    /// False when a service didn't answer in time: asking again soon may find more.
+    public var isComplete: Bool
+    public var services: [TracksideCatalogSearch.Answer]
+
+    public init(shelves: [TracksideCatalogShelf], isComplete: Bool = true, services: [TracksideCatalogSearch.Answer] = []) {
+        self.shelves = shelves
+        self.isComplete = isComplete
+        self.services = services
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case shelves, services
+        case isComplete = "complete"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        shelves = (try? container.decodeIfPresent([TracksideLenientElement<TracksideCatalogShelf>].self, forKey: .shelves))?.compactMap(\.value) ?? []
+        isComplete = (try? container.decodeIfPresent(Bool.self, forKey: .isComplete)) ?? true
+        services = (try? container.decodeIfPresent([TracksideLenientElement<TracksideCatalogSearch.Answer>].self, forKey: .services))?.compactMap(\.value) ?? []
+    }
+}
+
 /// SSE `catalog_services`: the list or a service's account changed; read it again.
 public struct TracksideCatalogServicesChange: Codable, Sendable, Hashable {
     public var state: TracksideSpeakerList.State
@@ -658,6 +762,14 @@ extension TracksideClient {
         query["limit"] = limit.map { String(min(500, max(1, $0))) }
         // Refs are path safe as the server makes them, and stay exactly as given.
         return try await get("catalog/items/\(ref)", query)
+    }
+
+    /// The services' own picks as shelves, each service's rows in its own order.
+    /// - Parameter services: the ids to ask; every one that recommends when empty.
+    public func catalogRecommendations(services: [String] = [], limit: Int = 20) async throws -> TracksideCatalogRecommendations {
+        var query = ["limit": String(min(50, max(1, limit)))]
+        if !services.isEmpty { query["services"] = services.joined(separator: ",") }
+        return try await get("catalog/recommendations", query)
     }
 
     /// What's saved on a service: playlists unless another kind is asked for.

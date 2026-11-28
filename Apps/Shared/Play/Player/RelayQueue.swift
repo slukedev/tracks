@@ -61,6 +61,19 @@ nonisolated struct RelayEntry: Sendable, Equatable {
         local = nil
     }
 
+    /// A service's station, which the server plays as it goes.
+    init(_ station: TracksideCatalogRadio) {
+        item = .ref(station.ref)
+        title = station.name
+        artist = ""
+        album = nil
+        artworkID = station.artworkID
+        duration = nil
+        isExplicit = false
+        serviceID = station.serviceID
+        local = nil
+    }
+
     /// One of the server's songs. Nil for a song anywhere else: a file, or another server's.
     init?(_ track: LocalTrack, on serverID: String) {
         guard !UnownedSong.isUnowned(track), case .server(let owner, let songID) = track.origin, owner == serverID else { return nil }

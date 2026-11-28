@@ -8,6 +8,7 @@ public protocol CatalogService: Sendable {
     func searchCatalog(_ query: String, types: [TracksideClient.CatalogType], services: [String], limit: Int) async throws -> TracksideCatalogSearch
     func catalogItem(_ ref: String, cursor: String?, limit: Int?) async throws -> TracksideCatalogItem
     func catalogLibrary(service id: String, kind: TracksideCatalogLibraryPage.Kind, cursor: String?, limit: Int) async throws -> TracksideCatalogLibraryPage
+    func catalogRecommendations(services: [String], limit: Int) async throws -> TracksideCatalogRecommendations
 }
 
 extension TracksideClient: CatalogService {}
@@ -98,9 +99,19 @@ public final class StreamingCatalog {
     /// What each server lets this device play through its relay.
     public private(set) var playback: [String: TracksideMe.Catalog] = [:]
     public private(set) var serverNames: [String: String] = [:]
+    /// Each server's rows of its services' own picks, once asked for, Apple Music's left out.
+    /// A server that has none, or hasn't been asked yet, isn't here.
+    public private(set) var recommendations: [String: [TracksideCatalogShelf]] = [:]
 
     @ObservationIgnored private var clients: [String: any CatalogService] = [:]
     @ObservationIgnored private var refreshes: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var recommendationReads: [String: Task<Void, Never>] = [:]
+    /// When each server's picks were last read, and until when it asked not to be asked again.
+    @ObservationIgnored private var recommendationsReadAt: [String: Date] = [:]
+    @ObservationIgnored private var recommendationsHeldUntil: [String: Date] = [:]
+    @ObservationIgnored private var retriedPartial: Set<String> = []
+    /// Play has asked for picks, so servers whose services change are asked again.
+    @ObservationIgnored private var wantsRecommendations = false
     @ObservationIgnored private let hidesNativeService: Bool
 
     public init(hidesNativeService: Bool = true) {
@@ -122,6 +133,8 @@ public final class StreamingCatalog {
     public func detach(serverID: String) {
         clients[serverID] = nil
         refreshes.removeValue(forKey: serverID)?.cancel()
+        forgetRecommendations(serverID)
+        recommendations[serverID] = nil
         services[serverID] = nil
         states[serverID] = nil
         playback[serverID] = nil
@@ -146,6 +159,7 @@ public final class StreamingCatalog {
             let shown = answer.services.filter { !(hidesNativeService && $0.isNativeOnApple) }
             if services[serverID] != shown { services[serverID] = shown }
             if states[serverID] != answer.state { states[serverID] = answer.state }
+            if wantsRecommendations { loadRecommendations(serverID, now: .now) }
         }
     }
 
@@ -154,6 +168,8 @@ public final class StreamingCatalog {
         guard clients[serverID] != nil else { return }
         switch event {
         case .hello, .catalogServices:
+            // The server dropped its picks with the change: the next look asks again.
+            forgetRecommendations(serverID)
             refresh(serverID)
         case .speakers(let state):
             // The services go and come with the speakers: both are reached the same way.
@@ -252,6 +268,92 @@ public final class StreamingCatalog {
     public func item(_ ref: String, on serverID: String, cursor: String? = nil) async throws -> TracksideCatalogItem {
         guard let client = clients[serverID] else { throw TracksideError.featureUnavailable }
         return try await client.catalogItem(ref, cursor: cursor, limit: nil)
+    }
+
+    // MARK: - The services' own picks
+
+    /// How long a server's picks are kept before Play asks for them again.
+    public static let recommendationsKept: TimeInterval = 20 * 60
+
+    /// Asks each server for its services' picks, where they're missing or older than
+    /// ``recommendationsKept``. A server that's busy, or can't reach its services, keeps what
+    /// it showed until it can be asked again.
+    public func loadRecommendations(now: Date = .now) {
+        wantsRecommendations = true
+        for serverID in clients.keys {
+            loadRecommendations(serverID, now: now)
+        }
+    }
+
+    private func loadRecommendations(_ serverID: String, now: Date) {
+        guard let client = clients[serverID], recommendationReads[serverID] == nil else { return }
+        let asked = recommendingServices(serverID)
+        guard !asked.isEmpty else {
+            if recommendations[serverID] != nil { recommendations[serverID] = nil }
+            return
+        }
+        if let held = recommendationsHeldUntil[serverID], held > now { return }
+        if let read = recommendationsReadAt[serverID], now.timeIntervalSince(read) < Self.recommendationsKept { return }
+        recommendationReads[serverID] = Task { [weak self] in
+            let result: Result<TracksideCatalogRecommendations, any Error>
+            do {
+                result = .success(try await client.catalogRecommendations(services: asked, limit: 20))
+            } catch {
+                result = .failure(error)
+            }
+            guard let self, !Task.isCancelled else { return }
+            recommendationReads[serverID] = nil
+            guard clients[serverID] != nil else { return }
+            take(result, for: serverID, asked: Set(asked))
+        }
+    }
+
+    private func take(_ result: Result<TracksideCatalogRecommendations, any Error>, for serverID: String, asked: Set<String>) {
+        switch result {
+        case .success(let answer):
+            let shown = answer.shelves.filter { asked.contains($0.serviceID) && !$0.items.isEmpty }
+            if recommendations[serverID] != shown { recommendations[serverID] = shown }
+            recommendationsReadAt[serverID] = .now
+            if answer.isComplete {
+                retriedPartial.remove(serverID)
+            } else if retriedPartial.insert(serverID).inserted {
+                // A service that didn't answer in time may have by the end of the server's
+                // short hold on the partial answer: kept briefly, so Play asks once more.
+                recommendationsReadAt[serverID] = .now.addingTimeInterval(12 - Self.recommendationsKept)
+            }
+        case .failure(let error):
+            held(by: error, serverID: serverID)
+        }
+    }
+
+    private func held(by error: any Error, serverID: String) {
+        switch error {
+        case TracksideError.notFound, TracksideError.featureUnavailable:
+            // No such route for this account: nothing to show until something changes.
+            recommendations[serverID] = []
+            recommendationsReadAt[serverID] = .now
+        case TracksideError.rateLimited(let retryAfter):
+            recommendationsHeldUntil[serverID] = .now.addingTimeInterval(retryAfter ?? 30)
+        case TracksideError.unavailable(_, let retryAfter):
+            recommendationsHeldUntil[serverID] = .now.addingTimeInterval(retryAfter ?? 10)
+        default:
+            // Offline or refused: what was shown stays, and the next look asks again.
+            break
+        }
+    }
+
+    /// The services on a server whose picks Play shows: signed in, recommending, and not
+    /// Apple Music, which plays natively.
+    private func recommendingServices(_ serverID: String) -> [String] {
+        guard playback[serverID]?.recommendations == true, states[serverID] != .unavailable else { return [] }
+        return (services[serverID] ?? []).filter { $0.isSignedIn && $0.can(.recommendations) }.map(\.id)
+    }
+
+    private func forgetRecommendations(_ serverID: String) {
+        recommendationReads.removeValue(forKey: serverID)?.cancel()
+        recommendationsReadAt[serverID] = nil
+        recommendationsHeldUntil[serverID] = nil
+        retriedPartial.remove(serverID)
     }
 
     /// What's saved on a service, where it says it has a library.

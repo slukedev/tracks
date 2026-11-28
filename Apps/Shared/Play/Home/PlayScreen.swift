@@ -94,6 +94,10 @@ struct PlayScreen: View {
         .task(id: model.musicAuthorization) {
             await feed.loadAppleMusic()
         }
+        // Your servers' music services' own picks, asked again once they're older than the server keeps them.
+        .task {
+            if merging.contains(.yourMusic) { model.streaming.loadRecommendations() }
+        }
         .task(id: DiscoverKey(artists: Set(feed.topArtists), authorization: model.musicAuthorization, allowsExplicit: allowsExplicit)) {
             await feed.loadFromYourArtists()
         }

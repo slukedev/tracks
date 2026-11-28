@@ -18,7 +18,7 @@ struct TracksideCatalogTests {
         let first = list.services[0]
         #expect(first.id == "bqtyy4kcexcsg6wa0y4w5")
         #expect(first.logoKey == "spotify")
-        #expect(first.capabilities == [.library, .playlists, .radio, .search, .similar, .topTracks])
+        #expect(first.capabilities == [.library, .playlists, .radio, .recommendations, .search, .similar, .topTracks])
         #expect(first.quality == .high)
         #expect(first.isSearchable)
         #expect(!first.isNativeOnApple)
@@ -134,6 +134,7 @@ struct TracksideCatalogTests {
             case "/api/v1/catalog/search": (200, String(decoding: try TracksideFixtures.data("catalog-search.json"), as: UTF8.self), [:])
             case "/api/v1/search": (200, String(decoding: try TracksideFixtures.data("search-with-catalog.json"), as: UTF8.self), [:])
             case "/api/v1/catalog/services/bqtyy4kcexcsg6wa0y4w5/library": (200, String(decoding: try TracksideFixtures.data("catalog-library.json"), as: UTF8.self), [:])
+            case "/api/v1/catalog/recommendations": (200, String(decoding: try TracksideFixtures.data("catalog-recommendations.json"), as: UTF8.self), [:])
             default: (200, String(decoding: try TracksideFixtures.data("catalog-playlist.json"), as: UTF8.self), [:])
             }
         }
@@ -142,6 +143,7 @@ struct TracksideCatalogTests {
         _ = try await client.searchWithCatalog("halo", types: [.song])
         _ = try await client.catalogItem("mc1.cGxheWxpc3Qfc3BvdGlmeR8zN2k5ZFFaRjFEWDRzV1Nwd3EzTGlP", cursor: "eyJvIjoxMDB9")
         _ = try await client.catalogLibrary(service: "bqtyy4kcexcsg6wa0y4w5")
+        _ = try await client.catalogRecommendations(services: ["bqtyy4kcexcsg6wa0y4w5"], limit: 80)
         let asked = stub.requests
         let search = T.query(try #require(asked[0].url))
         #expect(search["types"] == "track,album,artist,playlist")
@@ -153,13 +155,70 @@ struct TracksideCatalogTests {
         #expect(asked[2].url?.path() == "/api/v1/catalog/items/mc1.cGxheWxpc3Qfc3BvdGlmeR8zN2k5ZFFaRjFEWDRzV1Nwd3EzTGlP")
         #expect(T.query(try #require(asked[2].url))["cursor"] == "eyJvIjoxMDB9")
         #expect(T.query(try #require(asked[3].url))["kind"] == "playlist")
+        #expect(asked[4].url?.path() == "/api/v1/catalog/recommendations")
+        #expect(T.query(try #require(asked[4].url))["services"] == "bqtyy4kcexcsg6wa0y4w5")
+        #expect(T.query(try #require(asked[4].url))["limit"] == "50")
     }
 
-    @Test("/me says whether the relay can play the smaller tier too")
+    @Test("the services' picks read as shelves, each item as its kind, and say a service was late")
+    func recommendations() throws {
+        let picks = try fixture(TracksideCatalogRecommendations.self, "catalog-recommendations.json")
+        #expect(!picks.isComplete)
+        #expect(picks.services.map(\.state) == [.ok, .ok, .timedOut])
+        #expect(picks.shelves.map(\.title) == ["Stations for You", "Jump back in"])
+        let stations = picks.shelves[0]
+        #expect(stations.id == "w1dgyc462epk20x8myctx")
+        #expect(!stations.isTimeline)
+        guard case .radio(let station) = stations.items.first else {
+            Issue.record("expected a station")
+            return
+        }
+        #expect(station.name == "Beyoncé & Similar Artists Station")
+        let recent = picks.shelves[1]
+        #expect(recent.isTimeline)
+        #expect(recent.subtitle == "Your recent rotation")
+        #expect(recent.serviceID == "bqtyy4kcexcsg6wa0y4w5")
+        #expect(recent.items.count == 4)
+        if case .track(let track) = recent.items[0] { #expect(track.songKey == "halo\u{1F}beyonce") } else { Issue.record("expected a track") }
+        if case .album(let album) = recent.items[1] { #expect(album.year == 2008) } else { Issue.record("expected an album") }
+        if case .playlist(let playlist) = recent.items[2] { #expect(playlist.owner == "Spotify") } else { Issue.record("expected a playlist") }
+        if case .artist(let artist) = recent.items[3] { #expect(artist.identity == "beyonce") } else { Issue.record("expected an artist") }
+
+        // An item of a kind this build doesn't know is left out, never its shelf.
+        let odd = try T.decode(TracksideCatalogRecommendations.self, #"{"complete": true, "services": [], "shelves": [{"id": "w1", "service_id": "B1", "title": "Picks", "items": [{"kind": "podcast", "ref": "mc1.p"}, {"kind": "album", "name": "A", "ref": "mc1.a", "service_id": "b1"}]}]}"#)
+        #expect(odd.shelves.first?.items.map(\.ref) == ["mc1.a"])
+        #expect(odd.shelves.first?.serviceID == "b1")
+    }
+
+    @Test("Play leaves out rows that repeat Recently Played, and keeps three a service")
+    func recommendationRows() throws {
+        let picks = try fixture(TracksideCatalogRecommendations.self, "catalog-recommendations.json")
+        let recent = picks.shelves[1]
+        let sasha = CatalogRecommendationRows.albumKey(title: "I Am... Sasha Fierce", artist: "Beyoncé")
+        // Half the row is Recently Played's album: the row goes.
+        #expect(CatalogRecommendationRows.shown([recent], recentAlbums: [sasha]).isEmpty)
+        // Otherwise it stays whole.
+        #expect(CatalogRecommendationRows.shown([recent], recentAlbums: []).first?.items.count == 4)
+
+        let album = TracksideCatalogAlbum(ref: "mc1.a", serviceID: "b1", name: "I Am... Sasha Fierce", artist: "Beyoncé")
+        let others = (1...3).map { TracksideCatalogEntry.playlist(TracksideCatalogPlaylist(ref: "mc1.p\($0)", serviceID: "b1", name: "P\($0)")) }
+        let mostlyNew = TracksideCatalogShelf(id: "w1", serviceID: "b1", title: "Made for You", items: [.album(album)] + others)
+        #expect(CatalogRecommendationRows.shown([mostlyNew], recentAlbums: [sasha]).first?.items.map(\.ref) == ["mc1.p1", "mc1.p2", "mc1.p3"])
+
+        let own = TracksideCatalogShelf(id: "w2", serviceID: "b1", title: "Recently Played on Spotify", items: others)
+        #expect(CatalogRecommendationRows.shown([own], recentAlbums: []).isEmpty)
+
+        let many = (1...5).map { TracksideCatalogShelf(id: "w\($0)", serviceID: "b1", title: "Row \($0)", items: others) }
+        let other = TracksideCatalogShelf(id: "x", serviceID: "b2", title: "Elsewhere", items: others)
+        #expect(CatalogRecommendationRows.shown(many + [other], recentAlbums: []).map(\.id) == ["w1", "w2", "w3", "x"])
+    }
+
+    @Test("/me says whether the relay can play the smaller tier too, and the server has picks")
     func features() throws {
         let me = try fixture(TracksideMe.self, "me.json")
         #expect(me.features?.catalog?.relay == true)
         #expect(me.features?.catalog?.relayCellular == true)
+        #expect(me.features?.catalog?.recommendations == true)
         let older = try fixture(TracksideMe.self, "me-without-acquisition.json")
         #expect(older.features?.catalog == nil)
     }
@@ -340,11 +399,13 @@ struct StreamingCatalogTests {
         let services: TracksideCatalogServiceList
         let found: TracksideCatalogSearch?
         let error: TracksideError?
+        let picks: TracksideCatalogRecommendations?
 
-        init(services: TracksideCatalogServiceList, found: TracksideCatalogSearch? = nil, error: TracksideError? = nil) {
+        init(services: TracksideCatalogServiceList, found: TracksideCatalogSearch? = nil, error: TracksideError? = nil, picks: TracksideCatalogRecommendations? = nil) {
             self.services = services
             self.found = found
             self.error = error
+            self.picks = picks
         }
 
         func catalogServices() async throws -> TracksideCatalogServiceList { services }
@@ -360,6 +421,12 @@ struct StreamingCatalogTests {
 
         func catalogLibrary(service id: String, kind: TracksideCatalogLibraryPage.Kind, cursor: String?, limit: Int) async throws -> TracksideCatalogLibraryPage {
             throw TracksideError.notFound
+        }
+
+        func catalogRecommendations(services: [String], limit: Int) async throws -> TracksideCatalogRecommendations {
+            if let error { throw error }
+            guard let picks else { throw TracksideError.notFound }
+            return picks
         }
     }
 
@@ -402,5 +469,24 @@ struct StreamingCatalogTests {
         #expect(answer.problems["away"] == .unreachable)
         #expect(await catalog.search("  ").found.isEmpty)
         #expect(!catalog.canPlayHere("home"))
+    }
+
+    @Test("picks are asked for only where the server has them, and Apple Music's are left out")
+    func recommendations() async throws {
+        let picks = try TracksideJSON.decoder.decode(TracksideCatalogRecommendations.self, from: TracksideFixtures.data("catalog-recommendations.json"))
+        let native = TracksideCatalogService(id: "bm1zt0k6dk6mzz0n3vw5d", name: "Apple Music", logoKey: "apple_music", capabilities: [.search, .recommendations])
+        let catalog = StreamingCatalog()
+        catalog.attach(serverID: "home", name: "Home", service: FakeCatalog(services: try services([native]), picks: picks), features: TracksideMe.Catalog(relay: true, recommendations: true))
+        catalog.attach(serverID: "older", name: "Older", service: FakeCatalog(services: try services(), picks: picks), features: TracksideMe.Catalog(relay: true))
+        await settle(catalog, "home")
+        await settle(catalog, "older")
+        catalog.loadRecommendations()
+        for _ in 0..<100 where catalog.recommendations["home"] == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(catalog.recommendations["home"]?.map(\.title) == ["Jump back in"])
+        #expect(catalog.recommendations["older"] == nil)
+        catalog.detach(serverID: "home")
+        #expect(catalog.recommendations["home"] == nil)
     }
 }

@@ -106,6 +106,8 @@ struct YourMusicScreen: View {
             await music.servers.connectAll()
             music.forgetUnavailable()
         }
+        // The music services' own picks, asked again once they're older than the server keeps them.
+        .task { model.streaming.loadRecommendations() }
         // Sample data's suggestions stand in for a server's; nothing else here asks Apple Music.
         .task(id: player.isDemo) {
             guard player.isDemo, suggestionMode != .off else { return }
@@ -390,6 +392,10 @@ extension YourMusicScreen {
                     ServerForYouSection(server: server, shelf: .picks)
                 }
             }
+            // Its music services' own picks, after the server's.
+            ForEach(servers) { server in
+                CatalogRecommendationShelves(serverID: server.id, recentAlbums: CatalogRecommendationShelves.recentAlbums(feed: [], own: shelves.recentlyPlayed))
+            }
             ForEach(servers) { server in
                 ServerShelves(server: server)
             }
@@ -407,6 +413,7 @@ struct OwnMusicMergedSection: View {
     let section: PlaySection
     let shelves: YourMusicScreen.Shelves
     @Environment(YourMusic.self) private var music
+    @Environment(PlayFeed.self) private var feed
     @AppStorage(SuggestionMode.storageKey) private var suggestionMode = SuggestionMode.everything
 
     var body: some View {
@@ -441,6 +448,10 @@ struct OwnMusicMergedSection: View {
                 ForEach(servers) { server in
                     ServerForYouSection(server: server, shelf: .picks)
                 }
+            }
+            // Their music services' own picks, after the servers'.
+            ForEach(servers) { server in
+                CatalogRecommendationShelves(serverID: server.id, recentAlbums: CatalogRecommendationShelves.recentAlbums(feed: feed.recentlyPlayed, own: shelves.recentlyPlayed))
             }
             ForEach(servers) { server in
                 ServerShelves(server: server)
