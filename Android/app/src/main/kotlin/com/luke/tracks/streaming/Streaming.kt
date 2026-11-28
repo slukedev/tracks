@@ -22,9 +22,9 @@ class Streaming private constructor(
     val servers: ServerLibrary,
     /** The services' own picks, for Play. */
     val recommendations: CatalogRecommendations,
-) {
     /** The services' songs that are songs asked for elsewhere, for Play From. */
-    val matches = ServiceMatches(repository)
+    val matches: ServiceMatches,
+) {
 
     companion object {
         private val installed = java.util.WeakHashMap<AppGraph, Streaming>()
@@ -66,7 +66,7 @@ class Streaming private constructor(
                     streaming = repository.state,
                     clientFor = { id -> servers.tracksideClient(id)?.let(::TracksideCatalogClient) },
                 )
-                Streaming(repository, relay, servers, recommendations).also { it.offerPlaces(graph) }
+                Streaming(repository, relay, servers, recommendations, ServiceMatches(repository, java.io.File(graph.context.cacheDir, "service-matches.json"))).also { it.offerPlaces(graph) }
             }
         }
 

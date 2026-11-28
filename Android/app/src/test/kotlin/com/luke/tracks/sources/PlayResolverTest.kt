@@ -6,6 +6,7 @@ import com.luke.tracks.playback.PlayableSong
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -98,13 +99,58 @@ class PlayResolverTest {
         assertEquals(listOf("am1", "sp1"), setup.asked)
     }
 
-    @Test fun aSongYouHavePlaysFromYourCopiesWithoutLookingItUp() = runBlocking {
-        val setup = Setup(listOf(apple, phone, home), owned = listOf(song("subsonic:home:9"), song("local:4")))
+    @Test fun appleMusicFirstPlaysASongYouHaveFromAppleMusic() = runBlocking {
+        val setup = Setup(listOf(apple, home, phone), owned = listOf(song("subsonic:home:9"), song("local:4")))
+        assertEquals("catalog:home:am:1", setup.played())
+        assertEquals(listOf("am1"), setup.asked)
+        assertTrue(setup.resolver.looksUp(setup.wanted()))
+    }
+
+    @Test fun noMatchOnTheServicePlaysYourCopy() = runBlocking {
+        val setup = Setup(listOf(apple, home), owned = listOf(song("subsonic:home:9")), answers = mapOf("am1" to { null }))
+        assertEquals("subsonic:home:9", setup.played())
+        assertEquals(listOf("am1"), setup.asked)
+    }
+
+    @Test fun aServiceThatsDownPlaysYourCopy() = runBlocking {
+        // Down when asked: the lookup fails, and your copy plays.
+        val failing = Setup(listOf(apple, home), owned = listOf(song("subsonic:home:9")), answers = mapOf("am1" to { throw java.io.IOException("down") }))
+        assertEquals("subsonic:home:9", failing.played())
+        // Down before: the server no longer offers it, so it isn't asked at all.
+        val gone = Setup(listOf(apple, home), owned = listOf(song("subsonic:home:9")), streamers = emptyList())
+        assertEquals("subsonic:home:9", gone.played())
+        assertEquals(emptyList<String>(), gone.asked)
+        assertFalse(gone.resolver.looksUp(gone.wanted()))
+    }
+
+    @Test fun yourSourcesFirstPlayYourCopyWithoutLookingItUp() = runBlocking {
+        val setup = Setup(listOf(phone, home, apple), owned = listOf(song("subsonic:home:9"), song("local:4")))
         assertEquals("local:4", setup.played())
         assertEquals(emptyList<String>(), setup.asked)
-        // Its source offline: the next copy in the order.
+        assertFalse(setup.resolver.looksUp(setup.wanted()))
+        // Its source offline: the next copy in the order, still without a lookup.
         setup.offline = setOf("local:4")
         assertEquals("subsonic:home:9", setup.played())
+        assertEquals(emptyList<String>(), setup.asked)
+    }
+
+    @Test fun onlyPlacesThePlayerTakesCount() = runBlocking {
+        // On the relay a song on this device can't play: the service does, and without it, nothing.
+        val setup = Setup(listOf(phone, apple), owned = listOf(song("local:4")))
+        val onRelay: (PlayableSong) -> Boolean = { it.mediaId.startsWith("catalog:home:") || it.mediaId.startsWith("subsonic:home:") }
+        assertEquals("catalog:home:am:1", setup.resolver.resolve(setup.wanted(), accept = onRelay).song?.mediaId)
+        setup.answers = mapOf("am1" to { null })
+        assertNull(setup.resolver.resolve(setup.wanted(canGet = false), accept = onRelay).song)
+        // Lookups off: a service isn't asked, and your copy plays.
+        assertEquals("local:4", setup.resolver.resolve(setup.wanted(), lookups = false).song?.mediaId)
+    }
+
+    @Test fun aQueueStartsOnItsFirstSongWithoutWaitingOnTheRest() = runBlocking {
+        val setup = Setup(listOf(apple, home), owned = listOf(song("subsonic:home:9")))
+        val all = setup.resolver.resolveAll(List(3) { setup.wanted() }, first = 1)
+        // Only the first is looked up; the others are your copy until the player looks them up as they come near.
+        assertEquals(listOf("subsonic:home:9", "catalog:home:am:1", "subsonic:home:9"), all.map { it.song?.mediaId })
+        assertEquals(1, setup.asked.size)
     }
 
     @Test fun aSongYouHaveNoPlayableCopyOfComesFromTheServicesNeverFromGet() = runBlocking {

@@ -12,7 +12,16 @@ import com.luke.tracks.sources.SourceId
 import com.luke.tracks.sources.Streamer
 import com.luke.tracks.sources.WantedSong
 import com.luke.tracks.sources.sources
+import java.io.File
 import java.util.WeakHashMap
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -35,40 +44,98 @@ fun StreamingState.servicePlaces(): List<ServicePlace> = servers
 
 /**
  * A service's song that is the same song as one asked for, by identity, from one search of that
- * service. Answers are kept for a while, those it doesn't have for less, so the same song isn't
- * asked for again while it's played.
+ * service. Answers are kept in memory and in a small file (refs and titles only, never audio),
+ * those it doesn't have for less time, so a song isn't asked for again each time it plays. A
+ * search that fails isn't kept at all: the service is asked again next time.
  */
 class ServiceMatches(
-    private val repository: StreamingRepository,
+    private val search: suspend (query: String, key: ServiceKey) -> List<TracksideCatalogTrack>?,
+    private val file: File? = null,
     private val now: () -> Long = System::currentTimeMillis,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    private data class Answer(val track: TracksideCatalogTrack?, val atMs: Long)
+    constructor(repository: StreamingRepository, file: File?) : this(
+        search = { query, key ->
+            // Songs only: a match is one search's worth of the rate limit, no more.
+            val answers = repository.search(query, key, limit = SEARCH_LIMIT, types = listOf("track"))
+            if (answers.isEmpty()) null else answers.flatMap { it.second.tracks?.items.orEmpty() }
+        },
+        file = file,
+    )
+
+    @Serializable
+    private data class Answer(val track: TracksideCatalogTrack? = null, val atMs: Long)
 
     private val kept = object : LinkedHashMap<String, Answer>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Answer>?) = size > KEPT
     }
+    private val loading = Mutex()
+    @Volatile private var loaded = file == null
+    private val saving = Mutex()
+
+    /** The match kept from before, without asking: null when there's none, or it's too old. */
+    suspend fun known(streamer: Streamer, wanted: WantedSong): Answered? {
+        load()
+        val answer = synchronized(kept) { kept[key(streamer, wanted)] } ?: return null
+        val age = now() - answer.atMs
+        return if (age < if (answer.track != null) FOUND_MS else MISSING_MS) Answered(answer.track) else null
+    }
 
     suspend fun find(streamer: Streamer, wanted: WantedSong): TracksideCatalogTrack? {
-        val key = "${streamer.serverId} ${streamer.serviceId} ${wanted.identity}"
-        synchronized(kept) {
-            kept[key]?.let { answer ->
-                val age = now() - answer.atMs
-                if (age < if (answer.track != null) FOUND_MS else MISSING_MS) return answer.track
-            }
-        }
-        val found = repository.search("${wanted.title} ${wanted.artist}", ServiceKey(streamer.serverId, streamer.serviceId), limit = SEARCH_LIMIT)
-            .flatMap { it.second.tracks?.items.orEmpty() }
+        known(streamer, wanted)?.let { return it.track }
+        val tracks = search("${wanted.title} ${wanted.artist}", ServiceKey(streamer.serverId, streamer.serviceId)) ?: return null
+        val found = tracks
             .filter { it.serviceId == streamer.serviceId && it.canPlay }
             .firstOrNull { songIdentity(it.title, it.artist) == wanted.identity }
-        synchronized(kept) { kept[key] = Answer(found, now()) }
+        synchronized(kept) { kept[key(streamer, wanted)] = Answer(found, now()) }
+        save()
         return found
     }
 
+    /** A kept answer: [track] is null when the service has no such song. */
+    data class Answered(val track: TracksideCatalogTrack?)
+
+    private fun key(streamer: Streamer, wanted: WantedSong) = "${streamer.serverId} ${streamer.serviceId} ${wanted.identity}"
+
+    private suspend fun load() {
+        if (loaded) return
+        loading.withLock {
+            if (loaded) return
+            val read = withContext(io) {
+                runCatching { file?.takeIf { it.exists() }?.readText()?.let { json.decodeFromString(saved, it) } }.getOrNull()
+            }.orEmpty()
+            val at = now()
+            synchronized(kept) {
+                read.forEach { (key, answer) ->
+                    val fresh = at - answer.atMs < if (answer.track != null) FOUND_MS else MISSING_MS
+                    if (fresh) kept.putIfAbsent(key, answer)
+                }
+            }
+            loaded = true
+        }
+    }
+
+    private suspend fun save() {
+        val target = file ?: return
+        val copy = synchronized(kept) { LinkedHashMap(kept) }
+        saving.withLock {
+            withContext(io) {
+                runCatching {
+                    val temporary = File(target.parentFile, "${target.name}.tmp")
+                    temporary.writeText(json.encodeToString(saved, copy))
+                    temporary.renameTo(target)
+                }
+            }
+        }
+    }
+
     private companion object {
-        const val KEPT = 500
-        const val FOUND_MS = 30 * 60_000L
-        const val MISSING_MS = 10 * 60_000L
+        const val KEPT = 2_000
+        const val FOUND_MS = 7 * 24 * 60 * 60_000L
+        const val MISSING_MS = 24 * 60 * 60_000L
         const val SEARCH_LIMIT = 8
+        val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+        val saved = MapSerializer(String.serializer(), Answer.serializer())
     }
 }
 

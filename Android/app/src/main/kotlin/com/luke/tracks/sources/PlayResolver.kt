@@ -49,9 +49,11 @@ sealed interface Resolution {
  * Your own copies by their source; a streaming service by a song of its that is the same song,
  * looked up on each server that plays it here; Get only for a song you have no copy of.
  *
- * A song you have plays from your copies while one of them can, so a queue of your own music
- * never waits on a lookup. A service's song you picked starts at that service's place: only your
- * copies ranked above it come first, and the places after it follow if it can't play here.
+ * The order holds for songs you have too: a service above your copy's source plays its own
+ * copy of the song, and your copy follows when the service has no match or can't play now.
+ * With your sources first, a song you have plays at once, without a lookup. A service's song
+ * you picked starts at that service's place: only your copies ranked above it come first, and
+ * the places after it follow if it can't play here.
  *
  * Lookups go off the caller's thread to the servers, each given [lookupMs] before the place is
  * passed over as not playing now.
@@ -87,8 +89,11 @@ class PlayResolver(
     /** Whether Get is in the order. */
     fun gets(): Boolean = getOn()
 
-    /** The song, looking it up on the services where the order comes to them. */
-    suspend fun resolve(wanted: WantedSong, lookups: Boolean = true): Resolution {
+    /**
+     * The song, looking it up on the services where the order comes to them ([lookups] off
+     * passes them over). Only places whose song [accept] takes count: where the player can play it.
+     */
+    suspend fun resolve(wanted: WantedSong, lookups: Boolean = true, accept: (PlayableSong) -> Boolean = { true }): Resolution {
         for (step in steps(wanted)) {
             val song = when (step) {
                 is Step.Copy -> step.song.takeIf { canPlay(it.mediaId) }
@@ -96,7 +101,7 @@ class PlayResolver(
                 is Step.Look -> if (lookups) look(step.streamer, wanted) else null
                 is Step.Get -> wanted.get?.invoke()
             }
-            if (song != null) return Resolution.Plays(song, step.place)
+            if (song != null && accept(song)) return Resolution.Plays(song, step.place)
         }
         return Resolution.Nowhere
     }
@@ -118,12 +123,38 @@ class PlayResolver(
         return Resolution.Nowhere
     }
 
-    /** Each song in turn, a few looked up at once; [first] goes first, so it's ready soonest. */
+    /**
+     * Whether the order asks a service before any copy of yours that can play: then [resolve]
+     * waits on a lookup. False when one of your copies comes first, so it plays at once.
+     */
+    fun looksUp(wanted: WantedSong): Boolean {
+        for (step in steps(wanted)) {
+            when (step) {
+                is Step.Copy -> if (canPlay(step.song.mediaId)) return false
+                is Step.Picked -> return false
+                is Step.Look -> return true
+                is Step.Get -> return false
+            }
+        }
+        return false
+    }
+
+    /**
+     * Each song in turn, a few looked up at once; [first] goes first, so it's ready soonest. Past
+     * the first, a song you have that would wait on a lookup comes as your copy for now: the
+     * player looks it up as it comes near ([resolve]), so the queue starts without waiting on all of it.
+     */
     suspend fun resolveAll(wanted: List<WantedSong>, first: Int = 0): List<Resolution> = coroutineScope {
         val gate = Semaphore(parallel)
         val start = first.coerceIn(0, (wanted.size - 1).coerceAtLeast(0))
         val order = wanted.indices.sortedBy { if (it == start) -1 else it }
-        val answers = order.associateWith { index -> async { gate.withPermit { resolve(wanted[index]) } } }
+        val answers = order.associateWith { index ->
+            async {
+                val song = wanted[index]
+                val now = if (index != start && looksUp(song)) resolveNow(song).takeIf { it is Resolution.Plays && it.place is PlayFromPlace.From } else null
+                now ?: gate.withPermit { resolve(song) }
+            }
+        }
         wanted.indices.map { answers.getValue(it) }.awaitAll()
     }
 
@@ -144,9 +175,6 @@ class PlayResolver(
         val streaming = streamers().groupBy { it.kind }
         val picked = wanted.picked
         val pickedPlace = picked?.let { PlayFromPlace.Service(it.kind) }
-        if (picked == null && owned.any { canPlay(it.mediaId) }) {
-            return order().ranked(owned) { placeOf(it.mediaId) }.map { Step.Copy(it, placeOf(it.mediaId)) }
-        }
         val present = buildList {
             addAll(byPlace.keys)
             streaming.keys.forEach { add(PlayFromPlace.Service(it)) }
