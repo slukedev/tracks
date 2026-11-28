@@ -11,6 +11,9 @@ struct DevicesSettingsPage: View {
     @AppStorage(NearbyDevices.storageKey) private var isOn = true
     @AppStorage(NowPlayingHandoff.storageKey) private var offersHandoff = true
     @AppStorage(NearbyDevices.bringsQueueKey) private var bringsQueue = true
+    /// The speaker whose page is open, on the Mac, where it's a sheet.
+    @State private var openSpeaker: SpeakerAddress?
+    @State private var connectsTV = false
 
     private var status: NearbyDevicesStatus {
         let playingOn: String? = {
@@ -57,7 +60,27 @@ struct DevicesSettingsPage: View {
                 bringsQueueSection
                 handoffSection
             }
+            if model.speakers.hasSpeakers {
+                speakersSection
+            }
+            if !model.yourMusic.servers.tracksideServers.isEmpty {
+                tvSection
+            }
         }
+        .sheet(isPresented: $connectsTV) {
+            ConnectTVSheet()
+                .environment(model.yourMusic)
+        }
+        #if os(macOS)
+        .sheet(item: $openSpeaker) { address in
+            SpeakerSettingsPage(address: address)
+        }
+        .onChange(of: model.pendingSpeakerSettings, initial: true) { _, address in
+            guard let address else { return }
+            openSpeaker = address
+            model.pendingSpeakerSettings = nil
+        }
+        #endif
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: isOn)
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: model.nearby.devices.map(\.id))
         .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: model.nearby.away.map(\.id))
@@ -150,6 +173,59 @@ struct DevicesSettingsPage: View {
             }
         } header: {
             Text("Recently Seen")
+        }
+    }
+
+    /// Your servers' speakers, each opening its own page. Not behind Find Your Devices,
+    /// which is about your own devices nearby.
+    private var speakersSection: some View {
+        let speakers = model.speakers
+        return Section {
+            ForEach(speakers.serverIDs, id: \.self) { serverID in
+                if speakers.board(serverID)?.state == .unavailable {
+                    DeviceRow(symbol: "hifispeaker.fill", name: String(localized: "Speakers"), detail: String(localized: "Speakers aren't available right now."), isAway: true)
+                }
+                ForEach(speakers.board(serverID)?.speakers.filter { $0.relay?.isThisDevice != true } ?? []) { speaker in
+                    let address = SpeakerAddress(serverID: serverID, speakerID: speaker.id)
+                    let row = DeviceRow(
+                        symbol: speaker.symbol,
+                        name: speaker.name,
+                        detail: speaker.statusLine(memberNames: speakers.memberNames(of: speaker, on: serverID)),
+                        isPlaying: speaker.isPlaying && speaker.isReachable,
+                        isAway: !speaker.isReachable
+                    )
+                    #if os(macOS)
+                    HStack {
+                        row
+                        Button("Settings…") { openSpeaker = address }
+                            .controlSize(.small)
+                    }
+                    #else
+                    NavigationLink {
+                        SpeakerSettingsPage(address: address)
+                    } label: {
+                        row
+                    }
+                    #endif
+                }
+            }
+        } header: {
+            Text("Speakers")
+        }
+    }
+
+    /// A TV signs in to your server with the code it shows, approved here.
+    private var tvSection: some View {
+        Section {
+            #if os(macOS)
+            LabeledContent {
+                Button("Connect…") { connectsTV = true }
+            } label: {
+                Label("TV", systemImage: "tv")
+            }
+            #else
+            Button("Connect a TV…", systemImage: "tv") { connectsTV = true }
+            #endif
         }
     }
 

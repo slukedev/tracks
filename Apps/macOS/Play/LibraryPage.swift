@@ -40,11 +40,6 @@ struct LibraryPage: View {
         case (.yourMusic, .songs): YourMusicList.songs.page
         case (.yourMusic, .downloads): YourMusicList.downloads.page
         case (.yourMusic, .lidarr): LidarrPage()
-        #if SPOTIFY
-        case (.spotify, .albums): SpotifyAlbumsPage().spotifyDestinations()
-        case (.spotify, .playlists): SpotifyPlaylistsPage().spotifyDestinations()
-        case (.spotify, .songs): SpotifyLikedSongsPage().spotifyDestinations()
-        #endif
         default:
             ContentUnavailableView("Nothing from \(Text(source.title)) yet", systemImage: item.symbol)
         }

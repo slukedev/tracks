@@ -9,15 +9,12 @@ import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.library.DeviceLibrary
 import com.luke.tracks.library.KeystoreSecretBox
 import com.luke.tracks.library.ServerLibrary
+import com.luke.tracks.playback.MediaControllerPlayer
+import com.luke.tracks.playback.radio.TracksRadio
 import com.luke.tracks.sync.TvSync
 import com.luke.tracks.sync.deviceIdentity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import com.luke.tracks.playback.MediaControllerPlayer
-import com.luke.tracks.playback.radio.TracksRadio
-import com.luke.tracks.sources.sources
-import com.luke.tracks.spotify.Spotify
-import com.luke.tracks.applemusic.AppleMusic
 
 /**
  * Wires the parts that need the Application: the library, the player, workers, widgets and
@@ -25,8 +22,7 @@ import com.luke.tracks.applemusic.AppleMusic
  */
 object Startup {
     fun run(app: Application, graph: AppGraph) {
-        // TV plays from Trackside only: no device files, Subsonic, Spotify, Apple Music's SDK,
-        // Last.fm, widgets or shortcuts.
+        // TV plays from Trackside only: no device files, Subsonic, Last.fm, widgets or shortcuts.
         val tv = graph.formFactor.tv
         val servers = ServerLibrary(
             app, graph.settings, KeystoreSecretBox(), graph.scope,
@@ -46,14 +42,6 @@ object Startup {
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = servers.refreshAddresses()
         })
-        if (!tv) {
-            // Spotify, in sideload builds only.
-            Spotify.install(app, graph.scope)
-            Spotify.integration?.let { graph.sources.register(it.provider) }
-            // Apple Music, when there's a developer token and the build has Apple's MusicKit SDK.
-            AppleMusic.install(app, graph.scope, servers)
-            AppleMusic.provider?.let { graph.sources.register(it) }
-        }
         graph.player = MediaControllerPlayer(app).also {
             // Robolectric has no session to connect to; screenshots use the player idle.
             if (Build.FINGERPRINT != "robolectric") it.connect()

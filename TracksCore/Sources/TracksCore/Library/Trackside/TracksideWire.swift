@@ -276,12 +276,16 @@ public struct TracksideUser: Codable, Sendable, Hashable, Identifiable {
         public var legacySubsonic: Bool?
         /// Nil when unlimited.
         public var maxBitrateKbps: Int?
+        public var canUseSpeakers: Bool?
+        public var canPlayServices: Bool?
 
         enum CodingKeys: String, CodingKey {
             case canDownload = "can_download"
             case canUpload = "can_upload"
             case legacySubsonic = "legacy_subsonic"
             case maxBitrateKbps = "max_bitrate_kbps"
+            case canUseSpeakers = "can_use_speakers"
+            case canPlayServices = "can_play_services"
         }
     }
 
@@ -370,6 +374,173 @@ public struct TracksidePairPoll: Codable, Sendable, Hashable {
     public var result: TracksidePairResult?
 }
 
+// MARK: - Linking a TV
+
+struct TracksideLinkStartBody: Encodable {
+    let device: TracksideDeviceInfo
+}
+
+struct TracksideLinkPollBody: Encodable {
+    let deviceCode: String
+
+    enum CodingKeys: String, CodingKey {
+        case deviceCode = "device_code"
+    }
+}
+
+struct TracksideLinkCodeBody: Encodable {
+    let userCode: String
+
+    enum CodingKeys: String, CodingKey {
+        case userCode = "user_code"
+    }
+}
+
+/// A link a TV asked for. Only the TV holds ``deviceCode``.
+public struct TracksideLinkStart: Codable, Sendable, Hashable {
+    public var deviceCode: String
+    /// "WDJB-MJHT".
+    public var userCode: String
+    /// Usually an https address, but a bare path (`/link?code=...`) when the server knows
+    /// none of its own: see ``verificationURL(against:)``.
+    public var verificationURL: String
+    /// `tracks://link?server=<server_id>&code=<user_code>`, for the QR code.
+    public var linkURL: String
+    public var intervalS: Int
+    public var expiresAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case deviceCode = "device_code"
+        case userCode = "user_code"
+        case verificationURL = "verification_url"
+        case linkURL = "link_url"
+        case intervalS = "interval_s"
+        case expiresAt = "expires_at"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        deviceCode = try container.decode(String.self, forKey: .deviceCode)
+        userCode = try container.decode(String.self, forKey: .userCode)
+        verificationURL = (try? container.decodeIfPresent(String.self, forKey: .verificationURL)) ?? ""
+        linkURL = (try? container.decodeIfPresent(String.self, forKey: .linkURL)) ?? ""
+        intervalS = (try? container.decodeIfPresent(Int.self, forKey: .intervalS)) ?? 5
+        expiresAt = try container.decode(Date.self, forKey: .expiresAt)
+    }
+
+    /// The verification address, resolved against the address the link was started at when
+    /// the server gave only a path.
+    public func verificationURL(against base: URL) -> URL? {
+        verificationURL.isEmpty ? nil : TracksideClient.resolve(verificationURL, against: base)
+    }
+}
+
+extension TracksideLinkStart: CustomStringConvertible {
+    /// Without the device code, which is the TV's secret.
+    public var description: String { "TracksideLinkStart(userCode: \(userCode), expiresAt: \(expiresAt))" }
+}
+
+/// What a code would link, for the person to confirm.
+public struct TracksideLinkInfo: Codable, Sendable, Hashable {
+    public enum State: String, TracksideOpenEnum {
+        case pending, approved, denied, unknown
+    }
+
+    public struct Device: Codable, Sendable, Hashable {
+        public var name: String
+        /// `android_tv`, `ios`, `macos`, `android`, `web` or `other`.
+        public var platform: String
+        public var model: String?
+        public var appName: String?
+
+        enum CodingKeys: String, CodingKey {
+            case name, platform, model
+            case appName = "app_name"
+        }
+
+        public init(name: String, platform: String = "other", model: String? = nil, appName: String? = nil) {
+            self.name = name
+            self.platform = platform
+            self.model = model
+            self.appName = appName
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = (try? container.decodeIfPresent(String.self, forKey: .name)) ?? ""
+            platform = (try? container.decodeIfPresent(String.self, forKey: .platform)) ?? "other"
+            model = try? container.decodeIfPresent(String.self, forKey: .model)
+            appName = try? container.decodeIfPresent(String.self, forKey: .appName)
+        }
+    }
+
+    public var state: State
+    public var device: Device
+    /// False: asked from outside the home network. Warn before approving.
+    public var nearby: Bool
+    public var requestedAt: Date?
+    public var expiresAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case state, device, nearby
+        case requestedAt = "requested_at"
+        case expiresAt = "expires_at"
+    }
+
+    public init(state: State, device: Device, nearby: Bool, requestedAt: Date? = nil, expiresAt: Date? = nil) {
+        self.state = state
+        self.device = device
+        self.nearby = nearby
+        self.requestedAt = requestedAt
+        self.expiresAt = expiresAt
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        state = (try? container.decodeIfPresent(State.self, forKey: .state)) ?? .unknown
+        device = try container.decode(Device.self, forKey: .device)
+        // Not said is not nearby: the warning shows rather than goes missing.
+        nearby = (try? container.decodeIfPresent(Bool.self, forKey: .nearby)) ?? false
+        requestedAt = try? container.decodeIfPresent(Date.self, forKey: .requestedAt)
+        expiresAt = try? container.decodeIfPresent(Date.self, forKey: .expiresAt)
+    }
+}
+
+/// One poll's answer. Only ``linked(_:)`` carries credentials, and only once.
+public enum TracksideLinkPoll: Sendable, Hashable {
+    case linked(TracksidePairResult)
+    case pending
+    /// Poll at `interval` from now on.
+    case slowDown(interval: Duration)
+    case denied
+    /// Expired, already collected or unknown: start a new link.
+    case expired
+}
+
+/// The `device_linked` event: a TV this person approved collected its key.
+public struct TracksideDeviceLinked: Codable, Sendable, Hashable {
+    public var id: String
+    public var name: String
+    public var platform: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, platform
+    }
+
+    public init(id: String, name: String, platform: String) {
+        self.id = id
+        self.name = name
+        self.platform = platform
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = (try? container.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        platform = (try? container.decodeIfPresent(String.self, forKey: .platform)) ?? "other"
+    }
+}
+
 // MARK: - The signed-in user
 
 /// `GET /api/v1/me`.
@@ -383,6 +554,60 @@ public struct TracksideMe: Codable, Sendable, Hashable {
     public struct Features: Codable, Sendable, Hashable {
         /// Present only when this user can ask the server to get songs it doesn't have.
         public var acquisition: Acquisition?
+        /// Present when this user and key may see the server's speakers.
+        public var speakers: Speakers?
+        /// Present when this user may play from the server's music services.
+        public var catalog: Catalog?
+
+        public init(acquisition: Acquisition? = nil, speakers: Speakers? = nil, catalog: Catalog? = nil) {
+            self.acquisition = acquisition
+            self.speakers = speakers
+            self.catalog = catalog
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case acquisition, speakers, catalog
+        }
+
+        /// One feature in a shape this build doesn't expect never hides the others.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            acquisition = try? container.decodeIfPresent(Acquisition.self, forKey: .acquisition)
+            speakers = try? container.decodeIfPresent(Speakers.self, forKey: .speakers)
+            catalog = try? container.decodeIfPresent(Catalog.self, forKey: .catalog)
+        }
+    }
+
+    public struct Speakers: Codable, Sendable, Hashable {
+        /// The key may control them too, not just see them.
+        public var control: Bool?
+
+        public init(control: Bool? = nil) {
+            self.control = control
+        }
+    }
+
+    public struct Catalog: Codable, Sendable, Hashable {
+        /// This device can play the services itself, through the server.
+        public var relay: Bool?
+        /// And in the smaller cellular tier, not only lossless.
+        public var relayCellular: Bool?
+
+        public init(relay: Bool? = nil, relayCellular: Bool? = nil) {
+            self.relay = relay
+            self.relayCellular = relayCellular
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case relay
+            case relayCellular = "relay_cellular"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            relay = try? container.decodeIfPresent(Bool.self, forKey: .relay)
+            relayCellular = try? container.decodeIfPresent(Bool.self, forKey: .relayCellular)
+        }
     }
 
     public struct Acquisition: Codable, Sendable, Hashable {
@@ -504,6 +729,29 @@ public struct TracksideSearchResults: Codable, Sendable, Hashable {
     public var songs: Section<TracksideSong>?
     public var albums: Section<TracksideAlbum>?
     public var artists: Section<TracksideArtist>?
+    /// The music services' results, only when asked for and the server has them. Never mixed
+    /// into the library's sections: folding them in is the app's.
+    public var catalog: TracksideCatalogSearch?
+
+    enum CodingKeys: String, CodingKey {
+        case songs, albums, artists, catalog
+    }
+
+    public init(songs: Section<TracksideSong>? = nil, albums: Section<TracksideAlbum>? = nil, artists: Section<TracksideArtist>? = nil, catalog: TracksideCatalogSearch? = nil) {
+        self.songs = songs
+        self.albums = albums
+        self.artists = artists
+        self.catalog = catalog
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        songs = try container.decodeIfPresent(Section<TracksideSong>.self, forKey: .songs)
+        albums = try container.decodeIfPresent(Section<TracksideAlbum>.self, forKey: .albums)
+        artists = try container.decodeIfPresent(Section<TracksideArtist>.self, forKey: .artists)
+        // A catalog section in a shape this build doesn't know never hides the library's.
+        catalog = try? container.decodeIfPresent(TracksideCatalogSearch.self, forKey: .catalog)
+    }
 
     public struct Section<Item: Codable & Sendable & Hashable>: Codable, Sendable, Hashable {
         public var items: [Item]

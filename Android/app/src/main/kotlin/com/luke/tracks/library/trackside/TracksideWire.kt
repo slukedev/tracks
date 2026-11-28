@@ -144,7 +144,12 @@ data class TracksideCapabilities(
     )
 
     @Serializable
-    data class Features(val cloud: Boolean? = null, val events: Boolean? = null)
+    data class Features(
+        val cloud: Boolean? = null,
+        val events: Boolean? = null,
+        /** The server has the speakers API; whether it's set up for you is `/me`'s word. */
+        val speakers: Boolean? = null,
+    )
 
     @Serializable
     data class Cloud(
@@ -159,6 +164,8 @@ data class TracksideCapabilities(
         @SerialName("password_login") val passwordLogin: Boolean? = null,
         val pairing: Boolean? = null,
         @SerialName("pair_requests") val pairRequests: Boolean? = null,
+        /** A TV can link with a short code that a signed-in phone approves. */
+        @SerialName("device_link") val deviceLink: Boolean? = null,
     )
 }
 
@@ -187,11 +194,17 @@ data class TracksideDeviceInfo(
     /** Stays the same for this install, so signing in again replaces this device's key. */
     @SerialName("client_device_id") val clientDeviceId: String,
     val name: String,
-    val platform: String = "android",
+    /** [ANDROID], or [ANDROID_TV] on a TV. */
+    val platform: String = ANDROID,
     val model: String? = null,
     @SerialName("app_name") val appName: String? = "Tracks",
     @SerialName("app_version") val appVersion: String? = null,
-)
+) {
+    companion object {
+        const val ANDROID = "android"
+        const val ANDROID_TV = "android_tv"
+    }
+}
 
 @Serializable
 data class TracksideDevice(val id: String, val name: String = "")
@@ -210,6 +223,8 @@ data class TracksideUser(
         @SerialName("can_upload") val canUpload: Boolean? = null,
         /** Whether this account may ask the server to get songs it doesn't have. */
         @SerialName("can_request") val canRequest: Boolean? = null,
+        @SerialName("can_use_speakers") val canUseSpeakers: Boolean? = null,
+        @SerialName("can_play_services") val canPlayServices: Boolean? = null,
     )
 }
 
@@ -261,6 +276,68 @@ data class TracksidePairPoll(
     val result: TracksidePairResult? = null,
 )
 
+@Serializable
+internal data class TracksideLinkStartBody(val device: TracksideDeviceInfo)
+
+/** A link this TV asked for: show [userCode] and a QR of [linkUrl], poll with [deviceCode]. */
+@Serializable
+data class TracksideLinkStart(
+    /** Secret: only this TV knows it. Keep it in memory; never log it. */
+    @SerialName("device_code") val deviceCode: String,
+    /** "WDJB-MJHT". */
+    @SerialName("user_code") val userCode: String,
+    /** Usually an https address; a bare path when the server knows none of its own. */
+    @SerialName("verification_url") val verificationUrl: String,
+    /** tracks://link?server=<server_id>&code=<user_code>, for the QR. */
+    @SerialName("link_url") val linkUrl: String,
+    @SerialName("interval_s") val intervalS: Long = 5,
+    @SerialName("expires_at") val expiresAt: String,
+) {
+    /** The code is a secret too, so it never reaches a log. */
+    override fun toString() = "TracksideLinkStart(userCode=$userCode, expiresAt=$expiresAt)"
+}
+
+@Serializable
+internal data class TracksideLinkPollBody(@SerialName("device_code") val deviceCode: String)
+
+@Serializable
+internal data class TracksideLinkCodeBody(@SerialName("user_code") val userCode: String)
+
+/** What a code would link, so the person confirms it before approving. */
+@Serializable
+data class TracksideLinkInfo(
+    /** "pending", "approved", "denied". */
+    val state: String,
+    val device: Device,
+    /** False: the TV asked from outside the home network. Say so before approving. */
+    val nearby: Boolean = false,
+    @SerialName("requested_at") val requestedAt: String,
+    @SerialName("expires_at") val expiresAt: String,
+) {
+    @Serializable
+    data class Device(
+        val name: String,
+        val platform: String = "other",
+        val model: String? = null,
+        @SerialName("app_name") val appName: String? = null,
+    )
+}
+
+/** One poll's answer. Only [Linked] carries credentials, and only once. */
+sealed interface TracksideLinkPoll {
+    data class Linked(val result: TracksidePairResult) : TracksideLinkPoll
+    data object Pending : TracksideLinkPoll
+    /** Poll every [intervalS] seconds from now on. */
+    data class SlowDown(val intervalS: Long) : TracksideLinkPoll
+    data object Denied : TracksideLinkPoll
+    /** Expired, already collected or unknown: start a new link. */
+    data object Expired : TracksideLinkPoll
+}
+
+/** The `device_linked` event: a TV this person approved collected its key. */
+@Serializable
+data class TracksideDeviceLinkedEvent(val id: String, val name: String = "", val platform: String = "other")
+
 /** `GET /api/v1/server/urls`: where the server can be reached now. The ETag is [version]. */
 @Serializable
 data class TracksideServerUrls(
@@ -280,9 +357,6 @@ data class TracksideMe(
     val server: TracksideServerInfo,
     val features: Features? = null,
 ) {
-    /** Whether this server hands out Apple Music developer tokens. */
-    val offersAppleMusic: Boolean get() = features?.appleMusic?.developerToken == true
-
     /**
      * Whether this phone can ask the server to get songs it doesn't have. The server sends
      * `features.acquisition` only when acquisition is on with a source, the account may request
@@ -293,10 +367,35 @@ data class TracksideMe(
     /** Whether the account may request songs at all, as the server's admin set it. */
     val canRequest: Boolean get() = user.permissions?.canRequest != false
 
+    /** Whether this account and key may see the server's speakers: left out when they may not, never false. */
+    val offersSpeakers: Boolean get() = features?.speakers != null
+
+    /** Whether this key may also control them (it has the `write` scope). */
+    val controlsSpeakers: Boolean get() = features?.speakers?.control == true
+
+    /** Whether this account and key may search and browse the server's streaming services. */
+    val offersCatalog: Boolean get() = features?.catalog != null
+
+    /** Whether this phone may play them here, through the server's relay. */
+    val offersRelay: Boolean get() = features?.catalog?.relay == true
+
+    /** Whether the relay can send the cellular tier (it has an encoder). */
+    val offersRelayCellular: Boolean get() = offersRelay && features?.catalog?.relayCellular == true
+
     @Serializable
     data class Features(
-        @SerialName("apple_music") val appleMusic: AppleMusic? = null,
         val acquisition: Acquisition? = null,
+        val speakers: Speakers? = null,
+        val catalog: Catalog? = null,
+    )
+
+    @Serializable
+    data class Speakers(val control: Boolean? = null)
+
+    @Serializable
+    data class Catalog(
+        val relay: Boolean? = null,
+        @SerialName("relay_cellular") val relayCellular: Boolean? = null,
     )
 
     @Serializable
@@ -304,19 +403,6 @@ data class TracksideMe(
         @SerialName("instant_play") val instantPlay: Boolean? = null,
         @SerialName("external_play") val externalPlay: Boolean? = null,
     )
-
-    @Serializable
-    data class AppleMusic(@SerialName("developer_token") val developerToken: Boolean? = null)
-}
-
-/** `GET /api/v1/me/apple-music/developer-token`. */
-@Serializable
-data class TracksideAppleMusicToken(
-    val token: String,
-    @SerialName("expires_at") val expiresAt: String? = null,
-    @SerialName("refresh_after") val refreshAfter: String? = null,
-) {
-    override fun toString() = "TracksideAppleMusicToken(expiresAt=$expiresAt)"
 }
 
 @Serializable
@@ -355,6 +441,8 @@ data class TracksideSearchResults(
     val artists: Section<TracksideArtist>? = null,
     /** With `types=external`, where the server gets songs: ones it could get, never in the library. */
     val external: TracksideAcquisitionSearch? = null,
+    /** With `types=catalog`, the streaming services' answer, kept apart from the library's. */
+    val catalog: TracksideCatalogSearch? = null,
 ) {
     @Serializable
     data class Section<T>(val items: List<T> = emptyList(), @SerialName("next_cursor") val nextCursor: String? = null)
@@ -587,7 +675,16 @@ internal data class TracksideErrorEnvelope(val error: Body) {
         val reason: String? = null,
         @SerialName("resets_at") val resetsAt: String? = null,
         val field: String? = null,
+        /** With `unsupported`: the capability the speaker lacks, and which speaker when it isn't the one asked. */
+        val capability: String? = null,
+        @SerialName("speaker_id") val speakerId: String? = null,
+        /** With `service_signed_out`: the service whose account needs signing in again. */
+        @SerialName("service_id") val serviceId: String? = null,
+        /** With `relay_limit`: how many sessions are allowed. */
+        val limit: Int? = null,
         /** With `https_required`: the server's https addresses, to try before any it listed earlier. */
         @SerialName("https_urls") val httpsUrls: List<TracksideServerUrl>? = null,
+        /** With `slow_down`: the interval to poll at from now on. */
+        @SerialName("interval_s") val intervalS: Long? = null,
     )
 }

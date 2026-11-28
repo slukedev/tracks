@@ -5,12 +5,10 @@ import android.content.SharedPreferences
 import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Composable
 import com.luke.tracks.AppGraph
-import com.luke.tracks.BuildConfig
 import com.luke.tracks.library.CombinedLibrary
 import com.luke.tracks.library.MusicLibrary
 import com.luke.tracks.library.ServerEntry
 import com.luke.tracks.library.ServerStatus
-import com.luke.tracks.spotify.SpotifyFlavor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -34,8 +32,7 @@ import java.util.WeakHashMap
 
 /**
  * One kind of source, as the registry hears about it. Files on the phone and servers are
- * built in; Spotify registers one of these at startup (`graph.sources.register(...)`), which
- * the registry takes only in builds with `BuildConfig.SPOTIFY`.
+ * built in; any other kind registers one of these at startup (`graph.sources.register(...)`).
  */
 interface SourceProvider {
     val kind: SourceKind
@@ -49,7 +46,7 @@ interface SourceProvider {
     /** One short line under its name in Add Source ("Needs Premium"), or none. */
     val addSubtitle: String? get() = null
 
-    /** Its brand mark, never recoloured (Spotify's icon). Null draws the kind's symbol. */
+    /** Its brand mark, never recoloured. Null draws the kind's symbol. */
     @get:DrawableRes
     val iconRes: Int? get() = null
 
@@ -62,8 +59,8 @@ interface SourceProvider {
     suspend fun remove(id: SourceId)
 
     /**
-     * Its page in Settings, Sources, for a source of a kind the app doesn't draw itself
-     * (Spotify). Shown from Add Source before it's added too, with [source] null.
+     * Its page in Settings, Sources, for a source of a kind the app doesn't draw itself.
+     * Shown from Add Source before it's added too, with [source] null.
      */
     @Composable
     fun Page(source: Source?, onDone: () -> Unit) = Unit
@@ -80,8 +77,8 @@ data class Removal(val title: String, val message: String, val confirm: String) 
 }
 
 /**
- * Every source Tracks plays from, merged: the phone's files, each server and, where the build
- * has it, Spotify. Also what Play and Library are filtered to, the Play From order, and the
+ * Every source Tracks plays from, merged: the phone's files, each server and any source
+ * registered at startup. Also what Play and Library are filtered to, the Play From order, and the
  * player's word when it skips songs it couldn't play.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -89,7 +86,6 @@ class SourcesRegistry(
     private val prefs: SharedPreferences,
     scope: CoroutineScope,
     builtIn: List<SourceProvider>,
-    private val spotifyAllowed: Boolean = BuildConfig.SPOTIFY,
     /** The servers once they're read, for writing out an order saved before; null until then. */
     loadedServers: Flow<List<String>?>? = null,
     /** The kinds this device offers at all; on TV only servers (Trackside). Others are never registered. */
@@ -97,7 +93,7 @@ class SourcesRegistry(
 ) {
     private val providers = MutableStateFlow(builtIn.filter { allows(it.kind) })
 
-    private fun allows(kind: SourceKind) = kind in allowedKinds && (kind != SourceKind.Spotify || spotifyAllowed)
+    private fun allows(kind: SourceKind) = kind in allowedKinds
 
     /** Every provider, the built-in ones first. */
     val registered: StateFlow<List<SourceProvider>> = providers.asStateFlow()
@@ -184,10 +180,9 @@ class SourcesRegistry(
             PlayFromPlace.From(sourceOf(mediaId(copy)) ?: SourceId.Unknown(mediaId(copy)))
         }
 
-    /** A kind's brand mark: its provider's, or Spotify's even before Spotify registers. */
+    /** A kind's brand mark, from its provider. */
     @DrawableRes
-    fun iconRes(kind: SourceKind): Int? =
-        provider(kind)?.iconRes ?: if (kind == SourceKind.Spotify) SpotifyFlavor.markRes else null
+    fun iconRes(kind: SourceKind): Int? = provider(kind)?.iconRes
 
     private val skipped = MutableSharedFlow<SkippedSongs>(extraBufferCapacity = 4)
 
@@ -314,7 +309,8 @@ val AppGraph.sources: SourcesRegistry
             canAsk = !sampleData,
         )
         val servers = combined?.servers?.let { ServerSourceProvider(it.entries, scope, it.away, it.syncProgress, onRemove = it::remove) }
-        val carried = existing?.registered?.value.orEmpty().filter { it.kind == SourceKind.Spotify || it.kind == SourceKind.AppleMusic }
+        // Kinds registered at startup stay registered when the library is replaced.
+        val carried = existing?.registered?.value.orEmpty().filter { it.kind != SourceKind.Device && it.kind != SourceKind.Server }
         val loadedServers = combined?.servers?.let { library ->
             combine(library.loading, library.entries) { loading, entries -> if (loading) null else entries.map { it.server.id } }
         } ?: flowOf(emptyList())

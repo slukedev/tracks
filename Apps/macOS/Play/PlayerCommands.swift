@@ -198,7 +198,8 @@ private struct ControlsMenuItems: View {
     private var player: PlayerModel { model.player }
 
     var body: some View {
-        let isPlaying = model.controlledDevice.map { model.nearby.shownState(of: $0)?.isPlaying == true } ?? player.isPlaying
+        let speaker = model.controlledSpeakerNow
+        let isPlaying = speaker?.isPlaying ?? model.controlledDevice.map { model.nearby.shownState(of: $0)?.isPlaying == true } ?? player.isPlaying
         Button(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause" : "play") {
             model.mainPlayerPlayPause()
         }
@@ -206,6 +207,11 @@ private struct ControlsMenuItems: View {
 
         // Music's Stop: the song paused and back at its start, ready to play again.
         Button("Stop", systemImage: "stop") {
+            if let address = model.controlledSpeaker, let speaker {
+                if speaker.can(.pause) { model.speakers.perform(.pause, on: address) }
+                if speaker.can(.seek) { model.speakers.perform(.seek(0), on: address) }
+                return
+            }
             if let device = model.controlledDevice {
                 model.nearby.perform(.pause, on: device)
                 model.nearby.perform(.seek(0), on: device)
@@ -215,7 +221,7 @@ private struct ControlsMenuItems: View {
             player.seek(to: 0)
         }
         .keyboardShortcut(".", modifiers: .command)
-        .disabled(model.controlledDevice.map { model.nearby.shownState(of: $0)?.duration == nil } ?? (!player.hasQueue || player.current?.duration == nil))
+        .disabled(speaker.map { $0.nowPlaying?.duration == nil || !$0.can(.pause) } ?? model.controlledDevice.map { model.nearby.shownState(of: $0)?.duration == nil } ?? (!player.hasQueue || player.current?.duration == nil))
 
         Button("Next", systemImage: "forward") { model.mainPlayerNext() }
             .keyboardShortcut(.rightArrow, modifiers: .command)

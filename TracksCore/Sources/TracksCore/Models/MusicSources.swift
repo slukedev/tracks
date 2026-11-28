@@ -1,14 +1,13 @@
 import Foundation
 
-/// One source a person has added: Apple Music, the music on this device, one server, or
-/// Spotify. Kept as a string so a value from a newer version reads back unchanged.
+/// One source a person has added: Apple Music, the music on this device, or one server. Kept
+/// as a string so a value from a newer or older version reads back unchanged.
 public enum SourceID: Hashable, Sendable, Codable, RawRepresentable {
     case appleMusic
     /// Files on this device: On This iPhone, On This Mac.
     case device
     /// A Trackside or Subsonic server, by its id in the server list.
     case server(String)
-    case spotify
     case unknown(String)
 
     private static let serverPrefix = "server:"
@@ -17,7 +16,6 @@ public enum SourceID: Hashable, Sendable, Codable, RawRepresentable {
         switch rawValue {
         case "appleMusic": self = .appleMusic
         case "device": self = .device
-        case "spotify": self = .spotify
         case let value where value.hasPrefix(Self.serverPrefix) && value.count > Self.serverPrefix.count:
             self = .server(String(value.dropFirst(Self.serverPrefix.count)))
         default: self = .unknown(rawValue)
@@ -29,7 +27,6 @@ public enum SourceID: Hashable, Sendable, Codable, RawRepresentable {
         case .appleMusic: "appleMusic"
         case .device: "device"
         case .server(let id): Self.serverPrefix + id
-        case .spotify: "spotify"
         case .unknown(let stored): stored
         }
     }
@@ -44,7 +41,6 @@ public enum SourceID: Hashable, Sendable, Codable, RawRepresentable {
         switch self {
         case .appleMusic: .appleMusic
         case .device, .server: .yourMusic
-        case .spotify: .spotify
         case .unknown(let stored): .unknown(stored)
         }
     }
@@ -131,7 +127,7 @@ public struct PlayFromOrder: Hashable, Sendable, RawRepresentable {
     public static let standard = PlayFromOrder([])
 
     /// Where a new order starts, before anything is moved.
-    public static let starting: [PlayFromPlace] = [.source(.device), .downloads, .source(.appleMusic), .source(.spotify)]
+    public static let starting: [PlayFromPlace] = [.source(.device), .downloads, .source(.appleMusic)]
 
     /// The order with the places it doesn't name yet added at the end, in the order given.
     public func including(_ new: [PlayFromPlace]) -> PlayFromOrder {
@@ -177,7 +173,7 @@ public struct PlayFromOrder: Hashable, Sendable, RawRepresentable {
     /// The order as it played before, written out in full for these servers: what it didn't
     /// name sat after what comes before it in the old default order.
     public func migrated(servers: [String]) -> PlayFromOrder {
-        let defaults: [PlayFromPlace] = [.source(.device), .downloads] + servers.map { .source(.server($0)) } + [.source(.appleMusic), .source(.spotify)]
+        let defaults: [PlayFromPlace] = [.source(.device), .downloads] + servers.map { .source(.server($0)) } + [.source(.appleMusic)]
         let current = Set(defaults)
         var arranged = places.filter(current.contains)
         for (offset, place) in defaults.enumerated() where !arranged.contains(place) {

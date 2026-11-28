@@ -44,7 +44,7 @@ fn foundation_case_fold(c: char, out: &mut String) {
 
 /// Whether Foundation's `.whitespacesAndNewlines` contains this character: Unicode's
 /// whitespace plus the zero-width space (but not U+180E or U+FEFF, which it keeps).
-fn is_foundation_whitespace(c: char) -> bool {
+pub(crate) fn is_foundation_whitespace(c: char) -> bool {
     c.is_whitespace() || c == '\u{200B}'
 }
 
@@ -52,6 +52,10 @@ fn is_foundation_whitespace(c: char) -> bool {
 ///
 /// The result is in NFC, so strings Swift treats as equal (canonically equivalent) fold to
 /// the same bytes here.
+///
+/// Like Foundation, it trims before stripping diacritics, so a space whose only cover was a
+/// trailing diacritic ("Halo \u{301}") stays: the app's song keys keep it too. Folding the
+/// result again trims that space, and from then on folding changes nothing.
 ///
 /// ```
 /// assert_eq!(tracks_model::folded("  Beyoncé "), "beyonce");
@@ -197,6 +201,20 @@ mod tests {
                 })
                 .collect();
             assert_eq!(folded(s), slow);
+        }
+    }
+
+    #[test]
+    fn a_diacritic_on_a_trailing_space_leaves_the_space_as_foundation_does() {
+        for (name, once, twice) in [
+            (" & \u{301}", "& ", "&"),
+            ("Halo \u{301}", "halo ", "halo"),
+            ("Halo\u{200B}\u{308}\u{301}", "halo\u{200B}", "halo"),
+            ("Halo \u{301}x", "halo x", "halo x"),
+        ] {
+            assert_eq!(folded(name), once, "{name:?}");
+            assert_eq!(folded(once), twice, "{name:?} folded again");
+            assert_eq!(folded(twice), twice, "{name:?} settles");
         }
     }
 

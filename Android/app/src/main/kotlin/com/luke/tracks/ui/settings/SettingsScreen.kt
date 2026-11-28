@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -59,6 +60,7 @@ fun SettingsScreen() {
     fun open(page: String) = navigator.open(SettingsPageRoute(page))
 
     val sources by com.luke.tracks.ui.sources.sourceList()
+    val devices by com.luke.tracks.ui.devices.devicesViewModel().state.collectAsStateWithLifecycle()
     SettingsScaffold(title = "Settings", showBack = navigator.backStack.size > 1) {
         group(key = "sources") {
             link(
@@ -76,6 +78,9 @@ fun SettingsScreen() {
             }
         }
         group("Play") {
+            if (devices.offered) {
+                link("Devices", summary = devicesSummary(devices), icon = Icons.Rounded.Speaker, tone = Tone.Primary) { open("devices") }
+            }
             val radio = if (settings.showTracksRadio) RadioWords.shortSummary(settings.radioDiscovery, settings.radioGenres) else "Hidden"
             link("Tracks Radio", summary = radio, icon = Icons.Rounded.Radio, tone = Tone.Tertiary) {
                 open("radio")
@@ -133,6 +138,17 @@ fun SettingsScreen() {
             },
             dismissButton = { TextButton(onClick = { confirmSample = null }) { Text("Cancel") } },
         )
+    }
+}
+
+/** The speaker in the player, or how many there are. */
+private fun devicesSummary(devices: com.luke.tracks.ui.devices.DevicesUi): String {
+    devices.active?.let(devices::speaker)?.let { return "Playing on ${it.name}" }
+    val count = devices.sections.sumOf { it.all.size }
+    return when (count) {
+        0 -> "No speakers yet"
+        1 -> "1 speaker"
+        else -> "$count speakers"
     }
 }
 

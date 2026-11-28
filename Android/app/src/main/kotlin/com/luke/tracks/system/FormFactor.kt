@@ -9,7 +9,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
  * What kind of device Tracks runs on, decided once per process. [tv] picks the TV interface
- * and limits sources to Apple Music; [lowRam] shrinks caches.
+ * and limits sources to Trackside; [lowRam] shrinks caches.
  */
 data class FormFactor(val tv: Boolean, val lowRam: Boolean) {
     companion object {

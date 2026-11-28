@@ -5,6 +5,7 @@ import com.luke.tracks.net.Http
 import com.luke.tracks.net.Nearby
 import com.luke.tracks.net.ServerEndpoints
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import okhttp3.HttpUrl
@@ -31,7 +32,23 @@ sealed class TracksideError(message: String) : Exception(message) {
     /** A song offered for getting isn't known anymore: search again. */
     data object CandidateExpired : TracksideError("That song isn't on offer anymore. Try again.")
     class Unavailable(val code: String, val retryAfterSeconds: Long?) : TracksideError("The server can't play that right now. Try again in a moment.")
-    class Server(val status: Int, val code: String, detail: String, val field: String? = null) : TracksideError(detail.ifBlank { "The server had a problem." })
+    class Server(
+        val status: Int,
+        val code: String,
+        detail: String,
+        val field: String? = null,
+        /** With `conflict`: why, such as `speaker_offline` or `not_playable`. */
+        val reason: String? = null,
+        /** With `unsupported`: the capability that's missing. */
+        val capability: String? = null,
+        /** With `service_signed_out`: the service to sign in to again. */
+        val serviceId: String? = null,
+        /** With `relay_limit`: how many relay sessions are allowed. */
+        val limit: Int? = null,
+    ) : TracksideError(detail.ifBlank { "The server had a problem." })
+    /** The server can't reach its speakers right now; it says so again when they're back. */
+    class SpeakersUnavailable(val retryAfterSeconds: Long?) : TracksideError("Speakers aren't available right now.")
+    class CatalogUnavailable(val retryAfterSeconds: Long?) : TracksideError("Music services aren't available right now.")
     /** Not an answer Tracks can read: not Trackside, most likely. */
     data object NotTrackside : TracksideError("That address doesn't look like a Trackside server.")
     class Http(val status: Int) : TracksideError("The server answered with an error.")
@@ -41,10 +58,16 @@ sealed class TracksideError(message: String) : Exception(message) {
     data object InsecureAddress : TracksideError("This address isn't encrypted. Use https, or your home network address.")
     /** The server refused a password or key sent over plain http from beyond the home network. */
     data object HttpsRequired : TracksideError("Your server only signs in over https from outside your home network. Use its https address.")
+    /** A TV's code was right, but its link ran out. */
+    data object LinkExpired : TracksideError("That code has expired. Get a new one on the TV.")
+    /** Too many wrong codes reached this TV's link first, so it can't be approved. */
+    data object LinkLocked : TracksideError("Locked after too many wrong tries. Get a new code on the TV.")
+    /** Someone already approved or denied this TV's code. */
+    data object LinkUsed : TracksideError("That code has been used.")
 }
 
 /** What came back: the status, the body and the one header that matters. */
-data class TracksideAnswer(val status: Int, val body: String, val retryAfter: String? = null, val etag: String? = null)
+data class TracksideAnswer(val status: Int, val body: String, val retryAfter: String? = null, val etag: String? = null, val date: String? = null)
 
 /** Sends a request. OkHttp in the app; a stand-in in tests. */
 fun interface TracksideTransport {
@@ -55,7 +78,7 @@ class OkHttpTracksideTransport(private val http: OkHttpClient = Http.api) : Trac
     override suspend fun send(request: Request, timeoutMs: Long?): TracksideAnswer = withContext(Dispatchers.IO) {
         val call = http.newCall(request)
         timeoutMs?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
-        call.execute().use { TracksideAnswer(it.code, it.body.string(), it.header("Retry-After"), it.header("ETag")) }
+        call.execute().use { TracksideAnswer(it.code, it.body.string(), it.header("Retry-After"), it.header("ETag"), it.header("Date")) }
     }
 }
 
@@ -81,9 +104,6 @@ class TracksideClient(
     // MARK: The user
 
     suspend fun me(): TracksideMe = get("me", TracksideMe.serializer())
-
-    suspend fun appleMusicDeveloperToken(): TracksideAppleMusicToken =
-        get("me/apple-music/developer-token", TracksideAppleMusicToken.serializer())
 
     /**
      * The server's addresses, asked of an address that has already proven itself, or null
@@ -115,6 +135,19 @@ class TracksideClient(
         val id = deviceId ?: return
         perform("me/devices/$id", "DELETE")
     }
+
+    // MARK: Linking a TV (approving it from this phone)
+
+    /** What [userCode] would link: the TV's name and whether it asked from nearby. Any case, dash optional. */
+    suspend fun lookupLink(userCode: String): TracksideLinkInfo = linkDecision("link/lookup", userCode)
+
+    /** Approves the TV showing [userCode]: it becomes one of your devices when it next polls. */
+    suspend fun approveLink(userCode: String): TracksideLinkInfo = linkDecision("link/approve", userCode)
+
+    suspend fun denyLink(userCode: String): TracksideLinkInfo = linkDecision("link/deny", userCode)
+
+    private suspend fun linkDecision(path: String, userCode: String): TracksideLinkInfo =
+        send(path, "POST", TracksideJson.encodeToString(TracksideLinkCodeBody.serializer(), TracksideLinkCodeBody(userCode)), TracksideLinkInfo.serializer())
 
     // MARK: Browsing
 
@@ -266,6 +299,197 @@ class TracksideClient(
         }
     }
 
+    // MARK: Speakers (the wire contract's section 1)
+
+    /** How far the server's clock is ahead of this phone's, from the last speaker answer's `Date`. */
+    @Volatile var clockSkewMs: Long = 0
+        private set
+
+    /**
+     * Whether this server has speakers and lets this key see them: the server has the API
+     * (`/capabilities`), and `/me` says it's set up for this account. An old server, or one
+     * without speakers set up, is false and its speakers are never asked for.
+     */
+    suspend fun speakerAccess(): SpeakerAccess {
+        if (capabilities().features?.speakers != true) return SpeakerAccess.None
+        val me = me()
+        return when {
+            !me.offersSpeakers -> SpeakerAccess.None
+            me.controlsSpeakers -> SpeakerAccess.Control
+            else -> SpeakerAccess.Look
+        }
+    }
+
+    enum class SpeakerAccess { None, Look, Control }
+
+    /** Every speaker you can see, or null when nothing changed since [version] (the last answer's ETag). */
+    suspend fun speakers(version: String? = null): Pair<TracksideSpeakerList, String?>? {
+        val answer = call { base ->
+            request(base, "speakers", authorization = bearer).newBuilder()
+                .apply { version?.let { header("If-None-Match", it) } }
+                .build()
+        }
+        noteClock(answer)
+        if (answer.status == 304) return null
+        return decode(answer, TracksideSpeakerList.serializer()) to answer.etag
+    }
+
+    suspend fun speaker(id: String): TracksideSpeaker =
+        call { base -> request(base, "speakers/$id", authorization = bearer) }.also { noteClock(it) }.let { decode(it, TracksideSpeaker.serializer()) }
+
+    /** Up next on a speaker, from its current item less [history] before it. */
+    suspend fun speakerQueue(id: String, cursor: String? = null, limit: Int = 100, history: Int = 0): TracksideSpeakerQueue =
+        get(
+            "speakers/$id/queue",
+            TracksideSpeakerQueue.serializer(),
+            listOfNotNull("limit" to "$limit", cursor?.let { "cursor" to it }, history.takeIf { it > 0 }?.let { "history" to "$it" }).toMap(),
+        )
+
+    /** Play, pause, stop, next, previous, seek or jump. A toggle is never sent twice. */
+    suspend fun speakerPlayback(id: String, command: TracksideSpeakerPlayback): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id/playback", "POST", TracksideJson.encodeToString(TracksideSpeakerPlayback.serializer(), command), retry = command.action != "toggle")
+
+    suspend fun patchSpeaker(id: String, patch: TracksideSpeakerPatch): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id", "PATCH", TracksideJson.encodeToString(TracksideSpeakerPatch.serializer(), patch))
+
+    /** Groups the speakers in [memberIds] with [id] leading; an empty list ungroups everyone from it. */
+    suspend fun setSpeakerMembers(id: String, memberIds: List<String>): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id/members", "PUT", TracksideJson.encodeToString(TracksideSpeakerMembers.serializer(), TracksideSpeakerMembers(memberIds)))
+
+    /** Takes [id] out of whatever group it's in. */
+    suspend fun leaveSpeakerGroup(id: String): TracksideSpeakerCommand = speakerCommand("speakers/$id/group", "DELETE", null)
+
+    suspend fun playOnSpeaker(id: String, play: TracksideSpeakerPlayRequest, key: String = java.util.UUID.randomUUID().toString()): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id/play", "POST", TracksideJson.encodeToString(TracksideSpeakerPlayRequest.serializer(), play), key = key)
+
+    suspend fun transferSpeaker(id: String, transfer: TracksideSpeakerTransfer, key: String = java.util.UUID.randomUUID().toString()): TracksideSpeakerCommand =
+        speakerCommand("speakers/$id/transfer", "POST", TracksideJson.encodeToString(TracksideSpeakerTransfer.serializer(), transfer), key = key)
+
+    /**
+     * A speaker command, with an `Idempotency-Key`: one lost on the way is sent once more with
+     * the same key, so the server acts on it once. A deliberate repeat is a new key.
+     */
+    private suspend fun speakerCommand(path: String, method: String, body: String?, retry: Boolean = true, key: String = java.util.UUID.randomUUID().toString()): TracksideSpeakerCommand {
+        val build = { base: HttpUrl ->
+            request(base, path, method = method, body = body, authorization = bearer).newBuilder().header("Idempotency-Key", key).build()
+        }
+        val answer = try {
+            call(build)
+        } catch (error: IOException) {
+            if (!retry) throw error
+            call(build)
+        }
+        noteClock(answer)
+        return decode(answer, TracksideSpeakerCommand.serializer())
+    }
+
+    /** Only skews of more than two seconds count: `Date` is to the second, and closer clocks are left alone. */
+    private fun noteClock(answer: TracksideAnswer) {
+        val date = answer.date ?: return
+        val server = runCatching { java.time.ZonedDateTime.parse(date, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant() }.getOrNull() ?: return
+        val skew = server.toEpochMilli() - now().toEpochMilli()
+        clockSkewMs = if (kotlin.math.abs(skew) > 2_000) skew else 0
+    }
+
+    // MARK: Streaming services and the relay (the wire contract's sections 2 and 3)
+
+    /**
+     * What this key may do with the server's streaming services: nothing on an old server or
+     * one without them set up for this account, browse them, or play them here too.
+     */
+    suspend fun catalogAccess(): CatalogAccess {
+        if (capabilities().features?.speakers != true) return CatalogAccess.None
+        val me = me()
+        return when {
+            !me.offersCatalog -> CatalogAccess.None
+            me.offersRelay -> CatalogAccess.Play(cellular = me.offersRelayCellular)
+            else -> CatalogAccess.Browse
+        }
+    }
+
+    sealed interface CatalogAccess {
+        data object None : CatalogAccess
+        data object Browse : CatalogAccess
+        /** Plays here through the relay; [cellular] when it can send the smaller tier. */
+        data class Play(val cellular: Boolean) : CatalogAccess
+    }
+
+    suspend fun catalogServices(): TracksideCatalogServices = get("catalog/services", TracksideCatalogServices.serializer())
+
+    /** The services alone, waiting up to 5 s for them. Empty [services] means every service that can search. */
+    suspend fun catalogSearch(query: String, types: List<String> = DEFAULT_CATALOG_TYPES, services: List<String> = emptyList(), limit: Int = 20): TracksideCatalogSearch =
+        get(
+            "catalog/search",
+            TracksideCatalogSearch.serializer(),
+            listOfNotNull(
+                "q" to query,
+                "types" to types.joinToString(","),
+                services.takeIf { it.isNotEmpty() }?.let { "services" to it.joinToString(",") },
+                "limit" to "$limit",
+            ).toMap(),
+        )
+
+    /**
+     * The library and the services in one search. The server leaves `catalog` out for a key
+     * that can't use the services, so this is safe to ask any server that has them.
+     */
+    suspend fun searchWithCatalog(query: String, types: List<String>, catalogTypes: List<String> = DEFAULT_CATALOG_TYPES, limit: Int = 20): TracksideSearchResults =
+        get(
+            "search",
+            TracksideSearchResults.serializer(),
+            mapOf("q" to query, "types" to (types + "catalog").distinct().joinToString(","), "catalog_types" to catalogTypes.joinToString(","), "limit" to "$limit"),
+        )
+
+    /** A track, album, artist, playlist or radio; a playlist's tracks come a page at a time. */
+    suspend fun catalogItem(ref: String, cursor: String? = null, limit: Int? = null): TracksideCatalogPage =
+        get("catalog/items/$ref", TracksideCatalogPage.serializer(), listOfNotNull(cursor?.let { "cursor" to it }, limit?.let { "limit" to "$it" }).toMap())
+
+    /** Playlists, albums or artists saved on a service. */
+    suspend fun catalogLibrary(serviceId: String, kind: String = "playlist", cursor: String? = null, limit: Int = 100): TracksideCatalogLibrary<TracksideCatalogItem> =
+        get(
+            "catalog/services/$serviceId/library",
+            TracksideCatalogLibrary.serializer(TracksideCatalogItem.serializer()),
+            listOfNotNull("kind" to kind, "limit" to "$limit", cursor?.let { "cursor" to it }).toMap(),
+        )
+
+    /** Songs saved on a service. */
+    suspend fun catalogLibraryTracks(serviceId: String, cursor: String? = null, limit: Int = 100): TracksideCatalogLibrary<TracksideCatalogTrack> =
+        get(
+            "catalog/services/$serviceId/library",
+            TracksideCatalogLibrary.serializer(TracksideCatalogTrack.serializer()),
+            listOfNotNull("kind" to "track", "limit" to "$limit", cursor?.let { "cursor" to it }).toMap(),
+        )
+
+    /**
+     * This phone's relay session, made or reused (one per device), playing [request]'s `play`
+     * at once when it has one. Sent once more with the same `Idempotency-Key` if it's lost on
+     * the way, so the server starts it once.
+     */
+    suspend fun startRelay(request: TracksideRelayRequest, key: String = java.util.UUID.randomUUID().toString()): TracksideRelaySession {
+        val body = TracksideJson.encodeToString(TracksideRelayRequest.serializer(), request)
+        val build = { base: HttpUrl ->
+            request(base, "relay/sessions", method = "POST", body = body, authorization = bearer).newBuilder().header("Idempotency-Key", key).build()
+        }
+        val answer = try {
+            call(build)
+        } catch (_: IOException) {
+            call(build)
+        }
+        noteClock(answer)
+        return decode(answer, TracksideRelaySession.serializer())
+    }
+
+    suspend fun relaySession(id: String): TracksideRelaySession = get("relay/sessions/$id", TracksideRelaySession.serializer())
+
+    suspend fun relaySessions(): List<TracksideRelaySession> = get("relay/sessions", TracksideRelaySessions.serializer()).sessions
+
+    /** lossless or cellular; while playing, the answer names a new generation. */
+    suspend fun setRelayTier(id: String, tier: String): TracksideRelaySession =
+        send("relay/sessions/$id", "PATCH", TracksideJson.encodeToString(TracksideRelayPatch.serializer(), TracksideRelayPatch(tier)), TracksideRelaySession.serializer())
+
+    /** Ends the session; the server's player for this phone keeps its queue for the next one. */
+    suspend fun endRelay(id: String) = perform("relay/sessions/$id", "DELETE")
+
     // MARK: Requests
 
     private suspend fun <T> get(path: String, serializer: KSerializer<T>, query: Map<String, String> = emptyMap()): T =
@@ -362,6 +586,67 @@ class TracksideClient(
             return decode(transport.send(request(base, "pair/requests/${pairing.id}", authorization = "Pair ${pairing.pollSecret}"), null), TracksidePairPoll.serializer())
         }
 
+        /** Starts linking this TV: show the code and QR, then [pollLink] every `intervalS` seconds. */
+        suspend fun startLink(base: HttpUrl, device: TracksideDeviceInfo, transport: TracksideTransport = OkHttpTracksideTransport()): TracksideLinkStart {
+            requireSafe(base)
+            val body = TracksideJson.encodeToString(TracksideLinkStartBody.serializer(), TracksideLinkStartBody(device))
+            return decode(transport.send(request(base, "link/start", method = "POST", body = body), null), TracksideLinkStart.serializer())
+        }
+
+        /**
+         * One poll. Maps 200, 428, 429 `slow_down`, 403 `access_denied` and 410 `expired_token`
+         * to [TracksideLinkPoll]; anything else throws [TracksideError] as usual (429
+         * `rate_limited` is [TracksideError.RateLimited]).
+         */
+        suspend fun pollLink(base: HttpUrl, deviceCode: String, transport: TracksideTransport = OkHttpTracksideTransport()): TracksideLinkPoll {
+            requireSafe(base)
+            val body = TracksideJson.encodeToString(TracksideLinkPollBody.serializer(), TracksideLinkPollBody(deviceCode))
+            val answer = transport.send(request(base, "link/poll", method = "POST", body = body), null)
+            if (answer.status in 200..299) return TracksideLinkPoll.Linked(decode(answer, TracksidePairResult.serializer()))
+            val refusal = runCatching { TracksideJson.decodeFromString(TracksideErrorEnvelope.serializer(), answer.body).error }.getOrNull()
+            return when (refusal?.code) {
+                "authorization_pending" -> TracksideLinkPoll.Pending
+                "slow_down" -> TracksideLinkPoll.SlowDown(refusal.details?.intervalS ?: answer.retryAfter?.trim()?.toLongOrNull() ?: SLOW_DOWN_FALLBACK_S)
+                "access_denied" -> TracksideLinkPoll.Denied
+                "expired_token" -> TracksideLinkPoll.Expired
+                else -> throw error(answer)
+            }
+        }
+
+        /**
+         * Polls until linked, denied or expired, honouring the interval and `slow_down`.
+         * Cancellable. A dropped connection or a busy server waits and tries again until the
+         * link would have expired, so a blip on the network doesn't cost the TV its code.
+         */
+        suspend fun awaitLink(base: HttpUrl, start: TracksideLinkStart, transport: TracksideTransport = OkHttpTracksideTransport()): TracksideLinkPoll {
+            val expires = instant(start.expiresAt)
+            var interval = start.intervalS.coerceIn(1, MAX_LINK_INTERVAL_S)
+            var wait = interval
+            while (true) {
+                delay(wait * 1_000)
+                wait = interval
+                val poll = try {
+                    pollLink(base, start.deviceCode, transport)
+                } catch (error: TracksideError.RateLimited) {
+                    wait = (error.retryAfterSeconds ?: interval).coerceIn(interval, MAX_LINK_INTERVAL_S)
+                    null
+                } catch (_: IOException) {
+                    null
+                }
+                when (poll) {
+                    null, TracksideLinkPoll.Pending -> if (expires != null && Instant.now().isAfter(expires)) return TracksideLinkPoll.Expired
+                    is TracksideLinkPoll.SlowDown -> {
+                        interval = poll.intervalS.coerceIn(1, MAX_LINK_INTERVAL_S)
+                        wait = interval
+                    }
+                    else -> return poll
+                }
+            }
+        }
+
+        private const val SLOW_DOWN_FALLBACK_S = 10L
+        private const val MAX_LINK_INTERVAL_S = 60L
+
         /** The profile for a bit rate: null for the original. */
         fun profile(bitRate: Int?): String? = bitRate?.let { if (it >= 256) "aac-256" else "aac-128" }
 
@@ -369,6 +654,9 @@ class TracksideClient(
         fun bitRate(profile: String): Int? = profile.substringAfterLast('-', "").toIntOrNull()
 
         const val PROBE_TIMEOUT_MS = 2_000L
+
+        /** Tracks, albums, artists and playlists: what a search on the services asks for unless told otherwise. */
+        val DEFAULT_CATALOG_TYPES = listOf("track", "album", "artist", "playlist")
 
         private fun requireSafe(base: HttpUrl) {
             if (!Nearby.allowsCredentials(base)) throw TracksideError.InsecureAddress
@@ -440,6 +728,7 @@ class TracksideClient(
             val body = runCatching { TracksideJson.decodeFromString(TracksideErrorEnvelope.serializer(), answer.body).error }.getOrNull()
                 ?: return TracksideError.Http(answer.status)
             val retryAfter = answer.retryAfter?.trim()?.toLongOrNull()
+            if (body.code == "conflict" && body.details?.reason == "link_used") return TracksideError.LinkUsed
             return when (body.code) {
                 "unauthenticated" -> TracksideError.Unauthenticated
                 "media_token_expired" -> TracksideError.MediaTokenExpired
@@ -451,7 +740,14 @@ class TracksideClient(
                 "quota_exceeded" -> TracksideError.QuotaExceeded(instant(body.details?.resetsAt))
                 "candidate_expired" -> TracksideError.CandidateExpired
                 "library_unavailable", "transcoder_busy", "unavailable" -> TracksideError.Unavailable(body.code, retryAfter)
-                else -> TracksideError.Server(answer.status, body.code, body.message.orEmpty(), body.details?.field)
+                "speakers_unavailable" -> TracksideError.SpeakersUnavailable(retryAfter)
+                "catalog_unavailable" -> TracksideError.CatalogUnavailable(retryAfter)
+                "link_expired" -> TracksideError.LinkExpired
+                "link_locked" -> TracksideError.LinkLocked
+                else -> TracksideError.Server(
+                    answer.status, body.code, body.message.orEmpty(), body.details?.field, body.details?.reason, body.details?.capability,
+                    body.details?.serviceId, body.details?.limit,
+                )
             }
         }
     }

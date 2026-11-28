@@ -1,7 +1,5 @@
 package com.luke.tracks.lastfm
 
-import com.luke.tracks.system.isTv
-import kotlinx.coroutines.flow.flatMapLatest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -13,6 +11,7 @@ import com.luke.tracks.BuildConfig
 import com.luke.tracks.data.PlayEntity
 import com.luke.tracks.data.PlayKindValue
 import com.luke.tracks.data.PlaySourceValue
+import com.luke.tracks.system.isTv
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -107,27 +106,8 @@ class LastFm internal constructor(private val context: Context, private val grap
     private var connecting: Job? = null
     private val poke = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
-    private val spotifyPrefs = context.getSharedPreferences("lastfm_spotify", Context.MODE_PRIVATE)
-    private val _scrobbleSpotify = MutableStateFlow(BuildConfig.SPOTIFY && spotifyPrefs.getBoolean("scrobbleSpotify", false))
-
-    /**
-     * Whether plays from Spotify go to Last.fm too. Off by default, since Spotify scrobbles
-     * them itself for anyone who linked it; only builds with Spotify offer it.
-     */
-    val scrobbleSpotify: StateFlow<Boolean> = _scrobbleSpotify.asStateFlow()
-
-    fun setScrobbleSpotify(on: Boolean) {
-        if (!BuildConfig.SPOTIFY) return
-        _scrobbleSpotify.value = on
-        spotifyPrefs.edit().putBoolean("scrobbleSpotify", on).apply()
-        if (on) ScrobbleWorker.enqueue(context)
-    }
-
-    /** Plays still to go to Last.fm. */
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    fun owedCount(): Flow<Int> = scrobbleSpotify.flatMapLatest { spotify ->
-        graph.history.database.plays().owedScrobbleCount(owedSince(), spotify)
-    }
+    /** Plays still to go to Last.fm. Spotify's past plays stay with Spotify, which scrobbles them itself. */
+    fun owedCount(): Flow<Int> = graph.history.database.plays().owedScrobbleCount(owedSince())
 
     /** Starts connecting: asks for a token and opens Last.fm's approval page. */
     fun connect(activity: Context) {
@@ -200,7 +180,7 @@ class LastFm internal constructor(private val context: Context, private val grap
         val session = session() ?: return null
         val dao = graph.history.database.plays()
         val queue = object : ScrobbleQueue {
-            override suspend fun owed(limit: Int) = dao.owedScrobbles(owedSince(), limit, scrobbleSpotify.value)
+            override suspend fun owed(limit: Int) = dao.owedScrobbles(owedSince(), limit)
             override suspend fun markScrobbled(ids: List<String>, at: Long) = dao.markScrobbled(ids, at)
             override suspend fun markFailed(id: String, reason: String) = dao.markScrobbleFailed(id, reason)
             override suspend fun noteAttempt(ids: List<String>) = dao.noteScrobbleAttempt(ids)

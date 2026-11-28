@@ -43,13 +43,15 @@ extension View {
     /// Follows `tracks://` links from the widgets, and on iPhone takes in songs opened in
     /// Tracks from Files or the share sheet, into Your Music, and joins the SharePlay whose
     /// code was scanned with the Camera. A `trackside://pair` link, from a Trackside server's
-    /// pairing code, offers to pair with it.
+    /// pairing code, offers to pair with it, and a `tracks://link` one, from the code a TV
+    /// shows, offers to connect that TV.
     func opensDeepLinks(in model: AppModel) -> some View {
         onOpenURL { url in
             if url.scheme?.lowercased() == "trackside" {
                 TracksidePairingLinks.shared.open(url)
                 return
             }
+            if TracksideLinkApprovals.shared.open(url) { return }
             #if os(iOS)
             if url.isFileURL {
                 model.openInYourMusic([url])
@@ -63,6 +65,7 @@ extension View {
             DeepLink(url: url)?.open(in: model)
         }
         .presentsPairingLinks(music: model.yourMusic)
+        .presentsLinkApprovals(music: model.yourMusic)
         #if os(iOS)
         // A SharePlay code holding the App Clip's link, scanned with Tracks installed: iOS
         // opens Tracks rather than the App Clip, with the link.

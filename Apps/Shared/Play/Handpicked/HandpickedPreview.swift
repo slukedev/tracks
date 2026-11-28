@@ -65,8 +65,6 @@ final class HandpickedPreview {
         case .yourMusic:
             guard let track = music.track(for: HistorySong(pick.mixSong)) else { return false }
             return music.isPlayable(track)
-        case .spotify:
-            return false
         }
     }
 
@@ -260,8 +258,6 @@ final class HandpickedPreview {
         case .appleMusic:
             if let url = pick.previewURL { return Address(url: url) }
             return await catalogPreview(of: pick).map { Address(url: $0) }
-        case .spotify:
-            return nil
         }
     }
 

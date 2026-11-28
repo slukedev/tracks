@@ -59,7 +59,7 @@ struct LibraryScreen: View {
 
     /// The players with music, your own first, as Play From ranks them by default.
     private var players: [MusicSource] {
-        let ranked: [MusicSource] = [.yourMusic, .appleMusic, .spotify]
+        let ranked: [MusicSource] = [.yourMusic, .appleMusic]
         let present = Set(model.playerSources)
         return ranked.filter(present.contains)
     }
@@ -78,14 +78,6 @@ struct LibraryScreen: View {
             LibraryOverview(showsTitle: false)
         case .yourMusic:
             LibraryList(showsTitle: false)
-        case .spotify:
-            #if SPOTIFY
-            SpotifyLibraryList()
-            #else
-            CollectionMessage(text: String(localized: "Nothing from Spotify yet"), systemImage: nil) {
-                EmptyView()
-            }
-            #endif
         }
     }
 }

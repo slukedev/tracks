@@ -152,6 +152,15 @@ fun AppShell(navigator: Navigator) {
             skips.showSnackbar(listOfNotNull(skipped.message, skipped.reason).joinToString("\n"))
         }
     }
+    // What happened to a speaker command, when neither Now Playing nor Devices is there to say it.
+    val devices = com.luke.tracks.ui.devices.devicesViewModel()
+    LaunchedEffect(devices) {
+        devices.messages.collect { message ->
+            if (navigator.nowPlayingOpen || devices.sheetOpen) return@collect
+            skips.currentSnackbarData?.dismiss()
+            skips.showSnackbar(message.text)
+        }
+    }
 
     SharedTransitionLayout {
     CompositionLocalProvider(LocalNavigator provides navigator, LocalSharedTransitionScope provides this) {
@@ -191,7 +200,6 @@ fun AppShell(navigator: Navigator) {
                             entry<SongRoute> { SongScreen(it.identity, it.title, it.artistName) }
                             entry<MixRoute> { MixScreen(it.mixId) }
                             entry<SearchRoute> { SearchScreen() }
-                            entry<SpotifyLibraryRoute> { com.luke.tracks.spotify.Spotify.integration?.Library(onBack = { navigator.back() }) }
                             entry<SettingsRoute> { SettingsScreen() }
                             entry<SettingsPageRoute> { SettingsPageScreen(it.page) }
                             entry<LibraryAlbumRoute> { LibraryAlbumScreen(it.albumId) }
@@ -200,6 +208,7 @@ fun AppShell(navigator: Navigator) {
                             entry<ServerArtistRoute> { com.luke.tracks.ui.library.servers.ServerArtistScreen(it) }
                             entry<CatalogArtistRoute> { com.luke.tracks.ui.discover.CatalogArtistScreen(it.name, it.catalogId) }
                             entry<CatalogAlbumRoute> { com.luke.tracks.ui.discover.CatalogAlbumScreen(it.catalogId, it.title, it.artistName) }
+                            entry<ServiceItemRoute> { com.luke.tracks.ui.services.ServiceItemScreen(it) }
                         },
                     )
                     }

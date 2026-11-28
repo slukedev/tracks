@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Dns
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
@@ -62,8 +60,6 @@ fun sourceSelection(): State<SourceSelection> = rememberSources().selection.coll
 fun SourceKind.icon(): ImageVector = when (this) {
     SourceKind.Device -> Icons.Rounded.PhoneAndroid
     SourceKind.Server -> Icons.Rounded.Dns
-    SourceKind.Spotify -> Icons.Rounded.GraphicEq
-    SourceKind.AppleMusic -> Icons.Rounded.MusicNote
 }
 
 /** One word for where a source stands, as its row shows it. */

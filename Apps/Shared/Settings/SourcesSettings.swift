@@ -65,9 +65,6 @@ struct PlayFromSection: View {
         switch place {
         case .downloads:
             SettingsIconTile(systemImage: "arrow.down.circle.fill", color: .green)
-        case .source(.spotify):
-            SourceGlyph(source: .spotify)
-                .frame(width: 28, height: 28)
         case .source(let source):
             SettingsIconTile(systemImage: SourceWords.symbol(for: source), color: SourceWords.tint(for: source))
         }
@@ -135,14 +132,12 @@ struct SourcesPage: View {
 /// One source's own page.
 private struct SourceDetail: View {
     let entry: SourceEntry
-    @Environment(AppModel.self) private var model
 
     var body: some View {
         switch entry.id {
         case .appleMusic: AppleMusicSettingsPage()
         case .device: DeviceSourcePage()
         case .server(let id): ServerDetailPage(serverID: id)
-        case .spotify: model.spotify?.settingsPage() ?? AnyView(EmptyView())
         case .unknown: EmptyView()
         }
     }
@@ -221,15 +216,6 @@ struct AddSourcePage: View {
                     }
                     .disabled(isRequesting)
                 }
-                #if SPOTIFY
-                if let spotify = model.spotify, !spotify.isConnected {
-                    NavigationLink {
-                        spotify.settingsPage()
-                    } label: {
-                        row("Spotify", source: .spotify)
-                    }
-                }
-                #endif
                 if music.fileTracks.isEmpty {
                     NavigationLink {
                         DeviceSourcePage()
@@ -255,12 +241,7 @@ struct AddSourcePage: View {
             Text(title)
                 .foregroundStyle(.primary)
         } icon: {
-            if case .spotify = source {
-                SourceGlyph(source: .spotify)
-                    .frame(width: 28, height: 28)
-            } else {
-                SettingsIconTile(systemImage: SourceWords.symbol(for: source), color: SourceWords.tint(for: source))
-            }
+            SettingsIconTile(systemImage: SourceWords.symbol(for: source), color: SourceWords.tint(for: source))
         }
     }
 }

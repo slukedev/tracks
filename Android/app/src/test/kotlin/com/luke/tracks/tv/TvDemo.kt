@@ -37,7 +37,7 @@ object TvDemo {
     val song: PlayableSong by lazy {
         val album = albums.first()
         PlayableSong(
-            mediaId = "applemusic:1",
+            mediaId = "demo:1",
             uri = Uri.EMPTY,
             title = "A Song With Quite a Long Title",
             artistName = album.artist,

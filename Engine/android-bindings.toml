@@ -1,5 +1,0 @@
-# Kotlin-only renames for the Android bindings (Engine/build-android.sh passes this file).
-# UniFFI's Kotlin objects are AutoCloseable, whose close() frees the object, so the stream's
-# own close() would clash with it.
-[crates.tracks_engine.bindings.kotlin.rename]
-"SpotifyStream.close" = "stop"

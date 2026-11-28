@@ -21,7 +21,7 @@ data class LibraryArtist(
 )
 
 /** Where a song comes from. */
-enum class LibrarySourceKind { Device, Server, AppleMusic }
+enum class LibrarySourceKind { Device, Server }
 
 data class LibrarySnapshot(
     val songs: List<PlayableSong> = emptyList(),

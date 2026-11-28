@@ -2,7 +2,7 @@
 
 The Android app in `Android/` (Kotlin, Jetpack Compose, Material 3 Expressive, Media3, Room,
 Glance), on the shared Rust engine through UniFFI bindings
-(`Android/app/engine-bindings/uniffi/tracks_engine`, built by `Engine/build-android.sh`).
+(`Android/app/engine-bindings/kotlin/uniffi/tracks_engine`, built by `Engine/build-android.sh`).
 
 Everything below **Complete features** is built and merged on `feat/android-m3-expressive`.
 It has been checked with unit tests and Robolectric screenshots against the real engine, but
@@ -12,11 +12,8 @@ are marked *(untested on a device)*.
 
 Two things to know about the platform:
 
-- Apple Music plays on Android only in builds with Apple's MusicKit for Android SDK and a
-  developer token (see Apple Music below); the code is built and unit tested against the
-  real SDK, but sign-in and playback are unverified on a device. Without
-  them "Play" means your own music (files on the phone and servers), and anything Apple Music
-  does on iPhone has to come from history, the engine, your servers or Last.fm.
+- "Play" means your own music (files on the phone and servers): anything Apple Music does on
+  iPhone has to come from history, the engine, your servers or Last.fm.
 - The history comes only from Tracks itself: songs played in Tracks' own player, and your
   Last.fm history if you import it. See Decisions.
 
@@ -25,26 +22,16 @@ See [README.md](README.md) for the legend and how to keep this current.
 ## Decisions
 
 - 2026-11-24: Sources replace "Your Music". A source is where a song comes from: On This
-  Device, each server by its own name, and Spotify in builds that have it. They live in one
+  Device and each server by its own name. They live in one
   registry (`sources/`), are managed in Settings > Sources, and filter Play and Library once
   there are two or more. The tabs are Play, Library, Summary, History and Search, with Charts
   as History's second mode. Plays stay in History when a source is removed.
-- 2026-11-25: Apple Music is a source when the build has a developer token and Apple's
-  MusicKit AARs. The MusicKit private key never ships: a personal build carries a token signed
-  ahead of time (`appleMusic.developerToken` in `secrets.properties`, made with
-  `scripts/apple-music-token.py`, 180 days at most, dropped by the build once expired), and a
-  paired Trackside server whose `/me` lists `features.apple_music.developer_token` hands one
-  out (`GET /api/v1/me/apple-music/developer-token`, signed with the owner's key). The server's
-  comes first; it's kept in memory until `refresh_after`, fetched again at once when Apple
-  answers 401 or 403, not asked for again after a 404 until the next start, nor before
-  `Retry-After` after a 429. In builds with the SDK, Apple Music is always offered in Sources;
-  without a token its page says "Sign-in needs your server's Apple Music key." and asks the
-  servers again on Try again and when the page comes back. MusicKit plays the audio, which is protected, so
-  ExoPlayer plays a silent stand-in of the song's length and MusicKit follows it (item, play,
-  pause, seek), handing the audio focus to MusicKit. The queue, notification, Android Auto,
-  the listen count and History stay ExoPlayer's; plays are kept as `appleMusic`.
-- 2026-11-27: Google TV is the same APK with its own interface, playing from Trackside only
-  (Apple Music through Trackside). See Google TV below.
+- 2026-11-27: Google TV is the same APK with its own interface, playing from Trackside only.
+  See Google TV below.
+- 2026-11-27: Apple Music and Spotify are no longer sources on Android. MusicKit for Android
+  (the optional AARs, sign-in, the silent stand-in it played beside) and the sideload
+  variant's librespot Spotify are gone; streaming services are to come through Trackside.
+  Plays already kept from either stay in History with their sources.
 - 2026-11-24: Cleartext is the app's decision, not the network security config's. The config
   can't name private address ranges, so it permits cleartext and `net/Http.kt`'s
   `CleartextGuard` refuses plain http to anything but a nearby address (the iPhone's and
@@ -310,15 +297,39 @@ See [README.md](README.md) for the legend and how to keep this current.
 
 - Colors from the cover, artwork that breathes while playing and rests when paused.
 - Swipe the artwork to skip; pull down to close.
-- With two or more sources, where the song plays from under the seek bar (always for
-  Spotify); Up next marks each row's source when the queue mixes them, and dims songs whose
+- With two or more sources, where the song plays from under the seek bar; Up next marks each row's source when the queue mixes them, and dims songs whose
   source can't play them now. When the player skips songs it couldn't play, one quiet
   snackbar says how many and why.
 - "Playing from", tappable artist, play count and a ring that fills until the song is kept.
 - Wavy seek bar that goes flat when paused.
 - Shuffle and repeat, expressive button group transport.
-- Output switcher, sleep timer with a fade, Up Next with drag to reorder and swipe to remove,
-  Share.
+- Devices, sleep timer with a fade, Up Next with drag to reorder and swipe to remove,
+  Share. Devices lists this phone, your Trackside servers' speakers and the system's own
+  outputs (Bluetooth and the rest, through Android's output switcher); without speakers the
+  button opens the output switcher as before.
+- Speakers (`speakers/`, `ui/devices/`): a tap moves the queue (your server's songs in it)
+  to a speaker, with a tick and the row connecting until the speaker answers; the phone
+  pauses once the server takes it and plays again if the speaker can't. While a speaker
+  plays, the mini player and Now Playing show and control it: play and pause, next and
+  previous, a seek bar that holds where you let go until the speaker gets there, shuffle and
+  repeat, each only where the speaker can. The big player's device area has its name,
+  volume (and the group's), mute, power and who it plays with, the same as its page in
+  Settings, Devices. Every control answers at once and the speaker's own updates settle it;
+  a command that fails, or isn't settled in time, falls back with one quiet line. Position
+  moves every frame from the last one the server said, never by asking again. This phone in
+  Devices brings the music back here when all of it is in your library, else leaves the
+  speaker playing. *(untested on a device)*
+- Music services through Trackside (`streaming/`, `ui/services/`, `playback/RelayPlayer.kt`):
+  Search shows each service your server is signed in to as its own section after your
+  library, with a chip per service (Apple Music included); a service's song that names one of
+  your library songs is folded into it. Albums, artists, playlists (paged as you scroll) and
+  stations open as pages; a chosen service with nothing typed shows what you saved there.
+  A queue with any service's song plays through the server's relay as live HLS, the rest of
+  the queue with it; a queue of library songs alone stays native. The relay's tier follows a
+  metered network. Controls show at once and go to the relay's speaker; a seek, skip, pause
+  or tier change never plays what was buffered before it. A speaker in Devices takes the
+  relay's queue by transfer, and a speaker playing a service comes back here the same way.
+  Old servers, and accounts without services, show none of it. *(untested on a device)*
 - Mini player as a floating toolbar across the screen beside a round play button, tinted
   from the cover (or in the app's colors, from Settings, Appearance), with the song's progress filling the play button's edge: tap or swipe up
   to expand, swipe to skip, press and hold (or TalkBack's Show queue action) for the queue.
@@ -328,7 +339,7 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Settings > Sources: every source with one status word (Connected, Away when a server is
   reached outside home, Offline, Sign in, Check certificate, Syncing with a percentage on a
   Trackside server's first sync, a song count), Add source (a container transform from the button;
-  On This Device asks for music access, Server opens the server form, Spotify its own page),
+  On This Device asks for music access, Server opens the server form),
   the Play From order once there are two or more (drag a row by its handle or after a long
   press, or TalkBack's Move up and Move down; any source can go anywhere and a new one goes
   last), and remove with a confirmation that
@@ -341,17 +352,6 @@ See [README.md](README.md) for the legend and how to keep this current.
   minute before a song ends, songs next whose source can't play are switched to another copy
   or skipped with one Snackbar (`Skipped 2 songs`, `Home is offline`); when nothing left can
   play, `Nothing in Up Next can play right now.` once the music stops.
-- Library filtered to Spotify shows Spotify's own saved albums, playlists and liked songs.
-- Apple Music (`applemusic/`, `ui/applemusic/`): Add source opens its page, Sign in hands over
-  to the Apple Music app through MusicKit's sign-in, and the account is checked by its
-  storefront. Every state has its sentence (Install Apple Music to sign in, no subscription,
-  offline, signed out again) and action. The Music User Token is sealed with a Keystore key.
-  Library filtered to Apple Music shows its playlists, albums and songs, and search across
-  the library and the catalog (Not in your library), all through the Apple Music API. Library
-  songs (kept for 6 hours) are copies for Play From. Now Playing always names Apple Music. Uploads that aren't in
-  the catalog are listed dimmed. *(the API client is tested against Apple's documented
-  responses; the MusicKit code compiles against SDK 1.1.4 and its mapping is unit tested with
-  fakes of the SDK's interfaces; sign-in and playback are unverified on a device)*
 - Library: one library across sources, with the source filter and Artists, Albums and Songs
   as chips. "No music yet" with Add source when there's nothing.
 - Device files through MediaStore, with permission handling and change watching. *(untested
@@ -444,8 +444,8 @@ See [README.md](README.md) for the legend and how to keep this current.
 - Connect through a Custom Tab, with the session key sealed by an Android Keystore key.
 - Scrobbles in batches of 50 with WorkManager, settled by Last.fm's answer, with backoff.
 - Now playing updates.
-- Spotify's plays aren't scrobbled unless Scrobble Spotify is on (Last.fm settings, sideload
-  builds only), since Spotify scrobbles them itself.
+- Spotify's plays (from earlier sideload builds, or synced from another device) aren't
+  scrobbled, since Spotify scrobbles them itself.
 - Import from Last.fm, skipping plays already kept. The row says what it does before you tap
   it and shows progress; there is no confirmation dialog.
 - A notification when the session is revoked.
@@ -460,7 +460,7 @@ See [README.md](README.md) for the legend and how to keep this current.
   setting and cross-fade when changed.
 - Settings in Android 16's grouped style: Sources and Sync first, then Last.fm, appearance,
   Tracks Radio, Hear less of, privacy, about, licenses, app language and sample data.
-- Onboarding: welcome, Add music (On This Device, a server, Spotify where built), Last.fm,
+- Onboarding: welcome, Add music (On This Device, a server), Last.fm,
   and try with sample data.
 - Material 3 Expressive's short navigation bar on phones (a wide rail on larger screens). It
   slides away while you scroll down and returns when you scroll up; the mini player follows,
@@ -559,8 +559,6 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - Driving: Tracks Radio for the road, from Activity Recognition or an Android Auto
   connection.
 - Shake to Play.
-- Spotify copies of a song in your files or on a server: Play From only chooses among the
-  phone's files and servers, and a Spotify song plays as Spotify.
 
 ### Now Playing
 
@@ -607,8 +605,11 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 ### Devices and sharing
 
 - Your Devices: see and control Tracks on another device nearby. Android's own equivalents
-  are the output switcher and Cast for speakers; device-to-device control between Android
-  phones and tablets would use Nearby Connections or NSD.
+  are the output switcher and, for speakers, your Trackside server's speakers in Devices;
+  device-to-device control between Android phones and tablets would use Nearby Connections
+  or NSD.
+- Speakers: their Up Next, and moving a queue with music services in it to this phone
+  (that needs the server's relay).
 - SharePlay has no Android equivalent. The nearest is a join-by-code flow over the same
   encrypted relay, with a web page for guests in place of the App Clip.
 - Louder at Speed (volume follows speed in the car).
@@ -638,56 +639,10 @@ Grouped by area. Where Android needs its own equivalent rather than a copy, the 
 - **Wavy seek bar, floating mini player, expressive motion**: Material 3 Expressive design.
 - **Quick Settings tile and dynamic shortcuts**: Android surfaces, standing in for Control
   Center controls and App Shortcuts.
-- **Apple-only features that don't come across**: Apple Music radio stations (MusicKit for
-  Android can't play them), gapless Apple Music, the Heard on Radio
+- **Apple-only features that don't come across**: Apple Music, its radio stations, the Heard on Radio
   playlist, Play Back, Merge with Apple Music, Explicit Songs, Offline Mode for Apple Music,
   Motif import, Handoff, CarPlay (Android Auto instead), the menu bar extra and the Mac's
   windows.
-
-## Apple Music (MusicKit for Android)
-
-Apple ships MusicKit for Android as two AARs behind a developer sign-in, and its licence doesn't
-allow passing them on, so they're never committed.
-
-1. Download "MusicKit for Android" from developer.apple.com/download/all (1.1.4: MediaPlayback
-   1.1.4 and MusicKitAuth 1.1.5).
-2. Put both `.aar` files in `Android/app/libs/apple-musickit/` (gitignored).
-3. Build as usual. The build turns the SDK on whenever that folder has AARs (it adds
-   `src/appleMusicSdk/`, the sign-in activity's AppCompat theme, Gson and AppCompat, and
-   `proguard-apple-musickit.pro`); `-Ptracks.appleMusicSdk=false` leaves them out.
-4. A developer token: pair a Trackside server that has your MusicKit key, or put a token in
-   `secrets.properties` (`appleMusic.developerToken`, from `scripts/apple-music-token.py`).
-   Without either, Apple Music still shows in Sources and its page says it needs the key.
-
-What the real SDK settled (it differed from what the code first guessed):
-
-- `TokenProvider` has a third method, `getAppleMusicStoreFrontId()`. Sign-in's `TokenResult`
-  gives it as `getAppleMusicStorefrontId()`; Tracks keeps it next to the Music User Token and
-  hands it to the player.
-- `TokenError` is an enum: `USER_CANCELLED` (not an error), `NO_SUBSCRIPTION` and
-  `SUBSCRIPTION_EXPIRED` (no subscription), `TOKEN_FETCH_ERROR` and `UNKNOWN`.
-- `MediaPlayerException.getType()` says what went wrong: `TYPE_IO` is retried by MusicKit and
-  ignored, `TYPE_FAILED_CONNECTION` is offline, `TYPE_USER_SUBSCRIPTION_INVALID` no
-  subscription, `TYPE_MUSIC_USER_TOKEN_ERROR` renews the token with `refreshTokenAsync`
-  before asking to sign in again, `TYPE_PLAYBACK_LEASE` (another device took over) pauses
-  rather than skipping, `TYPE_EXPLICIT_VERIFY_AGE` asks to confirm age in Apple Music, and the
-  rest make the song unavailable.
-- The listener has 13 callbacks, including `onPlaybackModeChanged`, and
-  `onPlaybackQueueItemsAdded` takes a `PlaybackQueueItemsAdded`.
-- The controller is made with a main-thread `Handler`, so its callbacks arrive where
-  `AppleMusicPlayback` expects them. New tokens (sign-in again, a refresh, a rotated server
-  token) go to it with `getPlaybackStoreConfiguration().notifyTokenChanged`; Remove clears
-  the tokens, stops, notifies, then calls `MediaPlayerContextFactory...clearData()`.
-- A start position or seek is held until MusicKit has the song and `canSeek()`, and playing is
-  reported only once it's playing and not buffering.
-- The SDK's manifest brings the `com.apple.android.music` package query, `INTERNET`,
-  `WAKE_LOCK`, `ACCESS_NETWORK_STATE` and its activities; minSdk 23. It needs AppCompat and
-  Gson and doesn't declare them. Its native code is arm64-v8a and armeabi-v7a only, so on the
-  x86_64 emulator Apple Music stays out. Native libraries are extracted at install (legacy
-  packaging) while the SDK is in, as Apple's sample does.
-
-Still needs a phone: sign-in through the Apple Music app and its return, playback and the
-stand-in staying in step, seeking, a refreshed token, and another device taking over.
 
 ## Google TV
 
@@ -705,13 +660,12 @@ Compose. On a TV:
 - `MainActivity` shows the TV interface (`ui/tv`, built with `androidx.tv:tv-material`)
   instead of the phone shell. Links, searches and Assistant requests go through
   `AppNavigation`, which both shells implement.
-- Trackside is the only source; Apple Music reaches the TV through Trackside.
-  `SourcesRegistry` is made with `allowedKinds` set to servers, and `ServerLibrary` with
-  `tracksideOnly`, so device files, Subsonic servers, Spotify and Apple Music's SDK never
-  register (a Subsonic server restored from a phone's backup stays saved, unused), and nothing
-  says they're missing. Startup never reads MediaStore or asks for music permission, and skips
-  Spotify, Apple Music's SDK, Last.fm scrobbling, widgets and shortcuts. Trackside's address
-  refreshes and services run as on a phone.
+- Trackside is the only source. `SourcesRegistry` is made with `allowedKinds` set to
+  servers, and `ServerLibrary` with `tracksideOnly`, so device files and Subsonic servers
+  never register (a Subsonic server restored from a phone's backup stays saved, unused), and
+  nothing says they're missing. Startup never reads MediaStore or asks for music permission,
+  and skips Last.fm scrobbling, widgets and shortcuts. Trackside's address refreshes and
+  services run as on a phone.
 - A TV is linked to Trackside from its own screen. `trackside://pair` links and
   `tracks://link` approvals are ignored there.
 - Trackside Cloud syncs the TV's history (Summary, Charts, History) with the server it's
@@ -736,49 +690,6 @@ control characters are dropped and they're cut at 200 characters.
 must be a UUID and the code eight letters or digits (`Q7RM-4X2K`), or the link is dropped.
 
 Still needs a TV: everything. Robolectric screenshots cover the TV screens at 960x540dp.
-
-## Spotify (sideload builds only)
-
-Spotify plays inside Tracks through the engine's `spotify` feature, on librespot. It is opt-in
-and never in a store build: Spotify's terms forbid unofficial clients and the audio is
-decrypted on the phone. Build it with `Engine/build-android.sh --sideload` and
-`-Ptracks.sideload=true` (see [Android/README.md](../../Android/README.md)); that sets
-`BuildConfig.SPOTIFY`, links the engine built with Spotify, and compiles `app/src/sideload/`.
-The play variant compiles `app/src/play/`, whose `SpotifyFlavor` returns nothing, against an
-engine without Spotify, so none of it ships there. A sideload build has the same application
-id, so it replaces a store install (and its history) rather than sitting beside it.
-
-- **Premium only.** Sign-in checks the account; without Premium nothing is kept and the page
-  says `Spotify Premium is needed to play here.`
-- **Sign-in** (Settings, Sources, Spotify): the engine's `SpotifyLogin` listens on
-  `http://127.0.0.1:<free port>/login`, the only redirect librespot's client ID accepts, while
-  Spotify's page is open in a Custom Tab. Coming back with the tab closed and no redirect
-  within 1.5 s is a cancel and says nothing. The opaque credentials blob is sealed with a
-  Keystore AES-GCM key (`KeystoreSecretBox("tracks.spotify")`) in the `spotify` preferences;
-  Sign Out deletes it. The OAuth tokens are never kept.
-- **Audio key refusal.** Since November 2026 Spotify refuses audio keys to librespot-style
-  clients for accounts it hasn't seen on one before
-  ([librespot#1649](https://github.com/librespot-org/librespot/issues/1649)); there is no fix.
-  Sign-in tries one saved song's key: when refused, the account stays for browsing and the page
-  shows `Spotify can't play this account in Tracks.` with Remove and Try Again, and the Sources
-  row asks to sign in.
-- **Playback** goes through the same Media3 ExoPlayer as everything else.
-  `playback/PcmWavDataSource` presents the engine's `SpotifyStream` (44.1 kHz stereo, read as
-  16-bit bytes with `read_pcm16`, so no float is boxed) as a WAV, so focus, the notification, Android Auto, speed and gapless joins work unchanged.
-  WavExtractor seeks by byte offset; the source maps it to a frame, seeks the engine to the
-  millisecond at or before it, and drops or pads the difference. A song that decodes short is
-  padded with silence to the length it promised. ExoPlayer opens the next song about 50 s
-  ahead, which is the prefetch. Account-wide errors (Premium, refused, signed out) aren't
-  retried and are said once; network errors are retried like any stream.
-- Plays are kept with source Spotify (`PlaySourceValue.Spotify`, the engine's
-  `PlaySource.Spotify`).
-- **Browsing:** saved albums, playlists, liked songs and search (`ui/spotify/`), with Spotify's
-  mark on every row, uncropped covers with 4dp and 8dp corners, and Open in Spotify on album
-  and playlist pages. No editorial or Home. Quality uses Spotify's names (Normal, High, Very
-  High, for 96, 160 and 320 kbps) separately for Wi-Fi and cellular.
-- librespot and psst are credited in Settings, About, Licenses.
-- *(Untested on a device and with a real account.)* Checked with fakes and Robolectric only:
-  the WAV framing, seeking sums, error words and the variant gating.
 
 ## Sync (Trackside Cloud)
 

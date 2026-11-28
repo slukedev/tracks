@@ -10,6 +10,8 @@ public enum TracksideError: Error, Equatable, Sendable {
     /// Unknown, or not visible to this user, which the server doesn't tell apart.
     case notFound
     case conflict(reason: String?)
+    /// A speaker can't do what was asked; `capability` names what it lacks.
+    case unsupported(capability: String?)
     /// The sync cursor is too old to continue from; a snapshot starts over.
     case syncReset
     /// A song offered for getting isn't known any more; search again.
@@ -36,6 +38,11 @@ public enum TracksideError: Error, Equatable, Sendable {
     /// The server takes this device's key only over https, and none of its https addresses
     /// answered. Nothing to sign in to again: an https address that works is enough.
     case httpsRequired
+    /// A TV's code was right, but its link ran out. (`link_used` arrives as
+    /// ``conflict(reason:)`` with `"link_used"`.)
+    case linkExpired
+    /// Too many wrong codes reached this TV's link first, so it can't be approved.
+    case linkLocked
 }
 
 /// Sends a request and hands back the body and response. URLSession in the app; a stub in tests.
@@ -120,8 +127,59 @@ public struct TracksideClient: Sendable {
         return try decode(try await transport.send(try request(base, "pair/requests/\(pairing.id)", authorization: "Pair \(pairing.pollSecret)")))
     }
 
+    /// Starts linking this device, a TV, with the server at `base`: show ``TracksideLinkStart/userCode``
+    /// and a QR code of its `linkURL`, then ``pollLink(deviceCode:at:transport:)`` every
+    /// `intervalS` seconds.
+    public static func startLink(at base: URL, device: TracksideDeviceInfo, appDeviceID: String = DeviceIdentity.current, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksideLinkStart {
+        try requireSafe(base)
+        let body = try TracksideJSON.encoder.encode(TracksideLinkStartBody(device: device.speaking(for: appDeviceID)))
+        return try decode(try await transport.send(try request(base, "link/start", method: "POST", body: body)))
+    }
+
+    /// One poll. Waiting, slowing down, a denial and an expiry are answers, never thrown;
+    /// anything else throws as usual (too many polls is ``TracksideError/rateLimited(retryAfter:)``).
+    public static func pollLink(deviceCode: String, at base: URL, transport: any TracksideTransport = URLSessionTracksideTransport()) async throws -> TracksideLinkPoll {
+        try requireSafe(base)
+        let body = try TracksideJSON.encoder.encode(TracksideLinkPollBody(deviceCode: deviceCode))
+        let (data, response) = try await transport.send(try request(base, "link/poll", method: "POST", body: body))
+        if (200..<300).contains(response.statusCode) {
+            return .linked(try decode((data, response)))
+        }
+        let refusal = try? TracksideJSON.decoder.decode(TracksideErrorEnvelope.self, from: data).error
+        switch refusal?.code {
+        case "authorization_pending":
+            return .pending
+        case "slow_down":
+            let retryAfter = response.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            return .slowDown(interval: .seconds(refusal?.details?.intervalS ?? retryAfter ?? 10))
+        case "access_denied":
+            return .denied
+        case "expired_token":
+            return .expired
+        default:
+            throw error(from: data, response: response)
+        }
+    }
+
     private static func requireSafe(_ base: URL) throws {
         guard TracksideEndpointProof.allowsCredentials(to: base) else { throw TracksideError.insecureAddress }
+    }
+
+    // MARK: - Approving a TV
+
+    /// What `code` would link: the TV's name, and whether it asked from nearby. Any case,
+    /// with or without the dash.
+    public func lookupLink(code: String) async throws -> TracksideLinkInfo {
+        try await send("link/lookup", method: "POST", body: TracksideLinkCodeBody(userCode: code))
+    }
+
+    /// The TV becomes one of this person's devices when it next polls.
+    public func approveLink(code: String) async throws -> TracksideLinkInfo {
+        try await send("link/approve", method: "POST", body: TracksideLinkCodeBody(userCode: code))
+    }
+
+    public func denyLink(code: String) async throws -> TracksideLinkInfo {
+        try await send("link/deny", method: "POST", body: TracksideLinkCodeBody(userCode: code))
     }
 
     // MARK: - The user
@@ -399,7 +457,7 @@ public struct TracksideClient: Sendable {
 
     // MARK: - Requests
 
-    private var bearer: String { "Bearer \(apiKey)" }
+    var bearer: String { "Bearer \(apiKey)" }
 
     /// The events stream's request, picking up after the last event seen.
     func eventsRequest(lastEventID: String?) async throws -> URLRequest {
@@ -609,9 +667,12 @@ public struct TracksideClient: Sendable {
         case "invalid_state": return .invalidState
         case "rate_limited": return .rateLimited(retryAfter: retryAfter)
         case "quota_exceeded": return .quotaExceeded(resetsAt: body.details?.resetsAt)
-        case "library_unavailable", "transcoder_busy", "unavailable": return .unavailable(code: body.code, retryAfter: retryAfter)
+        case "unsupported": return .unsupported(capability: body.details?.capability)
+        case "library_unavailable", "transcoder_busy", "unavailable", "speakers_unavailable", "catalog_unavailable": return .unavailable(code: body.code, retryAfter: retryAfter)
         case "insufficient_storage": return .insufficientStorage
         case "https_required": return .httpsRequired
+        case "link_expired": return .linkExpired
+        case "link_locked": return .linkLocked
         default: return .server(status: status, code: body.code, message: body.message ?? "")
         }
     }

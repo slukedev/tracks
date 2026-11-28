@@ -171,6 +171,9 @@ enum PlayRequest {
     case demoStation(String, isLive: Bool)
     /// Songs from your own music: files, and songs on your servers.
     case local([LocalTrack], startingAt: Int = 0)
+    /// A queue with a music service's tracks in it, which plays through the server's relay,
+    /// its library songs included.
+    case relay(RelayQueue)
 
     /// A live broadcast, such as Apple Music 1, rather than a station of on-demand songs.
     var isLiveBroadcast: Bool {

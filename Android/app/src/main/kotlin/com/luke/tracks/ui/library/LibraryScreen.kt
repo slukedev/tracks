@@ -150,19 +150,6 @@ fun LibraryScreen() {
         onPauseOrDispose { }
     }
 
-    // Spotify's saved albums, playlists and liked songs come from Spotify itself.
-    val spotify = com.luke.tracks.spotify.Spotify.integration
-    if (spotify != null && selection == SourceSelection.Only(SourceId.Spotify)) {
-        spotify.Library(onBack = { registry.select(SourceSelection.All) })
-        return
-    }
-    // So do Apple Music's.
-    val appleMusic = com.luke.tracks.applemusic.AppleMusic.service
-    if (appleMusic != null && selection == SourceSelection.Only(SourceId.AppleMusic)) {
-        com.luke.tracks.ui.applemusic.AppleMusicLibraryScreen(appleMusic, onBack = { registry.select(SourceSelection.All) })
-        return
-    }
-
     LibraryContent(
         snapshot = snapshot,
         index = { library?.index?.value ?: (graph.library.index.value) },

@@ -168,6 +168,8 @@ As of November 2026, on `feat/android-m3-expressive`.
 | Merge playlists with Apple Music | Yes | Yes | n/a | Platform |
 | Suggestions checked against what you have | Yes | Yes | Yes | Engine on Android (`tracks-catalog` matching and ranking), Apple in Swift (`ServerSongMatcher`) |
 | Lidarr | Yes | Yes | Yes | Engine on Android (`tracks-catalog`), Apple in Swift (`LidarrClient`) |
+| Music services through Trackside (Spotify, Tidal and others): search, pages, saved library | Yes | Yes | No | Platform (wire in Trackside) |
+| Play a music service here through Trackside's relay, lossless or cellular tier | Yes | Yes | No | Platform (wire in Trackside) |
 | Tell the server about plays | Yes | Yes | No | Candidate |
 
 ### Scrobbling and Last.fm
@@ -195,6 +197,7 @@ As of November 2026, on `feat/android-m3-expressive`.
 | --- | --- | --- | --- | --- |
 | Your Devices: see, control and move music between your devices | Yes | Yes | No | Platform (`NearbyMessage` could move) |
 | HomePods and AirPlay speakers in Play On | Yes | Yes | n/a (Cast, output switcher) | Platform |
+| Trackside's speakers in Play On, the player and Devices settings (volume, power, grouping) | Yes | Yes | Yes | Platform (wire in Trackside) |
 | Handoff | Yes | Yes | n/a | Platform |
 | SharePlay, invite in Messages or by code | Yes | No | No | Platform |
 | Join by code without the app (App Clip) | Yes | n/a | No | Platform |

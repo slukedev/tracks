@@ -116,10 +116,6 @@ struct SearchPage: View {
         switch session.scope {
         case .history:
             HistorySearchResults(query: session.query, search: search)
-        #if SPOTIFY
-        case .library where model.musicSource == .spotify:
-            SpotifySearchView(query: session.query)
-        #endif
         case .library where model.musicSource == .yourMusic:
             YourMusicSearchResults(query: session.query, search: search)
         case .library:

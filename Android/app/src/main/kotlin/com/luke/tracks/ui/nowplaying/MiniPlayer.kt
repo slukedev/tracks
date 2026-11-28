@@ -96,8 +96,16 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
     val colors by remember { graph.settings.settings.map { it.miniPlayerColors }.distinctUntilChanged() }
         .collectAsStateWithLifecycle(MiniPlayerColors.Album)
     val song = state.current
+    // While a speaker plays, the mini player is the speaker's.
+    val devices = com.luke.tracks.ui.devices.devicesViewModel()
+    val devicesUi by devices.state.collectAsStateWithLifecycle()
+    val casting = devicesUi.casting
     // Tells the shell how much room pages should leave under their lists.
-    SideEffect { navigator.miniPlayerVisible = song != null }
+    SideEffect { navigator.miniPlayerVisible = song != null || casting != null }
+    if (casting != null) {
+        com.luke.tracks.ui.devices.CastMiniPlayer(casting, devices, onExpand, modifier)
+        return
+    }
 
     AnimatedVisibility(
         visible = song != null,
@@ -196,27 +204,16 @@ fun MiniPlayer(onExpand: () -> Unit, modifier: Modifier = Modifier) {
                             modifier = Modifier.weight(1f),
                             label = "song",
                         ) { s ->
-                            val sources = com.luke.tracks.ui.sources.rememberSources()
                             Column {
                                 Text(s.titleLabel, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                // Spotify's songs carry its mark after the artist, as its terms ask.
-                                val spotify = remember(s.mediaId) { sources.sourceOf(s.mediaId) == com.luke.tracks.sources.SourceId.Spotify }
-                                if (s.hasArtist || spotify) {
-                                    androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            s.artistName.takeIf { s.hasArtist }.orEmpty(),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = scheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false),
-                                        )
-                                        val mark = sources.provider(com.luke.tracks.sources.SourceKind.Spotify)?.iconRes
-                                        if (spotify && mark != null) {
-                                            androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
-                                            Icon(androidx.compose.ui.res.painterResource(mark), contentDescription = "Spotify", tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(12.dp))
-                                        }
-                                    }
+                                if (s.hasArtist) {
+                                    Text(
+                                        s.artistName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = scheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
                             }
                         }

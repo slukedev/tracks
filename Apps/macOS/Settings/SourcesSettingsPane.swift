@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import TracksCore
 
-/// The Mac's Sources pane: Apple Music, Spotify, the songs on this Mac and every server, then
+/// The Mac's Sources pane: Apple Music, the songs on this Mac and every server, then
 /// Play From once there are two. A Settings pane has nowhere to push, so each source's
 /// controls sit in its own section.
 struct SourcesSettingsPane: View {
@@ -20,9 +20,6 @@ struct SourcesSettingsPane: View {
                 tint: .indigo
             )
             AppleMusicAccessSection()
-            if let spotify = model.spotify {
-                spotify.settingsPage()
-            }
             deviceSection
             ServersSection()
             PlayFromSection()

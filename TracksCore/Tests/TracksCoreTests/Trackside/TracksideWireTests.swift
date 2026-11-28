@@ -410,11 +410,29 @@ struct TracksideFixtureTests {
         }
         let keys = Set(fields.keys)
         let has = { (key: String) in keys.contains(key) }
+        // A failed command's outcome carries an error too, but isn't a refusal.
+        if has("command_id"), has("outcome") { return read(TracksideSpeakerCommandOutcome.self) }
         if has("error") { return read(TracksideErrorEnvelope.self) }
+        if has("generation"), has("speaker_id") { return read(TracksideRelaySession.self) }
+        if has("services"), has("complete") { return read(TracksideCatalogSearch.self) }
+        if fields["services"] is [Any], has("state") { return read(TracksideCatalogServiceList.self) }
+        if has("catalog") { return read(TracksideSearchResults.self) { $0.songs?.items ?? [] } }
+        if has("tracks") || has("top_tracks"), has("album") || has("artist") || has("playlist") { return read(TracksideCatalogItem.self) }
+        if has("items"), has("synced_at") { return read(TracksideCatalogLibraryPage.self) }
         if has("product") { return read(TracksideCapabilities.self) }
+        if has("speakers"), has("state") { return read(TracksideSpeakerList.self) }
+        if has("command_id"), has("speaker") { return read(TracksideSpeakerCommand.self) }
+        if has("items"), has("mode") { return read(TracksideSpeakerPlayRequest.self) }
+        if has("items"), has("current_index") { return read(TracksideSpeakerQueue.self) }
+        if has("availability"), has("revision") { return read(TracksideSpeaker.self) }
+        if has("position_ms"), has("position_at") { return read(TracksideSpeakerProgress.self) }
+        if has("state"), has("since"), keys.isSubset(of: ["state", "since"]) { return read(TracksideSpeakersState.self) }
         if has("mode"), has("url") { return read(TracksidePlaybackDecision.self) }
         if has("mode") { return read(TracksideSyncPage.self) { ($0.songs ?? []) + ($0.upserts?.songs ?? []) } }
         if has("api_key") { return read(TracksidePairResult.self) }
+        if has("device_code"), has("user_code") { return read(TracksideLinkStart.self) }
+        if has("device"), has("nearby") { return read(TracksideLinkInfo.self) }
+        if has("id"), has("platform"), keys.isSubset(of: ["id", "name", "platform"]) { return read(TracksideDeviceLinked.self) }
         if has("poll_secret") { return read(TracksidePairRequest.self) }
         if has("user"), has("server") { return read(TracksideMe.self) }
         if has("search_id") { return read(TracksideAcquisitionSearch.self) { $0.inLibrary ?? [] } }

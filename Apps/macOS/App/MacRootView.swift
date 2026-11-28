@@ -87,7 +87,10 @@ struct MacRootView: View {
             .overlay {
                 if isShowingFullPlayer {
                     Group {
-                        if let device = model.controlledDevice {
+                        if let address = model.controlledSpeaker, model.controlledSpeakerNow != nil {
+                            SpeakerFullPlayer(address: address) { playerWindow.showsFullPlayer = false }
+                                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
+                        } else if let device = model.controlledDevice {
                             RemoteFullPlayer(device: device) { playerWindow.showsFullPlayer = false }
                         } else {
                             FullPlayer(window: playerWindow) { playerWindow.showsFullPlayer = false }
@@ -104,6 +107,7 @@ struct MacRootView: View {
             }
             #endif
             .animation(reduceMotion ? .easeOut(duration: 0.2) : PlayMotion.panel, value: isShowingFullPlayer)
+            .animation(reduceMotion ? .easeOut(duration: 0.2) : .spring(duration: 0.45, bounce: 0.1), value: model.controlledSpeakerNow == nil ? nil : model.controlledSpeaker)
             .playerFeedback()
             // Songs being added to a playlist, from a menu anywhere.
             .sheet(item: Bindable(model.yourMusic.playlists).picking) { PlaylistPickerSheet(pick: $0) }
@@ -200,7 +204,7 @@ struct MacRootView: View {
     }
 
     private var isShowingFullPlayer: Bool {
-        playerWindow.showsFullPlayer && (model.player.hasQueue || model.controlledDevice != nil)
+        playerWindow.showsFullPlayer && (model.player.hasQueue || model.controlledDevice != nil || model.controlledSpeakerNow != nil)
     }
 
     private func controlEnded(on id: String) {

@@ -59,8 +59,6 @@ enum PlaySettingsWords {
                 return (String(localized: "Add songs or connect a server to start."), .attention)
             }
             return (String(localized: "Plays Files and Servers"), .plain)
-        case .spotify:
-            return (String(localized: "Plays Spotify"), .plain)
         }
     }
 

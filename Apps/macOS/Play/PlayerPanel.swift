@@ -346,8 +346,8 @@ private struct UpNextRow: View {
 
     var body: some View {
         let isUnavailable = player.isUnavailable(track)
-        // Named only where the queue mixes sources, and always for Spotify.
-        let named = player.sourceID(of: track).flatMap { $0 == .spotify || player.queueMixesSources ? $0 : nil }
+        // Named only where the queue mixes sources.
+        let named = player.queueMixesSources ? player.sourceID(of: track) : nil
         HStack(spacing: 10) {
             CoverImage(cover: track.cover, size: 32)
             VStack(alignment: .leading, spacing: 1) {

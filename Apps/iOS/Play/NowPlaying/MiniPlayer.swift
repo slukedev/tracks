@@ -102,17 +102,10 @@ struct MiniPlayer: View {
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                 if !isInline {
-                    HStack(spacing: 4) {
-                        Text(song.artistName)
-                            .lineLimit(1)
-                        // Spotify's mark, as its terms ask wherever its songs play.
-                        if player.playingSource == .spotify {
-                            SourceGlyph(source: .spotify)
-                                .frame(width: 12, height: 12)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    Text(song.artistName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
             Spacer(minLength: 0)

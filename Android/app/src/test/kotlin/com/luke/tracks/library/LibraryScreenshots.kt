@@ -104,7 +104,7 @@ class LibraryScreenshots(dark: Boolean) : ScreenshotTest(dark) {
     @Test fun albums() = library("library-albums", LibraryTab.Albums)
     @Test fun songs() = library("library-songs", LibraryTab.Songs)
     @Test fun artists() = library("library-artists", LibraryTab.Artists)
-    @Test fun withSources() = library("library-sources", LibraryTab.Albums, sources = listOf(FakeSources.device, FakeSources.home, FakeSources.spotify))
+    @Test fun withSources() = library("library-sources", LibraryTab.Albums, sources = listOf(FakeSources.device, FakeSources.home, FakeSources.studio))
     @Test fun filtered() = library(
         "library-filtered", LibraryTab.Albums,
         sources = listOf(FakeSources.device, FakeSources.home),

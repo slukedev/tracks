@@ -22,6 +22,14 @@ public enum PlaySource: Sendable, Hashable, Codable, RawRepresentable {
     public static let observationKey = "source"
     public static let yourMusicMarker = "Your Music"
     public static let spotifyMarker = "Spotify"
+    /// Before a music service's key, for a play Tracks heard from a server's service.
+    public static let serviceMarkerPrefix = "service:"
+
+    /// The marker for a play from one of a server's music services, by the key the server
+    /// gives it.
+    public static func serviceMarker(key: String?) -> String {
+        serviceMarkerPrefix + (key ?? "")
+    }
 
     public init(rawValue: String) {
         switch rawValue {
@@ -52,6 +60,11 @@ public enum PlaySource: Sendable, Hashable, Codable, RawRepresentable {
         switch observation.rawFields[Self.observationKey] {
         case Self.yourMusicMarker: self = .yourMusic
         case Self.spotifyMarker: self = .spotify
+        case let marker? where marker.hasPrefix(Self.serviceMarkerPrefix):
+            // Spotify through a server is still Spotify; any other service keeps its own key,
+            // which stays as it is until a version knows it.
+            let key = marker.dropFirst(Self.serviceMarkerPrefix.count).lowercased()
+            self = key.isEmpty ? .unknown("service") : PlaySource(rawValue: key)
         default: self = .appleMusic
         }
     }

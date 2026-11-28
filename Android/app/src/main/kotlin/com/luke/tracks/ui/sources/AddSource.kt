@@ -33,7 +33,7 @@ import com.luke.tracks.ui.settings.rowColors
 /**
  * Add Source: one row for each kind of source that can still be added. A row starts that
  * source's own flow: the music permission for this device, the server form for a server,
- * Spotify's sign-in page.
+ * a registered source's own page.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

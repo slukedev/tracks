@@ -37,13 +37,14 @@ extension SourceScope {
         }
     }
 
-    /// The same symbols as the music source's, so the two read as one idea.
+    /// The same symbols as the music source's, so the two read as one idea. Spotify, which
+    /// plays only in past history now, keeps the one it had.
     var symbol: String {
         switch self {
         case .all: "music.note.list"
         case .appleMusic: MusicSource.appleMusic.symbol
         case .yourMusic: MusicSource.yourMusic.symbol
-        case .spotify: MusicSource.spotify.symbol
+        case .spotify: "wave.3.right.circle"
         }
     }
 

@@ -9,6 +9,8 @@ import com.luke.tracks.library.trackside.TracksideCapabilities
 import com.luke.tracks.library.trackside.TracksideClient
 import com.luke.tracks.library.trackside.TracksideDeviceInfo
 import com.luke.tracks.library.trackside.TracksideError
+import com.luke.tracks.library.trackside.TracksideLinkPoll
+import com.luke.tracks.library.trackside.TracksideLinkStart
 import com.luke.tracks.library.trackside.TracksideMediaToken
 import com.luke.tracks.library.trackside.TracksideMirror
 import com.luke.tracks.library.trackside.TracksidePairRequest
@@ -505,6 +507,26 @@ class ServerLibrary(
         return null
     }
 
+    /**
+     * Starts linking this TV with the server at [url]: show the code and a QR of its
+     * `linkUrl`, then [awaitLink], and keep a [TracksideLinkPoll.Linked] result with [saveLink].
+     */
+    suspend fun startLink(url: HttpUrl): TracksideLinkStart =
+        TracksideClient.startLink(url, deviceInfo(), tracksideTransport(adding.api))
+
+    suspend fun awaitLink(url: HttpUrl, start: TracksideLinkStart): TracksideLinkPoll =
+        TracksideClient.awaitLink(url, start, tracksideTransport(adding.api))
+
+    /**
+     * Keeps a linked TV's credentials, replacing the entry for the same server when one is
+     * already here, as after relinking or restoring a phone's backup onto the TV.
+     */
+    suspend fun saveLink(url: HttpUrl, result: TracksidePairResult): SubsonicServer {
+        val all = parse(settings.settings.first().subsonicServers)
+        val same = all.firstOrNull { it.isTrackside && it.serverUuid.equals(result.server.serverId, ignoreCase = true) }
+        return saveTrackside(same?.id, same?.name.orEmpty(), url, result)
+    }
+
     private suspend fun saveTrackside(existingId: String?, name: String, url: HttpUrl, result: TracksidePairResult, proven: StoredAddress? = null): SubsonicServer {
         val all = parse(settings.settings.first().subsonicServers)
         refuseTakeover(all, result.server.serverId, existingId, ServerAddress.hostPort(url))
@@ -569,7 +591,14 @@ class ServerLibrary(
         val name = runCatching { android.provider.Settings.Global.getString(context.contentResolver, android.provider.Settings.Global.DEVICE_NAME) }.getOrNull()
             ?.takeIf { it.isNotBlank() } ?: Build.MODEL
         val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
-        return TracksideDeviceInfo(clientDeviceId = id, name = name, model = "${Build.MANUFACTURER} ${Build.MODEL}", appVersion = version)
+        val tv = context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+        return TracksideDeviceInfo(
+            clientDeviceId = id,
+            name = name,
+            platform = if (tv) TracksideDeviceInfo.ANDROID_TV else TracksideDeviceInfo.ANDROID,
+            model = "${Build.MANUFACTURER} ${Build.MODEL}",
+            appVersion = version,
+        )
     }
 
     /** Removes a server. A Trackside server is asked to forget this phone's key first, if it can be reached. */

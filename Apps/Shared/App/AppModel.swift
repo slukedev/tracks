@@ -77,10 +77,6 @@ final class AppModel {
         }
     }
 
-    /// Spotify, when this build has it (the `SPOTIFY` flag) and it's set up. Nil otherwise, and
-    /// then Spotify appears nowhere.
-    var spotify: (any SpotifySource)?
-
     /// Which player Play draws from. Follows the source filter; set it through
     /// ``chooseSources(_:)``. Changing it directly changes the player and stops what's playing.
     var musicSource: MusicSource = MusicSource.current {
@@ -113,6 +109,19 @@ final class AppModel {
     @ObservationIgnored private var yourMusicEngine: (any PlayerEngine)?
     @ObservationIgnored private var hasPreparedYourMusic = false
     @ObservationIgnored private var mixedEngineStorage: MixedQueueEngine?
+    @ObservationIgnored private var relayEngineStorage: RelayPlayerEngine?
+
+    /// The player for queues with a music service's tracks in them, through a server's relay,
+    /// made when one is first played.
+    var relayEngine: RelayPlayerEngine {
+        if let relayEngineStorage { return relayEngineStorage }
+        let engine = RelayPlayerEngine(music: yourMusic, capture: .yourMusic)
+        relayEngineStorage = engine
+        return engine
+    }
+
+    /// The relay, where one has been made: for following it without making one.
+    var relayIfMade: RelayPlayerEngine? { relayEngineStorage }
 
     /// The queue across sources, made when a queue first mixes them. See `MixedQueue.swift`.
     var mixedEngine: MixedQueueEngine {
@@ -133,6 +142,10 @@ final class AppModel {
     /// A page for the main window to open, asked for from outside it (the menu bar's
     /// Your Stats). The window pushes it and clears it.
     var pendingRoute: Route?
+
+    /// A speaker whose page the Mac's Settings window should open on, asked for from the
+    /// Devices popover. The Devices pane opens it and clears it.
+    var pendingSpeakerSettings: SpeakerAddress?
 
     /// The Mac sidebar selection. Lives here so menu commands can change it.
     var sidebarSelection: SidebarItem? = LaunchScene.sidebar.flatMap(SidebarItem.init(rawValue:))
@@ -227,21 +240,26 @@ final class AppModel {
             self.reconciler = nil
             self.lastFMHistory = nil
         }
-        #if SPOTIFY
-        // Sample data never reaches Spotify.
-        if !isDemoLaunch {
-            let spotify = SpotifyService()
-            spotify.isExpensiveNetwork = { [weak yourMusic] in yourMusic?.network.isExpensive ?? false }
-            self.spotify = spotify
-            if musicSource == .spotify { player.use(spotify.engine) }
-        }
-        #endif
         player.makeTracksRadio = TracksRadioSource.make(library: library, discovery: discovery, yourMusic: yourMusic, player: player)
         player.radioDownloads = yourMusic
         player.makeAutoplay = AutoplaySource.make(library: library, yourMusic: yourMusic, player: player)
         if !isDemoLaunch {
             player.routeEngine = { [weak self] request, choosingCopy in
-                self?.routedSource(for: request, choosingCopy: choosingCopy).map { self?.engine(for: $0) } ?? nil
+                guard let self else { return nil }
+                // A queue with a service's tracks plays through the relay, all of it.
+                if case .relay = request { return self.relayEngine }
+                // Songs added to the relay's queue join it there.
+                if !choosingCopy, let relay = self.relayEngineStorage, self.player.playsThroughRelay, relay.takes(request) { return relay }
+                return self.routedSource(for: request, choosingCopy: choosingCopy).map { self.engine(for: $0) }
+            }
+            player.carryIntoRelay = { [weak self] request, next in
+                await self?.carryIntoRelay(request, next: next) ?? false
+            }
+            yourMusic.servers.onEvent = { [weak self] event, serverID in
+                self?.relayEngineStorage?.handle(event, from: serverID)
+            }
+            yourMusic.servers.onLost = { [weak self] serverID in
+                self?.relayEngineStorage?.serverLost(serverID)
             }
             player.mixing = { [weak self] request in self?.mixedEngineIfNeeded(for: request) }
             player.requestSources = { [weak self] request in self?.sources(of: request) ?? [] }
@@ -278,6 +296,9 @@ final class AppModel {
         nearby.currentState = { [weak self] in self?.nearbyState }
         nearby.onTakeOver = { [weak self] state, device in
             Task { _ = await self?.play(state, from: device) }
+        }
+        yourMusic.servers.speakers.onCastFailed = { [weak self] address in
+            self?.castFailed(on: address)
         }
         // Sample data never shows, or forgets, the devices this one really knows.
         if isDemoLaunch { nearby.keepToThisRun() }
@@ -321,7 +342,10 @@ final class AppModel {
         nearby.publish(nearbyState ?? NearbyState())
         updateHandoff()
         // Music started here: the player is this device's again.
-        if player.isPlaying { controlledDeviceID = nil }
+        if player.isPlaying {
+            controlledDeviceID = nil
+            controlledSpeaker = nil
+        }
     }
 
     /// What Tracks is playing, as your other devices are told it. Nil with nothing queued.
@@ -393,7 +417,18 @@ final class AppModel {
 
     /// The device the main player is showing and controlling instead of this one, as Spotify
     /// Connect does. Nil for this device.
-    var controlledDeviceID: String?
+    var controlledDeviceID: String? {
+        didSet { if controlledDeviceID != nil { controlledSpeaker = nil } }
+    }
+
+    /// The speaker the main player is showing and controlling, while the music is on one of
+    /// your servers' speakers. One or the other of this and ``controlledDeviceID``, never both.
+    var controlledSpeaker: SpeakerAddress? {
+        didSet { if controlledSpeaker != nil { controlledDeviceID = nil } }
+    }
+
+    /// Whether a queue that went to a speaker should carry on here if it doesn't start there.
+    @ObservationIgnored var resumesAfterFailedCast: SpeakerAddress?
 
     private(set) var arrivingFrom: String?
 
@@ -409,13 +444,18 @@ final class AppModel {
             controlled: controlledDeviceID,
             isPlayingHere: player.isPlaying,
             hasSongHere: player.hasQueue,
-            peers: nearby.devices.map { MusicLocation.Peer(id: $0.id, hasSong: $0.state?.hasSong == true, isPlaying: $0.state?.isPlaying == true) }
+            peers: nearby.devices.map { MusicLocation.Peer(id: $0.id, hasSong: $0.state?.hasSong == true, isPlaying: $0.state?.isPlaying == true) },
+            speaker: controlledSpeakerNow == nil ? nil : controlledSpeaker
         )
     }
 
-    var mainPlayerHasSong: Bool { controlledDevice != nil || player.hasQueue }
+    var mainPlayerHasSong: Bool { controlledDevice != nil || controlledSpeakerNow != nil || player.hasQueue }
 
     func mainPlayerPlayPause() {
+        if let address = controlledSpeaker, let speaker = controlledSpeakerNow {
+            if speaker.can(.pause) { speakers.perform(speaker.isPlaying ? .pause : .play, on: address) }
+            return
+        }
         guard let device = controlledDevice else {
             player.togglePlayPause()
             return
@@ -424,6 +464,10 @@ final class AppModel {
     }
 
     func mainPlayerNext() {
+        if let address = controlledSpeaker, let speaker = controlledSpeakerNow {
+            if speaker.can(.nextPrevious) { speakers.perform(.next, on: address) }
+            return
+        }
         guard let device = controlledDevice else {
             player.skipToNext()
             return
@@ -432,6 +476,10 @@ final class AppModel {
     }
 
     func mainPlayerPrevious() {
+        if let address = controlledSpeaker, let speaker = controlledSpeakerNow {
+            if speaker.can(.nextPrevious) { speakers.perform(.previous, on: address) }
+            return
+        }
         guard let device = controlledDevice else {
             player.skipToPrevious()
             return
@@ -440,6 +488,7 @@ final class AppModel {
     }
 
     var mainPlayerCanGoBack: Bool {
+        if let speaker = controlledSpeakerNow { return speaker.can(.nextPrevious) }
         if let device = controlledDevice { return nearby.shownState(of: device)?.canSkipBack == true }
         return player.hasQueue && player.context?.isStation != true
     }
@@ -447,6 +496,7 @@ final class AppModel {
     /// Shows and controls another device's song in the main player.
     func control(_ device: NearbyDevices.Device?) {
         controlledDeviceID = device?.id
+        if device == nil { controlledSpeaker = nil }
     }
 
     /// Moves what's playing here to another device, from where it's got to. It pauses here
@@ -653,15 +703,6 @@ final class AppModel {
                   let songs = try? await MusicKitPlaybackService.songs(for: [candidate.id]), !songs.isEmpty
             else { return nil }
             return .songs(songs)
-        case .spotify:
-            #if SPOTIFY
-            guard let spotify = spotifyService, spotify.isConnected,
-                  let song = await spotify.song(title: title, artist: artist, album: album)
-            else { return nil }
-            return .history([song])
-            #else
-            return nil
-            #endif
         }
     }
 
@@ -687,7 +728,8 @@ final class AppModel {
             return .yourMusic
         case .album, .playlist, .station:
             return musicAuthorization == .authorized ? .appleMusic : nil
-        case .demoStation:
+        case .demoStation, .relay:
+            // The relay's queue has its own player, which the router picks before this.
             return nil
         case .songs(let songs, let start):
             guard choosingCopy, effectiveSourceSelection == .all, let song = songs.indices.contains(start) ? songs[start] : songs.first else { return nil }
@@ -708,9 +750,6 @@ final class AppModel {
         if Self.isCatalogID(song.songID), musicAuthorization == .authorized, !playFeed.cannotPlayCatalog {
             copies.append((.source(.appleMusic), .appleMusic))
         }
-        if spotify?.isConnected == true, yourMusic.network.isOnline {
-            copies.append((.source(.spotify), .spotify))
-        }
         guard copies.count > 1 || copies.first?.source != musicSource else { return nil }
         return yourMusic.playFromOrder.choose(copies, place: \.place, canPlay: { _ in true })?.source
     }
@@ -729,9 +768,6 @@ final class AppModel {
             let engine = LocalPlayerEngine(music: yourMusic, capture: .yourMusic)
             yourMusicEngine = engine
             return engine
-        case .spotify:
-            // Spotify is offered only once its integration is there (see `spotify`).
-            return spotify?.engine ?? appleMusicEngine
         }
     }
 
@@ -1127,8 +1163,6 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
         return switch source {
         case .appleMusic: shared
         case .yourMusic: shared + [.downloads] + (hasLidarr ? [.lidarr] : [])
-        // Spotify's own library: no artists of its own, and nothing to download.
-        case .spotify: [.albums, .songs, .playlists]
         }
     }
 

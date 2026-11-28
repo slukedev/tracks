@@ -220,6 +220,11 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   playing pauses for it and plays on after. Picks gather in a tray along the bottom, to take
   out or put in order, and the station opens with the first. On the Mac, Space plays the
   preview of the song you're on and Return picks it
+- On Android, Devices in Now Playing plays on your Trackside server's speakers. Tap one and
+  what you're listening to moves there; the mini player and Now Playing then show and
+  control the speaker, with its volume, power and the speakers playing with it. Each
+  speaker has its own page in Settings, Devices. Bluetooth and the phone's other outputs
+  are a tap away in the same list
 
 ### Your Music
 
@@ -241,6 +246,43 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   the server, and plays made offline are sent once it can be reached
 - Moving from another server to Trackside: Tracks matches the songs you downloaded or put in
   playlists to the same songs on Trackside, and the downloaded files stay as they are
+- Your Trackside server's speakers join Play On, beside your devices: Sonos, Chromecast,
+  AirPlay and the rest it plays to, each saying what it's playing, who's playing along, or
+  that it's off. Tap one and the song you're playing moves there from where it's got to,
+  with Up Next after it; the row says it's connecting at once, and your iPhone or Mac stops
+  once the speaker has it, or plays on if it doesn't start
+- While the music is on a speaker the player shows and controls it, as with your other
+  devices: play, pause, skip, scrub, shuffle and repeat where the speaker has them, its
+  volume, power and the speakers playing along under the controls. On iPhone the mini player
+  opens a full player for it, and the music comes back here from where it's got to
+- Each speaker has its own page in Devices settings: its volume, power and the speakers to
+  group with it, a checkmark each. Every change shows at once and settles on what the
+  speaker does, and one that doesn't happen goes back with a word on why
+- Connect a TV to your Trackside server: scan the code it shows with your iPhone's Camera, or
+  type it in Settings, Devices, Connect a TV. Tracks shows which TV it is and warns when it
+  asked from outside your home network, then Approve or Deny, and says when the TV is connected
+- Play Spotify, Tidal and the other music services your Trackside server has, on iPhone and
+  Mac. Search shows them in a section of their own after your library, with a chip for each
+  service, and a song you already have comes as your own copy. Their albums, artists and
+  playlists open as pages like your own, and Your Services on Play opens what you've saved on
+  each. Apple Music still plays as it always has
+- A service's songs play here through your server, lossless on Wi-Fi and in a smaller stream
+  on cellular or Low Data Mode, moving between the two as the network does. Play, pause,
+  skip, scrub, shuffle and repeat answer at once, with silence rather than a moment of the old
+  song while the stream catches up, and the lock screen, headphones and AirPlay work as with
+  any song. A queue with a service's song in it plays all of it that way, your server's songs
+  too; a queue of your own songs still plays as before
+- Send what a service plays to one of your server's speakers, or bring a speaker's music back
+  to this device, from where it's got to. Plays from a service are kept in your history under
+  that service
+- On Android, your Trackside server's music services join Search: Spotify, Tidal, Qobuz,
+  Apple Music and the others it's signed in to, each with its own section after your library
+  and its own chip to search it alone. A song you already have shows once, as yours. Albums,
+  artists and playlists open as pages of their own, and a service's chip with nothing typed
+  shows what you saved there. They play on the phone through your server, in the background
+  and on the lock screen like the rest of your music, in lossless on Wi-Fi and a smaller
+  stream on cellular. Tap a speaker in Devices and the music moves there; bring it back and it
+  carries on here. Plays are kept with the service they came from
 - Search asks your servers as you type, so songs newer than the last sync turn up too. With a
   music server that adds songs on request, search finds songs you don't own yet to play straight
   away, and Add to Your Music has the server fetch the file, which joins your music a few
@@ -331,6 +373,46 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   as often as they need to
 - Faster with years of history: pages open and scroll quicker, the first song starts
   sooner, and History's rows no longer shift as they load
+
+### For Developers
+
+- Spotify through librespot is gone: the engine's `tracks-spotify` crate,
+  `Engine/build-apple.sh --spotify`, the `SPOTIFY` build flag and Android's sideload variant.
+  Spotify will come back through Trackside, and plays from Spotify stay in your history
+- On Android, Apple Music through MusicKit for Android is gone, with its optional AARs and
+  developer token. It will come back through Trackside too, and plays from Apple Music stay
+- `Engine/build-android.sh` builds one engine, into `Android/app/engine-bindings/`
+- TracksCore reads Trackside's speakers API and events (`TracksideSpeakers.swift`), keeps
+  each server's speakers with commands laid over them until the server settles them
+  (`SpeakerBoard`), and serves them to the apps from `SpeakersStore`. The speaker fixtures are
+  copied from the server and decoded in the tests
+- TracksCore reads Trackside's streaming catalog (`/catalog/*`, the `catalog` search type)
+  and phone relay (`/relay/sessions`, the `relay` event, a command's `relay`), with refs kept
+  opaque. `StreamingCatalog` keeps each server's services while `/me` has
+  `features.catalog`, without Apple Music. `RelayPlayerEngine` plays the relay's HLS live in
+  `AVPlayer`, moves to each new generation as `RelayStreamFollower` decides, picks the tier
+  from `NWPathMonitor`, and sends every control to the relay's speaker. The catalog and relay
+  fixtures are copied from the contract and decoded in the tests
+- TracksCore and the Android client speak Trackside's TV linking (`/link/*`, RFC 8628 in
+  shape): the approving calls for phones and Macs, the start and poll calls for a TV (Android
+  sends `android_tv` from a TV), `link_expired`, `link_locked` and `link_used`, and the
+  `device_linked` event. The link fixtures are copied from the server and decoded in the tests
+- The Android client speaks Trackside's streaming catalog and phone relay: services, search
+  (alone and as `types=catalog`), item pages with their cursor, saved libraries, and relay
+  sessions with their tier and generations. `RelayEngine` plays a queue with any service's
+  song through the relay and never plays a generation it has moved on from; `RelayPlayer`
+  stands in for it in the media session, over an ExoPlayer for the live HLS
+  (`media3-exoplayer-hls`). The catalog and relay fixtures are copied from the contract and
+  decoded in the tests
+- With librespot gone, the engine no longer pulls in rustls 0.22, rustls-webpki 0.102,
+  quick-xml 0.38 or rsa 0.9, which closes their security advisories
+- The engine is on UniFFI 0.33. The generated Swift and Kotlin bindings keep the same module
+  names and public API, so the apps call them as before; run `Engine/build-apple.sh` and
+  `Engine/build-android.sh` again to regenerate them
+- On Android: Android Gradle Plugin 9.5.3, Paging 3.5.3, Robolectric 4.18.1 and
+  kotlinx-coroutines-test 1.11.0. Paging and the frozen Material Icons Extended 1.7.8 get
+  their versions from the catalog's `[versions]` like everything else
+- The unused `Android/Package.resolved`, left over from Skip, is gone
 
 ## Motif 1.0
 

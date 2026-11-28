@@ -10,12 +10,6 @@
 #   Engine/build-apple.sh            release build (what the apps ship, and what Debug uses,
 #                                    since SQLite and the stats are slow unoptimized)
 #   Engine/build-apple.sh --debug    unoptimized, for stepping through Rust in LLDB
-#   Engine/build-apple.sh --spotify  with Spotify (tracks-ffi's `spotify` feature), for builds
-#                                    you make for yourself: Debug builds then define SPOTIFY.
-#                                    Release builds refuse this engine, so run the script
-#                                    without --spotify before archiving for the App Store.
-#
-# Both flags can be given together. Config/Engine.xcconfig records which engine was built.
 #
 # Set CARGO_TARGET_DIR to build somewhere other than Engine/target (a bigger disk, say).
 set -euo pipefail
@@ -24,20 +18,14 @@ cd "$(dirname "$0")"
 ENGINE="$PWD"
 PROFILE=release
 CARGO_PROFILE=(--release)
-FEATURES=()
-SPOTIFY=NO
 for arg in "$@"; do
   case "$arg" in
     --debug)
       PROFILE=debug
       CARGO_PROFILE=()
       ;;
-    --spotify)
-      FEATURES=(--features spotify)
-      SPOTIFY=YES
-      ;;
     *)
-      echo "✗ Unknown option $arg. Use --debug, --spotify or both." >&2
+      echo "✗ Unknown option $arg. The only option is --debug." >&2
       exit 1
       ;;
   esac
@@ -58,7 +46,7 @@ TARGETS=(aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin)
 rustup target add "${TARGETS[@]}" >/dev/null
 
 for target in "${TARGETS[@]}"; do
-  cargo build -p tracks-ffi --lib --target "$target" ${CARGO_PROFILE[@]+"${CARGO_PROFILE[@]}"} ${FEATURES[@]+"${FEATURES[@]}"} --locked
+  cargo build -p tracks-ffi --lib --target "$target" ${CARGO_PROFILE[@]+"${CARGO_PROFILE[@]}"} --locked
 done
 
 PACKAGE="$ENGINE/apple/TracksEngine"
@@ -85,14 +73,7 @@ for target in "${TARGETS[@]}"; do
 done
 xcodebuild -create-xcframework "${args[@]}" -output "$XCFRAMEWORK" >/dev/null
 
-# Read by Config/Tracks.xcconfig, so the apps define SPOTIFY exactly when the engine has it.
-cat > "$ENGINE/../Config/Engine.xcconfig" <<EOF
-// Written by Engine/build-apple.sh; don't edit. Whether the engine was built with Spotify.
-TRACKS_ENGINE_SPOTIFY = $SPOTIFY
-EOF
+# Earlier versions of this script wrote this to say whether the engine had Spotify in it.
+rm -f "$ENGINE/../Config/Engine.xcconfig"
 
-if [ "$SPOTIFY" = YES ]; then
-  echo "✓ TracksEngine $PROFILE built with Spotify for ${TARGETS[*]}"
-else
-  echo "✓ TracksEngine $PROFILE built for ${TARGETS[*]}"
-fi
+echo "✓ TracksEngine $PROFILE built for ${TARGETS[*]}"

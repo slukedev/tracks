@@ -23,8 +23,6 @@ enum class HistoryMode { Plays, Charts }
 @Serializable data class SongRoute(val identity: String, val title: String, val artistName: String) : Route
 @Serializable data class MixRoute(val mixId: String) : Route
 @Serializable data object SearchRoute : Route
-/** Spotify's saved music, in builds that have it. */
-@Serializable data object SpotifyLibraryRoute : Route
 @Serializable data object SettingsRoute : Route
 /**
  * A page inside Settings, by name: "sources", "source/<id>" (one source, by its stored id),
@@ -43,6 +41,12 @@ enum class HistoryMode { Plays, Charts }
 /** An artist or album from the catalog, which you may not have: by name, and its catalog id. */
 @Serializable data class CatalogArtistRoute(val name: String, val catalogId: Long? = null) : Route
 @Serializable data class CatalogAlbumRoute(val catalogId: Long, val title: String, val artistName: String) : Route
+/**
+ * An album, artist, playlist or station on one of your streaming services, through the
+ * server: by its ref, kept exactly as the server gave it, and its [kind] and [name] to show
+ * while it loads.
+ */
+@Serializable data class ServiceItemRoute(val serverId: String, val ref: String, val kind: String, val name: String, val subtitle: String? = null) : Route
 
 fun Tab.root(): Route = when (this) {
     Tab.Play -> PlayRoute

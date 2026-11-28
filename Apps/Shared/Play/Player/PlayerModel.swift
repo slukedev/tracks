@@ -106,6 +106,10 @@ final class PlayerModel {
     @ObservationIgnored var otherCopy: ((MixedQueueEngine.Item) -> MixedQueueEngine.Item?)?
     /// Whether there's anything here to play offline, and playing it.
     @ObservationIgnored var downloads: (available: () -> Bool, play: () -> Void)?
+    /// Adds a music service's tracks to the queue playing here, which then moves to the
+    /// server's relay with them, from where it's got to. Set by the app; false where the
+    /// queue can't go there, and the tracks play instead.
+    @ObservationIgnored var carryIntoRelay: ((_ request: PlayRequest, _ next: Bool) async -> Bool)?
 
     /// Why a song can't play now, in a few words where there's one reason.
     struct Unavailable: Equatable {
@@ -128,6 +132,12 @@ final class PlayerModel {
     /// car and the lock screen skip as the app's own buttons do.
     private func listen(to engine: any PlayerEngine) {
         engine.onChange = { [weak self] in self?.engineChanged() }
+        if let relay = engine as? RelayPlayerEngine {
+            relay.onNotice = { [weak self] in self?.confirm($0) }
+            relay.onRemoteNext = { [weak self] in self?.skipToNext() }
+            relay.onRemotePrevious = { [weak self] in self?.skipToPrevious() }
+            return
+        }
         if let mixed = engine as? MixedQueueEngine {
             mixed.onNotice = { [weak self] in self?.confirm($0) }
             mixed.onSkipped = { [weak self] count, reason in self?.noteSkipped(count, reason: reason) }
@@ -136,15 +146,6 @@ final class PlayerModel {
             mixed.onAutoSkip = { [weak self] in self?.isAutoSkipping = true }
             return
         }
-        #if SPOTIFY
-        if let spotify = engine as? SpotifyPlayerEngine {
-            spotify.onNotice = { [weak self] in self?.confirm($0) }
-            spotify.onRemoteNext = { [weak self] in self?.skipToNext() }
-            spotify.onRemotePrevious = { [weak self] in self?.skipToPrevious() }
-            spotify.onAutoSkip = { [weak self] in self?.isAutoSkipping = true }
-            return
-        }
-        #endif
         guard let local = engine as? LocalPlayerEngine else { return }
         local.onNotice = { [weak self] in self?.confirm($0) }
         local.onSkipped = { [weak self] count, reason in self?.noteSkipped(count, reason: reason) }
@@ -301,6 +302,18 @@ final class PlayerModel {
     /// Play Next and Play Later. Starts playing if nothing is queued, and replaces a station,
     /// which has no queue to add to: songs added to it would be kept as radio.
     func enqueue(_ request: PlayRequest, next: Bool, title: String) {
+        // A service's tracks join a queue playing here by taking it to the relay with them.
+        if case .relay = request, !(engine is RelayPlayerEngine), hasQueue, waitingSession == nil,
+           context?.isStation != true, let carryIntoRelay {
+            Task {
+                guard await carryIntoRelay(request, next) else {
+                    play(request, from: .songs(title))
+                    return
+                }
+                confirm(next ? String(localized: "Playing Next") : String(localized: "Added to Queue"))
+            }
+            return
+        }
         // Songs from the source switched to, or that play through another player, can't join
         // this one's queue: they play instead.
         var isElsewhere = routeEngine?(request, false).map { $0 !== engine } ?? false
@@ -819,20 +832,16 @@ final class PlayerModel {
         skipNotice = nil
     }
 
-    /// Where the song on is playing from: Apple Music, Spotify, this device or a server.
+    /// Where the song on is playing from: Apple Music, this device or a server.
     var playingSource: SourceID? {
         guard let current else { return nil }
         if let mixed = engine as? MixedQueueEngine {
             switch mixed.currentSource {
             case .appleMusic: return .appleMusic
-            case .spotify: return .spotify
             case .yourMusic: return current.local.map { $0.serverID.map(SourceID.server) ?? .device }
             case nil: return nil
             }
         }
-        #if SPOTIFY
-        if engine is SpotifyPlayerEngine { return .spotify }
-        #endif
         if let local = current.local { return local.serverID.map(SourceID.server) ?? .device }
         if engine is MusicKitPlayerEngine { return .appleMusic }
         return nil
@@ -940,13 +949,13 @@ final class PlayerModel {
 
     // MARK: - One queue across sources
 
+    /// Whether the relay plays the queue, so it can be sent on to a speaker as it is.
+    var playsThroughRelay: Bool { engine is RelayPlayerEngine }
+
     /// The player playing now, as a source.
     private var engineSource: MusicSource? {
         if engine is MusicKitPlayerEngine { return .appleMusic }
         if engine is LocalPlayerEngine { return .yourMusic }
-        #if SPOTIFY
-        if engine is SpotifyPlayerEngine { return .spotify }
-        #endif
         return nil
     }
 
@@ -955,13 +964,11 @@ final class PlayerModel {
         (engine as? MixedQueueEngine)?.source(of: track.id) ?? engineSource
     }
 
-    /// The source a song in the queue plays from, by name: this device, a server, Apple Music
-    /// or Spotify.
+    /// The source a song in the queue plays from, by name: this device, a server or Apple Music.
     func sourceID(of track: PlayerTrack) -> SourceID? {
         if let local = track.local { return local.serverID.map(SourceID.server) ?? .device }
         switch source(of: track) {
         case .appleMusic: return .appleMusic
-        case .spotify: return .spotify
         case .yourMusic, nil: return nil
         }
     }
@@ -1264,7 +1271,8 @@ final class PlayerModel {
             waiting.savedAt = .now
             return waiting
         }
-        guard let current, context?.isStation != true else { return nil }
+        // The relay's queue lives on the server, which keeps it for the next relay.
+        guard let current, context?.isStation != true, !(engine is RelayPlayerEngine) else { return nil }
         let tracks = [current] + upNext.prefix(LastSession.keptAhead)
         let mixed = engine as? MixedQueueEngine
         return LastSession(

@@ -35,6 +35,19 @@ struct MusicSourcesTests {
         #expect(PlaySource(observation: observation) == .spotify)
     }
 
+    @Test("a server's music service marks its plays: Spotify as Spotify, the rest by their own key")
+    func serviceObservation() {
+        func source(_ key: String?) -> PlaySource {
+            PlaySource(observation: NowPlayingObservation(
+                title: "Song", artistName: "Artist", playbackState: .playing,
+                rawFields: [PlaySource.observationKey: PlaySource.serviceMarker(key: key)]
+            ))
+        }
+        #expect(source("spotify") == .spotify)
+        #expect(source("Tidal") == .unknown("tidal"))
+        #expect(source(nil) == .unknown("service"))
+    }
+
     // MARK: - Statistics scopes
 
     @Test("scopes are offered only with something to tell apart")
@@ -65,6 +78,8 @@ struct MusicSourcesTests {
     func serverID() {
         #expect(SourceID(rawValue: "server:a:b") == .server("a:b"))
         #expect(SourceID(rawValue: "server:") == .unknown("server:"))
+        // Spotify was a source of its own in earlier versions; its stored id is kept, unknown.
+        #expect(SourceID(rawValue: "spotify") == .unknown("spotify"))
     }
 
     @Test("the filter reads All by default and falls back to All once its source is gone")
@@ -88,18 +103,18 @@ struct MusicSourcesTests {
 
     @Test("places the order doesn't name yet go last, never between the ones it does")
     func newPlacesGoLast() {
-        let order = PlayFromOrder([.source(.spotify), .source(.server("a")), .source(.appleMusic), .downloads, .source(.device)])
-        let here: [PlayFromPlace] = [.source(.device), .downloads, .source(.server("a")), .source(.server("b")), .source(.appleMusic), .source(.spotify)]
+        let order = PlayFromOrder([.source(.unknown("tidal")), .source(.server("a")), .source(.appleMusic), .downloads, .source(.device)])
+        let here: [PlayFromPlace] = [.source(.device), .downloads, .source(.server("a")), .source(.server("b")), .source(.appleMusic), .source(.unknown("tidal"))]
         #expect(order.arranged(here) == [
-            .source(.spotify), .source(.server("a")), .source(.appleMusic), .downloads, .source(.device), .source(.server("b")),
+            .source(.unknown("tidal")), .source(.server("a")), .source(.appleMusic), .downloads, .source(.device), .source(.server("b")),
         ])
         #expect(order.arranged([.source(.device)]) == [.source(.device)])
     }
 
     @Test("any place can go anywhere", arguments: [
-        [PlayFromPlace.source(.server("b")), .source(.spotify), .downloads, .source(.appleMusic), .source(.server("a")), .source(.device)],
-        [.source(.spotify), .source(.appleMusic), .source(.server("b")), .source(.server("a")), .source(.device), .downloads],
-        [.source(.device), .downloads, .source(.server("a")), .source(.server("b")), .source(.appleMusic), .source(.spotify)],
+        [PlayFromPlace.source(.server("b")), .source(.unknown("tidal")), .downloads, .source(.appleMusic), .source(.server("a")), .source(.device)],
+        [.source(.unknown("tidal")), .source(.appleMusic), .source(.server("b")), .source(.server("a")), .source(.device), .downloads],
+        [.source(.device), .downloads, .source(.server("a")), .source(.server("b")), .source(.appleMusic), .source(.unknown("tidal"))],
     ])
     func anyOrder(chosen: [PlayFromPlace]) {
         let order = PlayFromOrder.standard.reordered(chosen)
@@ -109,16 +124,16 @@ struct MusicSourcesTests {
 
     @Test("reordering what's shown keeps every other place where it was")
     func reorderKeepsHiddenPlaces() {
-        let order = PlayFromOrder([.source(.server("elsewhere")), .source(.appleMusic), .source(.spotify), .source(.device), .downloads])
+        let order = PlayFromOrder([.source(.server("elsewhere")), .source(.appleMusic), .source(.unknown("tidal")), .source(.device), .downloads])
         let new = order.reordered([.source(.device), .source(.appleMusic)])
-        #expect(new.places == [.source(.server("elsewhere")), .source(.device), .source(.spotify), .source(.appleMusic), .downloads])
+        #expect(new.places == [.source(.server("elsewhere")), .source(.device), .source(.unknown("tidal")), .source(.appleMusic), .downloads])
         let added = order.reordered([.source(.server("new")), .source(.device)])
-        #expect(added.places == [.source(.server("elsewhere")), .source(.appleMusic), .source(.spotify), .source(.server("new")), .downloads, .source(.device)])
+        #expect(added.places == [.source(.server("elsewhere")), .source(.appleMusic), .source(.unknown("tidal")), .source(.server("new")), .downloads, .source(.device)])
     }
 
     @Test("the order round-trips through its stored form, unknown places included")
     func storedOrder() {
-        let order = PlayFromOrder([.source(.spotify), .downloads, .source(.server("x")), .source(.unknown("tidal"))])
+        let order = PlayFromOrder([.source(.appleMusic), .downloads, .source(.server("x")), .source(.unknown("tidal"))])
         #expect(PlayFromOrder(rawValue: order.rawValue) == order)
         #expect(PlayFromOrder(rawValue: "") == .standard)
     }
@@ -126,12 +141,12 @@ struct MusicSourcesTests {
     @Test("an order saved before is written out as it played")
     func migration() {
         #expect(PlayFromOrder.standard.migrated(servers: ["a", "b"]).places == [
-            .source(.device), .downloads, .source(.server("a")), .source(.server("b")), .source(.appleMusic), .source(.spotify),
+            .source(.device), .downloads, .source(.server("a")), .source(.server("b")), .source(.appleMusic),
         ])
         let partial = PlayFromOrder([.source(.appleMusic), .source(.device), .source(.server("elsewhere")), .source(.unknown("tidal"))])
         let migrated = partial.migrated(servers: ["a"])
         #expect(migrated.places == [
-            .source(.appleMusic), .source(.spotify), .source(.device), .downloads, .source(.server("a")),
+            .source(.appleMusic), .source(.device), .downloads, .source(.server("a")),
             .source(.server("elsewhere")), .source(.unknown("tidal")),
         ])
         #expect(migrated.arranged([.source(.server("a")), .source(.server("c")), .source(.device)]) == [
@@ -152,15 +167,15 @@ struct MusicSourcesTests {
             Copy(name: "apple", place: .source(.appleMusic)),
             Copy(name: "home", place: .source(.server("home")), canPlay: false),
             Copy(name: "download", place: .downloads),
-            Copy(name: "spotify", place: .source(.spotify)),
+            Copy(name: "away", place: .source(.server("away"))),
         ]
         let standard = PlayFromOrder.standard
         #expect(standard.choose(copies, place: \.place, canPlay: \.canPlay)?.name == "download")
-        #expect(standard.ranked(copies, place: \.place).map(\.name) == ["download", "apple", "spotify", "home"])
+        #expect(standard.ranked(copies, place: \.place).map(\.name) == ["download", "apple", "home", "away"])
 
-        let serverFirst = PlayFromOrder([.source(.server("home")), .source(.spotify), .source(.appleMusic), .source(.device), .downloads])
-        #expect(serverFirst.ranked(copies, place: \.place).map(\.name) == ["home", "spotify", "apple", "download"])
-        #expect(serverFirst.choose(copies, place: \.place, canPlay: \.canPlay)?.name == "spotify")
+        let serverFirst = PlayFromOrder([.source(.server("home")), .source(.server("away")), .source(.appleMusic), .source(.device), .downloads])
+        #expect(serverFirst.ranked(copies, place: \.place).map(\.name) == ["home", "away", "apple", "download"])
+        #expect(serverFirst.choose(copies, place: \.place, canPlay: \.canPlay)?.name == "away")
         #expect(standard.choose(copies, place: \.place) { _ in false } == nil)
     }
 

@@ -62,7 +62,7 @@ import com.luke.tracks.ui.settings.link
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-/** One source's page, by its stored id ("device", "server:<id>", "spotify"). */
+/** One source's page, by its stored id ("device", "server:<id>"). */
 @Composable
 fun SourceDetailPage(raw: String, showBack: Boolean = true) {
     val id = remember(raw) { SourceId.parse(raw) }
@@ -91,8 +91,6 @@ fun SourceDetailPage(raw: String, showBack: Boolean = true) {
 }
 
 private fun SourceKind.matches(id: SourceId) = when (this) {
-    SourceKind.Spotify -> id == SourceId.Spotify
-    SourceKind.AppleMusic -> id == SourceId.AppleMusic
     SourceKind.Device -> id == SourceId.Device
     SourceKind.Server -> id is SourceId.Server
 }

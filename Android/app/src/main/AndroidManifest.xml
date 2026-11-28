@@ -20,11 +20,6 @@
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
-    <!-- Apple Music's sign-in goes through its app, so Tracks checks it's there. -->
-    <queries>
-        <package android:name="com.apple.android.music" />
-    </queries>
-
     <application
         android:name=".TracksApplication"
         android:allowBackup="true"

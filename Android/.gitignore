@@ -14,5 +14,5 @@ app/src/test/resources/darwin-*/
 # Signing keys.
 *.jks
 *.keystore
-# Apple's MusicKit for Android AARs: from Apple's developer downloads, never committed.
+# Apple's MusicKit for Android AARs, no longer used: a leftover copy must never be committed.
 app/libs/apple-musickit/

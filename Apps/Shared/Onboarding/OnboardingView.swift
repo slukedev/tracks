@@ -107,7 +107,6 @@ private struct OnboardingSetup: View {
     @State private var isRequestingAccess = false
     @State private var addsServer = false
     @State private var importsSongs = false
-    @State private var addsSpotify = false
 
     private var demo: OnboardingDemo? { onboarding.demo }
 
@@ -147,20 +146,6 @@ private struct OnboardingSetup: View {
             .sheet(isPresented: $addsServer) {
                 ServerForm()
             }
-            #if SPOTIFY
-            .sheet(isPresented: $addsSpotify) {
-                if let spotify = model.spotify {
-                    NavigationStack {
-                        spotify.settingsPage()
-                            .toolbar {
-                                ToolbarItem(placement: .confirmationAction) {
-                                    Button("Done", role: .confirm) { addsSpotify = false }
-                                }
-                            }
-                    }
-                }
-            }
-            #endif
             .fileImporter(isPresented: $importsSongs, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
                 if case .success(let urls) = result {
                     Task { await yourMusic.importItems(urls) }
@@ -174,12 +159,6 @@ private struct OnboardingSetup: View {
             title
             OnboardingGroup {
                 appleMusicRow
-                #if SPOTIFY
-                if model.spotify != nil {
-                    Divider()
-                    spotifyRow
-                }
-                #endif
                 Divider()
                 deviceRow
                 Divider()
@@ -211,9 +190,6 @@ private struct OnboardingSetup: View {
             }
             Section {
                 appleMusicRow
-                #if SPOTIFY
-                if model.spotify != nil { spotifyRow }
-                #endif
                 deviceRow
                 yourMusicRow
             } header: {
@@ -320,24 +296,6 @@ private struct OnboardingSetup: View {
             }
         }
     }
-
-    #if SPOTIFY
-    private var spotifyRow: some View {
-        let isConnected = model.spotify?.isConnected == true
-        return OnboardingRow(
-            "Spotify",
-            detail: isConnected ? (model.spotify?.accountName ?? "") : String(localized: "Needs Premium"),
-            systemImage: SourceWords.symbol(for: .spotify),
-            tint: .black,
-            isDone: isConnected
-        ) {
-            Button("Add") {
-                guard demo == nil else { return }
-                addsSpotify = true
-            }
-        }
-    }
-    #endif
 
     // MARK: Actions
 

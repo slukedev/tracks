@@ -108,15 +108,16 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let player = model.player
         let remote = model.controlledDevice.flatMap { model.nearby.shownState(of: $0) }
-        guard let title = remote?.title ?? player.current?.title else { return nil }
-        let artist = remote?.artist ?? player.current?.artistName ?? ""
-        let isPlaying = remote?.isPlaying ?? player.isPlaying
+        let speaker = model.controlledSpeakerNow
+        guard let title = speaker?.nowPlaying?.title ?? remote?.title ?? player.current?.title else { return nil }
+        let artist = speaker?.nowPlaying?.artist ?? remote?.artist ?? player.current?.artistName ?? ""
+        let isPlaying = speaker?.isPlaying ?? remote?.isPlaying ?? player.isPlaying
         let menu = NSMenu()
         let song = NSMenuItem(title: String(localized: "\(title) by \(artist)"), action: nil, keyEquivalent: "")
         song.isEnabled = false
         menu.addItem(song)
-        if let device = model.controlledDevice {
-            let place = NSMenuItem(title: String(localized: "Playing on \(device.name)"), action: nil, keyEquivalent: "")
+        if let name = speaker?.name ?? model.controlledDevice?.name {
+            let place = NSMenuItem(title: String(localized: "Playing on \(name)"), action: nil, keyEquivalent: "")
             place.isEnabled = false
             menu.addItem(place)
         }

@@ -149,6 +149,12 @@ struct YourMusicSearchResults: View {
         }
 
         serverSongs
+        // The music services on your servers, after everything that's yours.
+        CatalogSearchSection(
+            query: query,
+            listedKeys: Set(found.tracks.map(\.identity) + fromServers.map(\.identity)),
+            remember: remember
+        )
         songsToGet
     }
 
@@ -400,7 +406,7 @@ struct YourMusicSearchResults: View {
         } else if !isBlank, found.query == query, found.isEmpty, fromServers.isEmpty,
                   serverShelvesQuery != query || (serverAlbums.isEmpty && serverArtists.isEmpty),
                   answeredQuery == query || music.servers.onlineServers.isEmpty,
-                  songOffers.isEmpty {
+                  songOffers.isEmpty, !model.streaming.hasServices {
             SearchNoResults(query: query)
         }
     }

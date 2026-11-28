@@ -419,7 +419,7 @@ struct AlbumPage: View {
     }
     #endif
 
-    /// The sources of yours and Spotify that have it too, with every source on.
+    /// The sources of yours that have it too, with every source on.
     private func findElsewhere(_ album: Album) async {
         guard model.mixesSources else {
             elsewhere = []
