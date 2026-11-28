@@ -440,7 +440,8 @@ public struct TracksideCatalogSearch: Codable, Sendable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case tracks, albums, artists, playlists, radios, services, state
+        case tracks, albums, artists, playlists, services, state
+        case radios = "radio"
         case isComplete = "complete"
     }
 

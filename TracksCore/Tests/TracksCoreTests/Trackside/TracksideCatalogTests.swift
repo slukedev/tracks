@@ -53,6 +53,19 @@ struct TracksideCatalogTests {
         #expect(!found.isUnavailable)
     }
 
+    @Test("stations come under the server's own key, and are written back under it")
+    func searchStations() throws {
+        let found = try T.decode(TracksideCatalogSearch.self, #"{"complete": true, "services": [], "radio": {"items": [{"kind": "radio", "name": "Pure Pop", "ref": "mc1.r", "service_id": "B1"}]}}"#)
+        #expect(found.radios.map(\.name) == ["Pure Pop"])
+        #expect(found.radios.first?.serviceID == "b1")
+        #expect(!found.isEmpty)
+        let written = try TracksideJSON.encoder.encode(found)
+        let object = try #require(JSONSerialization.jsonObject(with: written) as? [String: Any])
+        #expect(object["radio"] != nil)
+        #expect(object["radios"] == nil)
+        #expect(try TracksideJSON.decoder.decode(TracksideCatalogSearch.self, from: written).radios.count == 1)
+    }
+
     @Test("the catalog section rides along the library search, which it never joins")
     func searchWithCatalog() throws {
         let results = try fixture(TracksideSearchResults.self, "search-with-catalog.json")
