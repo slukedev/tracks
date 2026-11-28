@@ -10,6 +10,7 @@ import com.luke.tracks.ui.navigation.CatalogArtistRoute
 import com.luke.tracks.ui.navigation.LibraryAlbumRoute
 import com.luke.tracks.ui.navigation.LibraryArtistRoute
 import com.luke.tracks.ui.navigation.MixRoute
+import com.luke.tracks.ui.navigation.ServiceItemRoute
 import com.luke.tracks.ui.navigation.SettingsPageRoute
 import com.luke.tracks.ui.navigation.SongRoute
 import com.luke.tracks.ui.tv.charts.TvChartsScreen
@@ -17,6 +18,7 @@ import com.luke.tracks.ui.tv.detail.TvAlbumScreen
 import com.luke.tracks.ui.tv.detail.TvArtistScreen
 import com.luke.tracks.ui.tv.detail.TvLibraryAlbumScreen
 import com.luke.tracks.ui.tv.detail.TvLibraryArtistScreen
+import com.luke.tracks.ui.tv.detail.TvServiceItemScreen
 import com.luke.tracks.ui.tv.detail.TvSongScreen
 import com.luke.tracks.ui.tv.history.TvHistoryScreen
 import com.luke.tracks.ui.tv.library.TvLibraryScreen
@@ -46,6 +48,9 @@ object TvScreens {
     var mix: @Composable (MixRoute) -> Unit = { TvMixScreen(it.mixId) }
     var libraryAlbum: @Composable (LibraryAlbumRoute) -> Unit = { TvLibraryAlbumScreen(it.albumId) }
     var libraryArtist: @Composable (LibraryArtistRoute) -> Unit = { TvLibraryArtistScreen(it.artistId) }
+
+    /** An album, playlist, artist or station on a server's streaming service. */
+    var serviceItem: @Composable (ServiceItemRoute) -> Unit = { TvServiceItemScreen(it) }
 
     /** An album named from outside the library: what the history knows of it. */
     var catalogAlbum: @Composable (CatalogAlbumRoute) -> Unit = { route ->

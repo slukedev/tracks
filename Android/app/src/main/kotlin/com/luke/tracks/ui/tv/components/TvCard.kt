@@ -86,6 +86,7 @@ fun TvCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(aspectRatio)
+                .tvTouch(source, onLongClick = onLongClick, onClick = onClick)
                 .tvFocusScale(source, TvMotion.CardFocusScale)
                 // The words sit outside the focusable tile, so it carries them for TalkBack.
                 .semantics { contentDescription = listOfNotNull(title, subtitle).joinToString(", ") },

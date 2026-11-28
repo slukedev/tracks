@@ -14,7 +14,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Once this TV is linked to [server], turns on Trackside Cloud with the server it was saved
  * as, so the TV's Summary, Charts and History match the phone's. Runs in the app's scope, so
- * leaving the screen doesn't stop it, and does nothing when the server doesn't keep the cloud.
+ * leaving the screen doesn't stop it, and does nothing when the server doesn't keep the cloud
+ * or the TV already syncs with another server it's linked to.
  */
 fun syncAfterLink(graph: AppGraph, server: LinkServer) {
     val sync = CloudSync.of(graph) ?: return
@@ -24,7 +25,8 @@ fun syncAfterLink(graph: AppGraph, server: LinkServer) {
             val entry = withTimeoutOrNull(SavedWithinMs) { servers.entries.first { linkedEntry(it, server) != null } }
                 ?.let { linkedEntry(it, server) } ?: return@launch
             val offersCloud = servers.tracksideClient(entry.server.id)?.capabilities()?.offersCloud == true
-            TvSync.linked(sync, entry.server.id, offersCloud)
+            val others = TvSync.linkedServers(servers.entries.value).map { it.server.id } - entry.server.id
+            TvSync.linked(sync, entry.server.id, offersCloud, others)
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {

@@ -149,6 +149,7 @@ class TracksideServices(private val graph: AppGraph, private val servers: Server
                     if (cloudHere()) cloud?.pull(null)
                     speakers.connected(serverId)
                     streaming.repository.connected(serverId)
+                    streaming.recommendations.connected(serverId)
                     streaming.relay.refresh()
                 },
                 onEvent = { event ->
@@ -159,6 +160,7 @@ class TracksideServices(private val graph: AppGraph, private val servers: Server
                         else -> {
                             speakers.handle(serverId, event)
                             streaming.repository.handle(serverId, event)
+                            streaming.recommendations.handle(serverId, event)
                             streaming.relay.handle(serverId, event)
                         }
                     }

@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.discover
 
+import com.luke.tracks.system.isTv
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
@@ -342,7 +343,7 @@ fun CatalogSongMenu(song: CatalogSong, availability: Availability, expanded: Boo
                     act { scope.launch { tell(context, snackbar, scope, runCatching { discovery.get(song) }.getOrDefault("Couldn't get it")) } }
                 }
             }
-            MenuEntry("Open in another app", Icons.AutoMirrored.Rounded.OpenInNew) { act { openInAnotherApp(context, song.title, song.artistName, song.albumTitle) } }
+            if (!context.isTv) MenuEntry("Open in another app", Icons.AutoMirrored.Rounded.OpenInNew) { act { openInAnotherApp(context, song.title, song.artistName, song.albumTitle) } }
         }
         song.albumId?.let { id ->
             MenuEntry("Go to album", Icons.Rounded.Album) {
@@ -350,7 +351,7 @@ fun CatalogSongMenu(song: CatalogSong, availability: Availability, expanded: Boo
             }
         }
         MenuEntry("Go to artist", Icons.Rounded.Mic) { act { navigator.open(CatalogArtistRoute(song.artistName, song.artistId?.toLong())) } }
-        MenuEntry("Share", Icons.Rounded.Share) { act { share(context, "${song.title} by ${song.artistName}") } }
+        if (!context.isTv) MenuEntry("Share", Icons.Rounded.Share) { act { share(context, "${song.title} by ${song.artistName}") } }
     }
 }
 
@@ -378,9 +379,9 @@ fun CatalogAlbumMenu(album: CatalogAlbum, expanded: Boolean, onDismiss: () -> Un
                 act { scope.launch { tell(context, snackbar, scope, runCatching { discovery.getAlbum(album) }.getOrDefault("Couldn't get it")) } }
             }
         }
-        MenuEntry("Open in another app", Icons.AutoMirrored.Rounded.OpenInNew) { act { openInAnotherApp(context, album.title, album.artistName, album.title) } }
+        if (!context.isTv) MenuEntry("Open in another app", Icons.AutoMirrored.Rounded.OpenInNew) { act { openInAnotherApp(context, album.title, album.artistName, album.title) } }
         MenuEntry("Go to artist", Icons.Rounded.Mic) { act { navigator.open(CatalogArtistRoute(album.artistName, album.artistId?.toLong())) } }
-        MenuEntry("Share", Icons.Rounded.Share) { act { share(context, "${album.title} by ${album.artistName}") } }
+        if (!context.isTv) MenuEntry("Share", Icons.Rounded.Share) { act { share(context, "${album.title} by ${album.artistName}") } }
     }
 }
 
@@ -402,7 +403,7 @@ fun CatalogArtistMenu(artist: CatalogArtist, expanded: Boolean, onDismiss: () ->
                 act { scope.launch { tell(context, snackbar, scope, discovery.followArtist(artist.name).orEmpty()) } }
             }
         }
-        MenuEntry("Share", Icons.Rounded.Share) { act { share(context, artist.name) } }
+        if (!context.isTv) MenuEntry("Share", Icons.Rounded.Share) { act { share(context, artist.name) } }
     }
 }
 

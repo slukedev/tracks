@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Contrast
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -54,22 +55,28 @@ import com.luke.tracks.ui.settings.styleName
 import com.luke.tracks.ui.theme.LocalDarkTheme
 import com.luke.tracks.ui.theme.seededScheme
 import com.luke.tracks.ui.tv.components.TvChip
+import com.luke.tracks.ui.tv.components.tvTouch
 import com.luke.tracks.ui.tv.theme.TvMotion
 import com.luke.tracks.ui.tv.theme.tvFocusScale
 import kotlinx.coroutines.launch
 
-/** Settings > Appearance: light or dark, where the colours come from, and pure black. */
+/** Settings > Appearance: light or dark, where the colours come from, pure black, and TV Mode. */
 @Composable
 fun TvAppearancePage() {
     val graph = LocalContext.current.graph
     val scope = rememberCoroutineScope()
     val settings by graph.settings.settings.collectAsStateWithLifecycle(AppSettings())
-    TvAppearanceContent(settings) { change -> scope.launch { graph.settings.update(change) } }
+    TvAppearanceContent(settings, onTvModeOff = { graph.tvMode.set(on = false) }) { change -> scope.launch { graph.settings.update(change) } }
 }
 
+/** [onTvModeOff] swaps to the phone layout, whose Settings can turn TV Mode back on. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TvAppearanceContent(settings: AppSettings, update: (transform: (AppSettings) -> AppSettings) -> Unit) {
+fun TvAppearanceContent(
+    settings: AppSettings,
+    onTvModeOff: (() -> Unit)? = null,
+    update: (transform: (AppSettings) -> AppSettings) -> Unit,
+) {
     PageColumn {
         PageHeading("Theme")
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -105,8 +112,12 @@ fun TvAppearanceContent(settings: AppSettings, update: (transform: (AppSettings)
                 }
             }
         }
-        Box(Modifier.padding(top = 24.dp)) {
+        Column(Modifier.padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             ToggleRow("Pure Black", checked = settings.pureBlack, onChange = { on -> update { it.copy(pureBlack = on) } }, icon = Icons.Rounded.Contrast)
+            if (onTvModeOff != null) {
+                // Shown only in the TV layout, so it's always on here.
+                ToggleRow("TV Mode", checked = true, onChange = { onTvModeOff() }, icon = Icons.Rounded.Tv)
+            }
         }
     }
 }
@@ -129,6 +140,7 @@ private fun Swatch(color: NamedColor, style: PaletteChoice, selected: Boolean, o
         onClick = onClick,
         modifier = Modifier
             .size(52.dp)
+            .tvTouch(source, onClick = onClick)
             .tvFocusScale(source, TvMotion.CardFocusScale)
             .semantics {
                 role = Role.RadioButton

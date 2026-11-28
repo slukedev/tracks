@@ -38,6 +38,10 @@ class SettingsScreenshots(dark: Boolean) : ScreenshotTest(dark) {
 
     @Test fun settings() = page("settings") { SettingsScreen() }
 
+    /** Down to Look and feel, where TV mode is. */
+    @Test @Config(qualifiers = "w412dp-h1500dp-xxhdpi")
+    fun settingsTvMode() = page("full-settings-tv-mode") { SettingsScreen() }
+
     @Test fun lastfm() = page("settings-lastfm") { SettingsPageScreen("lastfm") }
 
     @Test fun appearance() {

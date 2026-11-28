@@ -14,6 +14,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -76,12 +77,14 @@ import com.luke.tracks.ui.navigation.MixRoute
 import com.luke.tracks.ui.navigation.PlayRoute
 import com.luke.tracks.ui.navigation.Route
 import com.luke.tracks.ui.navigation.SearchRoute
+import com.luke.tracks.ui.navigation.ServiceItemRoute
 import com.luke.tracks.ui.navigation.SettingsPageRoute
 import com.luke.tracks.ui.navigation.SettingsRoute
 import com.luke.tracks.ui.navigation.SongRoute
 import com.luke.tracks.ui.navigation.SummaryRoute
 import com.luke.tracks.ui.tv.components.LocalTvFocusStore
 import com.luke.tracks.ui.tv.components.LocalTvRouteKey
+import com.luke.tracks.ui.tv.components.tvTouch
 import com.luke.tracks.ui.tv.theme.LocalReducedMotion
 import com.luke.tracks.ui.tv.theme.TvLayout
 import com.luke.tracks.ui.tv.theme.TvMotion
@@ -234,13 +237,16 @@ private fun NavigationDrawerScope.Rail(
 private fun NavigationDrawerScope.RailItem(destination: TvDestination, navigator: TvNavigator, requester: FocusRequester) {
     val selected = navigator.destination == destination
     val colors = MaterialTheme.colorScheme
+    val source = remember { MutableInteractionSource() }
     NavigationDrawerItem(
         selected = selected,
         onClick = { navigator.select(destination) },
         leadingContent = {
             Icon(if (selected) destination.selectedIcon else destination.icon, contentDescription = null)
         },
-        modifier = Modifier.focusRequester(requester),
+        // A tap leaves the rail shut: the page it picks takes focus.
+        modifier = Modifier.tvTouch(source, focusOnTap = false) { navigator.select(destination) }.focusRequester(requester),
+        interactionSource = source,
         colors = NavigationDrawerItemDefaults.colors(
             focusedContainerColor = colors.primary,
             focusedContentColor = colors.onPrimary,
@@ -325,6 +331,7 @@ private fun Screen(route: Route) {
         is LibraryArtistRoute -> TvScreens.libraryArtist(route)
         is CatalogAlbumRoute -> TvScreens.catalogAlbum(route)
         is CatalogArtistRoute -> TvScreens.catalogArtist(route)
+        is ServiceItemRoute -> TvScreens.serviceItem(route)
         // Sources that never show on TV.
         else -> Unit
     }

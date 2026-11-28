@@ -47,7 +47,14 @@ import com.luke.tracks.graph
 import com.luke.tracks.library.LibraryAlbum
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.QueueOrigin
+import com.luke.tracks.sources.SourceId
+import com.luke.tracks.sources.SourceSelection
+import com.luke.tracks.streaming.ServerRecommendations
+import com.luke.tracks.ui.services.fromSeveralServices
+import com.luke.tracks.ui.services.rememberRecommendationRows
 import com.luke.tracks.ui.components.LocalClock
+import com.luke.tracks.ui.sources.rememberSources
+import com.luke.tracks.ui.sources.sourceSelection
 import com.luke.tracks.ui.navigation.ArtistRoute
 import com.luke.tracks.ui.navigation.LibraryAlbumRoute
 import com.luke.tracks.ui.navigation.MixRoute
@@ -104,6 +111,12 @@ private data class ServerShelves(
 fun TvPlayScreen() {
     val graph = LocalContext.current.graph
     val feed by rememberPlayFeed()
+    val registry = rememberSources()
+    val selection by sourceSelection()
+    // Narrowed to one server, as Settings > Sources says, the way the phone's Play is.
+    val shownFeed = remember(feed, selection) {
+        if (selection is SourceSelection.All) feed else feed?.only { selection.includes(registry.sourceOf(it.mediaId)) }
+    }
     val settings by graph.settings.settings.collectAsStateWithLifecycle(AppSettings())
     val picks = rememberServerPicks()
     val servers by picks.servers.collectAsState()
@@ -113,15 +126,16 @@ fun TvPlayScreen() {
         servers.forEach { picks.load(it.id); picks.loadAlbums(it.id) }
     }
     // Trackside's songs that play here; new ones it would have to get first stay off TV.
-    val shelves = remember(servers, forYou, albums) {
-        servers.map { server ->
+    val shelves = remember(servers, forYou, albums, selection) {
+        servers.filter { selection.includes(SourceId.Server(it.id)) }.map { server ->
             val state = forYou[server.id]?.shelves
             fun playable(songs: List<uniffi.tracks_engine.FoundSong>?) = songs.orEmpty().filter { !it.isNew }
                 .map { ServerSong(server.id, it) }.filter { picks.playable(it) != null }
             ServerShelves(server.id, playable(state?.picks), playable(state?.suggested), albums[server.id]?.random.orEmpty())
         }
     }
-    TvPlayContent(feed, shelves, showsRadio = settings.showTracksRadio, greeting = tvGreeting(hourOf(LocalClock.current())))
+    val recommendations = rememberRecommendationRows(shownFeed?.recentlyPlayed.orEmpty(), selection)
+    TvPlayContent(shownFeed, shelves, recommendations, showsRadio = settings.showTracksRadio, greeting = tvGreeting(hourOf(LocalClock.current())))
 }
 
 /** "Good Evening", by the hour. */
@@ -133,7 +147,13 @@ fun tvGreeting(hour: Int): String = when (hour) {
 }
 
 @Composable
-private fun TvPlayContent(feed: PlayFeed?, servers: List<ServerShelves>, showsRadio: Boolean, greeting: String) {
+private fun TvPlayContent(
+    feed: PlayFeed?,
+    servers: List<ServerShelves>,
+    recommendations: Map<String, ServerRecommendations>,
+    showsRadio: Boolean,
+    greeting: String,
+) {
     val memory = rememberFocusMemory()
     val pending = rememberPendingPlay()
     val navigator = LocalTvNavigator.current
@@ -202,6 +222,8 @@ private fun TvPlayContent(feed: PlayFeed?, servers: List<ServerShelves>, showsRa
                     SongShelf("Picked for You", "picks-${server.id}", server.picks.mapNotNull { s -> picks.playable(s)?.let { it to picks.coverUrl(s) } }, memory, pending)
                 }
             }
+            val namesServices = recommendations.fromSeveralServices()
+            recommendations.forEach { (serverId, recs) -> tvRecommendationItems(serverId, recs, namesServices, memory, pending) }
             if (feed.recentlyPlayed.isNotEmpty()) item(key = "recent", contentType = "shelf") {
                 AlbumShelf("Recently Played", "recent", feed.recentlyPlayed, memory)
             }

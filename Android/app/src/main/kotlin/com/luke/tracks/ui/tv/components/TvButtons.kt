@@ -138,7 +138,7 @@ fun TvChip(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (icon != null) Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -159,7 +159,7 @@ private fun FocusPill(
         onClick = onClick,
         onLongClick = onLongClick,
         enabled = enabled,
-        modifier = modifier.tvFocusScale(source, TvMotion.ButtonFocusScale),
+        modifier = modifier.tvTouch(source, enabled, onLongClick = onLongClick, onClick = onClick).tvFocusScale(source, TvMotion.ButtonFocusScale),
         shape = ClickableSurfaceDefaults.shape(CircleShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = resting,

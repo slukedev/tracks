@@ -28,6 +28,8 @@ See [README.md](README.md) for the legend and how to keep this current.
   as History's second mode. Plays stay in History when a source is removed.
 - 2026-11-27: Google TV is the same APK with its own interface, playing from Trackside only.
   See Google TV below.
+- 2026-11-28: TV Mode chooses the interface, separately from the hardware: a phone on a TV
+  over HDMI can show the TV interface, and a TV can show the phone's. See TV Mode below.
 - 2026-11-27: Apple Music and Spotify are no longer sources on Android. MusicKit for Android
   (the optional AARs, sign-in, the silent stand-in it played beside) and the sideload
   variant's librespot Spotify are gone; streaming services are to come through Trackside.
@@ -656,11 +658,12 @@ boxes run a 32-bit userspace even on 64-bit chips (Play's TV quality rule TV-G6)
 `system/FormFactor.kt` decides once per process: a TV is `UI_MODE_TYPE_TELEVISION` (from
 `UiModeManager` or the configuration) or a device with `FEATURE_LEANBACK`; low RAM is
 `ActivityManager.isLowRamDevice()`. `AppGraph` holds it and `LocalFormFactor` hands it to
-Compose. On a TV:
+Compose. It's the hardware, and says what can work; which interface shows is TV Mode's
+choice (below), which on a TV is the TV interface unless turned off. On a TV:
 
 - `MainActivity` shows the TV interface (`ui/tv`, built with `androidx.tv:tv-material`)
   instead of the phone shell. Links, searches and Assistant requests go through
-  `AppNavigation`, which both shells implement.
+  `AppNavigation`, which both shells implement, to whichever is showing.
 - Trackside is the only source. `SourcesRegistry` is made with `allowedKinds` set to
   servers, and `ServerLibrary` with `tracksideOnly`, so device files and Subsonic servers
   never register (a Subsonic server restored from a phone's backup stays saved, unused), and
@@ -685,7 +688,10 @@ Compose. On a TV:
   the saved servers are read and before sync starts, a choice of any other server (a phone's,
   restored from its backup) is turned off; the linked server's choice stays as it was, so a
   switch turned off stays off.
-- Shared helpers never open a browser, share sheet, chooser, QR scanner or output switcher.
+- Shared helpers never open a browser, share sheet, chooser, QR scanner or output switcher,
+  and the phone interface, when TV Mode is off, doesn't offer Last.fm, Scan code, the output
+  switcher, Devices without speakers, or any Share or "Open in another app" (menus, sheets,
+  album pages and the Open In button on a song that can't play).
 - The splash shows the cassette still (`res/values-television/themes.xml`). Debug builds turn
   on StrictMode with logging, and low-RAM devices keep a smaller cover cache in memory.
 - The screen may go to the system screensaver while music plays, as other music apps on TV
@@ -701,6 +707,39 @@ TV isn't nearby. A server's page has Link a TV unless its capabilities, once rea
 `device_link` out.
 
 Still needs a TV: everything. Robolectric screenshots cover the TV screens at 960x540dp.
+
+### TV Mode
+
+Settings, Look and feel, TV mode on a phone, and Settings, Appearance, TV Mode on the TV
+interface, choose the interface (`system/TvMode.kt`). It's stored as Automatic (the default:
+the TV interface on TV hardware, the phone's elsewhere), On or Off; the switch stores
+Automatic whenever it matches the hardware. It lives in the `launch` shared preferences,
+read synchronously as the app starts (with sample data), so the first frame is the right
+shell and it survives closing the app and process death. It isn't backed up: it belongs to
+the device, and a phone that was on a TV shouldn't restore into the TV interface.
+
+- `MainActivity` follows `TvMode.layout` live, crossfading between the shells (220ms, none
+  with animations off). Playback is the Media3 service's, so it carries on. Each shell keeps
+  its navigator; a rotation still starts them afresh, as it always has.
+- Everything that depends on what the hardware can do stays on `FormFactor`: sources (a
+  phone in TV Mode keeps its device files and Subsonic servers, and they show in the TV
+  interface's Library and Search), Last.fm, widgets and shortcuts, StrictMode, link
+  approvals, and the browser, share sheet, scanner and output switcher guards.
+- A phone in TV Mode turns to landscape (`SCREEN_ORIENTATION_SENSOR_LANDSCAPE`) and hides
+  the system bars (a swipe shows them for a moment), and gives both back when it's off. The
+  TV interface sits clear of a camera cutout and is drawn at the density that fits its
+  960x540dp design into the window by the shorter side, keeping the font scale
+  (`tvDesignDensity` in `ui/tv/navigation/TvEntry.kt`): a phone's 891x411dp is drawn as
+  1170x540dp, a 16:9 window as 960x540dp, and a TV as it is.
+- tv-material's clickables answer keys only, so the shared TV components (`TvButton`,
+  `TvIconButton`, `TvChip`, `TvCard`, `TvListRow`, the rail, the Now Playing chip, colour
+  swatches) take taps and long presses through `Modifier.tvTouch` (`ui/tv/components/TvTouch.kt`):
+  a tap focuses and clicks, a press shows the pressed look, a drag scrolls the list instead.
+  A tap on the rail picks the page without opening it. The seek bar seeks where it's tapped
+  and scrubs with a drag, and a touch wakes a resting Now Playing as a key does. In Settings,
+  Sources, a tap picks a Play From row up or puts it down, and a lifted row's arrows carry it.
+- The phone interface works by remote: in key mode every row and button takes focus with
+  Material's focus highlight, and D-pad Down reaches TV mode in Settings.
 
 ## Sync (Trackside Cloud)
 

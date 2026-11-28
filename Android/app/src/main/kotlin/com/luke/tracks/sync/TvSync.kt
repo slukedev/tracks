@@ -14,24 +14,31 @@ interface SyncChoice {
 }
 
 /**
- * Trackside Cloud on a TV: only ever with the server the TV is linked to. Linking turns it on,
- * the Sync switch in Settings turns it off or on again, and nothing else chooses a server.
+ * Trackside Cloud on a TV: only ever with a server the TV is linked to. Linking the first
+ * turns it on, the Sync switch on a server in Settings turns it off or on again, and nothing
+ * else chooses a server.
  */
 object TvSync {
     /**
      * At launch, before sync starts. A server chosen on another device (a phone's choice,
-     * restored from its backup) is turned off unless it's the one this TV is linked to. That
-     * one stays as it was; if it was paired again since, it waits for [SyncChoice.confirm]
-     * as it would on a phone.
+     * restored from its backup) is turned off unless this TV is linked to it. One it's linked
+     * to stays as it was; if it was paired again since, it waits for [SyncChoice.confirm] as
+     * it would on a phone.
      */
-    suspend fun settle(sync: SyncChoice, linkedServerId: String?) {
+    suspend fun settle(sync: SyncChoice, linkedServerIds: Collection<String>) {
         val chosen = sync.chosen() ?: return
-        if (chosen != linkedServerId) sync.choose(null)
+        if (chosen !in linkedServerIds) sync.choose(null)
     }
 
-    /** Just linked to [serverId]: syncs with it when it keeps Trackside Cloud. */
-    suspend fun linked(sync: SyncChoice, serverId: String, offersCloud: Boolean) {
-        if (offersCloud) turnOn(sync, serverId)
+    /**
+     * Just linked to [serverId]: syncs with it when it keeps Trackside Cloud, unless sync is
+     * already on with another server this TV is linked to ([otherLinked]).
+     */
+    suspend fun linked(sync: SyncChoice, serverId: String, offersCloud: Boolean, otherLinked: Collection<String> = emptyList()) {
+        if (!offersCloud) return
+        val chosen = sync.chosen()
+        if (chosen != null && chosen != serverId && chosen in otherLinked) return
+        turnOn(sync, serverId)
     }
 
     /** On with [serverId]. Already chosen means it was paired again, and asking is the say-so it waits for. */
@@ -39,6 +46,6 @@ object TvSync {
         if (sync.chosen() == serverId) sync.confirm() else sync.choose(serverId)
     }
 
-    /** The server this TV is linked to, as Settings shows it. */
-    fun linkedServer(entries: List<ServerEntry>): ServerEntry? = entries.firstOrNull { it.server.isTrackside }
+    /** The servers this TV is linked to, as Settings shows them. */
+    fun linkedServers(entries: List<ServerEntry>): List<ServerEntry> = entries.filter { it.server.isTrackside }
 }

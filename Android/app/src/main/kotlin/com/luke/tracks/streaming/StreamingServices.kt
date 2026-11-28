@@ -4,6 +4,7 @@ import com.luke.tracks.library.trackside.CatalogEvents
 import com.luke.tracks.library.trackside.TracksideCatalogItem
 import com.luke.tracks.library.trackside.TracksideCatalogLibrary
 import com.luke.tracks.library.trackside.TracksideCatalogPage
+import com.luke.tracks.library.trackside.TracksideCatalogRecommendations
 import com.luke.tracks.library.trackside.TracksideCatalogSearch
 import com.luke.tracks.library.trackside.TracksideCatalogService
 import com.luke.tracks.library.trackside.TracksideCatalogServices
@@ -34,6 +35,7 @@ interface CatalogClient {
     suspend fun item(ref: String, cursor: String?, limit: Int?): TracksideCatalogPage
     suspend fun library(serviceId: String, kind: String, cursor: String?): TracksideCatalogLibrary<TracksideCatalogItem>
     suspend fun libraryTracks(serviceId: String, cursor: String?): TracksideCatalogLibrary<TracksideCatalogTrack>
+    suspend fun recommendations(services: List<String>, limit: Int): TracksideCatalogRecommendations
 }
 
 class TracksideCatalogClient(private val client: TracksideClient) : CatalogClient {
@@ -43,6 +45,7 @@ class TracksideCatalogClient(private val client: TracksideClient) : CatalogClien
     override suspend fun item(ref: String, cursor: String?, limit: Int?) = client.catalogItem(ref, cursor, limit)
     override suspend fun library(serviceId: String, kind: String, cursor: String?) = client.catalogLibrary(serviceId, kind, cursor)
     override suspend fun libraryTracks(serviceId: String, cursor: String?) = client.catalogLibraryTracks(serviceId, cursor)
+    override suspend fun recommendations(services: List<String>, limit: Int) = client.catalogRecommendations(services, limit)
 }
 
 /** One service on one of your servers. */

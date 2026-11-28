@@ -49,6 +49,10 @@ The same APK runs on Google TV with its own interface (`ui/tv`), playing from a 
 server only. Try it on an Android TV emulator or with `adb install` on a TV; see the Google TV section of
 [docs/platforms/android.md](../docs/platforms/android.md).
 
+TV Mode in Settings switches the interface without a restart and is kept on the device: a
+phone connected to a TV over HDMI can show the TV interface (in landscape, working by touch
+as well as by remote, with all of the phone's sources), and a TV can show the phone's.
+
 ## Testing
 
 ```sh

@@ -68,6 +68,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.playback.RadioState
+import com.luke.tracks.system.isTv
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.navigation.SettingsPageRoute
 import uniffi.tracks_engine.RadioReason
@@ -184,13 +185,11 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
     val devices = com.luke.tracks.ui.devices.devicesViewModel()
     val devicesUi by devices.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    // Devices when a server has speakers; otherwise the system's own switcher, as before.
-    val onDevices: () -> Unit = {
-        if (devicesUi.offered) {
-            devicesOpen = true
-        } else {
-            openOutputSwitcher(context)
-        }
+    // Devices when a server has speakers; otherwise the system's own switcher, which a TV doesn't have.
+    val onDevices: (() -> Unit)? = when {
+        devicesUi.offered -> { { devicesOpen = true } }
+        context.isTv -> null
+        else -> { { openOutputSwitcher(context) } }
     }
     val radioState by LocalContext.current.graph.radio.state.collectAsStateWithLifecycle()
     // Tracks Radio's own song on now, which can steer what it plays next.
@@ -256,7 +255,7 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
                         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                             controls()
                             Spacer(Modifier.height(16.dp))
-                            BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) }, onDevices = onDevices)
+                            BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) }.takeUnless { context.isTv }, onDevices = onDevices)
                         }
                     }
                 }
@@ -268,7 +267,7 @@ private fun NowPlayingContent(state: PlayerState, song: PlayableSong, player: Pl
                     Spacer(Modifier.weight(0.6f))
                     controls()
                     Spacer(Modifier.weight(0.4f))
-                    BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) }, onDevices = onDevices)
+                    BottomActions(state, player, onQueue = { queueOpen = true }, onShare = { actions.share(song.ref()) }.takeUnless { context.isTv }, onDevices = onDevices)
                     Spacer(Modifier.height(8.dp))
                 }
             }
@@ -406,13 +405,15 @@ private fun TopRow(
                         actions.goToArtist(song.artistName)
                     }
                 }
-                MenuItem(Icons.Rounded.Share, "Share") {
-                    menu = false
-                    actions.share(song.ref())
-                }
-                MenuItem(Icons.AutoMirrored.Rounded.OpenInNew, "Open in another app") {
-                    menu = false
-                    actions.openElsewhere(song.ref())
+                if (actions.canHandOff) {
+                    MenuItem(Icons.Rounded.Share, "Share") {
+                        menu = false
+                        actions.share(song.ref())
+                    }
+                    MenuItem(Icons.AutoMirrored.Rounded.OpenInNew, "Open in another app") {
+                        menu = false
+                        actions.openElsewhere(song.ref())
+                    }
                 }
                 MenuItem(Icons.Rounded.RemoveCircleOutline, "Hear less of this") {
                     menu = false
@@ -715,7 +716,7 @@ private fun Transport(state: PlayerState, player: PlayerController, isStation: B
 }
 
 @Composable
-private fun BottomActions(state: PlayerState, player: PlayerController, onQueue: () -> Unit, onShare: () -> Unit, onDevices: () -> Unit) {
+private fun BottomActions(state: PlayerState, player: PlayerController, onQueue: () -> Unit, onShare: (() -> Unit)?, onDevices: (() -> Unit)?) {
     val haptics = LocalHapticFeedback.current
     var sleepMenu by remember { mutableStateOf(false) }
     Row(
@@ -723,7 +724,7 @@ private fun BottomActions(state: PlayerState, player: PlayerController, onQueue:
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BottomAction(Icons.Rounded.SpeakerGroup, "Devices", onDevices)
+        if (onDevices != null) BottomAction(Icons.Rounded.SpeakerGroup, "Devices", onDevices)
         Box {
             val sleepAt = state.sleepAtMs
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -757,7 +758,7 @@ private fun BottomActions(state: PlayerState, player: PlayerController, onQueue:
             }
         }
         BottomAction(Icons.AutoMirrored.Rounded.QueueMusic, "Up next", onQueue)
-        BottomAction(Icons.Rounded.Share, "Share", onShare)
+        if (onShare != null) BottomAction(Icons.Rounded.Share, "Share", onShare)
     }
 }
 

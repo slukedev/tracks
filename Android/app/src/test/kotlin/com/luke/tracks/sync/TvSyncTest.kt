@@ -30,26 +30,44 @@ class TvSyncTest {
 
     @Test fun aPhonesChoiceRestoredFromItsBackupDoesntSyncFromTheTv() = runBlocking {
         val otherServer = FakeSync(chosen = "phone-server")
-        TvSync.settle(otherServer, linkedServerId = "tv-server")
+        TvSync.settle(otherServer, linkedServerIds = listOf("tv-server"))
         assertNull(otherServer.chosen)
 
         val notLinkedYet = FakeSync(chosen = "phone-server")
-        TvSync.settle(notLinkedYet, linkedServerId = null)
+        TvSync.settle(notLinkedYet, linkedServerIds = emptyList())
         assertNull(notLinkedYet.chosen)
     }
 
     @Test fun theLinkedServerStaysAsItWasAtLaunch() = runBlocking {
         val on = FakeSync(chosen = "tv-server")
-        TvSync.settle(on, linkedServerId = "tv-server")
+        TvSync.settle(on, linkedServerIds = listOf("tv-server"))
         assertEquals("tv-server", on.chosen)
         // A server paired again is left to CloudSync, which waits to be confirmed.
         assertEquals(emptyList<String>(), on.calls)
 
         // Turned off on the TV: launching doesn't turn it back on.
         val off = FakeSync(chosen = null)
-        TvSync.settle(off, linkedServerId = "tv-server")
+        TvSync.settle(off, linkedServerIds = listOf("tv-server"))
         assertNull(off.chosen)
         assertEquals(emptyList<String>(), off.calls)
+    }
+
+    @Test fun anyServerTheTvIsLinkedToKeepsSyncAtLaunch() = runBlocking {
+        val second = FakeSync(chosen = "den")
+        TvSync.settle(second, linkedServerIds = listOf("living-room", "den"))
+        assertEquals("den", second.chosen)
+        assertEquals(emptyList<String>(), second.calls)
+    }
+
+    @Test fun linkingAnotherServerLeavesSyncWithTheOneItsOnWith() = runBlocking {
+        val syncing = FakeSync(chosen = "living-room")
+        TvSync.linked(syncing, "den", offersCloud = true, otherLinked = listOf("living-room"))
+        assertEquals("living-room", syncing.chosen)
+        assertEquals(emptyList<String>(), syncing.calls)
+
+        val off = FakeSync(chosen = null)
+        TvSync.linked(off, "den", offersCloud = true, otherLinked = listOf("living-room"))
+        assertEquals("den", off.chosen)
     }
 
     @Test fun linkingTurnsOnSyncWithThatServerWhenItKeepsTheCloud() = runBlocking {
@@ -107,8 +125,8 @@ class TvSyncTest {
         val byAddress = LinkServer(null, "Den", "https://den.example.com/".toHttpUrl())
         assertEquals(trackside, linkedEntry(entries, byAddress))
         assertNull(linkedEntry(entries, LinkServer("another", "Attic", "https://attic.example.com".toHttpUrl())))
-        assertEquals(trackside, TvSync.linkedServer(entries))
-        assertNull(TvSync.linkedServer(listOf(subsonic)))
+        assertEquals(listOf(trackside), TvSync.linkedServers(entries))
+        assertEquals(emptyList<ServerEntry>(), TvSync.linkedServers(listOf(subsonic)))
     }
 
     private fun entry(id: String, url: String, kind: ServerKind = ServerKind.Trackside, uuid: String? = null) =

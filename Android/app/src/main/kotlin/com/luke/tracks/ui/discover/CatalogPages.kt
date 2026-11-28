@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.discover
 
+import com.luke.tracks.system.isTv
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -306,7 +307,7 @@ fun CatalogAlbumPage(title: String, artistName: String, state: Remote<AlbumCatal
                                         }
                                     })
                                 }
-                                if (ownership != Ownership.OWNED && size < 2) add(PageAction("Open in", Icons.AutoMirrored.Rounded.OpenInNew) {
+                                if (ownership != Ownership.OWNED && size < 2 && !context.isTv) add(PageAction("Open in", Icons.AutoMirrored.Rounded.OpenInNew) {
                                     openInAnotherApp(context, page.album.title, page.album.artistName, page.album.title)
                                 })
                             }

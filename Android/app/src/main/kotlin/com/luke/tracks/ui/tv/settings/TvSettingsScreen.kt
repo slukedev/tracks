@@ -17,8 +17,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.ThumbDown
@@ -43,7 +43,7 @@ import com.luke.tracks.ui.tv.theme.TvLayout
 
 /** Settings' pages on TV, in the order the list shows them. */
 enum class TvSettingsPage(val key: String, val label: String, val icon: ImageVector) {
-    Trackside("trackside", "Trackside", Icons.Rounded.Dns),
+    Sources("sources", "Sources", Icons.Rounded.LibraryMusic),
     Appearance("appearance", "Appearance", Icons.Rounded.Palette),
     Radio("radio", "Tracks Radio", Icons.Rounded.Radio),
     Hidden("hidden", "Hear Less Of", Icons.Rounded.ThumbDown),
@@ -53,9 +53,9 @@ enum class TvSettingsPage(val key: String, val label: String, val icon: ImageVec
         /** A page by the name the app links to it with, as the phone's Settings names them. */
         fun of(name: String?): TvSettingsPage = when (name) {
             "radio-genres" -> Radio
-            "sources", "servers", "sources/add" -> Trackside
+            "trackside", "servers", "sources/add" -> Sources
             "licenses" -> About
-            else -> entries.firstOrNull { it.key == name } ?: Trackside
+            else -> entries.firstOrNull { it.key == name } ?: Sources
         }
     }
 }
@@ -63,14 +63,15 @@ enum class TvSettingsPage(val key: String, val label: String, val icon: ImageVec
 /**
  * Settings in two panes: the pages down the left, the one with focus open on the right, as
  * Google TV's own settings are. Right goes into the page; Back or Left comes out to the list.
+ * Only the page scrolls. [pageContent] lets screenshots fill a page from plain values.
  */
 @Composable
-fun TvSettingsScreen(initial: String? = null) {
+fun TvSettingsScreen(initial: String? = null, pageContent: @Composable (TvSettingsPage) -> Unit = { Page(it) }) {
     val memory = rememberFocusMemory()
     var page by rememberSaveable { mutableStateOf(TvSettingsPage.of(initial)) }
     var inPage by remember { mutableStateOf(false) }
     val pageFocus = remember { FocusRequester() }
-    // Opened at a page (Library's Link opens Trackside): focus goes into it, not the list.
+    // Opened at a page (Library's Link opens Sources): focus goes into it, not the list.
     memory.ClaimFocus(fallback = if (initial != null) pageFocus else memory.requester(page.key))
     BackHandler(enabled = inPage) { memory.requester(page.key).requestFocus() }
 
@@ -109,7 +110,7 @@ fun TvSettingsScreen(initial: String? = null) {
                 targetState = page,
                 transitionSpec = { fadeIn(tween(150, delayMillis = 40)) togetherWith fadeOut(tween(90)) },
                 label = "settings page",
-            ) { shown -> Page(shown) }
+            ) { shown -> pageContent(shown) }
         }
     }
 }
@@ -117,7 +118,7 @@ fun TvSettingsScreen(initial: String? = null) {
 @Composable
 private fun Page(page: TvSettingsPage) {
     when (page) {
-        TvSettingsPage.Trackside -> TvTracksidePage()
+        TvSettingsPage.Sources -> TvSourcesPage()
         TvSettingsPage.Appearance -> TvAppearancePage()
         TvSettingsPage.Radio -> TvRadioPage()
         TvSettingsPage.Hidden -> TvHiddenSongsPage()

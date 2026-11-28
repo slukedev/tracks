@@ -1,5 +1,6 @@
 package com.luke.tracks.ui.play.components
 
+import com.luke.tracks.system.isTv
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -83,7 +85,7 @@ fun SongRow(
             IconButton(onClick = onMore) {
                 Icon(Icons.Rounded.MoreVert, contentDescription = "More for ${song.title}")
             }
-        } else {
+        } else if (!LocalContext.current.isTv) {
             FilledTonalButton(
                 onClick = onOpenElsewhere,
                 contentPadding = ButtonDefaults.ExtraSmallContentPadding,

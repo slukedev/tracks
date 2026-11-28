@@ -9,6 +9,7 @@ import com.luke.tracks.library.MusicLibrary
 import com.luke.tracks.playback.PlayerController
 import com.luke.tracks.playback.RadioSource
 import com.luke.tracks.system.FormFactor
+import com.luke.tracks.system.TvMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,9 @@ class AppGraph(
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val settings = SettingsRepository(context)
+
+    /** Whether the TV layout shows; [formFactor] stays what the hardware is. */
+    val tvMode = TvMode.of(context, formFactor.tv)
 
     private val databaseName = if (sampleData) "sample.db" else "history.db"
     private val indexName = if (sampleData) "sample-index.sqlite" else "index.sqlite"

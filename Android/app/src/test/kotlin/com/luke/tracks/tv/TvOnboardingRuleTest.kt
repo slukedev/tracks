@@ -21,11 +21,11 @@ class TvOnboardingRuleTest {
 
     @Test fun settingsLinksLandOnTheirTvPage() {
         assertEquals(TvSettingsPage.Radio, TvSettingsPage.of("radio-genres"))
-        assertEquals(TvSettingsPage.Trackside, TvSettingsPage.of("servers"))
+        assertEquals(TvSettingsPage.Sources, TvSettingsPage.of("servers"))
         assertEquals(TvSettingsPage.About, TvSettingsPage.of("licenses"))
         assertEquals(TvSettingsPage.Hidden, TvSettingsPage.of("hidden"))
-        assertEquals(TvSettingsPage.Trackside, TvSettingsPage.of("lastfm"))
-        assertEquals(TvSettingsPage.Trackside, TvSettingsPage.of(null))
+        assertEquals(TvSettingsPage.Sources, TvSettingsPage.of("lastfm"))
+        assertEquals(TvSettingsPage.Sources, TvSettingsPage.of(null))
     }
 
     @Test fun typedCodesTakeTracksidesShape() {
