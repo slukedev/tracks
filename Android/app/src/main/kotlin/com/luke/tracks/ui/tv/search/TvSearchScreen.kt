@@ -61,6 +61,7 @@ import com.luke.tracks.ui.tv.components.TvCoverCard
 import com.luke.tracks.ui.tv.components.TvIconButton
 import com.luke.tracks.ui.tv.components.TvSectionTitle
 import com.luke.tracks.ui.tv.components.TvShelf
+import com.luke.tracks.ui.tv.components.TvShelfSkeleton
 import com.luke.tracks.ui.tv.components.TvTextField
 import com.luke.tracks.ui.tv.components.rememberFocus
 import com.luke.tracks.ui.tv.components.rememberFocusMemory
@@ -71,15 +72,28 @@ import com.luke.tracks.ui.tv.detail.TvRowScroll
 import com.luke.tracks.ui.tv.detail.TvShelfScroll
 import com.luke.tracks.ui.tv.navigation.LocalTvNavigator
 import com.luke.tracks.ui.tv.theme.TvLayout
+import com.luke.tracks.sources.PlayFromOrder
+import com.luke.tracks.sources.sources
+import com.luke.tracks.streaming.SearchRanks
+import com.luke.tracks.streaming.StreamingRepository
+import com.luke.tracks.streaming.StreamingState
+import com.luke.tracks.streaming.placeKind
+import com.luke.tracks.ui.services.ServiceSearch
+import com.luke.tracks.ui.services.ServiceSearcher
+import com.luke.tracks.ui.services.rememberStreaming
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import uniffi.tracks_engine.SearchResults
 
 private const val PauseMs = 250L
 private const val MaxQuery = 200
 
-/** Search on TV: your library and everything you've played, as you type. */
+/**
+ * Search on TV: your library, your servers' streaming services and everything you've played,
+ * as you type. A service Play From ranks above your own sources comes first.
+ */
 @Composable
-fun TvSearchScreen() {
+fun TvSearchScreen(repository: StreamingRepository? = rememberStreaming()?.repository) {
     val graph = LocalContext.current.graph
     val navigator = LocalTvNavigator.current
     val field = rememberTextFieldState()
@@ -98,11 +112,32 @@ fun TvSearchScreen() {
     }
     val keepAll = remember { { _: PlayableSong -> true } }
     val library = rememberLibraryFound(settled, { graph.library.index.value }, keepAll)
-    TvSearchContent(field, settled = settled, library = library, history = history)
+    LaunchedEffect(repository) { repository?.refreshIfStale() }
+    val streaming by (repository?.state ?: NoStreaming).collectAsState()
+    // Already settled above, so the services are asked at once; a newer query cancels the last.
+    val queries = remember { MutableStateFlow(ServiceSearcher.Query("")) }
+    LaunchedEffect(settled) { queries.value = ServiceSearcher.Query(settled) }
+    val services by remember(repository) {
+        ServiceSearcher(repository, owns = { graph.library.index.value.song(it) != null }, debounceMs = 0, types = TvServiceTypes).states(queries)
+    }.collectAsState(ServiceSearch.Idle)
+    // The places here, in the order Play From shows them: a stored place this TV doesn't have can't rank.
+    val places by graph.sources.playFromChoices.collectAsState()
+    val playFrom = remember(places) { PlayFromOrder(places.map { it.place }) }
+    TvSearchContent(field, settled = settled, library = library, history = history, services = services, streaming = streaming, playFrom = playFrom)
 }
 
+private val NoStreaming = MutableStateFlow(StreamingState())
+
 @Composable
-fun TvSearchContent(field: TextFieldState, settled: String, library: LibraryFound, history: SearchResults?) {
+fun TvSearchContent(
+    field: TextFieldState,
+    settled: String,
+    library: LibraryFound,
+    history: SearchResults?,
+    services: ServiceSearch = ServiceSearch.Idle,
+    streaming: StreamingState = StreamingState(),
+    playFrom: PlayFromOrder = PlayFromOrder.Standard,
+) {
     val context = LocalContext.current
     val query = field.text
     val onQuery: (String) -> Unit = { field.setTextAndPlaceCursorAtEnd(it) }
@@ -110,8 +145,13 @@ fun TvSearchContent(field: TextFieldState, settled: String, library: LibraryFoun
     val recents = remember(context) { RecentSearches(context) }
     memory.ClaimFocus(memory.requester("field"))
     val pending = rememberPendingPlay()
+    val around = remember(services, playFrom) { services.shown?.aroundLibrary(playFrom) }
+    // Where a search still on its way will answer: ahead of your library when a service it asks comes first.
+    val servicesFirst = remember(streaming, playFrom) { SearchRanks(playFrom).let { ranks -> streaming.searchable.any { ranks.aboveLibrary(it.second.placeKind) } } }
+    val servicesWaiting = services is ServiceSearch.Loading && services.previous == null
     val nothing = settled.isNotEmpty() && history != null && library.isEmpty &&
-        history.songs.isEmpty() && history.artists.isEmpty() && history.albums.isEmpty()
+        history.songs.isEmpty() && history.artists.isEmpty() && history.albums.isEmpty() &&
+        !servicesWaiting && around?.let { it.before.isEmpty() && it.after.isEmpty() } != false
     val opened = { recents.add(settled) }
     TvShelfScroll { LazyColumn(
         state = rememberLazyListState(),
@@ -136,14 +176,20 @@ fun TvSearchContent(field: TextFieldState, settled: String, library: LibraryFoun
                 }
             }
             nothing -> item(key = "none") { TvNote("No Results", Modifier.padding(start = TvLayout.ContentStart)) }
-            else -> results(library, history, memory, pending, opened)
+            else -> {
+                if (servicesWaiting && servicesFirst) item(key = "services-loading", contentType = "shelf-loading") { TvShelfSkeleton(cards = 6) }
+                around?.let { tvServiceSections(it.before, streaming, memory, pending, opened) }
+                results(library, memory, pending, opened)
+                around?.let { tvServiceSections(it.after, streaming, memory, pending, opened) }
+                if (servicesWaiting && !servicesFirst) item(key = "services-loading", contentType = "shelf-loading") { TvShelfSkeleton(cards = 6) }
+                history(history, memory, opened)
+            }
         }
     } }
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.results(
     library: LibraryFound,
-    history: SearchResults?,
     memory: FocusMemory,
     pending: PendingPlay,
     opened: () -> Unit,
@@ -171,6 +217,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.results(
             TvCoverCard(artist.albums.firstNotNullOfOrNull { it.artworkUri }, artist.name, artist.name, onClick = { opened(); navigator.open(LibraryArtistRoute(artist.id)) }, width = 156.dp, circle = true)
         } }
     }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.history(history: SearchResults?, memory: FocusMemory, opened: () -> Unit) {
     val r = history ?: return
     // What you've played that matched: artists first, then songs, then albums, as one shelf.
     val played = r.artists.map { Played.Artist(it.identity, it.name, it.artworkUrl) } +
