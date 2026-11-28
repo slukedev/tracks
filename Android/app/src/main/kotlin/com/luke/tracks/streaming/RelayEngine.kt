@@ -16,6 +16,7 @@ import com.luke.tracks.library.trackside.TracksideSpeakerPlayRequest
 import com.luke.tracks.library.trackside.TracksideSpeakerPlayback
 import com.luke.tracks.library.trackside.TracksideSpeakerQueue
 import com.luke.tracks.library.trackside.TracksideSpeakerTransfer
+import com.luke.tracks.net.Logs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
@@ -113,6 +114,8 @@ data class RelayStatus(
     val tier: String = TracksideRelaySession.Tier.LOSSLESS,
     /** Each item's service, by id, for its name and source. */
     val services: Map<String, String> = emptyMap(),
+    /** Why the server ended the session, once it has. */
+    val endedReason: String? = null,
 ) {
     enum class Phase {
         Idle,
@@ -169,6 +172,8 @@ class RelayEngine(
     private var awaiting: Job? = null
     private var itemTimer: Job? = null
     private var tierJob: Job? = null
+    /** The server a session was opened for ahead of its first song ([warm]), before anything plays. */
+    private var warmedFor: String? = null
 
     @Volatile private var skewMs = 0L
 
@@ -203,6 +208,8 @@ class RelayEngine(
         val token = ++commands
         val before = _status.value
         if (before.serverId != null && before.serverId != serverId) endQuietly()
+        warmedFor?.takeIf { it != serverId }?.let { other -> endWarmed(other) }
+        warmedFor = null
         serviceNames = services
         retireStream()
         val start = kept.request.startIndex ?: 0
@@ -262,18 +269,52 @@ class RelayEngine(
         }
     }
 
-    /** Adds songs after the one playing ([next]) or at the end, as the server's queue takes them. */
-    fun enqueue(items: List<TracksideSpeakerPlayRequest.Item>, preview: List<RelayItem>, next: Boolean): Deferred<Unit> = control { shown ->
+    /**
+     * Opens a session on [serverId] ahead of its first song, so the music that follows a song
+     * playing elsewhere starts sooner. Nothing plays until [play]; a session already open stays.
+     */
+    fun warm(serverId: String) {
+        scope.launch(work) {
+            if (_status.value.serverId != null || session?.isEnded == false) return@launch
+            val client = clientFor(serverId) ?: return@launch
+            try {
+                session = withContext(io) { client.start(TracksideRelayRequest(name = deviceName(), tier = tier())) }
+                warmedFor = serverId
+                skewMs = client.clockSkewMs
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Logs.w("Relay: couldn't open a session ahead, ${RelayWords.describe(error)}")
+            }
+        }
+    }
+
+    /**
+     * Adds songs after the one playing ([next]) or at the end, as the server's queue takes them.
+     * With [skip], the server then moves on to the first of them, in the same order it was asked.
+     */
+    fun enqueue(items: List<TracksideSpeakerPlayRequest.Item>, preview: List<RelayItem>, next: Boolean, skip: Boolean = false): Deferred<Unit> = control { shown ->
         val state = _status.value
         val speakerId = state.speakerId
         if (items.isEmpty() || speakerId == null) return@control
-        val updated = state.items.toMutableList().apply { if (next) addAll((state.index + 1).coerceAtMost(size), preview) else addAll(preview) }
+        val updated = state.items.toMutableList().apply { if (next || skip) addAll((state.index + 1).coerceAtMost(size), preview) else addAll(preview) }
+        if (skip) ++commands
         _status.value = state.copy(items = updated)
+        if (skip) {
+            retireStream()
+            _status.value = _status.value.copy(index = (state.index + 1).coerceAtMost(updated.lastIndex), positionMs = 0, positionAtMs = null)
+            itemTimer?.cancel()
+        }
         shown()
         val client = client() ?: return@control
-        runCatching { withContext(io) { client.play(speakerId, TracksideSpeakerPlayRequest(items, mode = if (next) "next" else "add")) } }
-            .onSuccess { apply(it, client, keepsStream = true) }
+        val added = runCatching { withContext(io) { client.play(speakerId, TracksideSpeakerPlayRequest(items, mode = if (next || skip) "next" else "add")) } }
+            .onSuccess { if (!skip) apply(it, client, keepsStream = true) }
             .onFailure { say(words(it)) }
+        if (skip && added.isSuccess) {
+            if (session?.isEnded != false) {
+                if (_status.value.wantsToPlay) restart(client)
+            } else command(client, TracksideSpeakerPlayback("next"))
+        }
         refreshQueue(client)
     }
 
@@ -414,6 +455,9 @@ class RelayEngine(
                     applySpeaker(current.copy(playback = (current.playback ?: TracksideSpeaker.Playback()).copy(state = progress.state, positionMs = progress.positionMs, positionAt = progress.positionAt)), client, moved = false)
                 }
                 SpeakerEvents.QUEUE -> decode(event.data, SpeakerEvents.Queue.serializer())?.takeIf { it.id == _status.value.speakerId }?.let { if (client != null) refreshQueue(client) }
+                SpeakerEvents.COMMAND -> decode(event.data, SpeakerEvents.Command.serializer())
+                    ?.takeIf { it.outcome == "failed" && (it.speakerId == null || it.speakerId == _status.value.speakerId) }
+                    ?.let(::commandFailed)
                 SpeakerEvents.REMOVED -> decode(event.data, SpeakerEvents.Removed.serializer())?.takeIf { it.id == _status.value.speakerId }?.let {
                     session = session?.copy(state = "ended")
                     retireStream()
@@ -421,6 +465,18 @@ class RelayEngine(
                 }
             }
         }
+    }
+
+    /** A command the server took didn't work on its music system: said once, and a start waiting on it stops waiting. */
+    private fun commandFailed(outcome: SpeakerEvents.Command) {
+        val code = outcome.error?.code.orEmpty()
+        Logs.w("Relay: command failed, $code")
+        val state = _status.value
+        if (state.wantsToPlay && state.stream == null) {
+            awaiting?.cancel()
+            _status.value = state.copy(wantsToPlay = false, phase = RelayStatus.Phase.Failed)
+        }
+        say(RelayWords.command(code))
     }
 
     /** The app came back to the foreground, or events reconnected: what was missed isn't replayed, so read it again. */
@@ -451,10 +507,11 @@ class RelayEngine(
                 return@launch
             }
             if (fresh?.isEnded == true) return@launch applySession(fresh, client)
+            Logs.w("Relay: stream failed, ${RelayWords.statusClass(status)}, attempt ${stream.attempt + 1}")
             if (stream.attempt >= MAX_ATTEMPTS) {
                 retireStream()
                 _status.value = _status.value.copy(wantsToPlay = false, phase = RelayStatus.Phase.Failed)
-                say(if (status == null) "Lost the connection to your server." else "Couldn't play that right now.")
+                say(RelayWords.stream(status))
                 return@launch
             }
             if (status == null) delay(RETRY_MS * (stream.attempt + 1))
@@ -555,7 +612,7 @@ class RelayEngine(
         val state = _status.value
         if (fresh.isEnded) {
             retireStream()
-            _status.value = _status.value.copy(phase = RelayStatus.Phase.Ended, wantsToPlay = false, sessionId = fresh.id, speakerId = fresh.speakerId)
+            _status.value = _status.value.copy(phase = RelayStatus.Phase.Ended, wantsToPlay = false, sessionId = fresh.id, speakerId = fresh.speakerId, endedReason = fresh.endedReason)
             endedWords(fresh.endedReason)?.let(::say)
             return
         }
@@ -723,7 +780,14 @@ class RelayEngine(
         }
     }
 
+    private fun endWarmed(serverId: String) {
+        val ending = session ?: return
+        session = null
+        scope.launch(io) { runCatching { clientFor(serverId)?.end(ending.id) } }
+    }
+
     private fun reset() {
+        warmedFor = null
         awaiting?.cancel()
         itemTimer?.cancel()
         tierJob?.cancel()
@@ -785,30 +849,12 @@ class RelayEngine(
 
     private fun Throwable.isRelayEnded() = this is TracksideError.Server && reason == "relay_ended"
 
-    private fun words(error: Throwable): String = when (error) {
-        is TracksideError.CatalogUnavailable -> "Music services aren't available right now."
-        is TracksideError.RateLimited -> "One moment. Try again shortly."
-        is TracksideError.Forbidden -> "This phone can't play music services from your server."
-        is TracksideError.NotFound -> "That isn't available anymore."
-        is TracksideError.Server -> when {
-            error.reason == "service_signed_out" -> serviceNames[error.serviceId]?.let { "Sign in to $it again on your server." } ?: "Sign in to that service again on your server."
-            error.reason == "relay_limit" -> "Your server is playing music services on as many phones as it can. Try again later."
-            error.reason == "not_playable" -> "That can't play right now."
-            error.code == "unsupported" && error.capability == "relay" -> "Your server can't play music services on this phone yet."
-            else -> "Couldn't play that right now."
-        }
-        is IOException, is TracksideError.Unproven -> "Couldn't reach your server."
-        else -> if (error.javaClass.simpleName == "Unproven") "Couldn't reach your server." else "Couldn't play that right now."
+    private fun words(error: Throwable): String {
+        Logs.w("Relay: ${RelayWords.describe(error)}")
+        return RelayWords.of(error, serviceNames)
     }
 
-    private fun endedWords(reason: String?): String? = when (reason) {
-        // Idle, closed and replaced are expected: playing again just starts once more.
-        "assistant_unavailable" -> "Music services aren't available right now."
-        "server_restart" -> "Your server restarted. Play again to carry on."
-        "revoked" -> "Your server doesn't know this phone anymore."
-        "failed" -> "The music stopped on your server."
-        else -> null
-    }
+    private fun endedWords(reason: String?): String? = RelayWords.ended(reason)
 
     companion object {
         const val RESTARTS_AFTER_MS = 3_000L
@@ -838,4 +884,83 @@ object RelayClock {
         val length = state.current?.durationMs
         return position.coerceIn(0, length?.takeIf { it > 0 } ?: Long.MAX_VALUE)
     }
+}
+
+/**
+ * The one line said when the relay can't play, by the reason the server gives. Nothing here
+ * names the server's music system; a reason it doesn't give can't be told apart, and gets the
+ * plain line.
+ */
+object RelayWords {
+    fun of(error: Throwable, services: Map<String, String> = emptyMap()): String = when (error) {
+        is TracksideError.CatalogUnavailable, is TracksideError.SpeakersUnavailable -> "Music services aren't available right now."
+        is TracksideError.RateLimited -> "One moment. Try again shortly."
+        is TracksideError.Forbidden -> "This device can't play music services from your server."
+        is TracksideError.Unauthenticated -> "Your server doesn't know this device anymore."
+        is TracksideError.NotFound -> "That isn't available anymore."
+        is TracksideError.Unavailable -> when (error.code) {
+            "library_unavailable" -> "That song's library is offline on your server."
+            else -> "Your server is busy. Try again shortly."
+        }
+        is TracksideError.Server -> server(error, services)
+        is TracksideError.Http -> if (error.status >= 500) "Your server had a problem playing that." else "Your server turned that down."
+        is IOException, is TracksideError.Unproven -> "Couldn't reach your server."
+        else -> GENERIC
+    }
+
+    private fun server(error: TracksideError.Server, services: Map<String, String>): String = when {
+        error.reason == "service_signed_out" -> services[error.serviceId]?.let { "Sign in to $it again on your server." } ?: "Sign in to that service again on your server."
+        error.reason == "relay_limit" -> "Your server is playing music services on as many devices as it can. Try again later."
+        error.reason == "not_playable" -> "That song can't play from your server right now."
+        error.reason == "not_set_up" -> "Music services aren't set up on your server."
+        error.reason == "failed" -> "Your server couldn't play that."
+        error.reason == "relay_ended" -> "The music stopped on your server. Play again to carry on."
+        error.code == "unsupported" && error.capability == "relay" -> "Your server can't play music services on this device yet."
+        error.code == "unsupported" -> "Your server can't do that yet."
+        error.code == "forbidden" -> "This device can't play music services from your server."
+        error.status >= 500 -> "Your server had a problem playing that."
+        else -> GENERIC
+    }
+
+    /** A command the server took that its music system then didn't carry out. */
+    fun command(code: String): String = when (code) {
+        "speakers_unavailable" -> "Music services aren't available right now."
+        "timed_out" -> "Your server took too long to start that."
+        "command_failed" -> "Your server couldn't play that."
+        else -> GENERIC
+    }
+
+    /** The playlist wouldn't load: no answer at all, turned down, or the server's own fault. */
+    fun stream(status: Int?): String = when {
+        status == null -> "Lost the connection to your server."
+        status >= 500 -> "Your server couldn't start the stream."
+        else -> "Your server turned the stream down."
+    }
+
+    fun ended(reason: String?): String? = when (reason) {
+        // Idle, closed and replaced are expected: playing again just starts once more.
+        "assistant_unavailable" -> "Music services aren't available right now."
+        "server_restart" -> "Your server restarted. Play again to carry on."
+        "revoked" -> "Your server doesn't know this device anymore."
+        "failed" -> "The music stopped on your server."
+        else -> null
+    }
+
+    /** For the log: the kind of status, never an address or a token. */
+    fun statusClass(status: Int?): String = when {
+        status == null -> "no answer"
+        status >= 500 -> "HTTP $status (server error)"
+        status >= 400 -> "HTTP $status (refused)"
+        else -> "HTTP $status"
+    }
+
+    /** For the log: the error's stable code and reason, without its message. */
+    fun describe(error: Throwable): String = when (error) {
+        is TracksideError.Server -> "HTTP ${error.status} ${error.code}" + listOfNotNull(error.reason, error.capability).joinToString("") { " $it" }
+        is TracksideError.Http -> "HTTP ${error.status}"
+        is TracksideError.Unavailable -> "unavailable ${error.code}"
+        else -> error.javaClass.simpleName
+    }
+
+    private const val GENERIC = "Couldn't play that right now."
 }

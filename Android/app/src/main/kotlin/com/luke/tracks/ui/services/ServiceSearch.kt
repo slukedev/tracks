@@ -42,13 +42,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.luke.tracks.AppGraph
 import com.luke.tracks.graph
 import com.luke.tracks.library.ServerLibrary
+import com.luke.tracks.library.trackside.TracksideClient
 import com.luke.tracks.library.trackside.TracksideCatalogService
 import com.luke.tracks.library.trackside.TracksideError
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.streaming.ServiceKey
 import com.luke.tracks.streaming.ServiceResults
 import com.luke.tracks.streaming.ServiceResultsMerge
+import com.luke.tracks.streaming.ServiceSection
 import com.luke.tracks.streaming.Streaming
+import com.luke.tracks.streaming.StreamingRepository
 import com.luke.tracks.streaming.StreamingServer
 import com.luke.tracks.streaming.StreamingState
 import com.luke.tracks.ui.discover.CatalogProblem
@@ -56,19 +59,22 @@ import com.luke.tracks.ui.discover.GroupHeading
 import com.luke.tracks.ui.discover.SubHeading
 import com.luke.tracks.ui.insights.bleed
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
-import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /** A search on the services as it goes: nothing asked, asking (with the last answer kept on screen), answered, or why not. */
@@ -87,56 +93,54 @@ sealed interface ServiceSearch {
 }
 
 /**
- * Searches the services as you type: the field answers at once, the network is asked after a
- * pause, and a newer query cancels the older one's request. Merging with the library happens
- * off the main thread; the screen collects an immutable [ServiceSearch].
+ * Searches the services as a query changes: asked after [debounceMs], a newer query cancelling
+ * the older one's request, and asked again when the services that can search change (they load
+ * after the app starts, so an early query isn't left unanswered). Nothing is asked without
+ * services, or for fewer than [MIN_LENGTH] characters. Merging with the library happens off the
+ * main thread.
  */
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
-class ServiceSearchViewModel(private val graph: AppGraph, private val streaming: Streaming?) : ViewModel() {
-    private data class Query(val text: String, val only: ServiceKey?)
+class ServiceSearcher(
+    private val repository: StreamingRepository?,
+    /** Whether a song, by its media id, is in your library. */
+    private val owns: (mediaId: String) -> Boolean,
+    private val debounceMs: Long = DEBOUNCE_MS,
+    private val types: List<String> = TracksideClient.DEFAULT_CATALOG_TYPES,
+    private val work: CoroutineDispatcher = Dispatchers.Default,
+) {
+    data class Query(val text: String, val only: ServiceKey? = null)
 
-    private val query = MutableStateFlow(Query("", null))
-    private val retries = MutableStateFlow(0)
-
-    /** The last answer, kept on screen while the next is on its way. */
-    @Volatile private var last: ServiceResults? = null
-
-    val state: StateFlow<ServiceSearch> = combine(query, retries) { q, retry -> q to retry }
-        .distinctUntilChanged()
-        .debounce { (q, _) -> if (q.text.length < MIN_LENGTH) 0 else DEBOUNCE_MS }
-        .transformLatest { (q, _) ->
-            val repository = streaming?.repository
-            if (repository == null || q.text.length < MIN_LENGTH || !repository.state.value.offered) {
-                last = null
-                emit(ServiceSearch.Idle)
-                return@transformLatest
+    fun states(queries: Flow<Query>, retries: Flow<Int> = flowOf(0)): Flow<ServiceSearch> {
+        // The last answer, kept on screen while the next is on its way; only touched in transformLatest.
+        var last: ServiceResults? = null
+        val searchable = repository?.state?.map { state -> state.servers.filter { it.status != StreamingServer.Status.Unavailable }.flatMap { it.searchableKeys() } }
+            ?.distinctUntilChanged() ?: flowOf(emptyList())
+        return combine(queries, retries, searchable) { q, retry, keys -> Triple(q, retry, keys) }
+            .distinctUntilChanged()
+            .debounce { (q, _, _) -> if (q.text.length < MIN_LENGTH) 0 else debounceMs }
+            .transformLatest { (q, _, _) ->
+                if (repository == null || q.text.length < MIN_LENGTH || !repository.state.value.offered) {
+                    last = null
+                    emit(ServiceSearch.Idle)
+                    return@transformLatest
+                }
+                emit(ServiceSearch.Loading(last))
+                val answers = try {
+                    repository.search(q.text, q.only, types = types)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    emit(ServiceSearch.Failed(words(error)))
+                    return@transformLatest
+                }
+                val merged = ServiceResultsMerge.merge(answers, owned = { server, song -> owns(ServerLibrary.mediaId(server, song)) }, libraryMediaId = ServerLibrary::mediaId)
+                last = merged
+                emit(ServiceSearch.Loaded(merged))
             }
-            emit(ServiceSearch.Loading(last))
-            val answers = try {
-                repository.search(q.text, q.only)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                emit(ServiceSearch.Failed(words(error)))
-                return@transformLatest
-            }
-            val index = graph.library.index.value
-            val merged = withContext(Dispatchers.Default) {
-                ServiceResultsMerge.merge(answers, owned = { server, song -> index.song(ServerLibrary.mediaId(server, song)) != null }, libraryMediaId = ServerLibrary::mediaId)
-            }
-            last = merged
-            emit(ServiceSearch.Loaded(merged))
-        }
-        .flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ServiceSearch.Idle)
-
-    fun search(text: String, only: ServiceKey?) {
-        query.value = Query(text.trim(), only)
+            .flowOn(work)
     }
 
-    fun retry() {
-        retries.value++
-    }
+    private fun StreamingServer.searchableKeys() = services.filter { it.searches }.map { ServiceKey(serverId, it.id) }
 
     private fun words(error: Throwable) = when (error) {
         is TracksideError.CatalogUnavailable -> "Music services aren't available right now."
@@ -148,6 +152,24 @@ class ServiceSearchViewModel(private val graph: AppGraph, private val streaming:
     companion object {
         const val MIN_LENGTH = 2
         const val DEBOUNCE_MS = 300L
+    }
+}
+
+/** The phone's search of the services, kept across the screen's configuration changes. */
+class ServiceSearchViewModel(graph: AppGraph, streaming: Streaming?) : ViewModel() {
+    private val query = MutableStateFlow(ServiceSearcher.Query(""))
+    private val retries = MutableStateFlow(0)
+
+    val state: StateFlow<ServiceSearch> = ServiceSearcher(streaming?.repository, owns = { graph.library.index.value.song(it) != null })
+        .states(query, retries)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ServiceSearch.Idle)
+
+    fun search(text: String, only: ServiceKey?) {
+        query.value = ServiceSearcher.Query(text.trim(), only)
+    }
+
+    fun retry() {
+        retries.value++
     }
 }
 
@@ -177,8 +199,9 @@ fun ServiceChips(services: List<Pair<ServiceKey, TracksideCatalogService>>, chos
 }
 
 /**
- * The services' part of a search, after your library: each service with its songs (less the
- * ones that are yours, which the library shows), albums, artists and playlists. A search
+ * The services' part of a search: each service with its songs (less the ones that are yours,
+ * which the library shows), albums, artists and playlists, less the sections in [shownAbove]
+ * (those Play From ranks above your library, shown there with [serviceSectionItems]). A search
  * on its way keeps the last answer on screen, with a quiet indicator.
  */
 fun LazyListScope.serviceSearchItems(
@@ -190,6 +213,7 @@ fun LazyListScope.serviceSearchItems(
     edge: Dp,
     listPadding: Dp,
     onRetry: () -> Unit,
+    shownAbove: List<ServiceSection> = emptyList(),
 ) {
     val wide = Modifier.bleed(listPadding)
     // A chosen service that's signed out can't be searched: say how to fix it, and nothing else.
@@ -221,8 +245,33 @@ fun LazyListScope.serviceSearchItems(
         is ServiceSearch.Loaded -> Unit
     }
     val results = state.shown ?: return
+    val above = shownAbove.mapTo(HashSet()) { it.key }
+    serviceSectionItems(results.sections.filter { it.key !in above }, streaming, query, currentMediaId, edge, listPadding, loading = state is ServiceSearch.Loading)
+    if (results.missing.isNotEmpty()) {
+        item(key = "services-missing") {
+            Text(
+                "${com.luke.tracks.ui.discover.listPhrase(results.missing)} didn't answer in time.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = wide.padding(horizontal = edge).padding(top = 12.dp).animateItem(),
+            )
+        }
+    }
+}
+
+/** Services' sections of a search, each under its service's name; [loading] while a newer search is on its way. */
+fun LazyListScope.serviceSectionItems(
+    sections: List<ServiceSection>,
+    streaming: StreamingState,
+    query: String,
+    currentMediaId: String?,
+    edge: Dp,
+    listPadding: Dp,
+    loading: Boolean,
+) {
+    val wide = Modifier.bleed(listPadding)
     val many = streaming.servers.size > 1
-    results.sections.forEach { section ->
+    sections.forEach { section ->
         val serverId = section.key.serverId
         val prefix = "svc-${section.key.raw}"
         item(key = "$prefix-h", contentType = "header") {
@@ -234,7 +283,7 @@ fun LazyListScope.serviceSearchItems(
                     Modifier.weight(1f),
                     subtitle = streaming.server(serverId)?.serverName?.takeIf { many }?.let { "On $it" },
                 )
-                AnimatedVisibility(state is ServiceSearch.Loading, enter = fadeIn(), exit = fadeOut()) {
+                AnimatedVisibility(loading, enter = fadeIn(), exit = fadeOut()) {
                     LoadingIndicator(Modifier.size(28.dp).semantics { liveRegion = LiveRegionMode.Polite })
                 }
             }
@@ -270,16 +319,6 @@ fun LazyListScope.serviceSearchItems(
                     items(section.playlists, key = { it.ref }) { ServiceItemCell(serverId, it) }
                 }
             }
-        }
-    }
-    if (results.missing.isNotEmpty()) {
-        item(key = "services-missing") {
-            Text(
-                "${com.luke.tracks.ui.discover.listPhrase(results.missing)} didn't answer in time.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = wide.padding(horizontal = edge).padding(top = 12.dp).animateItem(),
-            )
         }
     }
 }

@@ -79,6 +79,8 @@ import com.luke.tracks.ui.insights.segmentedShape
 import com.luke.tracks.ui.navigation.LocalNavigator
 import com.luke.tracks.ui.services.serviceLibraryItems
 import com.luke.tracks.ui.services.serviceSearchItems
+import com.luke.tracks.ui.services.serviceSectionItems
+import com.luke.tracks.sources.sources
 import com.luke.tracks.ui.discover.NotYours
 import com.luke.tracks.ui.discover.Remote
 import com.luke.tracks.ui.discover.catalogSearchItems
@@ -356,13 +358,23 @@ private fun Results(
     val navigator = LocalNavigator.current
     val graph = rememberGraph()
     var allSongs by remember(r) { mutableStateOf(false) }
+    val places by graph.sources.playFromChoices.collectAsState()
+    val playFrom = remember(places) { com.luke.tracks.sources.PlayFromOrder(places.map { it.place }) }
+    // A service Play From ranks above your own sources answers first; the rest follow your library.
+    val above = remember(services, playFrom) { services.shown?.aroundLibrary(playFrom)?.before.orEmpty() }
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = com.luke.tracks.ui.navigation.bottomClearance)) {
+        serviceSectionItems(
+            above, streaming, query, currentMediaId, edge = 20.dp, listPadding = 16.dp,
+            loading = services is com.luke.tracks.ui.services.ServiceSearch.Loading,
+        )
         if (library != null) {
-            item(key = "library-h") { com.luke.tracks.ui.discover.GroupHeading("Library", Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp)) }
+            item(key = "library-h") {
+                com.luke.tracks.ui.discover.GroupHeading("Library", Modifier.padding(start = 4.dp, end = 4.dp, top = if (above.isEmpty()) 4.dp else 20.dp))
+            }
             libraryFoundItems(library, query, { graph.library.index.value }, currentMediaId, rowModifier = Modifier.bleed(16.dp))
         }
-        // The services come after your library, as their own sections; songs you have are shown once, above.
-        serviceSearchItems(services, streaming, null, query, currentMediaId, edge = 20.dp, listPadding = 16.dp, onRetry = onRetryServices)
+        // Songs you have are shown once, in your library, not again under a service.
+        serviceSearchItems(services, streaming, null, query, currentMediaId, edge = 20.dp, listPadding = 16.dp, onRetry = onRetryServices, shownAbove = above)
         if (r == null) {
             catalogSearchItems(catalog, edge = 20.dp, onRetry = onRetry, listPadding = 16.dp)
             return@LazyColumn

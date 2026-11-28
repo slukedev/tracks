@@ -98,7 +98,7 @@ object SampleRecommendations {
                 if (answers) TracksideCatalogRecommendations(shelves = shelves) else awaitCancellation()
             override suspend fun access() = server.access
             override suspend fun services() = TracksideCatalogServices(listOf(appleMusic))
-            override suspend fun search(query: String, services: List<String>, limit: Int) = TracksideCatalogSearch()
+            override suspend fun search(query: String, services: List<String>, limit: Int, types: List<String>) = TracksideCatalogSearch()
             override suspend fun item(ref: String, cursor: String?, limit: Int?) = TracksideCatalogPage()
             override suspend fun library(serviceId: String, kind: String, cursor: String?) = TracksideCatalogLibrary<TracksideCatalogItem>()
             override suspend fun libraryTracks(serviceId: String, cursor: String?) = TracksideCatalogLibrary<TracksideCatalogTrack>()

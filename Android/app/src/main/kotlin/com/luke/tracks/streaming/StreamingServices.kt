@@ -12,6 +12,8 @@ import com.luke.tracks.library.trackside.TracksideCatalogTrack
 import com.luke.tracks.library.trackside.TracksideClient
 import com.luke.tracks.library.trackside.TracksideError
 import com.luke.tracks.library.trackside.TracksideEvent
+import com.luke.tracks.sources.PlayFromOrder
+import com.luke.tracks.sources.PlayFromPlace
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -31,7 +33,7 @@ import java.time.Instant
 interface CatalogClient {
     suspend fun access(): TracksideClient.CatalogAccess
     suspend fun services(): TracksideCatalogServices
-    suspend fun search(query: String, services: List<String>, limit: Int): TracksideCatalogSearch
+    suspend fun search(query: String, services: List<String>, limit: Int, types: List<String>): TracksideCatalogSearch
     suspend fun item(ref: String, cursor: String?, limit: Int?): TracksideCatalogPage
     suspend fun library(serviceId: String, kind: String, cursor: String?): TracksideCatalogLibrary<TracksideCatalogItem>
     suspend fun libraryTracks(serviceId: String, cursor: String?): TracksideCatalogLibrary<TracksideCatalogTrack>
@@ -41,7 +43,8 @@ interface CatalogClient {
 class TracksideCatalogClient(private val client: TracksideClient) : CatalogClient {
     override suspend fun access() = client.catalogAccess()
     override suspend fun services() = client.catalogServices()
-    override suspend fun search(query: String, services: List<String>, limit: Int) = client.catalogSearch(query, services = services, limit = limit)
+    override suspend fun search(query: String, services: List<String>, limit: Int, types: List<String>) =
+        client.catalogSearch(query, types = types, services = services, limit = limit)
     override suspend fun item(ref: String, cursor: String?, limit: Int?) = client.catalogItem(ref, cursor, limit)
     override suspend fun library(serviceId: String, kind: String, cursor: String?) = client.catalogLibrary(serviceId, kind, cursor)
     override suspend fun libraryTracks(serviceId: String, cursor: String?) = client.catalogLibraryTracks(serviceId, cursor)
@@ -209,17 +212,22 @@ class StreamingRepository(
     // MARK: Asking
 
     /**
-     * Searches every server's services at once, or only [only]. A server that fails is left
-     * out, unless every one does, which throws its error.
+     * Searches every server's services at once, or only [only], for [types] of item. A server
+     * that fails is left out, unless every one does, which throws its error.
      */
-    suspend fun search(query: String, only: ServiceKey? = null, limit: Int = 20): List<Pair<StreamingServer, TracksideCatalogSearch>> = coroutineScope {
+    suspend fun search(
+        query: String,
+        only: ServiceKey? = null,
+        limit: Int = 20,
+        types: List<String> = TracksideClient.DEFAULT_CATALOG_TYPES,
+    ): List<Pair<StreamingServer, TracksideCatalogSearch>> = coroutineScope {
         val servers = state.value.servers.filter { only == null || it.serverId == only.serverId }
             .filter { it.status != StreamingServer.Status.Unavailable && it.services.any { service -> service.searches } }
         val answers = servers.map { server ->
             async(io) {
                 val client = clientFor(server.serverId) ?: return@async null
                 val ids = if (only != null) listOf(only.serviceId) else server.services.filter { it.searches }.map { it.id }
-                runCatching { server to client.search(query, ids, limit) }
+                runCatching { server to client.search(query, ids, limit, types) }
             }
         }.awaitAll().filterNotNull()
         val found = answers.mapNotNull { it.getOrNull() }
@@ -255,7 +263,32 @@ data class ServiceResults(
     val folded: Map<String, List<String>> = emptyMap(),
 ) {
     val isEmpty: Boolean get() = sections.all { it.isEmpty }
+
+    /**
+     * The sections in the Play From order, split around your library's: those whose service
+     * comes before every source of yours, then the rest. A service the order doesn't name
+     * comes after your library; sections of one service keep their order.
+     */
+    fun aroundLibrary(order: PlayFromOrder): LibraryAndServices {
+        val ranks = SearchRanks(order)
+        val (before, after) = sections.sortedBy { ranks.of(it.service.placeKind) }.partition { ranks.aboveLibrary(it.service.placeKind) }
+        return LibraryAndServices(before, after)
+    }
 }
+
+/** Where a service's results go among a search's, by [order]: the places here, as Play From shows them. */
+class SearchRanks(order: PlayFromOrder) {
+    private val rank = order.places.withIndex().associate { (i, place) -> place to i }
+    private val library = order.places.indexOfFirst { it is PlayFromPlace.From || it == PlayFromPlace.Downloads }.takeIf { it >= 0 } ?: Int.MAX_VALUE
+
+    fun of(kind: String): Int = rank[PlayFromPlace.Service(kind)] ?: Int.MAX_VALUE
+
+    /** Whether the service of [kind] comes before every source of yours. */
+    fun aboveLibrary(kind: String): Boolean = of(kind) < library
+}
+
+/** A search's services around your library: [before] it and [after] it, each in the Play From order. */
+data class LibraryAndServices(val before: List<ServiceSection>, val after: List<ServiceSection>)
 
 data class ServiceSection(
     val key: ServiceKey,
@@ -264,15 +297,17 @@ data class ServiceSection(
     val albums: List<TracksideCatalogItem> = emptyList(),
     val artists: List<TracksideCatalogItem> = emptyList(),
     val playlists: List<TracksideCatalogItem> = emptyList(),
+    /** Only when the search asked for them. */
+    val stations: List<TracksideCatalogItem> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = tracks.isEmpty() && albums.isEmpty() && artists.isEmpty() && playlists.isEmpty()
+    val isEmpty: Boolean get() = tracks.isEmpty() && albums.isEmpty() && artists.isEmpty() && playlists.isEmpty() && stations.isEmpty()
 }
 
 /**
- * Library first, services after: the server never mixes them, so the app does. A service's
- * song that's also in your library (it names the library song) is folded into that song and
- * not listed again; the rest is grouped by service, best answering service first, each in the
- * service's own order.
+ * The server never mixes your library and the services, so the app does. A service's song
+ * that's also in your library (it names the library song) is folded into that song and not
+ * listed again; the rest is grouped by service, best answering service first, each in the
+ * service's own order. [ServiceResults.aroundLibrary] places them around your library.
  */
 object ServiceResultsMerge {
     fun merge(
@@ -300,7 +335,8 @@ object ServiceResultsMerge {
             val albums = search.albums?.items.orEmpty()
             val artists = search.artists?.items.orEmpty()
             val playlists = search.playlists?.items.orEmpty()
-            val ids = (order + (tracks.map { it.serviceId } + albums.map { it.serviceId } + artists.map { it.serviceId } + playlists.map { it.serviceId })).distinct()
+            val stations = search.radios?.items.orEmpty()
+            val ids = (order + tracks.map { it.serviceId } + (albums + artists + playlists + stations).map { it.serviceId }).distinct()
             for (id in ids) {
                 val service = server.service(id) ?: continue
                 val section = ServiceSection(
@@ -310,6 +346,7 @@ object ServiceResultsMerge {
                     albums = albums.filter { it.serviceId == id }.distinctBy { it.ref },
                     artists = artists.filter { it.serviceId == id }.distinctBy { it.ref },
                     playlists = playlists.filter { it.serviceId == id }.distinctBy { it.ref },
+                    stations = stations.filter { it.serviceId == id }.distinctBy { it.ref },
                 )
                 if (!section.isEmpty) sections += section
             }

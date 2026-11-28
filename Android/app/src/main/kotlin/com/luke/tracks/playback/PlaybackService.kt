@@ -55,7 +55,13 @@ import com.luke.tracks.sources.sources
 import com.luke.tracks.streaming.CatalogMedia
 import com.luke.tracks.streaming.CatalogPlays
 import com.luke.tracks.streaming.Streaming
+import com.luke.tracks.streaming.RelayStatus
 import com.luke.tracks.streaming.playResolver
+import com.luke.tracks.playback.radio.RadioOnRelay
+import com.luke.tracks.playback.radio.RadioPicks
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.CoroutineScope
@@ -116,6 +122,10 @@ class PlaybackService : MediaLibraryService() {
 
     // Tracks Radio.
     private var fetchingRadio = false
+    /** The station's picks, each played from the first place in Play From that can play it here. */
+    private lateinit var radioPicks: RadioPicks
+    /** Nothing ahead could be picked: the station has run out, said once. */
+    private var radioRanOut = false
     /** Where in the queue the song playing sat, to tell going back from moving on. */
     private var playingIndex = 0
 
@@ -143,6 +153,16 @@ class PlaybackService : MediaLibraryService() {
      * relay; null without Trackside. [player] plays everything else.
      */
     private var relayPlayer: RelayPlayer? = null
+
+    /**
+     * The relay stopped working under Tracks Radio (a session error, music services gone): it
+     * plays on here from your own copies until you start something new or the relay plays again.
+     */
+    private var relayDown = false
+
+    /** Songs coming up looked up in Play From, a couple ahead, on the phone's own player. */
+    private var lookingAhead: Job? = null
+    private var lookedAheadOf: String? = null
 
     /** The relay's server's own client, which holds its pinned certificates. */
     @Volatile private var relayHttp: okhttp3.OkHttpClient = Http.base
@@ -204,7 +224,10 @@ class PlaybackService : MediaLibraryService() {
             .setMediaButtonPreferences(buttons())
             .build()
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build().apply { setSmallIcon(R.drawable.ic_tracks_launcher_monochrome) })
+        radioPicks = RadioPicks(scope, graph.radio, resolve = { picked, accept -> placeFor(picked, accept) })
         Streaming.of(graph)?.let(::startRelay)
+        // A song asked to hear less of turns the station: the pick made ready behind the next makes way.
+        scope.launch { graph.settings.settings.map { it.hiddenSongs }.distinctUntilChanged().collect { radioPicks.steered() } }
 
         scope.launch {
             graph.settings.settings.collect { settings ->
@@ -246,7 +269,9 @@ class PlaybackService : MediaLibraryService() {
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             // A service's song can only play through the relay: the whole queue moves there.
-            if (mediaItem != null && CatalogMedia.isCatalog(mediaItem.mediaId) && relayPlayer != null && !usingRelay) {
+            if (mediaItem != null && CatalogMedia.isCatalog(mediaItem.mediaId) && relayPlays && !usingRelay) {
+                // The song that gave way is heard as any is; the relay takes the queue at this boundary.
+                noteLeaving(reason)
                 // Not from inside the player's own callback: once it's done telling everyone.
                 android.os.Handler(mainLooper).post { moveQueueToRelay() }
                 return
@@ -262,6 +287,7 @@ class PlaybackService : MediaLibraryService() {
             startPlay(mediaItem)
             playingIndex = player.currentMediaItemIndex
             topUpRadio()
+            lookAhead()
             refreshButtons()
             remember()
             getting.check()
@@ -272,6 +298,7 @@ class PlaybackService : MediaLibraryService() {
             if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) {
                 playingIndex = player.currentMediaItemIndex
                 topUpRadio()
+                lookAhead()
                 getting.check()
             }
         }
@@ -288,6 +315,8 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // A service's song never loads here: the relay is taking the queue.
+            if (player.currentMediaItem?.mediaId?.let(CatalogMedia::isCatalog) == true && relayPlayer != null && !relayDown) return
             if (!playAnotherCopy()) skipUnplayable(error)
         }
 
@@ -370,6 +399,77 @@ class PlaybackService : MediaLibraryService() {
         return rest
     }
 
+    /** The song as Play From is asked for it: what it is, and every copy of it you have. */
+    private fun wanted(song: PlayableSong) =
+        WantedSong(song.title, song.artistName, song.albumTitle, song.durationMs, song.identity, known = copies.of(song))
+
+    /** Whether the relay can play a service's song now: there is one, and it hasn't failed under Tracks Radio. */
+    private val relayPlays: Boolean get() = relayPlayer != null && !relayDown
+
+    /** What the player in use can play: the relay its own server's songs; the phone anything but a service's song without a relay. */
+    private fun playsHere(): (PlayableSong) -> Boolean {
+        val relay = relayPlayer
+        val serverId = relay?.serverId
+        if (usingRelay && serverId != null) return { RelayPlayer.playsOn(serverId, it.mediaId) }
+        val services = relayPlays
+        return { services || !CatalogMedia.isCatalog(it.mediaId) }
+    }
+
+    /** What the phone's own player can play, without the relay. */
+    private val playsOnPhone: (PlayableSong) -> Boolean = { !CatalogMedia.isCatalog(it.mediaId) }
+
+    /**
+     * Where a song plays from: the first place in Play From that [accept] takes, looked up off
+     * the main thread when a service comes before your copies. A service's song and one being got
+     * stay as they are; filtered to one source, the copy asked for plays while it can.
+     */
+    private suspend fun placeFor(song: PlayableSong, accept: (PlayableSong) -> Boolean): PlayableSong? {
+        if (CatalogMedia.isCatalog(song.mediaId) || song.isToGet || song.identity.isEmpty()) return song.takeIf(accept)
+        val registry = graph.sources
+        if (registry.selection.value != SourceSelection.All && registry.canPlay(song.mediaId) && accept(song)) return song
+        return withContext(Dispatchers.Default) {
+            graph.playResolver.resolve(wanted(song), lookups = relayPlays || usingRelay, accept = accept).song
+        }
+    }
+
+    private suspend fun placeFor(item: MediaItem, accept: (PlayableSong) -> Boolean): MediaItem? =
+        placeFor(item.toPlayableSong(), accept)?.let { if (it.mediaId == item.mediaId) item else it.toMediaItem() }
+
+    /**
+     * The next couple of songs on the phone's own player, looked up in Play From while the one
+     * before plays, so one a service comes first for is ready when it's reached. One that will
+     * play through the relay has a session opened for it ahead, so the change of player is quick.
+     */
+    private fun lookAhead() {
+        if (usingRelay) {
+            relayPlayer?.prefetch()
+            return
+        }
+        val key = "${player.currentMediaItemIndex}:${player.currentMediaItem?.mediaId}:${player.mediaItemCount}"
+        if (key == lookedAheadOf && lookingAhead?.isActive == true) return
+        lookedAheadOf = key
+        lookingAhead?.cancel()
+        val picks = graph.radio.state.value.picks
+        val ahead = upNextIndices().take(AHEAD_SONGS).map { it to player.getMediaItemAt(it) }
+        val accept = playsHere()
+        lookingAhead = scope.launch {
+            for ((index, item) in ahead) {
+                if (CatalogMedia.isCatalog(item.mediaId)) {
+                    CatalogMedia.parse(item.mediaId)?.first?.let { Streaming.of(graph)?.relay?.warm(it) }
+                    continue
+                }
+                if (SongsToGet.isToGet(item) || item.mediaId in picks) continue
+                val song = item.toPlayableSong()
+                if (!withContext(Dispatchers.Default) { graph.playResolver.looksUp(wanted(song)) }) continue
+                val place = placeFor(item, accept) ?: continue
+                if (place.mediaId == item.mediaId || usingRelay) continue
+                if (index >= player.mediaItemCount || player.getMediaItemAt(index).mediaId != item.mediaId) continue
+                player.replaceMediaItem(index, place)
+                CatalogMedia.parse(place.mediaId)?.first?.let { Streaming.of(graph)?.relay?.warm(it) }
+            }
+        }
+    }
+
     /** Another copy of a song that can play now, in the Play From order, other than the ones in [besides]. */
     private fun otherCopy(song: PlayableSong, besides: Set<String>): PlayableSong? {
         if (CatalogMedia.isCatalog(song.mediaId)) return null
@@ -449,6 +549,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun checkAheadIfDue() {
+        if (usingRelay) return sendAheadIfDue()
         val current = player.currentMediaItem ?: return
         val key = "${player.currentMediaItemIndex}:${current.mediaId}"
         if (checkedAheadOf == key) return
@@ -456,6 +557,22 @@ class PlaybackService : MediaLibraryService() {
         if (length - exo.currentPosition > AHEAD_MS) return
         checkedAheadOf = key
         checkAhead()
+    }
+
+    /**
+     * Half a minute before the relay's song ends, the song waiting next is sent to the server,
+     * so it follows on without a gap. Until then it can still make way (More Like This, Up Next).
+     */
+    private fun sendAheadIfDue() {
+        val relay = relayPlayer ?: return
+        if (!relay.holding || relay.currentMediaItemIndex < relay.sentCount - 1) return
+        val current = relay.currentMediaItem ?: return
+        val key = "relay:${relay.currentMediaItemIndex}:${current.mediaId}"
+        if (checkedAheadOf == key) return
+        val length = ListenCounter.knownLength(relay.duration) ?: return
+        if (length - relay.currentPosition > AHEAD_MS) return
+        checkedAheadOf = key
+        relay.sendNext()
     }
 
     private fun say(message: String) {
@@ -599,44 +716,71 @@ class PlaybackService : MediaLibraryService() {
         val listen = when (reason) {
             Player.MEDIA_ITEM_TRANSITION_REASON_AUTO, Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> Listen.FINISHED
             Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> {
-                if (player.currentMediaItemIndex < playingIndex) return
+                if (active.currentMediaItemIndex < playingIndex) return
                 val length = ListenCounter.knownLength(counter?.durationMs) ?: ListenCounter.knownLength(song.durationMs)
                 radioListen(counter?.listenedMs ?: 0, length)
             }
             else -> return
         }
         if (listen == Listen.SKIPPED) graph.radio.recordSkip(song)
-        if (isRadio()) graph.radio.note(song, listen)
+        if (isRadio()) {
+            graph.radio.note(song, listen)
+            // A skip turns the station: the pick made ready behind the next makes way.
+            if (listen == Listen.SKIPPED) radioPicks.steered()
+        }
     }
 
     /**
-     * Whether Tracks Radio is what's on. Never for a queue that holds a service's song: that's a
-     * station or a service's queue (or one saved as Tracks Radio before stations had their own
-     * kind), which the relay plays, and Tracks Radio never picks after it.
+     * Whether Tracks Radio is what's on, on the phone's own player or through the relay. A
+     * service's station is a Station, never this (one saved as Tracks Radio before stations
+     * had their own kind comes back as a Station, [Resumption]).
      */
-    private fun isRadio() = PlaybackBridge.origin.value?.kind == QueueOrigin.Kind.Radio && !holdsServiceSongs()
-
-    private fun holdsServiceSongs(): Boolean =
-        usingRelay || (0 until player.mediaItemCount).any { CatalogMedia.isCatalog(player.getMediaItemAt(it).mediaId) }
+    private fun isRadio() = PlaybackBridge.origin.value?.kind == QueueOrigin.Kind.Radio
 
     /** Whether one of the station's songs is waiting in Up next, after any you've queued. */
     private fun radioPickWaiting(): Int? {
         val picks = graph.radio.state.value.picks
-        return (player.mediaItemCount - 1 downTo player.currentMediaItemIndex + 1)
-            .firstOrNull { player.getMediaItemAt(it).mediaId in picks }
+        val queue = active
+        return (queue.mediaItemCount - 1 downTo queue.currentMediaItemIndex + 1)
+            .firstOrNull { queue.getMediaItemAt(it).mediaId in picks }
     }
 
     /**
      * Picks the next song once there's none of the station's waiting after this one. Only one
-     * is queued ahead, so every pick knows how the song before it went.
+     * is queued ahead, so every pick knows how the song before it went. It plays from the first
+     * place in Play From that the player in use can play: a service's song on the phone's own
+     * player hands the station to the relay as it's reached; on the relay, the pick waits to be
+     * sent until it's due ([sendAheadIfDue]).
      */
     private fun topUpRadio() {
-        if (!isRadio() || fetchingRadio || player.mediaItemCount == 0 || radioPickWaiting() != null) return
+        if (!isRadio() || fetchingRadio || active.mediaItemCount == 0 || radioPickWaiting() != null) return
         fetchingRadio = true
+        val onRelay = usingRelay
+        val where: Any = if (onRelay) relayPlayer?.serverId.orEmpty() else HERE
+        val accept = playsHere()
         scope.launch {
             try {
-                val next = runCatching { graph.radio.next() }.getOrNull()
-                if (isRadio() && next != null && radioPickWaiting() == null) player.addMediaItem(next.toMediaItem())
+                val next = runCatching { radioPicks.next(where, accept) }.getOrNull()
+                val queue = active
+                if (next == null) {
+                    if (isRadio() && !radioRanOut && queue.currentMediaItemIndex >= queue.mediaItemCount - 1) {
+                        radioRanOut = true
+                        say(RADIO_CANT_PLAY)
+                    }
+                    return@launch
+                }
+                radioRanOut = false
+                if (!isRadio() || usingRelay != onRelay || radioPickWaiting() != null) {
+                    graph.radio.release(next)
+                    return@launch
+                }
+                if (onRelay) {
+                    relayPlayer?.hold(listOf(next.toMediaItem()))
+                    sendAheadIfDue()
+                } else {
+                    player.addMediaItem(next.toMediaItem())
+                    CatalogMedia.parse(next.mediaId)?.first?.let { Streaming.of(graph)?.relay?.warm(it) }
+                }
             } finally {
                 fetchingRadio = false
             }
@@ -646,37 +790,60 @@ class PlaybackService : MediaLibraryService() {
     /**
      * The station's song waiting next was picked before what was just said: it makes way, so
      * the answer is heard next rather than a song later. Kept when it's already by the artist
-     * asked for, and never a song you queued.
+     * asked for, and never a song you queued. On the relay, one already sent to the server stays:
+     * the server's queue can't be trimmed from here.
      */
     private fun repickNext(unlessBy: String) {
+        radioPicks.steered()
         val index = radioPickWaiting() ?: return
-        val waiting = player.getMediaItemAt(index).toPlayableSong()
+        if (usingRelay && index < (relayPlayer?.sentCount ?: 0)) return
+        val queue = active
+        val waiting = queue.getMediaItemAt(index).toPlayableSong()
         if (waiting.artistName == unlessBy) return
         graph.radio.release(waiting)
-        player.removeMediaItem(index)
+        queue.removeMediaItem(index)
+        if (usingRelay) topUpRadio()
     }
 
     /** More like the song on now, from the very next song. */
     private fun moreLikeThis() {
-        val current = player.currentMediaItem?.toPlayableSong() ?: return
+        val current = active.currentMediaItem?.toPlayableSong() ?: return
         if (!isRadio() || !graph.radio.knows(current)) return
         graph.radio.moreLikeThis(current)
         repickNext(current.artistName)
     }
 
-    /** Tracks Radio's first songs, opening on [startingWith] when given, set as what plays. */
+    /**
+     * Tracks Radio's first songs, opening on [startingWith] when given, set as what plays, each
+     * from the first place in Play From that can play it. The session's player is set for them:
+     * the relay when the first plays from a service, else the phone's own.
+     */
     private suspend fun radioSongs(startingWith: PlayableSong? = null): List<PlayableSong> {
-        val songs = runCatching { graph.radio.start(startingWith) }
+        radioPicks.stop()
+        relayDown = false
+        radioRanOut = false
+        val picked = runCatching { graph.radio.start(startingWith) }
             .onFailure { Logs.w("Tracks Radio didn't start", it) }
             .getOrDefault(emptyList())
-        if (songs.isEmpty()) {
+        if (picked.isEmpty()) {
             say("Add some music, and Tracks Radio will have something to play.")
+            return picked
+        }
+        val accept: (PlayableSong) -> Boolean = { relayPlays || !CatalogMedia.isCatalog(it.mediaId) }
+        val placed = coroutineScope { picked.map { async { placeFor(it, accept) } }.awaitAll() }
+        val songs = picked.zip(placed).mapNotNull { (song, place) ->
+            if (place == null) graph.radio.release(song) else graph.radio.playsAs(song, place)
+            place
+        }
+        if (songs.isEmpty()) {
+            say(RADIO_CANT_PLAY)
             return songs
         }
         PlaybackBridge.origin.value = QueueOrigin("Tracks Radio", QueueOrigin.Kind.Radio)
+        if (CatalogMedia.isCatalog(songs.first().mediaId)) useRelay() else useNative()
         // A station has no order to shuffle and no end to repeat.
-        if (player.shuffleModeEnabled) player.shuffleModeEnabled = false
-        if (player.repeatMode != Player.REPEAT_MODE_OFF) player.repeatMode = Player.REPEAT_MODE_OFF
+        if (active.shuffleModeEnabled) active.shuffleModeEnabled = false
+        if (active.repeatMode != Player.REPEAT_MODE_OFF) active.repeatMode = Player.REPEAT_MODE_OFF
         return songs
     }
 
@@ -684,26 +851,56 @@ class PlaybackService : MediaLibraryService() {
         scope.launch {
             val songs = radioSongs()
             if (songs.isEmpty()) return@launch
-            useNative()
-            player.setMediaItems(songs.map { it.toMediaItem() }, 0, 0)
-            player.prepare()
-            player.play()
+            active.setMediaItems(songs.map { it.toMediaItem() }, 0, 0)
+            active.prepare()
+            active.play()
         }
     }
 
     /** Tracks Radio picked up where it is if it's what's on, or started. */
     private suspend fun radioQueue(): MediaSession.MediaItemsWithStartPosition {
-        if (isRadio() && player.mediaItemCount > 0) {
-            val items = List(player.mediaItemCount) { player.getMediaItemAt(it) }
-            return MediaSession.MediaItemsWithStartPosition(items, player.currentMediaItemIndex, player.currentPosition)
+        val queue = active
+        if (isRadio() && queue.mediaItemCount > 0) {
+            val items = List(queue.mediaItemCount) { queue.getMediaItemAt(it) }
+            return MediaSession.MediaItemsWithStartPosition(items, queue.currentMediaItemIndex, queue.currentPosition)
         }
         if (!graph.settings.settings.first().showTracksRadio) {
             tree.hourMix()?.let { (songs, start, origin) ->
+                useNative()
                 PlaybackBridge.origin.value = origin
                 return MediaSession.MediaItemsWithStartPosition(songs.map { it.toMediaItem() }, start, 0)
             }
         }
         return MediaSession.MediaItemsWithStartPosition(radioSongs().map { it.toMediaItem() }, 0, 0)
+    }
+
+    /**
+     * The relay stopped working under Tracks Radio: the station carries on here, from the song it
+     * was on where you have a copy, else from its next pick, played from the places after the
+     * relay's in Play From. Said in one line only when nothing can play.
+     */
+    private fun radioWithoutRelay() {
+        val relay = relayPlayer ?: return
+        if (!usingRelay || !isRadio()) return
+        relayDown = true
+        val current = relay.currentMediaItem?.toPlayableSong()
+        val position = relay.currentPosition
+        val playing = relay.playWhenReady || Streaming.of(graph)?.relay?.status?.value?.phase == RelayStatus.Phase.Failed
+        radioPicks.stop()
+        useNative()
+        scope.launch {
+            val here = current?.let { placeFor(it, playsOnPhone) }
+            if (here != null && current != null) graph.radio.playsAs(current, here)
+            val first = here ?: runCatching { radioPicks.next(HERE, playsOnPhone) }.getOrNull()
+            if (first == null) {
+                say(RADIO_CANT_PLAY)
+                return@launch
+            }
+            if (usingRelay || !isRadio()) return@launch
+            player.setMediaItems(listOf(first.toMediaItem()), 0, if (here != null) position else 0)
+            player.prepare()
+            if (playing) player.play()
+        }
     }
 
     // MARK: Sleep timer
@@ -827,9 +1024,29 @@ class PlaybackService : MediaLibraryService() {
         relay.services = {
             relay.serverId?.let { id -> streaming.repository.state.value.server(id)?.services?.associate { it.id to it.name } }.orEmpty()
         }
+        relay.waits = { serverId, item ->
+            !RelayPlayer.playsOn(serverId, item.mediaId) ||
+                (!CatalogMedia.isCatalog(item.mediaId) && item.mediaId !in graph.radio.state.value.picks && graph.playResolver.looksUp(wanted(item.toPlayableSong())))
+        }
+        relay.resolve = { serverId, item -> placeFor(item) { RelayPlayer.playsOn(serverId, it.mediaId) } }
+        relay.passedOver = { item ->
+            val song = item.toPlayableSong()
+            // A pick that can't play here makes way for another; any other song is said, as songs skipped ahead are.
+            if (song.mediaId in graph.radio.state.value.picks) {
+                graph.radio.release(song)
+                topUpRadio()
+            } else graph.sources.reportSkipped(SkippedSongs(1, PlayResolver.cantPlay(song.title)))
+        }
         relay.addListener(relayListener)
         relayPlayer = relay
-        scope.launch { streaming.relay.messages.collect(::say) }
+        // Under Tracks Radio, a relay that stops is met by playing on here; the station says if nothing can.
+        scope.launch { streaming.relay.messages.collect { if (!(usingRelay && isRadio())) say(it) } }
+        scope.launch {
+            streaming.relay.status.collect { status ->
+                if (status.phase == RelayStatus.Phase.Live) relayDown = false
+                if (RadioOnRelay.stopped(status) && usingRelay && isRadio()) radioWithoutRelay()
+            }
+        }
         scope.launch {
             streaming.relay.status.map { it.serverId }.distinctUntilChanged().collect { id ->
                 relayHttp = id?.let { streaming.servers.tracksideClient(it)?.events } ?: Http.base
@@ -837,14 +1054,36 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    /** What the relay plays is kept and counted as the phone's own player's is; radio and copies don't apply. */
+    /**
+     * What the relay plays is kept and counted as the phone's own player's is, and Tracks Radio
+     * hears how each song went and picks on, as it does on the phone's own player.
+     */
     private val relayListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             if (!usingRelay) return
+            noteLeaving(reason)
             finishPlay()
             startPlay(mediaItem)
+            playingIndex = active.currentMediaItemIndex
+            topUpRadio()
+            relayPlayer?.prefetch()
             refreshButtons()
             remember()
+        }
+
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+            if (!usingRelay || reason != Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) return
+            playingIndex = active.currentMediaItemIndex
+            topUpRadio()
+        }
+
+        override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
+            if (!usingRelay) return
+            if (reason == Player.DISCONTINUITY_REASON_SEEK && old.mediaItemIndex == new.mediaItemIndex &&
+                old.positionMs >= RESTARTS_AFTER_MS && new.positionMs < 1_000 && isRadio()
+            ) {
+                active.currentMediaItem?.toPlayableSong()?.let(graph.radio::replayed)
+            }
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -1022,14 +1261,21 @@ class PlaybackService : MediaLibraryService() {
                 }
             }
             val found = withoutServiceSongs(mediaItems.mapNotNull { resolve(it, controller) })
-            // Any service's song in the queue: all of it plays through the relay, which takes these items next.
-            if (relayPlayer != null && CatalogMedia.relayServer(found.map { it.mediaId }) != null) {
+            relayDown = false
+            radioPicks.stop()
+            val start = startIndex.coerceIn(0, (found.size - 1).coerceAtLeast(0))
+            // The first song from the first place in Play From, looked up now where a service comes first; the rest as each comes near.
+            val first = found.getOrNull(start)?.let { item -> placeFor(item) { relayPlays || !CatalogMedia.isCatalog(it.mediaId) } }
+            val queue = if (first != null && first.mediaId != found[start].mediaId) found.toMutableList().also { it[start] = first } else found
+            val relayServer = CatalogMedia.relayServer(queue.map { it.mediaId })
+            // A queue starting on a service's song, or on its server's own with a service's song in it, plays through the relay, which holds what's to be looked up.
+            if (relayPlayer != null && relayServer != null && queue.getOrNull(start)?.let { RelayPlayer.playsOn(relayServer, it.mediaId) } == true) {
                 useRelay()
-                return@future MediaSession.MediaItemsWithStartPosition(found, startIndex.coerceIn(0, (found.size - 1).coerceAtLeast(0)), startPositionMs)
+                return@future MediaSession.MediaItemsWithStartPosition(queue, start, startPositionMs)
             }
             useNative()
-            val resolved = preferred(found)
-            MediaSession.MediaItemsWithStartPosition(resolved, startIndex.coerceIn(0, (resolved.size - 1).coerceAtLeast(0)), startPositionMs)
+            val resolved = preferred(queue)
+            MediaSession.MediaItemsWithStartPosition(resolved, start, startPositionMs)
         }
 
         override fun onPlaybackResumption(mediaSession: MediaSession, controller: MediaSession.ControllerInfo, isForPlayback: Boolean): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
@@ -1037,13 +1283,13 @@ class PlaybackService : MediaLibraryService() {
                 val saved = memory.restore()
                 val paused = saved?.songs?.getOrNull(saved.index)
                 val streams = saved != null && Resumption.streams(saved.songs)
-                if (saved != null && paused != null && Resumption.restartsTracksRadio(saved.origin, saved.songs)) {
+                if (saved != null && paused != null && Resumption.restartsTracksRadio(saved.origin, saved.songs, saved.tracksRadio)) {
                     // Tracks Radio starts again from the song it was on, and picks on from there.
                     val songs = radioSongs(startingWith = paused)
                     if (songs.isNotEmpty()) return@future MediaSession.MediaItemsWithStartPosition(songs.map { it.toMediaItem() }, 0, saved.positionMs)
                 }
                 if (saved != null) {
-                    PlaybackBridge.origin.value = Resumption.origin(saved.origin, saved.songs)
+                    PlaybackBridge.origin.value = Resumption.origin(saved.origin, saved.songs, saved.tracksRadio)
                     // A queue with a service's song comes back through the relay, which starts a session for it.
                     if (relayPlayer != null && streams) useRelay() else useNative()
                     MediaSession.MediaItemsWithStartPosition(saved.songs.map { it.toMediaItem() }, saved.index, saved.positionMs)
@@ -1062,6 +1308,11 @@ class PlaybackService : MediaLibraryService() {
         const val LOAD_RETRIES = 6
         /** How far into a song Previous starts it over, as Media3 has it. */
         const val RESTARTS_AFTER_MS = 3_000L
+        /** Songs coming up looked up in Play From ahead of being reached. */
+        const val AHEAD_SONGS = 2
+        /** Where Tracks Radio's picks play when it isn't the relay: this device's own player. */
+        const val HERE = "here"
+        const val RADIO_CANT_PLAY = "Tracks Radio can't play anything right now."
 
         fun List<MediaItem>.page(page: Int, size: Int): ImmutableList<MediaItem> {
             if (size <= 0 || size == Int.MAX_VALUE) return ImmutableList.copyOf(this)

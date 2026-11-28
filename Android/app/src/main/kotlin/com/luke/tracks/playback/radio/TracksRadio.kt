@@ -18,6 +18,7 @@ import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.playback.RadioSource
 import com.luke.tracks.playback.RadioState
 import com.luke.tracks.playback.radio.RadioWords.isTurningAway
+import com.luke.tracks.sources.WantedSong
 import com.luke.tracks.streaming.playResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -137,13 +138,15 @@ class TracksRadio(
     private val newPlayed = java.util.Collections.synchronizedSet(HashSet<String>())
 
     /**
-     * A new song from a Trackside server that gets songs, made playable as the server allows
-     * (streamed without keeping it, or got with instant play); null when there's none it can
-     * play, so the station's own song comes instead. Only while Get is in Play From: the station
-     * plays on this device's own player, which a streaming service's song would take it off.
+     * A new song your Trackside servers suggest: from a streaming service that has it, or with
+     * Get on, made playable as the server allows (streamed without keeping it, or got with
+     * instant play); null when there's none it can play, so the station's own song comes instead.
      */
     private suspend fun newSong(): PlayableSong? {
-        if (!graph.playResolver.gets()) return null
+        val resolver = graph.playResolver
+        val streams = resolver.streams()
+        val gets = resolver.gets()
+        if (!streams && !gets) return null
         val source = runCatching { picks() }.getOrNull() ?: return null
         val skipped = graph.settings.settings.first().hiddenSongs
         val waiting = runCatching { source.newForRadio() }.getOrDefault(emptyList())
@@ -151,7 +154,15 @@ class TracksRadio(
             .shuffled()
         for (found in waiting.take(NEW_TRIES)) {
             newPlayed += found.song.identity
-            val song = withTimeoutOrNull(NEW_WAIT_MS) { runCatching { source.playNew(found) }.getOrNull() } ?: continue
+            val s = found.song
+            // A service that has it plays it, where the order comes to a service before Get.
+            val streamed = if (streams) {
+                withTimeoutOrNull(NEW_WAIT_MS) {
+                    runCatching { resolver.resolve(WantedSong(s.title, s.artist, s.album, s.durationMs?.toLong(), s.identity)).song }.getOrNull()
+                }
+            } else null
+            val got = if (streamed == null && gets) withTimeoutOrNull(NEW_WAIT_MS) { runCatching { source.playNew(found) }.getOrNull() } else null
+            val song = streamed ?: got ?: continue
             songs = songs + (song.identity to song)
             return song
         }
@@ -180,6 +191,14 @@ class TracksRadio(
     override fun release(song: PlayableSong) {
         runCatching { station?.release(song.identity) }
         _state.update { it.copy(picks = it.picks - song.mediaId) }
+    }
+
+    override fun playsAs(picked: PlayableSong, song: PlayableSong) {
+        if (picked.mediaId == song.mediaId) return
+        _state.update { state ->
+            if (picked.mediaId !in state.picks) state
+            else state.copy(picks = (state.picks - picked.mediaId + (song.mediaId to state.picks[picked.mediaId])).recent())
+        }
     }
 
     override fun recordSkip(song: PlayableSong) {

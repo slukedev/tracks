@@ -29,6 +29,8 @@ import com.luke.tracks.streaming.RelayItem
 import com.luke.tracks.streaming.RelayStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.OkHttpClient
@@ -46,7 +48,7 @@ import okhttp3.OkHttpClient
 class RelayPlayer(
     context: Context,
     private val engine: RelayEngine,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
     /** The server's own client, the one that holds its pinned certificates. */
     private val http: () -> OkHttpClient,
     /** A queue of library songs only: the phone plays those itself. */
@@ -74,10 +76,34 @@ class RelayPlayer(
     /** Services by id, for each song's source: set by whoever starts the queue. */
     var services: () -> Map<String, String> = { emptyMap() }
 
+    /**
+     * Whether a song waits here rather than going to the server with the queue: one Play From
+     * would play from somewhere else (a service above your copy, or a song not on this server).
+     */
+    var waits: (serverId: String, MediaItem) -> Boolean = { _, _ -> false }
+
+    /** The song as this server's relay plays it, after Play From: null when it can't play here. */
+    var resolve: suspend (serverId: String, MediaItem) -> MediaItem? = { serverId, item -> item.takeIf { playsOn(serverId, it.mediaId) } }
+
+    /** A song that waited and then couldn't play here: passed over, and said so. */
+    var passedOver: (MediaItem) -> Unit = {}
+
+    /**
+     * Songs after the server's queue that aren't sent yet, shown after it. Each is sent once it's
+     * due ([sendNext]), as the one before ends, or at once when it's skipped to.
+     */
+    private var held: List<MediaItem> = emptyList()
+    private val answers = HashMap<String, Deferred<MediaItem?>>()
+    /** What each song is, by media id, as it was handed in: the server's queue doesn't carry it. */
+    private val songs = HashMap<String, PlayableSong>()
+    private var sending: Job? = null
+
     init {
         audio.addListener(audioListener())
         scope.launch {
             engine.status.collect { fresh ->
+                // The relay stopped: songs waiting to go to it go with it.
+                if (status.serverId != null && fresh.serverId == null) clearHeld()
                 status = fresh
                 follow(fresh)
                 invalidateState()
@@ -123,10 +149,19 @@ class RelayPlayer(
      */
     private fun playlist(s: RelayStatus): List<SimpleBasePlayer.MediaItemData> {
         val seen = HashMap<String, Int>()
-        return s.items.map { item ->
+        val sent = s.items.map { item ->
             val n = seen.merge(item.mediaId, 1, Int::plus)!!
             data(item, "${item.mediaId}#$n", s.serverId.orEmpty())
         }
+        val waiting = held.map { item ->
+            val n = seen.merge(item.mediaId, 1, Int::plus)!!
+            SimpleBasePlayer.MediaItemData.Builder("${item.mediaId}#$n")
+                .setMediaItem(item)
+                .setDurationUs(item.mediaMetadata.durationMs?.takeIf { it > 0 }?.let { it * 1_000 } ?: C.TIME_UNSET)
+                .setIsSeekable(true)
+                .build()
+        }
+        return sent + waiting
     }
 
     private fun data(item: RelayItem, uid: String, serverId: String) =
@@ -152,6 +187,8 @@ class RelayPlayer(
                     .setArtworkUri(artwork)
                     .setDurationMs(item.durationMs)
                     .setStation(item.serviceId?.let { status.services[it] })
+                    // A song handed in keeps what it is (its identity, for Tracks Radio and copies).
+                    .setExtras(songs[item.mediaId]?.toMediaItem()?.mediaMetadata?.extras)
                     .setIsPlayable(true)
                     .setIsBrowsable(false)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
@@ -190,6 +227,13 @@ class RelayPlayer(
 
     override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
         val current = status.index
+        val toNext = seekCommand == Player.COMMAND_SEEK_TO_NEXT || seekCommand == Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM
+        // Nothing after this song on the server yet: the song waiting next is sent, and played.
+        if (held.isNotEmpty() && current >= status.items.lastIndex && (toNext || mediaItemIndex > status.items.lastIndex)) {
+            val skipTo = if (toNext) 0 else (mediaItemIndex - status.items.size).coerceIn(0, held.lastIndex)
+            held = held.drop(skipTo)
+            return sendNext(skip = true)
+        }
         val done = when {
             seekCommand == Player.COMMAND_SEEK_TO_NEXT || seekCommand == Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> engine.next()
             seekCommand == Player.COMMAND_SEEK_TO_PREVIOUS || seekCommand == Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> engine.previous()
@@ -209,7 +253,12 @@ class RelayPlayer(
         },
     ).asFuture()
 
-    /** A new queue: through the relay while any of it is a service's, else back to the phone's own player. */
+    /**
+     * A new queue: through the relay while any of it is a service's, else back to the phone's
+     * own player. Songs before the start go as they are where the server has them; from the
+     * start, songs go until one waits ([waits]), and that one and the rest are held and sent
+     * as each comes due.
+     */
     override fun handleSetMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long): ListenableFuture<*> {
         val ids = mediaItems.map { it.mediaId }
         val serverId = CatalogMedia.relayServer(ids)
@@ -217,35 +266,150 @@ class RelayPlayer(
             playNatively(mediaItems, startIndex, startPositionMs)
             return Futures.immediateVoidFuture()
         }
-        val start = if (startIndex == C.INDEX_UNSET) 0 else startIndex
+        remember(mediaItems)
+        val start = (if (startIndex == C.INDEX_UNSET) 0 else startIndex).coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
+        val firstHeld = (start + 1 until mediaItems.size).firstOrNull { waits(serverId, mediaItems[it]) } ?: mediaItems.size
+        val sent = mediaItems.subList(0, firstHeld)
+        clearHeld()
+        held = mediaItems.subList(firstHeld, mediaItems.size).toList()
         val kept = CatalogMedia.request(
-            ids, start, serverId,
+            sent.map { it.mediaId }, start, serverId,
             positionMs = if (startPositionMs == C.TIME_UNSET) 0 else startPositionMs,
             shuffle = status.shuffle,
             repeat = status.repeat,
             context = PlaybackBridge.origin.value?.let { com.luke.tracks.library.trackside.TracksideSpeaker.Context(kind = contextKind(it.kind), name = it.title) },
         ) ?: return Futures.immediateVoidFuture()
-        val preview = kept.positions.map { preview(mediaItems[it]) }
+        val preview = kept.positions.map { preview(sent[it]) }
+        prefetch()
         return engine.play(serverId, kept, preview, services()).asFuture()
     }
 
     override fun handleAddMediaItems(index: Int, mediaItems: List<MediaItem>): ListenableFuture<*> {
         val serverId = status.serverId ?: return Futures.immediateVoidFuture()
+        remember(mediaItems)
+        // After songs that wait: these wait with them, in their place.
+        if (held.isNotEmpty() && index >= status.items.size) {
+            val at = (index - status.items.size).coerceIn(0, held.size)
+            held = held.toMutableList().apply { addAll(at, mediaItems) }
+            prefetch()
+            return Futures.immediateVoidFuture()
+        }
         val kept = mediaItems.mapNotNull { item -> request(item, serverId)?.let { it to preview(item) } }
         // Only next and last are places the server's queue takes songs.
         return engine.enqueue(kept.map { it.first }, kept.map { it.second }, next = index <= status.index + 1).asFuture()
     }
 
-    // The server's queue can't be reordered or trimmed from here: what's asked is shown, then the queue as it is.
-    override fun handleRemoveMediaItems(fromIndex: Int, toIndex: Int): ListenableFuture<*> = Futures.immediateVoidFuture()
+    /** Songs to show after the server's queue, sent as each comes due: Tracks Radio's next pick. */
+    fun hold(items: List<MediaItem>) {
+        if (items.isEmpty()) return
+        remember(items)
+        held = held + items
+        prefetch()
+        invalidateState()
+    }
 
-    override fun handleMoveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int): ListenableFuture<*> = Futures.immediateVoidFuture()
+    /** Whether a song is waiting here, not sent yet. */
+    val holding: Boolean get() = held.isNotEmpty()
 
-    override fun handleReplaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>): ListenableFuture<*> = Futures.immediateVoidFuture()
+    /** How many songs the server's own queue holds; songs after these wait here. */
+    val sentCount: Int get() = status.items.size
 
-    private fun request(item: MediaItem, serverId: String): TracksideSpeakerPlayRequest.Item? =
-        CatalogMedia.parse(item.mediaId)?.takeIf { it.first == serverId }?.let { TracksideSpeakerPlayRequest.Item(ref = it.second) }
-            ?: com.luke.tracks.library.ServerLibrary.parseMediaId(item.mediaId)?.takeIf { it.first == serverId }?.let { TracksideSpeakerPlayRequest.Item(songId = it.second) }
+    /** Looks up where the next songs that wait play from, so each is ready before it's due. */
+    fun prefetch() {
+        val serverId = status.serverId ?: CatalogMedia.relayServer(held.map { it.mediaId }) ?: return
+        held.take(AHEAD).forEach { item ->
+            answers.getOrPut(item.mediaId) { scope.async { runCatching { resolve(serverId, item) }.getOrNull() } }
+        }
+    }
+
+    /**
+     * Sends the first song that waits to the server, after the queue or ([skip]) as the next
+     * song and moved on to at once. One that can't play here is passed over for the one after.
+     */
+    fun sendNext(skip: Boolean = false): ListenableFuture<*> {
+        val future = SettableFuture.create<Unit>()
+        if (sending?.isActive == true && !skip) return future.also { it.set(Unit) }
+        sending?.cancel()
+        sending = scope.launch {
+            try {
+                while (held.isNotEmpty()) {
+                    val serverId = status.serverId ?: break
+                    val item = held.first()
+                    val resolved = (answers[item.mediaId] ?: scope.async { runCatching { resolve(serverId, item) }.getOrNull() }).await()
+                    if (held.firstOrNull() !== item) continue
+                    held = held.drop(1)
+                    answers.remove(item.mediaId)
+                    val wire = resolved?.let { request(it, serverId) }
+                    if (resolved == null || wire == null) {
+                        passedOver(item)
+                        invalidateState()
+                        continue
+                    }
+                    remember(listOf(resolved))
+                    invalidateState()
+                    engine.enqueue(listOf(wire), listOf(preview(resolved)), next = skip, skip = skip).await()
+                    break
+                }
+                prefetch()
+            } finally {
+                future.set(Unit)
+            }
+        }
+        return future
+    }
+
+    private fun clearHeld() {
+        held = emptyList()
+        answers.values.forEach { it.cancel() }
+        answers.clear()
+        sending?.cancel()
+    }
+
+    private fun remember(items: List<MediaItem>) {
+        items.forEach { item -> item.toPlayableSong().takeIf { it.identity.isNotEmpty() }?.let { songs[item.mediaId] = it } }
+        if (songs.size > MAX_SONGS) songs.keys.take(songs.size - MAX_SONGS).forEach(songs::remove)
+    }
+
+    /** Songs that wait can be taken out and moved; the server's own queue can't be from here. */
+    override fun handleRemoveMediaItems(fromIndex: Int, toIndex: Int): ListenableFuture<*> {
+        val sent = status.items.size
+        if (toIndex <= sent || held.isEmpty()) return Futures.immediateVoidFuture()
+        val from = (fromIndex - sent).coerceAtLeast(0)
+        val to = (toIndex - sent).coerceAtMost(held.size)
+        if (from < to) {
+            held.subList(from, to).forEach { answers.remove(it.mediaId)?.cancel() }
+            held = held.filterIndexed { i, _ -> i < from || i >= to }
+            prefetch()
+        }
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleMoveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int): ListenableFuture<*> {
+        val sent = status.items.size
+        if (fromIndex < sent || newIndex < sent || held.isEmpty()) return Futures.immediateVoidFuture()
+        val moving = held.subList((fromIndex - sent).coerceIn(0, held.size), (toIndex - sent).coerceIn(0, held.size)).toList()
+        val rest = held.toMutableList().apply { removeAll(moving) }
+        held = rest.apply { addAll((newIndex - sent).coerceIn(0, rest.size), moving) }
+        prefetch()
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleReplaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>): ListenableFuture<*> {
+        val sent = status.items.size
+        if (fromIndex < sent || held.isEmpty()) return Futures.immediateVoidFuture()
+        val from = (fromIndex - sent).coerceIn(0, held.size)
+        val to = (toIndex - sent).coerceIn(from, held.size)
+        remember(mediaItems)
+        held.subList(from, to).forEach { answers.remove(it.mediaId)?.cancel() }
+        held = held.toMutableList().apply {
+            repeat(to - from) { removeAt(from) }
+            addAll(from, mediaItems)
+        }
+        prefetch()
+        return Futures.immediateVoidFuture()
+    }
+
+    private fun request(item: MediaItem, serverId: String): TracksideSpeakerPlayRequest.Item? = request(item.mediaId, serverId)
 
     private fun preview(item: MediaItem): RelayItem {
         val song = item.toPlayableSong()
@@ -327,10 +491,20 @@ class RelayPlayer(
         QueueOrigin.Kind.Library, QueueOrigin.Kind.Other -> "other"
     }
 
-    private companion object {
-        const val LOAD_RETRIES = 6
+    companion object {
+        private const val LOAD_RETRIES = 6
+        /** Songs that wait looked up ahead of being due. */
+        private const val AHEAD = 2
+        private const val MAX_SONGS = 1_000
 
-        val COMMANDS: Player.Commands = Player.Commands.Builder().addAll(
+        /** Whether the relay on [serverId] plays this song as it is: the server's own, or one of its services'. */
+        fun playsOn(serverId: String, mediaId: String): Boolean = request(mediaId, serverId) != null
+
+        private fun request(mediaId: String, serverId: String): TracksideSpeakerPlayRequest.Item? =
+            CatalogMedia.parse(mediaId)?.takeIf { it.first == serverId }?.let { TracksideSpeakerPlayRequest.Item(ref = it.second) }
+                ?: com.luke.tracks.library.ServerLibrary.parseMediaId(mediaId)?.takeIf { it.first == serverId }?.let { TracksideSpeakerPlayRequest.Item(songId = it.second) }
+
+        private val COMMANDS: Player.Commands = Player.Commands.Builder().addAll(
             Player.COMMAND_PLAY_PAUSE,
             Player.COMMAND_PREPARE,
             Player.COMMAND_STOP,

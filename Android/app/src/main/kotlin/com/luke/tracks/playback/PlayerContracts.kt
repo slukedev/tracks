@@ -156,6 +156,9 @@ interface RadioSource {
     /** A pick that never played, made way for another. */
     fun release(song: PlayableSong)
 
+    /** A pick that plays from another place in Play From than the copy it was picked as ([song] is what's queued). */
+    fun playsAs(picked: PlayableSong, song: PlayableSong) = Unit
+
     /** Remembers a song skipped anywhere in Tracks, so the radio plays it less. */
     fun recordSkip(song: PlayableSong)
 }

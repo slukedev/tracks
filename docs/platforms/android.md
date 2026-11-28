@@ -364,18 +364,46 @@ See [README.md](README.md) for the legend and how to keep this current.
   places this device doesn't have round-trip. Phone and TV (remote and touch) reorder them as any
   source.
 - One resolver (`PlayResolver`) picks where every song plays from: the player's copy choice,
-  Discover's songs and albums, Search's "Not in your library", Play's new songs, Something
-  different, Tracks Radio's new songs and services' songs. A song you have plays from your
-  copies while one can (no lookups). Otherwise it walks the order: a service by one search of it
-  matched on song identity (2.5 s budget, answers cached), then Get. A service's song you picked
-  starts at that service's place, so only your copies ranked above it come first. Lookups run off
-  the main thread with a ring on the row; when nothing can play, one line: `Can't play “Song”
-  here.`, never a silent download. Explicit Get, Get Album and Add stay explicit.
+  library queues, mixes, history, Discover's songs and albums, Search's "Not in your library",
+  Play's new songs, Something different, Tracks Radio and services' songs. The order holds for
+  songs you have too: with Apple Music above your server, a song you have plays from Apple Music
+  (matched on song identity), and your copy plays when the service has no match or can't play
+  now. With your sources first, a song you have plays at once, without a lookup. A lookup is one
+  search of the service (2.5 s budget); matches are kept in memory and in
+  `cache/service-matches.json` (refs and titles only: found for 7 days, not found for a day; a
+  failed search isn't kept). A queue starts once its first song is placed; the next two are
+  looked up while the one before plays, and one that becomes a service's song has a relay
+  session opened ahead so the change of player at that song is quick. Explicit Get, Get Album
+  and Add stay explicit; when nothing can play, one line: `Can't play “Song” here.`
+- Through the relay, songs the server has as they are (its own and its services') go to it at
+  once; from the first one Play From must look up (a service above your server, a song on this
+  device or another server), the rest wait on the device, shown in Up Next, and go to the server
+  one at a time half a minute before the song before ends (or at once when skipped to). A song
+  on this device or another server plays from a copy the relay can play (the service, or your
+  server's) and is otherwise skipped with the one line; nothing is dropped silently. Songs that
+  wait can be removed and moved; shuffle on the relay shuffles the songs already sent.
+- Tracks Radio follows Play From, services included. Each pick plays from the first place the
+  player in use can play: on the device's own player, a pick from a service hands the station to
+  the relay as it's reached (at the track boundary, the session already open); on the relay,
+  picks are your server's songs or its services', and a pick nothing there can play makes way
+  for another. Top-ups, More Like This, Hear Less, skips, why each song came up, plays kept and
+  history work the same on both. One more pick is looked up behind the next, so a skip straight
+  away doesn't wait; it's let go when a skip, a like, More Like This or Hear Less turns the
+  station. On the relay a pick waits on the device until it's due, so More Like This can still
+  replace it; once sent it stays, since the server's queue can't be trimmed. If the relay stops
+  under the station (a session error, services gone, revoked), it carries on on the device's own
+  player from your copies (then Get, if on), saying `Tracks Radio can't play anything right
+  now.` only when nothing can. New finds come from a service that has them, else from Get while
+  it's on. A paused Tracks Radio comes back as Tracks Radio even when its songs played through
+  the relay (the saved queue marks it).
 - A service's station plays as a Station, not Tracks Radio: no shuffle or repeat, and a saved one
-  (or one saved as Tracks Radio before) resumes through the relay. Tracks Radio never tops up,
-  takes More Like This or restarts from a queue that holds a service's song, and its new songs
-  come only while Get is on. Without a relay, a service's song is left out with the one line,
-  never swapped for another copy.
+  (or one saved as Tracks Radio by an older version) resumes through the relay. Without a relay,
+  a service's song is left out with the one line, never swapped for another copy.
+- The relay says why it can't play in one line, by the server's reason: signed out of a
+  service, not playable, services not set up, at its limit, can't relay on this device, the
+  music system unreachable, the library offline, a command the server couldn't carry out or
+  took too long over, and for the stream lost connection, turned down (4xx) or the server's own
+  error (5xx). The log keeps the code, reason and status class, never an address or token.
 - Library: one library across sources, with the source filter and Artists, Albums and Songs
   as chips. "No music yet" with Add source when there's nothing.
 - Device files through MediaStore, with permission handling and change watching. *(untested
