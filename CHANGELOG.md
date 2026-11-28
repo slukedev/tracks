@@ -404,6 +404,15 @@ recorded any more. Your Last.fm history can still bring in what you scrobbled an
   stands in for it in the media session, over an ExoPlayer for the live HLS
   (`media3-exoplayer-hls`). The catalog and relay fixtures are copied from the contract and
   decoded in the tests
+- With librespot gone, the engine no longer pulls in rustls 0.22, rustls-webpki 0.102,
+  quick-xml 0.38 or rsa 0.9, which closes their security advisories
+- The engine is on UniFFI 0.33. The generated Swift and Kotlin bindings keep the same module
+  names and public API, so the apps call them as before; run `Engine/build-apple.sh` and
+  `Engine/build-android.sh` again to regenerate them
+- On Android: Android Gradle Plugin 9.5.3, Paging 3.5.3, Robolectric 4.18.1 and
+  kotlinx-coroutines-test 1.11.0. Paging and the frozen Material Icons Extended 1.7.8 get
+  their versions from the catalog's `[versions]` like everything else
+- The unused `Android/Package.resolved`, left over from Skip, is gone
 
 ## Motif 1.0
 
