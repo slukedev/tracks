@@ -14,6 +14,8 @@ nonisolated struct RelayQueue: Sendable {
     var position: TimeInterval = 0
     /// What the queue was started from, for the speaker's "Playing from".
     var context: TracksideSpeaker.Context?
+    /// The service's own radio from the one song in it, rather than the song alone.
+    var isRadio = false
 
     init(serverID: String, entries: [RelayEntry], start: Int = 0, position: TimeInterval = 0, context: TracksideSpeaker.Context? = nil) {
         self.serverID = serverID
@@ -48,6 +50,8 @@ nonisolated struct RelayEntry: Sendable, Equatable {
     let serviceID: String?
     /// The song in your own music, for one of the server's songs.
     let local: LocalTrack?
+    /// Whether it's saved in its service's library, where the server said.
+    var saved: Bool? = nil
 
     init(_ track: TracksideCatalogTrack) {
         item = .ref(track.ref)
@@ -59,6 +63,7 @@ nonisolated struct RelayEntry: Sendable, Equatable {
         isExplicit = track.isExplicit
         serviceID = track.serviceID
         local = nil
+        saved = track.saved
     }
 
     /// A service's station, which the server plays as it goes.

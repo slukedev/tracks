@@ -141,6 +141,9 @@ final class PlayerModel {
             relay.onNotice = { [weak self] in self?.confirm($0) }
             relay.onRemoteNext = { [weak self] in self?.skipToNext() }
             relay.onRemotePrevious = { [weak self] in self?.skipToPrevious() }
+            relay.onRadioUnavailable = { [weak self] seed in
+                Task { await self?.startRadio(seededBy: seed) }
+            }
             return
         }
         if let mixed = engine as? MixedQueueEngine {
@@ -870,6 +873,13 @@ final class PlayerModel {
         return CatalogServiceAddress(serverID: serverID, serviceID: serviceID)
     }
 
+    /// The song on as its music service knows it, with whether it's saved there where the
+    /// server said. Nil for anything but a service's song through a server's relay.
+    var playingServiceItem: (address: CatalogServiceAddress, ref: String, saved: Bool?)? {
+        guard let address = playingService, let relay = engine as? RelayPlayerEngine, let item = relay.currentServiceItem else { return nil }
+        return (address: address, ref: item.ref, saved: item.saved)
+    }
+
     /// A short confirmation, shown over everything for a moment, like Music's.
     private(set) var confirmation: String?
     @ObservationIgnored private var confirmationTask: Task<Void, Never>?
@@ -1463,6 +1473,16 @@ final class PlayerModel {
     /// An endless mix of everything you love, picked as it plays.
     func playTracksRadio() {
         Task { await startTracksRadio() }
+    }
+
+    /// Songs picked as they play from one song, as Tracks Radio picks them: where a music
+    /// service couldn't make its own radio from it. Says nothing when there's nothing like it.
+    func startRadio(seededBy seed: PlayerTrack) async {
+        guard let makeAutoplay else { return }
+        var mix = await makeAutoplay([seed])
+        guard !mix.isEmpty else { return }
+        mix.note(picked: seed.songIdentity)
+        await startLive(mix, from: .tracksRadio)
     }
 
     /// ``playTracksRadio()``, returning once it has started or failed.

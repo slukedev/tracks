@@ -10,6 +10,7 @@ public protocol CatalogService: Sendable {
     func catalogLibrary(service id: String, kind: TracksideCatalogLibraryPage.Kind, cursor: String?, limit: Int) async throws -> TracksideCatalogLibraryPage
     func catalogRecommendations(services: [String], limit: Int) async throws -> TracksideCatalogRecommendations
     func matchCatalog(_ request: TracksideCatalogMatchRequest) async throws -> TracksideCatalogMatch
+    func setCatalogSaved(_ saved: Bool, ref: String) async throws -> TracksideCatalogSaved
 }
 
 extension TracksideClient: CatalogService {}
@@ -103,6 +104,8 @@ public final class StreamingCatalog {
     /// Each server's rows of its services' own picks, once asked for, Apple Music's left out.
     /// A server that has none, or hasn't been asked yet, isn't here.
     public private(set) var recommendations: [String: [TracksideCatalogShelf]] = [:]
+    /// Items saved or removed here, by server and ref, until the server's own word is newer.
+    public private(set) var saved: [String: Bool] = [:]
 
     @ObservationIgnored private var clients: [String: any CatalogService] = [:]
     @ObservationIgnored private var refreshes: [String: Task<Void, Never>] = [:]
@@ -269,6 +272,35 @@ public final class StreamingCatalog {
     public func item(_ ref: String, on serverID: String, cursor: String? = nil) async throws -> TracksideCatalogItem {
         guard let client = clients[serverID] else { throw TracksideError.featureUnavailable }
         return try await client.catalogItem(ref, cursor: cursor, limit: nil)
+    }
+
+    // MARK: - Saving to a service
+
+    /// Whether a service's track can be saved to its library from here.
+    public func canSave(track serviceID: String, on serverID: String) -> Bool {
+        playback[serverID]?.save == true && service(CatalogServiceAddress(serverID: serverID, serviceID: serviceID))?.canSave("track") == true
+    }
+
+    /// Whether an item is saved in its service's library: as last set here, or as the server
+    /// said. Nil when neither knows.
+    public func isSaved(_ ref: String, on serverID: String, known: Bool? = nil) -> Bool? {
+        saved["\(serverID)/\(ref)"] ?? known
+    }
+
+    /// Saves an item to its service's library, or removes it. Shown at once, and put back
+    /// when the server refuses.
+    public func setSaved(_ isSaved: Bool, ref: String, on serverID: String) async throws {
+        guard let client = clients[serverID] else { throw TracksideError.featureUnavailable }
+        let key = "\(serverID)/\(ref)"
+        let was = saved[key]
+        saved[key] = isSaved
+        do {
+            let answer = try await client.setCatalogSaved(isSaved, ref: ref)
+            saved[key] = answer.isSaved
+        } catch {
+            saved[key] = was
+            throw error
+        }
     }
 
     // MARK: - The services' own picks

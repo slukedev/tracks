@@ -168,6 +168,8 @@ private final class LookupCatalog: CatalogService, @unchecked Sendable {
 
     func catalogRecommendations(services: [String], limit: Int) async throws -> TracksideCatalogRecommendations { throw TracksideError.notFound }
 
+    func setCatalogSaved(_ saved: Bool, ref: String) async throws -> TracksideCatalogSaved { throw TracksideError.notFound }
+
     func matchCatalog(_ request: TracksideCatalogMatchRequest) async throws -> TracksideCatalogMatch {
         let (tracks, deferred) = lock.withLock {
             _matchRequests.append(request)
@@ -199,5 +201,142 @@ private final class LookupClock: @unchecked Sendable {
 
     func advance(by seconds: TimeInterval) {
         lock.withLock { current = current.addingTimeInterval(seconds) }
+    }
+}
+
+@Suite("Saving to a music service, its radio, and its one stream")
+struct ServiceLibraryEditTests {
+    typealias T = TracksideTesting
+
+    @Test("a service says which kinds it saves, and a track whether it's saved")
+    func wire() throws {
+        let service = try T.decode(TracksideCatalogService.self, #"{"id": "B1", "name": "Spotify", "logo_key": "spotify", "capabilities": ["library_edit", "search"], "library_edit_kinds": ["album", "track", 7], "account": {"state": "ok"}}"#)
+        #expect(service.can(.libraryEdit))
+        #expect(service.libraryEditKinds == ["album", "track"])
+        #expect(service.canSave("track"))
+        #expect(!service.canSave("playlist"))
+        #expect(service.placeKind == "spotify")
+
+        let unnamed = try T.decode(TracksideCatalogService.self, #"{"id": "b2", "name": "Elsewhere"}"#)
+        #expect(unnamed.placeKind == "b2")
+        #expect(!unnamed.canSave("track"))
+
+        let track = try T.decode(TracksideCatalogTrack.self, #"{"ref": "mc1.a", "service_id": "b1", "title": "Halo", "saved": true}"#)
+        #expect(track.saved == true)
+        #expect(try T.decode(TracksideCatalogTrack.self, #"{"ref": "mc1.a", "title": "Halo"}"#).saved == nil)
+
+        let answer = try T.decode(TracksideCatalogSaved.self, #"{"ref": "mc1.a", "saved": false, "service_id": "B1"}"#)
+        #expect(!answer.isSaved)
+        #expect(answer.serviceID == "b1")
+
+        let me = try T.decode(TracksideMe.Features.self, #"{"catalog": {"save": true, "radio": true, "match": true}, "speakers": {"control": true, "takeover": true}}"#)
+        #expect(me.catalog?.save == true)
+        #expect(me.catalog?.radio == true)
+        #expect(me.catalog?.match == true)
+        #expect(me.speakers?.takeover == true)
+    }
+
+    @Test("saving puts the ref in the path, PUT to save and DELETE to remove")
+    func requests() async throws {
+        let stub = StubTracksideTransport { request -> StubTracksideTransport.Answer in
+            (200, #"{"ref": "mc1.Ab", "saved": \#(request.httpMethod == "PUT"), "service_id": "b1"}"#, [:])
+        }
+        let client = T.client(stub)
+        #expect(try await client.setCatalogSaved(true, ref: "mc1.Ab").isSaved)
+        #expect(try await client.setCatalogSaved(false, ref: "mc1.Ab").isSaved == false)
+        #expect(stub.requests.map(\.httpMethod) == ["PUT", "DELETE"])
+        #expect(stub.requests.map { $0.url?.path() } == ["/api/v1/catalog/items/mc1.Ab/saved", "/api/v1/catalog/items/mc1.Ab/saved"])
+    }
+
+    @Test("a failed command says why, a reason this build doesn't know read as unknown")
+    func reasons() throws {
+        let failed = try T.decode(TracksideSpeakerCommandOutcome.self, #"{"command_id": "j1", "speaker_id": "O1", "outcome": "failed", "error": {"code": "command_failed", "reason": "service_busy", "service_id": "B1", "holder_name": "Kitchen"}}"#)
+        #expect(failed.error?.reason == .serviceBusy)
+        #expect(failed.error?.serviceID == "b1")
+        #expect(failed.error?.holderName == "Kitchen")
+        let newer = try T.decode(TracksideSpeakerCommandOutcome.self, #"{"command_id": "j2", "outcome": "failed", "error": {"code": "command_failed", "reason": "brand_new"}}"#)
+        #expect(newer.error?.reason == .unknown)
+        let older = try T.decode(TracksideSpeakerCommandOutcome.self, #"{"command_id": "j3", "outcome": "failed", "error": {"code": "powered_off"}}"#)
+        #expect(older.error?.reason == nil)
+        #expect(older.error?.code == "powered_off")
+
+        #expect(SpeakerProblem.reason(code: "service_busy") == .serviceBusy)
+        #expect(SpeakerProblem.reason(code: "service_signed_out") == .serviceSignedOut)
+        #expect(SpeakerProblem.reason(code: "region_unavailable") == .regionUnavailable)
+        #expect(SpeakerProblem.reason(code: "subscription_required") == .subscriptionRequired)
+        #expect(SpeakerProblem.reason(code: "drm_failed") == .notPlayable)
+    }
+
+    @Test("a radio play sends its one item and nothing else, and takeover only when asked")
+    func playBodies() throws {
+        var radio = TracksideSpeakerPlayRequest.serviceRadio(from: "mc1.a")
+        radio.takeover = true
+        let body = try #require(JSONSerialization.jsonObject(with: TracksideJSON.encoder.encode(radio)) as? [String: Any])
+        #expect(body["radio"] as? Bool == true)
+        #expect(body["takeover"] as? Bool == true)
+        #expect(body["mode"] as? String == "replace")
+        #expect(body["start_index"] == nil)
+        #expect(body["position_ms"] == nil)
+        #expect(body["shuffle"] == nil)
+        #expect((body["items"] as? [[String: String]]) == [["ref": "mc1.a"]])
+
+        let plain = try #require(JSONSerialization.jsonObject(with: TracksideJSON.encoder.encode(TracksideSpeakerPlayRequest(items: [.song("s1")]))) as? [String: Any])
+        #expect(plain["radio"] == nil)
+        #expect(plain["takeover"] == nil)
+    }
+
+    @Test("a save shows at once, and is put back when the server refuses")
+    @MainActor
+    func saving() async throws {
+        var list = try TracksideJSON.decoder.decode(TracksideCatalogServiceList.self, from: TracksideFixtures.data("catalog-services.json"))
+        list.services[0].capabilities.insert(.libraryEdit)
+        list.services[0].libraryEditKinds = ["track"]
+        let refusing = SavingCatalog(services: list, refuses: true)
+        let catalog = StreamingCatalog()
+        catalog.attach(serverID: "home", name: "Home", service: refusing, features: TracksideMe.Catalog(relay: true, save: true))
+        for _ in 0..<100 where catalog.services["home"] == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(catalog.canSave(track: "bqtyy4kcexcsg6wa0y4w5", on: "home"))
+        #expect(!catalog.canSave(track: "bnr6z9ds6zzv5xjpv0j1s", on: "home"))
+        #expect(catalog.isSaved("mc1.a", on: "home", known: false) == false)
+        await #expect(throws: TracksideError.self) {
+            try await catalog.setSaved(true, ref: "mc1.a", on: "home")
+        }
+        #expect(catalog.isSaved("mc1.a", on: "home", known: false) == false)
+
+        let older = StreamingCatalog()
+        older.attach(serverID: "home", name: "Home", service: refusing, features: TracksideMe.Catalog(relay: true))
+        for _ in 0..<100 where older.services["home"] == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!older.canSave(track: "bqtyy4kcexcsg6wa0y4w5", on: "home"))
+    }
+}
+
+private final class SavingCatalog: CatalogService {
+    let services: TracksideCatalogServiceList
+    let refuses: Bool
+
+    init(services: TracksideCatalogServiceList, refuses: Bool) {
+        self.services = services
+        self.refuses = refuses
+    }
+
+    func catalogServices() async throws -> TracksideCatalogServiceList { services }
+
+    func searchCatalog(_ query: String, types: [TracksideClient.CatalogType], services: [String], limit: Int) async throws -> TracksideCatalogSearch { TracksideCatalogSearch() }
+
+    func catalogItem(_ ref: String, cursor: String?, limit: Int?) async throws -> TracksideCatalogItem { throw TracksideError.notFound }
+
+    func catalogLibrary(service id: String, kind: TracksideCatalogLibraryPage.Kind, cursor: String?, limit: Int) async throws -> TracksideCatalogLibraryPage { throw TracksideError.notFound }
+
+    func catalogRecommendations(services: [String], limit: Int) async throws -> TracksideCatalogRecommendations { throw TracksideError.notFound }
+
+    func matchCatalog(_ request: TracksideCatalogMatchRequest) async throws -> TracksideCatalogMatch { throw TracksideError.notFound }
+
+    func setCatalogSaved(_ saved: Bool, ref: String) async throws -> TracksideCatalogSaved {
+        if refuses { throw TracksideError.conflict(reason: "service_signed_out") }
+        return try TracksideTesting.decode(TracksideCatalogSaved.self, #"{"ref": "\#(ref)", "saved": \#(saved), "service_id": "b1"}"#)
     }
 }

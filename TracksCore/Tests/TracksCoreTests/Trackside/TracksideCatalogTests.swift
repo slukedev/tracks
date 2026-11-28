@@ -432,6 +432,11 @@ struct StreamingCatalogTests {
         func matchCatalog(_ request: TracksideCatalogMatchRequest) async throws -> TracksideCatalogMatch {
             throw TracksideError.notFound
         }
+
+        func setCatalogSaved(_ saved: Bool, ref: String) async throws -> TracksideCatalogSaved {
+            if let error { throw error }
+            return try TracksideTesting.decode(TracksideCatalogSaved.self, #"{"ref": "\#(ref)", "saved": \#(saved), "service_id": "b1"}"#)
+        }
     }
 
     private func services(_ extra: [TracksideCatalogService] = []) throws -> TracksideCatalogServiceList {

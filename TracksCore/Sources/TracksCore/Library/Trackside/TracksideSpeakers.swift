@@ -508,6 +508,10 @@ public struct TracksideSpeakerPlayRequest: Codable, Sendable, Hashable {
     public var repeatMode: TracksideSpeaker.Repeat?
     public var shuffle: Bool?
     public var startIndex: Int?
+    /// The service's own radio from the one item, where the server has it.
+    public var radio: Bool?
+    /// Takes the service's only stream from the player holding it, where the server can.
+    public var takeover: Bool?
 
     /// The most items one request takes.
     public static let itemLimit = 1_000
@@ -523,10 +527,17 @@ public struct TracksideSpeakerPlayRequest: Codable, Sendable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case context, items, mode, shuffle
+        case context, items, mode, shuffle, radio, takeover
         case positionMS = "position_ms"
         case repeatMode = "repeat"
         case startIndex = "start_index"
+    }
+
+    /// The service's radio from one item: no start, position or shuffle with it.
+    public static func serviceRadio(from ref: String, context: TracksideSpeaker.Context? = nil) -> TracksideSpeakerPlayRequest {
+        var request = TracksideSpeakerPlayRequest(items: [.ref(ref)], mode: .replace, context: context)
+        request.radio = true
+        return request
     }
 }
 
@@ -659,8 +670,50 @@ public struct TracksideSpeakerCommandOutcome: Codable, Sendable, Hashable {
     }
 
     public struct Problem: Codable, Sendable, Hashable {
+        /// Why, where the server can say: `service_busy`, `service_signed_out`,
+        /// `not_playable`, `radio_unavailable` and others. Open.
+        public enum Reason: String, TracksideOpenEnum {
+            case unknown
+            /// The service's only stream is in use by another player.
+            case serviceBusy = "service_busy"
+            case serviceSignedOut = "service_signed_out"
+            case notPlayable = "not_playable"
+            /// The service couldn't make a radio from the item.
+            case radioUnavailable = "radio_unavailable"
+            case drmFailed = "drm_failed"
+            case regionUnavailable = "region_unavailable"
+            case subscriptionRequired = "subscription_required"
+        }
+
         public var code: String
         public var message: String?
+        public var reason: Reason?
+        public var serviceID: String?
+        /// The speaker holding the service's stream, where this user can see it.
+        public var holderName: String?
+
+        public init(code: String, message: String? = nil, reason: Reason? = nil, serviceID: String? = nil, holderName: String? = nil) {
+            self.code = code
+            self.message = message
+            self.reason = reason
+            self.serviceID = serviceID
+            self.holderName = holderName
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case code, message, reason
+            case serviceID = "service_id"
+            case holderName = "holder_name"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            code = (try? container.decodeIfPresent(String.self, forKey: .code)) ?? ""
+            message = try? container.decodeIfPresent(String.self, forKey: .message)
+            reason = try? container.decodeIfPresent(Reason.self, forKey: .reason)
+            serviceID = (try? container.decodeIfPresent(String.self, forKey: .serviceID))?.lowercased()
+            holderName = try? container.decodeIfPresent(String.self, forKey: .holderName)
+        }
     }
 
     public var commandID: String

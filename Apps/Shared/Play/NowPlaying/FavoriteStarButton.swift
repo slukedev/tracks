@@ -4,13 +4,15 @@ import TracksCore
 
 /// The playing song's star, beside the player's controls: a click or tap favorites it, as
 /// Music's does, and holding it offers your playlists to add it to. With a song of yours,
-/// which Apple Music can't star, it's Add to Playlist alone.
+/// which Apple Music can't star, it's Add to Playlist alone. A music service's song through
+/// your server is saved to that service's library, where the server can.
 ///
 /// Each platform draws the glyph its own way; `icon` gets the symbol and whether it's on.
 struct FavoriteStarButton<Icon: View>: View {
     let track: PlayerTrack
     @ViewBuilder let icon: (_ systemImage: String, _ isOn: Bool) -> Icon
     @Environment(PlayerModel.self) private var player
+    @Environment(AppModel.self) private var model
     @State private var playlists: [Playlist]?
     @State private var isNaming = false
     @State private var newName = ""
@@ -43,6 +45,21 @@ struct FavoriteStarButton<Icon: View>: View {
             } message: {
                 Text("“\(song.title)” will be its first song.")
             }
+        } else if player.current?.id == track.id, let item = player.playingServiceItem,
+                  let service = model.streaming.service(item.address),
+                  model.streaming.canSave(track: item.address.serviceID, on: item.address.serverID) {
+            let isSaved = model.streaming.isSaved(item.ref, on: item.address.serverID, known: item.saved) ?? false
+            Button {
+                Task { await save(!isSaved, ref: item.ref, address: item.address, service: service.name) }
+            } label: {
+                icon(isSaved ? "star.fill" : "star", isSaved)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .accessibilityLabel(isSaved ? Text("Remove from \(service.name)") : Text("Save to \(service.name)"))
+            #if os(macOS)
+            .help(isSaved ? Text("Remove from \(service.name)") : Text("Save to \(service.name)"))
+            #endif
+            .sensoryFeedback(.impact(weight: .light), trigger: isSaved)
         } else if let local = track.local {
             Menu {
                 AddToPlaylistMenu(tracks: [local])
@@ -58,6 +75,14 @@ struct FavoriteStarButton<Icon: View>: View {
             Button {} label: { icon("star", false) }
                 .disabled(true)
                 .accessibilityLabel("Favorite")
+        }
+    }
+
+    private func save(_ isSaved: Bool, ref: String, address: CatalogServiceAddress, service: String) async {
+        do {
+            try await model.streaming.setSaved(isSaved, ref: ref, on: address.serverID)
+        } catch {
+            player.confirm(isSaved ? String(localized: "Couldn't Save to \(service)") : String(localized: "Couldn't Remove from \(service)"))
         }
     }
 

@@ -12,6 +12,8 @@ public struct TracksideCatalogService: Codable, Sendable, Hashable, Identifiable
     public enum Capability: String, TracksideOpenEnum {
         case search, library, playlists, similar, radio, recommendations, unknown
         case topTracks = "top_tracks"
+        /// Its items can be saved to its library, and removed, for the kinds it lists.
+        case libraryEdit = "library_edit"
     }
 
     public enum Quality: String, TracksideOpenEnum {
@@ -52,6 +54,8 @@ public struct TracksideCatalogService: Codable, Sendable, Hashable, Identifiable
     public var capabilities: Set<Capability>
     public var account: Account
     public var quality: Quality?
+    /// The kinds of item that can be saved to its library: "track", "album" and the like.
+    public var libraryEditKinds: Set<String>
 
     /// The key Apple's own apps play natively, so its service is never offered twice.
     public static let nativeOnAppleKey = "apple_music"
@@ -63,11 +67,13 @@ public struct TracksideCatalogService: Codable, Sendable, Hashable, Identifiable
         self.capabilities = capabilities
         self.account = account
         self.quality = quality
+        self.libraryEditKinds = []
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, capabilities, account, quality
         case logoKey = "logo_key"
+        case libraryEditKinds = "library_edit_kinds"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -79,9 +85,13 @@ public struct TracksideCatalogService: Codable, Sendable, Hashable, Identifiable
         capabilities = Set(listed.filter { $0 != .unknown })
         account = (try? container.decodeIfPresent(Account.self, forKey: .account)) ?? Account(state: .unknown)
         quality = try? container.decodeIfPresent(Quality.self, forKey: .quality)
+        libraryEditKinds = Set((try? container.decodeIfPresent([TracksideLenientElement<String>].self, forKey: .libraryEditKinds))?.compactMap(\.value) ?? [])
     }
 
     public func can(_ capability: Capability) -> Bool { capabilities.contains(capability) }
+
+    /// Whether an item of this kind can be saved to the service's library from here.
+    public func canSave(_ kind: String) -> Bool { isSignedIn && can(.libraryEdit) && libraryEditKinds.contains(kind) }
 
     public var isSignedIn: Bool { account.state == .ok }
 
@@ -158,6 +168,8 @@ public struct TracksideCatalogTrack: Codable, Sendable, Hashable, Identifiable {
     public var songKey: String?
     /// False only when the service says it can't play; absent means it can.
     public var playable: Bool?
+    /// Whether it's saved in the service's library; nil when the server doesn't know.
+    public var saved: Bool?
 
     public var id: String { ref }
 
@@ -177,7 +189,7 @@ public struct TracksideCatalogTrack: Codable, Sendable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case ref, title, artist, artists, album, explicit, isrc, quality, playable
+        case ref, title, artist, artists, album, explicit, isrc, quality, playable, saved
         case serviceID = "service_id"
         case albumRef = "album_ref"
         case artworkID = "artwork_id"
@@ -207,6 +219,7 @@ public struct TracksideCatalogTrack: Codable, Sendable, Hashable, Identifiable {
         songID = (try? container.decodeIfPresent(String.self, forKey: .songID))?.lowercased()
         songKey = try? container.decodeIfPresent(String.self, forKey: .songKey)
         playable = try? container.decodeIfPresent(Bool.self, forKey: .playable)
+        saved = try? container.decodeIfPresent(Bool.self, forKey: .saved)
     }
 
     public var isPlayable: Bool { playable != false }
@@ -693,6 +706,26 @@ public struct TracksideCatalogRecommendations: Decodable, Sendable, Hashable {
     }
 }
 
+/// `PUT` or `DELETE /catalog/items/{ref}/saved`: whether the item is saved now.
+public struct TracksideCatalogSaved: Decodable, Sendable, Hashable {
+    public var ref: String
+    public var isSaved: Bool
+    public var serviceID: String
+
+    enum CodingKeys: String, CodingKey {
+        case ref
+        case isSaved = "saved"
+        case serviceID = "service_id"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ref = try container.decode(String.self, forKey: .ref)
+        isSaved = try container.decode(Bool.self, forKey: .isSaved)
+        serviceID = ((try? container.decodeIfPresent(String.self, forKey: .serviceID)) ?? "").lowercased()
+    }
+}
+
 /// SSE `catalog_services`: the list or a service's account changed; read it again.
 public struct TracksideCatalogServicesChange: Codable, Sendable, Hashable {
     public var state: TracksideSpeakerList.State
@@ -770,6 +803,14 @@ extension TracksideClient {
         var query = ["limit": String(min(50, max(1, limit)))]
         if !services.isEmpty { query["services"] = services.joined(separator: ",") }
         return try await get("catalog/recommendations", query)
+    }
+
+    /// Saves an item to its service's library, or removes it. Either is safe to send twice.
+    /// - Throws: ``TracksideError/unsupported(capability:)`` `library_edit` where it can't
+    ///   be, and ``TracksideError/conflict(reason:)`` `service_signed_out` or, removing,
+    ///   `in_other_library`.
+    public func setCatalogSaved(_ saved: Bool, ref: String) async throws -> TracksideCatalogSaved {
+        try await send("catalog/items/\(ref)/saved", method: saved ? "PUT" : "DELETE")
     }
 
     /// What's saved on a service: playlists unless another kind is asked for.

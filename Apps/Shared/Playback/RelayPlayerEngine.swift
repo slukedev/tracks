@@ -30,6 +30,8 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
     /// Next and Previous from the lock screen, CarPlay or headphones, set by the player.
     var onRemoteNext: (() -> Void)?
     var onRemotePrevious: (() -> Void)?
+    /// The service couldn't make its own radio from the song: Tracks picks from it instead.
+    var onRadioUnavailable: ((PlayerTrack) -> Void)?
 
     private(set) var status: PlayerStatus = .stopped
     private(set) var isShuffled = false
@@ -54,6 +56,8 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
     private var entries: [Entry] = []
     private var index = 0
     private var context: TracksideSpeaker.Context?
+    /// The song a service's radio was asked from, until the server says how it went.
+    private var radioSeed: PlayerTrack?
 
     /// What the relay's speaker plays as this device hears it, and the newer state the
     /// server has sent that isn't audible yet.
@@ -163,6 +167,16 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
         }
         guard entries.indices.contains(index), entries[index].relay.isFromService else { return nil }
         return entries[index].relay.serviceID
+    }
+
+    /// The song on as its service knows it, and whether it's saved there where the server
+    /// said; nil for one of the server's own songs.
+    var currentServiceItem: (ref: String, saved: Bool?)? {
+        if let playing = heard?.nowPlaying, !entries.indices.contains(index) || !entries[index].relay.isSame(as: playing) {
+            return playing.ref.map { (ref: $0, saved: nil) }
+        }
+        guard entries.indices.contains(index), case .ref(let ref) = entries[index].relay.item else { return nil }
+        return (ref: ref, saved: entries[index].relay.saved)
     }
 
     var upNext: [PlayerTrack] {
@@ -300,7 +314,14 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
         onChange?()
         publish()
         updateNowPlayingInfo()
-        let request = playRequest(queue.entries, start: queue.start, position: queue.position)
+        var request = playRequest(queue.entries, start: queue.start, position: queue.position)
+        radioSeed = nil
+        if queue.isRadio, let first = queue.entries.first, case .ref(let ref) = first.item {
+            let takeover = request.takeover
+            request = .serviceRadio(from: ref, context: context)
+            request.takeover = takeover
+            radioSeed = entries.first.map { track($0) }
+        }
         do {
             do {
                 if let session, !session.hasEnded {
@@ -345,7 +366,10 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
     }
 
     private func playRequest(_ queue: [RelayEntry], start: Int, position: TimeInterval) -> TracksideSpeakerPlayRequest {
-        TracksideSpeakerPlayRequest(items: queue.map(\.item), mode: .replace, startIndex: start, position: position, shuffle: false, repeatMode: Self.wire(repeatMode), context: context)
+        var request = TracksideSpeakerPlayRequest(items: queue.map(\.item), mode: .replace, startIndex: start, position: position, shuffle: false, repeatMode: Self.wire(repeatMode), context: context)
+        // A service's only stream moves here, as the service's own apps move it.
+        if let serverID, music.servers.speakers.takesOver(serverID) { request.takeover = true }
+        return request
     }
 
     func enqueue(_ request: PlayRequest, next: Bool) async throws {
@@ -532,6 +556,19 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
         hear(command.speaker, isExpected: true)
     }
 
+    /// How a command to the relay went, as the server says once it's done.
+    private func settled(_ outcome: TracksideSpeakerCommandOutcome) {
+        let seed = radioSeed
+        radioSeed = nil
+        guard outcome.outcome == .failed else { return }
+        if outcome.error?.reason == .radioUnavailable, let seed {
+            // Quietly: the service has no radio for it today, so Tracks picks from the song.
+            onRadioUnavailable?(seed)
+            return
+        }
+        onNotice?(Self.words(forReason: outcome.error?.reason?.rawValue ?? outcome.error?.code))
+    }
+
     private func commandFailed(_ error: any Error) {
         if case TracksideError.conflict(let reason) = error, reason == "relay_ended" {
             sessionEnded(.unknown)
@@ -672,6 +709,9 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
         case .speakerQueue(let id, _):
             guard id == self.session?.speakerID else { return }
             readQueue()
+        case .speakerCommand(let outcome):
+            guard let speakerID = session?.speakerID, outcome.speakerID == speakerID.lowercased() else { return }
+            settled(outcome)
         case .hello:
             catchUp()
         default:
@@ -1094,12 +1134,7 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
     static func words(for error: any Error) -> String {
         switch error {
         case TracksideError.conflict(let reason):
-            switch reason {
-            case "relay_limit": String(localized: "Too many devices are playing music services. Stop one, then try again.")
-            case "service_signed_out": String(localized: "Sign in to the service again on your server.")
-            case "not_playable": String(localized: "This isn't available to play right now.")
-            default: String(localized: "Try again in a moment.")
-            }
+            words(forReason: reason)
         case TracksideError.unsupported(let capability) where capability == "relay" || capability == "relay_cellular":
             String(localized: "Your server can't play music services on this device yet.")
         case TracksideError.unavailable:
@@ -1112,6 +1147,19 @@ final class RelayPlayerEngine: NSObject, PlayerEngine {
             String(localized: "Couldn't reach your server.")
         default:
             String(localized: "Try again in a moment.")
+        }
+    }
+
+    /// A refusal or failed command's reason, in a sentence.
+    static func words(forReason reason: String?) -> String {
+        switch reason {
+        case "relay_limit": String(localized: "Too many devices are playing music services. Stop one, then try again.")
+        case "service_signed_out": String(localized: "Sign in to the service again on your server.")
+        case "not_playable", "drm_failed": String(localized: "This isn't available to play right now.")
+        case "service_busy": String(localized: "The music service is playing somewhere else.")
+        case "region_unavailable": String(localized: "This isn't available where you are.")
+        case "subscription_required": String(localized: "This needs a subscription to the service.")
+        default: String(localized: "Try again in a moment.")
         }
     }
 

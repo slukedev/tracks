@@ -50,6 +50,8 @@ public struct SpeakerBoard: Sendable, Equatable {
         public let purpose: Purpose
         /// The server's code: one of contract 0.4's, `command_failed` or `timed_out`.
         public let code: String?
+        /// Why, where the server says: `service_busy`, `not_playable` and the like.
+        public var reason: String? = nil
     }
 
     public private(set) var state: TracksideSpeakerList.State = .ok
@@ -247,7 +249,8 @@ public struct SpeakerBoard: Sendable, Equatable {
             return nil
         case .failed:
             let item = pending.remove(at: index)
-            return Failure(speakerID: item.speakerID, control: item.control, purpose: item.purpose, code: outcome.error?.code ?? "command_failed")
+            let reason = outcome.error?.reason.flatMap { $0 == .unknown ? nil : $0.rawValue }
+            return Failure(speakerID: item.speakerID, control: item.control, purpose: item.purpose, code: outcome.error?.code ?? "command_failed", reason: reason)
         }
     }
 

@@ -47,6 +47,11 @@ public struct SpeakerProblem: Sendable, Equatable, Identifiable {
         /// The server itself couldn't be reached.
         case serverUnreachable
         case busy
+        /// The music service's only stream is in use somewhere else.
+        case serviceBusy
+        case serviceSignedOut
+        case regionUnavailable
+        case subscriptionRequired
     }
 
     public let id = UUID()
@@ -77,6 +82,10 @@ public struct SpeakerProblem: Sendable, Equatable, Identifiable {
         case .didNotRespond: String(localized: "\(speakerName) didn't respond.")
         case .serverUnreachable: String(localized: "Couldn't reach your server.")
         case .busy: String(localized: "Too many changes at once. Try again in a moment.")
+        case .serviceBusy: String(localized: "The music service is playing somewhere else.")
+        case .serviceSignedOut: String(localized: "Sign in to the service again on your server.")
+        case .regionUnavailable: String(localized: "This isn't available where you are.")
+        case .subscriptionRequired: String(localized: "This needs a subscription to the service.")
         }
     }
 
@@ -86,7 +95,11 @@ public struct SpeakerProblem: Sendable, Equatable, Identifiable {
         case "powered_off": .poweredOff
         case "unsupported": .unsupported
         case "speakers_unavailable", "catalog_unavailable": .speakersUnavailable
-        case "not_playable", "service_signed_out": .notPlayable
+        case "not_playable", "drm_failed", "radio_unavailable": .notPlayable
+        case "service_signed_out": .serviceSignedOut
+        case "service_busy": .serviceBusy
+        case "region_unavailable": .regionUnavailable
+        case "subscription_required": .subscriptionRequired
         case "rate_limited": .busy
         default: .didNotRespond
         }
@@ -152,6 +165,7 @@ public final class SpeakersStore {
 
     @ObservationIgnored private var services: [String: any SpeakerService] = [:]
     @ObservationIgnored private var controlAllowed: [String: Bool] = [:]
+    @ObservationIgnored private var takeoverAllowed: [String: Bool] = [:]
     @ObservationIgnored private var skews: [String: TimeInterval] = [:]
     @ObservationIgnored private var refreshes: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var deadlineTask: Task<Void, Never>?
@@ -180,9 +194,11 @@ public final class SpeakersStore {
     // MARK: - Servers
 
     /// Starts showing a server's speakers, once it's connected and says this user has them.
-    public func attach(serverID: String, name: String, service: any SpeakerService, canControl: Bool) {
+    /// - Parameter takesOver: a play may take a music service's only stream from the player holding it.
+    public func attach(serverID: String, name: String, service: any SpeakerService, canControl: Bool, takesOver: Bool = false) {
         services[serverID] = service
         controlAllowed[serverID] = canControl
+        takeoverAllowed[serverID] = takesOver
         serverNames[serverID] = name
         if boards[serverID] == nil { boards[serverID] = SpeakerBoard() }
         refresh(serverID)
@@ -192,6 +208,7 @@ public final class SpeakersStore {
     public func detach(serverID: String) {
         services[serverID] = nil
         controlAllowed[serverID] = nil
+        takeoverAllowed[serverID] = nil
         skews[serverID] = nil
         serverNames[serverID] = nil
         refreshes.removeValue(forKey: serverID)?.cancel()
@@ -216,6 +233,9 @@ public final class SpeakersStore {
     public func isAttached(_ serverID: String) -> Bool { services[serverID] != nil }
 
     public func canControl(_ serverID: String) -> Bool { controlAllowed[serverID] == true }
+
+    /// Whether a play on this server's speakers and relays takes a service's only stream over.
+    public func takesOver(_ serverID: String) -> Bool { takeoverAllowed[serverID] == true }
 
     /// Reads a server's speakers again. One read at a time for each server.
     /// - Parameter isFresh: read the whole list, whatever was read before, as after the
@@ -409,8 +429,12 @@ public final class SpeakersStore {
         boards[address.serverID]?.expect(.transport, on: speaker.id, expected: expected, purpose: .cast, token: token, deadline: deadline(Self.castPatience))
         scheduleDeadline()
         let key = UUID().uuidString
+        var sent = request
+        // A service's only stream moves here, as the service's own apps move it.
+        if takeoverAllowed[address.serverID] == true { sent.takeover = true }
+        let play = sent
         return await sendNow(token, on: address, patience: Self.castPatience) { _ in
-            try await service.play(on: speaker.id, request, key: key)
+            try await service.play(on: speaker.id, play, key: key)
         }
     }
 
@@ -523,7 +547,7 @@ public final class SpeakersStore {
     private func report(_ failure: SpeakerBoard.Failure, on serverID: String, reason: SpeakerProblem.Reason? = nil) {
         let address = SpeakerAddress(serverID: serverID, speakerID: failure.speakerID)
         let name = boards[serverID]?.confirmedSpeaker(failure.speakerID)?.name ?? ""
-        show(SpeakerProblem(address: address, speakerName: name, reason: reason ?? SpeakerProblem.reason(code: failure.code), wasCast: failure.purpose == .cast))
+        show(SpeakerProblem(address: address, speakerName: name, reason: reason ?? SpeakerProblem.reason(code: failure.reason ?? failure.code), wasCast: failure.purpose == .cast))
         if failure.purpose == .cast { onCastFailed?(address) }
     }
 

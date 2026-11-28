@@ -95,23 +95,46 @@ struct CatalogTrackLabel: View {
     }
 }
 
-/// Play Next, Play Later, and the album and artist a service's track is from.
+/// Play Next, Play Later, the service's radio from it, saving it to the service, and the
+/// album and artist a service's track is from.
 struct CatalogTrackMenu: View {
     let track: TracksideCatalogTrack
     let serverID: String
     let title: String
 
+    @Environment(AppModel.self) private var model
     @Environment(YourMusic.self) private var music
     @Environment(PlayerModel.self) private var player
     @Environment(\.openPlayRoute) private var openPlayRoute
 
     var body: some View {
         let queue = music.relayQueue([track], startingAt: 0, on: serverID, context: nil)
+        let streaming = model.streaming
+        let service = streaming.service(CatalogServiceAddress(serverID: serverID, serviceID: track.serviceID))
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
             player.enqueue(.relay(queue), next: true, title: title)
         }
         Button("Play Later", systemImage: "text.line.last.and.arrowtriangle.forward") {
             player.enqueue(.relay(queue), next: false, title: title)
+        }
+        if let service, streaming.playback[serverID]?.radio == true, service.can(.similar), track.isPlayable {
+            Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
+                var radio = RelayQueue(serverID: serverID, entries: [RelayEntry(track)], context: TracksideSpeaker.Context(kind: .station, name: track.title))
+                radio.isRadio = true
+                model.playThroughRelay(radio, from: PlayContext(kind: .station, title: track.title))
+            }
+        }
+        if let service, streaming.canSave(track: track.serviceID, on: serverID) {
+            let isSaved = streaming.isSaved(track.ref, on: serverID, known: track.saved) ?? false
+            Button(isSaved ? String(localized: "Remove from \(service.name)") : String(localized: "Save to \(service.name)"), systemImage: isSaved ? "star.slash" : "star") {
+                Task {
+                    do {
+                        try await streaming.setSaved(!isSaved, ref: track.ref, on: serverID)
+                    } catch {
+                        player.confirm(isSaved ? String(localized: "Couldn't Remove from \(service.name)") : String(localized: "Couldn't Save to \(service.name)"))
+                    }
+                }
+            }
         }
         if openPlayRoute.canPush {
             if let albumRef = track.albumRef {

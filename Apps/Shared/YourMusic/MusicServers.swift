@@ -617,7 +617,7 @@ final class MusicServers {
             return
         }
         let name = server(serverID)?.name ?? me.server.name ?? String(localized: "Your Server")
-        speakers.attach(serverID: serverID, name: name, service: connection.client, canControl: features.control == true)
+        speakers.attach(serverID: serverID, name: name, service: connection.client, canControl: features.control == true, takesOver: features.takeover == true)
     }
 
     /// Offers a Trackside server's music services while `/me` says this user has them. An
