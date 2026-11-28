@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.ThumbDown
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,6 +56,7 @@ fun SettingsScreen() {
     val navigator = currentNavigator()
     val settings by graph.settings.settings.collectAsStateWithLifecycle(AppSettings())
     val lastFm by graph.lastFm.connection.collectAsStateWithLifecycle()
+    val tvMode by graph.tvMode.layout.collectAsStateWithLifecycle()
     var confirmSample by remember { mutableStateOf<Boolean?>(null) }
     val scope = rememberCoroutineScope()
     fun open(page: String) = navigator.open(SettingsPageRoute(page))
@@ -72,7 +74,10 @@ fun SettingsScreen() {
             link("Sync", summary = syncSummary(graph), icon = Icons.Rounded.Sync, tone = Tone.Secondary) { open("sync") }
         }
         group("Listening") {
-            link("Last.fm", summary = lastFmSummary(lastFm, settings), icon = Icons.Rounded.GraphicEq, tone = Tone.Error) { open("lastfm") }
+            // A TV never scrobbles, and connecting needs a browser.
+            if (!graph.formFactor.tv) {
+                link("Last.fm", summary = lastFmSummary(lastFm, settings), icon = Icons.Rounded.GraphicEq, tone = Tone.Error) { open("lastfm") }
+            }
             link("Get music", summary = getMusicSummary(graph), icon = Icons.Rounded.CloudDownload, tone = Tone.Tertiary) {
                 open("getmusic")
             }
@@ -98,6 +103,7 @@ fun SettingsScreen() {
         }
         group("Look and feel") {
             link("Appearance", summary = appearanceSummary(settings), icon = Icons.Rounded.Palette, tone = Tone.Primary) { open("appearance") }
+            toggle("TV mode", checked = tvMode, icon = Icons.Rounded.Tv, tone = Tone.Secondary) { graph.tvMode.set(on = it) }
             link("App language", summary = "Phone language", icon = Icons.Rounded.Language, tone = Tone.Tertiary) {
                 openAppLanguage(context)
             }
