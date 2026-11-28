@@ -82,6 +82,15 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.luke.tracks.data.AppSettings
 import com.luke.tracks.graph
+import androidx.compose.material.icons.rounded.Speaker
+import com.luke.tracks.ui.devices.DevicesUi
+import com.luke.tracks.ui.devices.SpeakerUi
+import com.luke.tracks.ui.devices.devicesViewModel
+import com.luke.tracks.ui.devices.icon
+import com.luke.tracks.library.trackside.TracksideCatalogService
+import com.luke.tracks.streaming.ServiceBrand
+import com.luke.tracks.ui.services.ServiceMark
+import com.luke.tracks.ui.services.rememberServiceOf
 import com.luke.tracks.playback.MediaControllerPlayer
 import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.PlayerController
@@ -127,6 +136,30 @@ fun TvNowPlayingScreen(onClose: () -> Unit) {
         graph.settings.settings.map { SongMarks(identity in it.likedSongs, identity in it.hiddenSongs) }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(SongMarks(false, false))
     val scope = rememberCoroutineScope()
+    val devices = devicesViewModel()
+    val devicesUi by devices.state.collectAsStateWithLifecycle()
+    val actions = remember(devices) { ModelDeviceActions(devices) }
+    LaunchedEffect(devices) { devices.opened() }
+    // While a speaker plays, the player shows and steers it instead.
+    val casting = devicesUi.casting
+    if (casting != null) {
+        val speaker = rememberSpeakerPlayer(casting, devices)
+        val speakerState by speaker.state.collectAsStateWithLifecycle()
+        TvNowPlaying(
+            state = speakerState,
+            position = speaker.position,
+            player = speaker,
+            radio = null,
+            marks = SongMarks(false, false),
+            onLike = {},
+            onHearLess = { _, _ -> },
+            onClose = onClose,
+            devices = devicesUi,
+            deviceActions = actions,
+            castingTo = casting,
+        )
+        return
+    }
     TvNowPlaying(
         state = state,
         position = player.position,
@@ -138,6 +171,9 @@ fun TvNowPlayingScreen(onClose: () -> Unit) {
             scope.launch { graph.settings.update { it.copy(hiddenSongs = if (less) it.hiddenSongs + id else it.hiddenSongs - id) } }
         },
         onClose = onClose,
+        service = rememberServiceOf(state.current?.mediaId),
+        devices = devicesUi.takeIf { it.offered },
+        deviceActions = actions,
     )
 }
 
@@ -159,6 +195,13 @@ fun TvNowPlaying(
     onLike: () -> Unit,
     onHearLess: (identity: String, less: Boolean) -> Unit,
     onClose: () -> Unit,
+    /** The service a service's song plays from, named under the song. */
+    service: TracksideCatalogService? = null,
+    /** Your servers' speakers, for Play On; null when there are none. */
+    devices: DevicesUi? = null,
+    deviceActions: TvDeviceActions? = null,
+    /** The speaker the player shows and steers, while one plays. */
+    castingTo: SpeakerUi? = null,
 ) {
     val song = state.current
     // The queue running out puts the player away; opened with nothing on, it says so.
@@ -174,11 +217,11 @@ fun TvNowPlaying(
     }
     val seed = rememberCoverSeed(song.artworkUri, song.albumTitle ?: song.title)
     TvTracksTheme(dark = LocalDarkTheme.current, seed = seed) {
-        Player(state, song, position, player, radio, marks, onLike, onHearLess)
+        Player(state, song, position, player, radio, marks, onLike, onHearLess, service, devices, deviceActions, castingTo)
     }
 }
 
-private enum class Panel { Queue, Sleep }
+private enum class Panel { Queue, Sleep, Devices }
 
 @Composable
 private fun Player(
@@ -190,6 +233,10 @@ private fun Player(
     marks: SongMarks,
     onLike: () -> Unit,
     onHearLess: (String, Boolean) -> Unit,
+    service: TracksideCatalogService?,
+    devices: DevicesUi?,
+    deviceActions: TvDeviceActions?,
+    castingTo: SpeakerUi?,
 ) {
     val reduced = LocalReducedMotion.current
     val memory = rememberFocusMemory()
@@ -287,7 +334,7 @@ private fun Player(
                 .fillMaxWidth()
                 .graphicsLayer { alpha = 1f - rest },
         ) {
-            Words(state, song, radio)
+            Words(state, song, radio, service, castingTo)
             Spacer(Modifier.height(28.dp))
             TvSeekBar(
                 position = position,
@@ -312,6 +359,8 @@ private fun Player(
                 onHearLess = onHearLess,
                 onQueue = { panel = Panel.Queue },
                 onSleep = { panel = Panel.Sleep },
+                onDevices = if (devices != null && deviceActions != null) ({ panel = Panel.Devices }) else null,
+                speaker = castingTo,
             )
         }
         if (dim > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = dim }.background(Color.Black))
@@ -320,6 +369,9 @@ private fun Player(
             player.setSleepTimer(minutes)
             panel = null
         }, onDismiss = { panel = null })
+        if (devices != null && deviceActions != null) {
+            TvDevicesPanel(visible = panel == Panel.Devices, ui = devices, actions = deviceActions, onDismiss = { panel = null })
+        }
     }
 }
 
@@ -356,7 +408,7 @@ private fun RestCaption(song: PlayableSong, modifier: Modifier) {
 }
 
 @Composable
-private fun Words(state: PlayerState, song: PlayableSong, radio: RadioState?) {
+private fun Words(state: PlayerState, song: PlayableSong, radio: RadioState?, service: TracksideCatalogService?, castingTo: SpeakerUi?) {
     val colors = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(song.titleLabel, style = MaterialTheme.typography.headlineLarge, color = colors.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -369,6 +421,38 @@ private fun Words(state: PlayerState, song: PlayableSong, radio: RadioState?) {
             reason != null -> PickReasonLabel(reason, colors.onSurfaceVariant, Modifier.padding(top = 6.dp))
             state.origin != null -> Origin(state.origin)
         }
+        if (service != null) ServiceLine(service)
+        if (castingTo != null) SpeakerLine(castingTo)
+    }
+}
+
+/** The speaker playing, while the player stands in for it. */
+@Composable
+private fun SpeakerLine(cast: SpeakerUi) {
+    val color = MaterialTheme.colorScheme.primary
+    val name = if (cast.memberNames.isEmpty()) cast.name else (listOf(cast.name) + cast.memberNames).joinToString(" + ")
+    Row(
+        Modifier.padding(top = 6.dp).semantics(mergeDescendants = true) { contentDescription = "Playing on $name" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(cast.speaker.icon(), contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(name, style = MaterialTheme.typography.labelLarge, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Which service plays a service's song, with its mark, and how well where it says. */
+@Composable
+private fun ServiceLine(service: TracksideCatalogService) {
+    val name = ServiceBrand.name(service)
+    val line = listOfNotNull(name, ServiceBrand.quality(service)).joinToString(" · ")
+    Row(
+        Modifier.padding(top = 6.dp).semantics(mergeDescendants = true) { contentDescription = "Playing from $name" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ServiceMark(service.logoKey, name, size = 20.dp)
+        Spacer(Modifier.width(8.dp))
+        Text(line, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -426,6 +510,9 @@ private fun Secondary(
     onHearLess: (String, Boolean) -> Unit,
     onQueue: () -> Unit,
     onSleep: () -> Unit,
+    onDevices: (() -> Unit)?,
+    /** While a speaker plays: only what the speaker itself can do. */
+    speaker: SpeakerUi?,
 ) {
     var named by remember { mutableStateOf<String?>(null) }
     // Shown at once on press, until the settings agree.
@@ -447,7 +534,7 @@ private fun Secondary(
                         .onFocusChanged { if (it.isFocused) named = label else if (named == label) named = null },
                 )
             }
-            Action("like", if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (liked) "Unlike" else "Like", selected = liked) {
+            if (speaker == null) Action("like", if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (liked) "Unlike" else "Like", selected = liked) {
                 liked = !liked
                 onLike()
             }
@@ -455,13 +542,17 @@ private fun Secondary(
                 val asked = song.identity in radio.askedMoreLike
                 Action("more", if (asked) Icons.Rounded.ThumbUp else Icons.Outlined.OutlinedThumbUp, "More Like This", selected = asked, enabled = !asked, onClick = player::playMoreLikeThis)
             }
-            Action("less", if (marks.hidden) Icons.Rounded.ThumbDown else Icons.Outlined.OutlinedThumbDown, if (marks.hidden) "Hear Again" else "Hear Less", selected = marks.hidden) {
-                onHearLess(song.identity, !marks.hidden)
+            if (speaker == null) {
+                Action("less", if (marks.hidden) Icons.Rounded.ThumbDown else Icons.Outlined.OutlinedThumbDown, if (marks.hidden) "Hear Again" else "Hear Less", selected = marks.hidden) {
+                    onHearLess(song.identity, !marks.hidden)
+                }
+                Action("queue", Icons.AutoMirrored.Rounded.QueueMusic, "Up Next", onClick = onQueue)
             }
-            Action("queue", Icons.AutoMirrored.Rounded.QueueMusic, "Up Next", onClick = onQueue)
             // A station picks as it goes: nothing to shuffle, no end to repeat.
-            if (!station) {
+            if (!station && (speaker == null || speaker.controls.shuffle)) {
                 Action("shuffle", Icons.Rounded.Shuffle, "Shuffle", selected = state.shuffle) { player.setShuffle(!state.shuffle) }
+            }
+            if (!station && (speaker == null || speaker.controls.repeat)) {
                 Action(
                     "repeat",
                     if (state.repeat == RepeatChoice.One) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
@@ -481,7 +572,8 @@ private fun Secondary(
                     )
                 }
             }
-            Action("sleep", Icons.Rounded.Bedtime, if (sleepLeft != null) "Sleep Timer, $sleepLeft min" else "Sleep Timer", selected = sleepLeft != null, onClick = onSleep)
+            if (speaker == null) Action("sleep", Icons.Rounded.Bedtime, if (sleepLeft != null) "Sleep Timer, $sleepLeft min" else "Sleep Timer", selected = sleepLeft != null, onClick = onSleep)
+            if (onDevices != null) Action("devices", Icons.Rounded.Speaker, "Play On", selected = speaker != null, onClick = onDevices)
         }
         // The one line naming what has focus: icons alone don't say it on a TV.
         Box(Modifier.height(28.dp).padding(top = 8.dp)) {
