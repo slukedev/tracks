@@ -13,7 +13,6 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.unit.dp
 import com.luke.tracks.data.AppSettings
 import com.luke.tracks.data.ColorChoice
-import com.luke.tracks.library.ServerStatus
 import com.luke.tracks.playback.QueueOrigin
 import com.luke.tracks.playback.RadioState
 import com.luke.tracks.playback.RepeatChoice
@@ -35,11 +34,21 @@ import com.luke.tracks.ui.tv.onboarding.TvOnboarding
 import com.luke.tracks.ui.tv.onboarding.TvOnboardingStep
 import com.luke.tracks.ui.tv.settings.HiddenSong
 import com.luke.tracks.ui.tv.settings.SyncSwitch
-import com.luke.tracks.ui.tv.settings.TracksideLink
 import com.luke.tracks.ui.tv.settings.TvAppearanceContent
 import com.luke.tracks.ui.tv.settings.TvHiddenSongsContent
 import com.luke.tracks.ui.tv.settings.TvSettingsScreen
-import com.luke.tracks.ui.tv.settings.TvTracksideContent
+import com.luke.tracks.ui.tv.settings.TvSourcesContent
+import com.luke.tracks.sources.PlayFromPlace
+import com.luke.tracks.sources.SourceSelection
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasStateDescription
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.requestFocus
 import com.luke.tracks.ui.tv.navigation.LocalTvNavigator
 import com.luke.tracks.ui.tv.navigation.TvDestination
 import com.luke.tracks.ui.tv.navigation.TvNavigator
@@ -131,8 +140,8 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
 
     // MARK: Settings
 
-    @Test fun settingsTrackside() {
-        snap("settings-trackside") { Claimed { TvSettingsScreen("trackside") } }
+    @Test fun settingsSourcesNoServer() {
+        snap("settings-sources-none") { Claimed { TvSettingsScreen("sources") } }
     }
 
     @Test fun settingsAppearance() {
@@ -153,10 +162,10 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
     }
 
     @Test fun settingsLinkCode() {
-        show { Claimed { TvSettingsScreen("trackside") } }
+        show { Claimed { TvSettingsScreen("sources") } }
         press(listOf(Key.DirectionRight, Key.DirectionCenter))
         settle(1_000)
-        capture("settings-trackside-code")
+        capture("settings-sources-code")
     }
 
     @Test fun settingsIntoThePage() {
@@ -171,37 +180,88 @@ class TvChunk4Screenshots(dark: Boolean) : TvScreenshotTest(dark) {
         Box(Modifier.fillMaxSize().padding(start = TvLayout.ContentStart + 296.dp, end = TvLayout.SafeEnd)) { content() }
     }
 
-    @Test fun tracksideLinked() {
-        snap("settings-trackside-linked") { Claimed { Pane { TvTracksideContent(TracksideLink.Linked("Living Room Server", ServerStatus.Ready(12_480)), {}, {}) } } }
+    @Composable
+    private fun Sources(
+        sources: List<com.luke.tracks.sources.Source> = TvSourcesDemo.servers,
+        selection: SourceSelection = SourceSelection.All,
+        sync: SyncSwitch? = null,
+    ) {
+        var order by remember { mutableStateOf(sources.map { PlayFromPlace.From(it.id) as PlayFromPlace }) }
+        var chosen by remember { mutableStateOf(selection) }
+        Claimed {
+            Pane {
+                TvSourcesContent(
+                    sources = sources,
+                    selection = chosen,
+                    playFrom = order,
+                    onSelect = { chosen = it },
+                    onReorder = { order = it },
+                    onRefresh = {},
+                    onUnlink = {},
+                    syncFor = { sync },
+                )
+            }
+        }
     }
 
-    @Test fun tracksideSyncing() {
-        snap("settings-trackside-syncing") { Claimed { Pane { TvTracksideContent(TracksideLink.Linked("Living Room Server", ServerStatus.Syncing), {}, {}) } } }
+    private fun focus(matcher: SemanticsMatcher) {
+        compose.onNode(matcher).requestFocus()
+        settle(600)
     }
 
-    @Test fun tracksideSignedOut() {
-        snap("settings-trackside-signedout") { Claimed { Pane { TvTracksideContent(TracksideLink.Linked("Living Room Server", ServerStatus.NeedsPassword), {}, {}) } } }
+    @Test fun sourcesInSettings() {
+        val registry = com.luke.tracks.sources.FakeSources.registry(*TvSourcesDemo.servers.toTypedArray(), name = "tv-sources-shot")
+        registry.select(SourceSelection.Only(TvSourcesDemo.den.id))
+        snap("settings-sources") {
+            CompositionLocalProvider(com.luke.tracks.ui.sources.LocalSources provides registry) { Claimed { TvSettingsScreen() } }
+        }
     }
 
-    @Test fun tracksideOffline() {
-        snap("settings-trackside-offline") { Claimed { Pane { TvTracksideContent(TracksideLink.Linked("Living Room Server", ServerStatus.Failed("Couldn't reach your server. Check that you're online.")), {}, {}) } } }
+    @Test fun sourcesOne() = snap("settings-sources-one") { Sources(listOf(TvSourcesDemo.living)) }
+
+    @Test fun sourcesSeveral() = snap("settings-sources-several") { Sources() }
+
+    @Test fun sourcesOnlyOne() {
+        show { Sources(selection = SourceSelection.Only(TvSourcesDemo.den.id)) }
+        focus(hasText("Den") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab))
+        capture("settings-sources-only-one")
     }
 
-    private fun Synced(sync: SyncSwitch) = @Composable {
-        Claimed { Pane { TvTracksideContent(TracksideLink.Linked("Living Room Server", ServerStatus.Ready(12_480)), {}, {}, sync = sync) } }
+    @Test fun sourcesLifted() {
+        show { Sources() }
+        focus(hasStateDescription("1 of 3"))
+        press(listOf(Key.DirectionCenter, Key.DirectionDown))
+        capture("settings-sources-lifted")
     }
 
-    @Test fun tracksideSyncOn() = snap("settings-trackside-sync-on", content = Synced(SyncSwitch(on = true, line = "Up to date", problem = false)))
+    @Test fun sourcesServer() {
+        show { Sources(sync = SyncSwitch(on = true, line = "Up to date", problem = false)) }
+        focus(hasText("Living Room Server") and hasText("12,480 songs"))
+        press(Key.DirectionCenter)
+        capture("settings-sources-server")
+    }
 
-    @Test fun tracksideSyncSyncing() = snap("settings-trackside-sync-syncing", content = Synced(SyncSwitch(on = true, line = "Syncing", problem = false)))
+    @Test fun sourcesServerOffline() {
+        show { Sources(sync = SyncSwitch(on = false, line = null, problem = false)) }
+        focus(hasText("Attic NAS") and hasText("Offline"))
+        press(Key.DirectionCenter)
+        capture("settings-sources-server-offline")
+    }
 
-    @Test fun tracksideSyncOff() = snap("settings-trackside-sync-off", content = Synced(SyncSwitch(on = false, line = null, problem = false)))
+    @Test fun sourcesServerSignedOut() {
+        val signedOut = TvSourcesDemo.living.copy(status = com.luke.tracks.sources.SourceStatus.SignIn, songCount = null)
+        show { Sources(listOf(signedOut), sync = SyncSwitch(on = false, line = "Paired again. Select to keep syncing.", problem = true)) }
+        focus(hasText("Living Room Server") and hasText("Signed Out"))
+        press(Key.DirectionCenter)
+        capture("settings-sources-server-signedout")
+    }
 
-    @Test fun tracksideSyncProblem() =
-        snap("settings-trackside-sync-problem", content = Synced(SyncSwitch(on = true, line = "Couldn't reach Living Room Server. Tracks will try again.", problem = true)))
-
-    @Test fun tracksideSyncPairedAgain() =
-        snap("settings-trackside-sync-paired-again", content = Synced(SyncSwitch(on = false, line = "Paired again. Select to keep syncing.", problem = true)))
+    @Test fun sourcesUnlink() {
+        show { Sources(listOf(TvSourcesDemo.living)) }
+        focus(hasText("Living Room Server") and hasText("12,480 songs"))
+        press(listOf(Key.DirectionCenter, Key.DirectionDown, Key.DirectionCenter))
+        capture("settings-sources-unlink")
+    }
 
     @Test fun appearanceCustom() {
         snap("settings-appearance-custom") {

@@ -163,7 +163,7 @@ class TvShellFocusTest {
 
     @Test fun linkFromLibraryLandsInTheLinkFlowNotTheSettingsList() {
         TvScreens.library = {
-            TvLibraryContent(LibrarySnapshot(), linked = false, onLink = { navigator.open(SettingsPageRoute("trackside")) })
+            TvLibraryContent(LibrarySnapshot(), linked = false, onLink = { navigator.open(SettingsPageRoute("sources")) })
         }
         TvScreens.settingsPage = { route ->
             CompositionLocalProvider(LocalLinkDirectory provides FakeDirectory(emptyList())) { TvSettingsScreen(initial = route.page) }
@@ -173,7 +173,7 @@ class TvShellFocusTest {
         assertEquals("Link", focused())
         press(listOf(Key.DirectionCenter))
         assertEquals(2, navigator.backStack.size)
-        // Into the Trackside page (its link flow, or its buttons when a server is saved), not the page list.
+        // Into the Sources page (its link flow, or its buttons when a server is saved), not the page list.
         val inPage = focused()
         assertTrue(inPage, inPage != null && inPage !in TvSettingsPage.entries.map { it.label })
     }

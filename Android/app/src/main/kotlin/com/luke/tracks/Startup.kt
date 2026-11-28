@@ -52,11 +52,11 @@ object Startup {
         // Trackside Cloud sync, and each Trackside server's listens, now playing and live events.
         val sync = com.luke.tracks.sync.CloudSync.install(graph, servers)
         if (tv) {
-            // A TV syncs only with the server it's linked to, so a phone's choice restored from
+            // A TV syncs only with a server it's linked to, so a phone's choice restored from
             // its backup is settled before anything runs.
             graph.scope.launch {
                 servers.loading.first { !it }
-                TvSync.settle(sync, TvSync.linkedServer(servers.entries.value)?.server?.id)
+                TvSync.settle(sync, TvSync.linkedServers(servers.entries.value).map { it.server.id })
                 sync.start()
             }
         } else {
