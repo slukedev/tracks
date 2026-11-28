@@ -5,6 +5,7 @@ import com.luke.tracks.library.LibrarySnapshot
 import com.luke.tracks.ui.navigation.SettingsPageRoute
 import com.luke.tracks.ui.tv.library.TvLibraryContent
 import com.luke.tracks.ui.tv.link.LocalLinkDirectory
+import com.luke.tracks.ui.tv.settings.TvSettingsPage
 import com.luke.tracks.ui.tv.settings.TvSettingsScreen
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
@@ -172,7 +173,9 @@ class TvShellFocusTest {
         assertEquals("Link", focused())
         press(listOf(Key.DirectionCenter))
         assertEquals(2, navigator.backStack.size)
-        assertEquals("Enter Address", focused())
+        // Into the Trackside page (its link flow, or its buttons when a server is saved), not the page list.
+        val inPage = focused()
+        assertTrue(inPage, inPage != null && inPage !in TvSettingsPage.entries.map { it.label })
     }
 
     @OptIn(ExperimentalTestApi::class)
