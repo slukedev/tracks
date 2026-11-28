@@ -63,6 +63,7 @@ fun TvListRow(
         enabled = enabled,
         modifier = modifier
             .fillMaxWidth()
+            .tvTouch(source, enabled, onLongClick = onLongClick, onClick = onClick)
             .tvFocusScale(source, TvMotion.RowFocusScale),
         shape = ClickableSurfaceDefaults.shape(RowShape),
         colors = ClickableSurfaceDefaults.colors(

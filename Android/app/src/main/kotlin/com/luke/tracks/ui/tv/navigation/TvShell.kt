@@ -14,6 +14,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -234,13 +235,16 @@ private fun NavigationDrawerScope.Rail(
 private fun NavigationDrawerScope.RailItem(destination: TvDestination, navigator: TvNavigator, requester: FocusRequester) {
     val selected = navigator.destination == destination
     val colors = MaterialTheme.colorScheme
+    val source = remember { MutableInteractionSource() }
     NavigationDrawerItem(
         selected = selected,
         onClick = { navigator.select(destination) },
         leadingContent = {
             Icon(if (selected) destination.selectedIcon else destination.icon, contentDescription = null)
         },
-        modifier = Modifier.focusRequester(requester),
+        // A tap leaves the rail shut: the page it picks takes focus.
+        modifier = Modifier.tvTouch(source, focusOnTap = false) { navigator.select(destination) }.focusRequester(requester),
+        interactionSource = source,
         colors = NavigationDrawerItemDefaults.colors(
             focusedContainerColor = colors.primary,
             focusedContentColor = colors.onPrimary,

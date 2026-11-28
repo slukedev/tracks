@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,6 +49,7 @@ import com.luke.tracks.playback.PlayableSong
 import com.luke.tracks.playback.artistLabel
 import com.luke.tracks.playback.titleLabel
 import com.luke.tracks.ui.tv.components.TvArtwork
+import com.luke.tracks.ui.tv.components.tvTouch
 import com.luke.tracks.ui.tv.theme.LocalReducedMotion
 import com.luke.tracks.ui.tv.theme.TvMotion
 
@@ -69,9 +71,11 @@ internal fun NowPlayingChip(
         tween(TvMotion.ScreenMs, easing = TvMotion.EaseOut),
         label = "chip width",
     )
+    val source = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
         modifier = modifier
+            .tvTouch(source, onClick = onClick)
             .width(width)
             .height(56.dp)
             .semantics { contentDescription = "Now Playing, ${song.titleLabel}" },
@@ -86,6 +90,7 @@ internal fun NowPlayingChip(
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border = ClickableSurfaceDefaults.border(border = Border(BorderStroke(0.dp, Color.Transparent))),
+        interactionSource = source,
     ) {
         Row(Modifier.fillMaxSize().padding(start = 8.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {

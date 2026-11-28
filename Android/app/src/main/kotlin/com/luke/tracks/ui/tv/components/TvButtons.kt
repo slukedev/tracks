@@ -159,7 +159,7 @@ private fun FocusPill(
         onClick = onClick,
         onLongClick = onLongClick,
         enabled = enabled,
-        modifier = modifier.tvFocusScale(source, TvMotion.ButtonFocusScale),
+        modifier = modifier.tvTouch(source, enabled, onLongClick = onLongClick, onClick = onClick).tvFocusScale(source, TvMotion.ButtonFocusScale),
         shape = ClickableSurfaceDefaults.shape(CircleShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = resting,

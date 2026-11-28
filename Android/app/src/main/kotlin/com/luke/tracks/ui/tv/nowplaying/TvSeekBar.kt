@@ -3,6 +3,8 @@ package com.luke.tracks.ui.tv.nowplaying
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,6 +37,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -166,6 +169,21 @@ fun TvSeekBar(
                         setProgress { fraction -> seek((fraction * length).toLong()); true }
                     }
                 }
+                // By touch, a tap seeks there and a drag scrubs, seeking where it lets go.
+                .pointerInput(length) {
+                    val total = length ?: return@pointerInput
+                    detectTapGestures { seek(touchSeekMs(it.x, size.width, total)) }
+                }
+                .pointerInput(length) {
+                    val total = length ?: return@pointerInput
+                    detectHorizontalDragGestures(
+                        onDragEnd = { scrub?.let(seek); scrub = null },
+                        onDragCancel = { scrub = null },
+                    ) { change, _ ->
+                        change.consume()
+                        scrub = touchSeekMs(change.position.x, size.width, total)
+                    }
+                }
                 .focusProperties { down?.let { this.down = it } }
                 .focusable(enabled = length != null)
                 .drawBehind {
@@ -202,3 +220,9 @@ private const val JumpMs = 1_500L
 private const val StepEveryMs = 150L
 /** Seeking stops short of the very end, so the song doesn't end under the press. */
 private const val EndRoomMs = 1_000L
+
+/** Where a touch [x] pixels along a bar [widthPx] wide lands in a song [totalMs] long. */
+internal fun touchSeekMs(x: Float, widthPx: Int, totalMs: Long): Long {
+    if (widthPx <= 0) return 0
+    return ((x / widthPx).coerceIn(0f, 1f) * totalMs).toLong().coerceIn(0, (totalMs - EndRoomMs).coerceAtLeast(0))
+}
